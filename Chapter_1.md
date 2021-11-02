@@ -2,8 +2,7 @@
 reinforcement learning algorithm described above played against itself, with both sides
 learning. What do you think would happen in this case? Would it learn a di↵erent policy
 for selecting moves?
-
-
+> With self play learning updates could occur after every move rather than just the moves you make, so learning should occur faster just from the more frequent updates.  Also the behavior of the opponent now is completely known to the player, so the value function could be used to actually calculate the outcome of any position if both players follow the same policy.  Even if this process isn't performed the learning should still converge over time to value functions that accurately reflect the consistent shared behavior of the player.  I think the player would learn how to play optimally against someone who plays perfectly, but the policy may fail against opponents that do imperfect play.  Since the agent will eventually only see the same behavior with minimal exploration it will not learn accurate value functions for opponents with erratic or bad playing behavior because that part of the action space was never explored.  Even if the player performs an exploratory move it is even less likely that it would also be met with a second exploratory move in response that could better mimic unseen behavior from a novel opponent.
 
 *Exercise 1.2: Symmetries* Many tic-tac-toe positions appear di↵erent but are really
 the same because of symmetries. How might we amend the learning process described
@@ -11,11 +10,12 @@ above to take advantage of this? In what ways would this change improve the lear
 process? Now think again. Suppose the opponent did not take advantage of symmetries.
 In that case, should we? Is it true, then, that symmetrically equivalent positions should
 necessarily have the same value?
-
+> The value function table can be modified so that symmetrically equivalent positions are mapped to the same value rather than storing a separate value for each position.  For evaluating candidate moves that result in symmetrically equivalent positions we might pick randomly if they all contain the highest value function estimate.  If we play an opponent that does not treat equivalent positions the same, then we should not consider the symmetries for our value function because the behavior of the opponent will cause them to not be equivalent regarding our ability to win the game.
 
 *Exercise 1.3: Greedy Play* Suppose the reinforcement learning player was greedy, that is,
 it always played the move that brought it to the position that it rated the best. Might it 
 learn to play better, or worse, than a nongreedy player? What problems might occur?
+> When we begin the learning process the value function is an estimation that is continually updated.  The first move or set of moves that lead to a winning outcome will initially be the only moves that appear better than the alternatives.  If that set of actions is not really the optimal then the greedy system will only ever explore those moves continually reinforcing the above average value function.  A non-greedy player will explore some additional moves that may not have a higher value estimate at the moment.  However after the value function is updated there is a greater chance of finding a move that has a higher value that what was previously considered optimal.
 
 *Exercise 1.4: Learning from Exploration* Suppose learning updates occurred after all
 moves, including exploratory moves. If the step-size parameter is appropriately reduced
@@ -24,7 +24,9 @@ a di↵erent set of probabilities. What (conceptually) are the two sets of proba
 computed when we do, and when we do not, learn from exploratory moves? Assuming
 that we do continue to make exploratory moves, which set of probabilities might be better
 to learn? Which would result in more wins?
+> The value function estimate is supposed to represent the expected future reward of the policy being evaluated.  The policy itself will all or most of the time select the action with the highest value estimate.  If we do learning updates after exploratory moves then we are updating the value function based on a future state that it would not normally reach.  If we restrict learning updates to non-exporatory moves then we are only updating the value function based on actions that it would take as far as the policy is defined at that moment.  I believe that since the non-exploratory move updates best reflect the behavior of the policy then those learning updates and converged probabilities are better for learning and would result in more wins.  We want the updates to the value function to be as accurate as possible reflecting the behavior policy we are converging too over time.  Since the exploratory moves are by definition random they cannot be accurate predicted as part of an accurate value estimate of the policy.
 
 *Exercise 1.5: Other Improvements* Can you think of other ways to improve the reinforcement
 learning player? Can you think of any better way to solve the tic-tac-toe problem
 as posed? ⇤
+> Since the game is very simple, rather can estimating the value function and updating it with one forward step perhaps we could see what happens to the value function multiple steps into the future considering every possible response from our opponent.  That way we could explore more of the action space even if the opponent does not actually play those moves.  Even if we ignore all the value function estimation techniques, we can do this type of exhaustive search to just evaluate every starting position and subsequent positions to see which states lead to wins, losses, and draws.  This approach would simply simulate all the game states and have a policy based on every possible outcome from each state.  For a game this simple that approach is possible, but for games with many more states such an exhaustive search is intractable. 
