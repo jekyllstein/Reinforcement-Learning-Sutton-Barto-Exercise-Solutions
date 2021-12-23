@@ -51,3 +51,51 @@ to (2.6), in terms of the sequence of step-size parameters?
 >
 > from the expanded product we can see that all of the numerators and denominators cancel out leaving only $\frac{R_i}{n}$ which we expect for tihs form of $\alpha$ which was derived earlier for a simple running average.  To see a concrete example of how the product is  always equal to $i/n$, let's consider $i=n-1$.  Then there is only one term in the product for $j=n$ which is $\frac{n-1}{n}$ so the total expression in the sum for that term is $\frac{R_{n-1}}{(n-1)} \frac{n-1}{n}=R_{n-1}/n$ as expected.  
 
+*Exercise 2.7: Unbiased Constant-Step-Size Tick* In most of this chapter we have used sample averages to estimate action values because sample averages do not produce the initial bias that constant step sizes do (see analysis leading to (2.6)).  However, sample averages are not a completely satisfactory solution because they may perform poorly on nonstationary problems.  Is it possible to avoid the bias of constant sample sizes while retaining their advantages on nonstationary problems?  One way is to use a step size of 
+
+$\beta_n \dot= \alpha / \bar{o}_n $,
+
+to process the nth reward for a particular action, where $\alpha>0$ is a conventional constant step size, and $\bar{o}_n$ is a trace of one that starts at 0:
+
+$\bar{o}_n \dot= \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1})$, for $n \geq 0$,  with $\bar{o}_0 \dot= 0$.
+
+Carry out an analysis like that in (2.6) to show that $Q_n$ is an exponential recency-weighted average *without initial bias*.
+
+> $Q_{n+1} = Q_n + \beta_n[R_n - Q_n]$ where $\beta_n \dot= \alpha / \bar{o}_n $ and $\bar{o}_n \dot= \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1})$
+>
+> $\bar{o}_n = \bar{o}_{n-1} + \alpha(1-\bar{o}_{n-1})=\bar{o}_{n-1}(1-\alpha)+\alpha$
+>
+> So based on the definition of $\bar{o}_n$ we can form the sequence of $\bar{o}$
+>
+> $\bar{o}_0=0,$
+>
+> $\bar{o}_1=\alpha, \beta_1=\alpha/\alpha=1$
+>
+> $\bar{o}_2=\alpha+\alpha(1-\alpha)=\alpha(2-\alpha), \beta_2=\alpha/(\alpha(2-\alpha))=1/(2-\alpha)$
+>
+> $\bar{o}_3=\alpha(2-\alpha)(1-\alpha)+\alpha=\alpha(3-3\alpha+\alpha^2),\beta_3=1/(3-3\alpha+\alpha^2)$
+>
+> $\bar{o}_4=\alpha(3-3\alpha+\alpha^2)(1-\alpha)+\alpha=\alpha(3-3\alpha+\alpha^2-3\alpha+3\alpha^2-\alpha^3)+\alpha=\alpha(4-6\alpha+4\alpha^2-\alpha^3),\beta_4=1/(4-6\alpha+4\alpha^2-\alpha^3)$
+>
+> ...
+>
+> $\bar{o}_n = \alpha((-1)^n\alpha^{n-1}+\sum\limits_{i=1}^{n-1}$
+>
+> $\beta_n=\alpha / \bar{o}_{n-1}(1-\alpha) + \alpha$
+>
+> ​	  $=\alpha/(\bar{o}_{n-2}(1-\alpha) + \alpha)(1-\alpha)+\alpha$	
+>
+> Let's say n = 1
+
+*Exercise 2.9* Show that in the case of two actions, the soft-max distribution is the same
+as that given by the logistic, or sigmoid, function often used in statistics and artificial
+neural networks.
+
+$Pr\{A_t=a\}\dot=\frac{e^{H_t(a)}}{\sum_\limits{b=1}^ke^{H_t(b)}}$
+
+for k = 2 we have the following value for the denominator: $e^{H_t(1)}+e^{H_t(2)}$
+
+$Pr\{A_t=1\}=\frac{e^{H_t(1)}}{e^{H_t(1)}+e^{H_t(2)}}$
+
+$Pr\{A_t=2\}=\frac{e^{H_t(2)}}{e^{H_t(1)}+e^{H_t(2)}}$
+

@@ -29,8 +29,10 @@ function simple_algorithm(qs::Vector{Float64}, k::Integer, ϵ::AbstractFloat; st
         shuffle!(actions) #so that ties are broken randomly with argmax
         a = if rand() < ϵ
             rand(actions)
+        elseif c == 0.0
+            actions[argmax(Q[actions])]
         else
-            actions[argmax(Q[actions] .+ c .* sqrt.(log(i) ./N[actions]))]
+            actions[argmax(Q[actions] .+ (c .* sqrt.(log(i) ./N[actions])))]
         end
         if a == bestaction
             optimalstep[i] = true
