@@ -46,7 +46,7 @@ From Section 3.1 we have equation (3.3):
 
 $\sum_{s' \in \mathcal{S}}\sum_{r \in \mathcal{R}}p(s',r|s,a)=1, \text{ for all } s\in\mathcal{S},a\in\mathcal{A}(s)$
 
-In the episodic case there is an additional state outside of $\mathcal{S}$ called the terminal state denoted $\mathcal{S}^+$.  So equation (3.3) still applies, but only if we ensure that $\mathcal{S}$ does not contain the terminal state $s=\mathcal{S}^+$.  In that state there is no dynamics function because there are no possible actions or future states to reach from this state.
+In the episodic case there is an additional state outside of $\mathcal{S}$ called the terminal state, and the union of this with every other state is denoted $\mathcal{S}^+$.  So equation (3.3) still applies, but only if we ensure that $\mathcal{S}$ is changed to $\mathcal{S}^+$ because there is some non-zero probability of entering the terminal state.
 
 > *Exercise 3.6* Suppose you treated pole-balancing as an episodic task but also used discounting, with all rewards zero except for -1 upon failure.  What then would the return be at each time?  How does this return differ from that in the discounted, continuing formulation of this task?
 
@@ -54,7 +54,7 @@ The return at each time would be $G_t=-\gamma^{T-t-1}$ where T is the total numb
 
 > *Exercise 3.7* Imagine you are designing a robot to run a maze.  You decide to give it a reward of +1 for escaping the maze and a reward of zero at all other times.  The task seems to break down naturally into episodes-the successive runs through the maze-so you decide to treat it as an episodic task, where the goal is to maximize the expected total reward (3.7).  After running the learning agent for a while you find that it is showing no improvement in escaping from the maze.  What is going wrong?  Have you effectively communicated to the agent what you want it to achieve?
 
-There is no time limit on the task, so if the agent simply stands still, the episode will never terminate.  This is no different from the case of successfully solving the maze after a very long time such that the discounted future reward is 0.  The reward signal is also very sparse, meaning that unless the agent solves the maze, it gets no feedback on any particular set of actions being better than others.  If the maze is sufficiently complicated, it is possible that with random actions an agent would have a near 0 probability of solving the maze, thus it would never receive a non-0 reward signal and never change its behavior.  
+According to equation 3.7, there is no discount factor for the reward signal.  If we assume the maze is simple enough that an agent escapes in some finite time, then it will receive a reward signal of 1.  Any agent that solves the maze faster will receive the same reward as do agents that take longer.  Because of the lack of discounting within an episode, there is no incentive for agents to solve the maze faster so any agent that can solve the maze is equally good, which in this case would be almost any arbitrary agent except one that simply stands still or only goes in one direction that gets stuck.  
 
 > *Exercise 3.8* Suppose $\gamma=0.5$ and the following sequence of rewards is received $R_1=-1$, $R_2=2$, $R_3=6$, $R_4=3$, and $R_5=2$, with $T=5$.  What are $G_0, \space G_1, \dots,G_5$
 
@@ -271,11 +271,11 @@ $$q_*(s,a)=\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]$$
 
 > *Exercise 3.27* Give an equation for $\pi_*$ in terms of $q_*$.
 
-$$\pi_*(a|s)=\argmax_{a\in\mathcal{A}(s)}q_*(s,a)$$
+$$\pi_*(a|s)= 1 \iff a = \argmax_{a\in\mathcal{A}(s)}q_*(s,a) \text{ else 0}$$
 
 > *Exercise 3.28* Give an equation for $\pi_*$ in terms of $v_*$ and the four-argument $p$.
 
-$$\pi_*(a|s)=\argmax_{a\in\mathcal{A}(s)}q_*(s,a)=\argmax_{a\in\mathcal{A}(s)}\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]$$
+$$\pi_*(a|s)=1 \iff a = \argmax_{a\in\mathcal{A}(s)}q_*(s,a)=\argmax_{a\in\mathcal{A}(s)}\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \text{ else 0}$$
 
 > *Exercise 3.29* Rewrite the four Bellman equations for the four value functions $(v_\pi, \space v_*, \space q_\pi, \text{ and } q_*)$ in terms of the three argument function $p$ (3.4) and the two-argument function $r$ (3.5).
 
