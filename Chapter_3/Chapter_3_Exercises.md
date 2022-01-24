@@ -271,11 +271,11 @@ $$q_*(s,a)=\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]$$
 
 > *Exercise 3.27* Give an equation for $\pi_*$ in terms of $q_*$.
 
-$$\pi_*(a|s)= 1 \iff a = \argmax_{a\in\mathcal{A}(s)}q_*(s,a) \text{ else 0}$$
+$$\pi_*(a|s)= 1 \iff a = \text{argmax}_{a\in\mathcal{A}(s)}q_*(s,a) \text{ else 0}$$
 
 > *Exercise 3.28* Give an equation for $\pi_*$ in terms of $v_*$ and the four-argument $p$.
 
-$$\pi_*(a|s)=1 \iff a = \argmax_{a\in\mathcal{A}(s)}q_*(s,a)=\argmax_{a\in\mathcal{A}(s)}\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \text{ else 0}$$
+$$\pi_*(a|s)=1 \iff a = \text{argmax}_{a\in\mathcal{A}(s)}q_*(s,a)=\text{argmax}_{a\in\mathcal{A}(s)}\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \text{ else 0}$$
 
 > *Exercise 3.29* Rewrite the four Bellman equations for the four value functions $(v_\pi, \space v_*, \space q_\pi, \text{ and } q_*)$ in terms of the three argument function $p$ (3.4) and the two-argument function $r$ (3.5).
 
