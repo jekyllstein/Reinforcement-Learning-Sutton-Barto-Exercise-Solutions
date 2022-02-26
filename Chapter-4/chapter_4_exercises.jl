@@ -190,9 +190,25 @@ Solving for the value at 15 yields:
 
 $v_\pi(15) = \frac{0.25 \times -56}{0.75}=-18.666 \dots$
 
-In the second case, the value function at 13 and every other state will be different because state 15 can be entered from 13 and thus any other state eventually.  Additional steps of policy iteration will need to happen to update the values.  Carrying out this calculation below using the same method used to generate Figure 4.1, we see a value of -20 which is equal to the original value of state 13.  If we compare state 15 and 13, we see that it shares the same transition dynamics as the original state 13 asside from the up transition.  The original 13 however had a state immediately above it that shared the same value.  Noticing this symmetry we could infer that the added state 15 would have the same value as the original state 13.
+In the second case, the value function at 13 and 15 become coupled because transitions back and forth are allowed.  We can write down new Bellman equations for the equiprobably policy π of these states:
 
-Try writing down the bellman equations for state 13 and 15 and try to reason that the value for 13 is unchanged.  Is there a rigorous way to identify that the value functions are unchanged even in the second case?
+$v_{\pi}(13) = -1 + \frac{1}{4}(v_{\pi}(9) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15))$
+$v_{\pi}(15) = -1 + \frac{1}{4}(v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15))$
+
+In the second equation we can simplify to get an equation for state 15 in terms of just 3 others.
+
+$v_{\pi}(15) \times \frac{3}{4} = -1 + \frac{1}{4}(v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12))$
+$v_{\pi}(15) = \frac{1}{3}(-4 + v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12))$
+
+Let's try to approximate the new value at state 15 by substituting in the known values of the unmodified states.
+
+$v_{\pi}(15) \approx \frac{1}{3}(-4 - 20 - 14 - 22) = \frac{1}{3}(-60) = -20$
+
+Now let's get an implied updated value at state 13 by substituting in the approximate value at 15.
+
+$v_{\pi_{new}}(13) = -1 + \frac{1}{4}(-20 - 14 - 22 - 20) = -1 - \frac{76}{4} = -1 - 19 = -20=v_{\pi_{old}}(13)$
+
+So we assumed that the value at state 13 was unchanged to get the approximation for state 15.  Then using the self consistency equation for state 13 we confirmed that the original value is consistent with the approximate solution.  This step of approximating the value at state 15 with a previous value function is analogous to what we would do in policy evaluation.  However, when checking the value of state 13 we see that it remains unchanged after using state 15.  If we were to carry this out for the other states that depend on 15, we would find that no futher changes are needed since 13 is the only state with a transition to 15 and states 12, 13, and 9 all now have new trasitions to 15 which would have been transitions to 13 previously.  But the value estimate at 15 is identical to the original value at 13.  This is the stopping condition for policy evaluation.  Indeed if we carry out the full policy evaluation calculation below using the same method used to generate Figure 4.1, we see a value of -20 which is equal to the original value of state 13.
 """
 
 # ╔═╡ 10c9b166-3a88-460e-82e8-a16c020c1378
@@ -353,7 +369,7 @@ function gridworld_policy_iteration(nmax=10; θ=eps(0.0), γ=1.0)
 	π_rand = form_random_policy(gridworldmdp[2])
 	(policy_stable, resultlist) = begin_policy_iteration_v(gridworldmdp, π_rand, γ, iters = nmax)
 	(Vstar, πstar) = resultlist[end]
-	(policy_stable, [(s, first(keys(πstar[s]))) for s in 0:14])
+	(policy_stable, Vstar, [(s, first(keys(πstar[s]))) for s in 0:14])
 end
 
 # ╔═╡ 0079b02d-8895-4dd4-9557-5f08ac341404
