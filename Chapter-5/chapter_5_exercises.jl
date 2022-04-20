@@ -16,6 +16,26 @@ md"""
 ## 5.1 Monte Carlo Prediction
 """
 
+# ╔═╡ 28da4c71-c1ce-49e1-93b9-9a3b31934149
+function updateV!(traj, rewards, γ, V, counts, t = length(traj); g = 0.0)
+	t == 0 && return nothing
+	g = γ*g + rewards[t]
+	(s,a) = traj[t]
+	v = V[s]
+	counts[s] += 1
+	n = counts[s]
+	V[s] = ((n-1)*v + g)/n
+	updateV!(traj, rewards, γ, V, counts, t-1, g = g)
+end
+
+# ╔═╡ 2ba5d1d8-8ca2-42c1-a118-7aff11f5d118
+function monte_carlo_episode!(π, s0, actions, simulator, γ, counts, V)
+	a0 = π(s0)
+	(traj, rewards) = simulator(s0, a0, π)
+	#there's no check here so this is equivalent to every-visit estimation
+	updateV!(traj, γ, V, counts)
+end
+
 # ╔═╡ 760c5361-02d4-46b7-a05c-fc2d10d93de6
 function monte_carlo_pred(π, states, actions, simulator, γ, nmax = 1000)
 	#initialize
@@ -25,19 +45,17 @@ function monte_carlo_pred(π, states, actions, simulator, γ, nmax = 1000)
 		s0 = rand(states)
 		a0 = π(s0)
 		(traj, rewards) = simulator(s0, a0, π)
-		g = 0.0
 		#there's no check here so this is equivalent to every-visit estimation
-		for t in reverse(eachindex(traj))
-			g = γ*g + rewards[t]
-			(s,a) = traj[t]
-			v = V[s]
-			counts[s] += 1
-			n = counts[s]
-			V[s] = ((n-1)*v + g)/n
-		end
+		updateV!(traj, rewards, γ, V, counts)
 	end
 	return V
 end
+
+# ╔═╡ 63ae54e1-cb3f-48b8-9eab-99912daaf3c4
+testdict = Dict(1 => 0)
+
+# ╔═╡ 75e3b78f-e781-41a7-91fb-bae3022b585f
+testdict
 
 # ╔═╡ 6a11daf7-2859-41fa-9c3d-d1f3580dbb5f
 md"""
@@ -85,7 +103,7 @@ function playersim(state, a, π, traj = [(state, a)])
 	(s, c, ua) = state
 	a == :stick && return (s, traj)
 	(s, ua) = addsum(s, ua, deal())
-	(s > 21) && return (s, traj)
+	(s >= 21) && return (s, traj)
 	newstate = (s, c, ua)
 	a = π(newstate)
 	push!(traj, (newstate, a))
@@ -122,7 +140,7 @@ function blackjackepisode(s0, a0, π)
 			Float64(!dealernatural)
 		else
 			sdealer = dealer_sim(ds, dua)
-			(splayer > sdealer) ? 1.0 : (splayer == sdealer) ? 0.0 : -1.0
+			(sdealer > 21) || (splayer > sdealer) ? 1.0 : (splayer == sdealer) ? 0.0 : -1.0
 		end
 	end
 	return (traj, [rewardbase; finalr])
@@ -159,7 +177,7 @@ end
 plotly()
 
 # ╔═╡ d79a50af-0e7c-41c1-9ee4-1efbb9cbf95c
-surface(vgridnua)
+surface(vgridua)
 
 # ╔═╡ 95276838-476b-4806-aa41-53bed56c766b
 s0 = rand(blackjackstates)
@@ -259,13 +277,10 @@ begin
 end
 
 # ╔═╡ e918d787-c587-4b23-abc9-d8bec3b363b6
-πstargridnua
+πstargridua
 
 # ╔═╡ 7b9cd8ea-d5ce-45dd-9d81-a7e256ba8063
 stickqgrid
-
-# ╔═╡ d17dad7c-41ef-427f-8133-603cd624d237
-flipsign
 
 # ╔═╡ c883748c-76b9-4086-8698-b40df51390da
 md"""
@@ -311,7 +326,7 @@ function monte_carlo_ϵsoft(states, actions, simulator, γ, ϵ, nmax = 1000)
 end
 
 # ╔═╡ bf19e6cf-1fb5-49c9-974e-1613d90ef4cf
-(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjackstates, blackjackactions, blackjackepisode, 1.0, 0.01, 1000000)
+(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjackstates, blackjackactions, blackjackepisode, 1.0, 0.1, 1000000)
 
 # ╔═╡ 3fa65461-ad73-427f-a385-fb19261127d0
 begin
@@ -333,7 +348,7 @@ begin
 end
 
 # ╔═╡ dd639699-71b1-46b2-91c6-8f3eba143761
-πstargridnua2
+πstargridua2
 
 # ╔═╡ 12c0cd0b-eb4f-45a0-836b-53b3c5cdafd9
 md"""
@@ -530,7 +545,7 @@ StatsBase = "~0.33.16"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.7.0"
+julia_version = "1.7.1"
 manifest_format = "2.0"
 
 [[deps.Adapt]]
@@ -1405,7 +1420,11 @@ version = "0.9.1+5"
 
 # ╔═╡ Cell order:
 # ╟─826139cc-b52e-11ec-0d47-25ab689851fd
+# ╠═28da4c71-c1ce-49e1-93b9-9a3b31934149
+# ╠═2ba5d1d8-8ca2-42c1-a118-7aff11f5d118
 # ╠═760c5361-02d4-46b7-a05c-fc2d10d93de6
+# ╠═63ae54e1-cb3f-48b8-9eab-99912daaf3c4
+# ╠═75e3b78f-e781-41a7-91fb-bae3022b585f
 # ╟─6a11daf7-2859-41fa-9c3d-d1f3580dbb5f
 # ╠═72e29874-f7cb-4089-bcc4-8e45336cdc23
 # ╠═fa0fbe9a-c826-4a9a-b3a2-0af483114055
@@ -1437,7 +1456,6 @@ version = "0.9.1+5"
 # ╠═163fcefa-e783-4c64-84cc-d0cc7a6db234
 # ╠═e918d787-c587-4b23-abc9-d8bec3b363b6
 # ╠═7b9cd8ea-d5ce-45dd-9d81-a7e256ba8063
-# ╠═d17dad7c-41ef-427f-8133-603cd624d237
 # ╟─c883748c-76b9-4086-8698-b40df51390da
 # ╟─e2a720b0-a8c4-43a2-bf34-750ff3323004
 # ╠═d5000bb2-c805-4b84-895f-7ee525f5437a
