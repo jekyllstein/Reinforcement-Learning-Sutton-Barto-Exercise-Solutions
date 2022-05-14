@@ -241,7 +241,7 @@ example_6_2()
 
 # ╔═╡ 0b9c6dbd-4eb3-4167-886e-64db9ec7ff04
 md"""
-> *Exercise 6.3* From the results shown in the left graph of the random walk example it appears that the first episode reuslts in a change only in $V(A)$.  What does this tell you about whta happened on the first episode?  Why was only the estimate for this one state changed?  By exactly how much was it changed?
+> *Exercise 6.3* From the results shown in the left graph of the random walk example it appears that the first episode reuslts in a change only in $V(A)$.  What does this tell you about what happened on the first episode?  Why was only the estimate for this one state changed?  By exactly how much was it changed?
 
 The update rule with TD0 learning is given by 
 
@@ -258,6 +258,70 @@ $V(A) \leftarrow 0.5 + \alpha[0 - 0.5]$
 For this plot, $\alpha=0.1$, so the updated value for $V(A)$ is $0.5+0.1(-0.5)=0.5-0.05=0.45$
 """
 
+# ╔═╡ 52aebb7b-c2a9-443f-bc03-24cd25793b32
+md"""
+> *Exercise 6.4* The specific results shown in the right graph of the random walk example are dependent on the value of the step-size parameter α. Do you think the conclusions about which algorithm is better would be affected if a wider range of values were used? Is there a different, fixed value of α at which either algorithm would have performed significantly better than shown? Why or why not?
+
+Both algorithms should theoretically converge to the true values with a sufficiently small α and a large enough number of samples.  Over this limited window of 100 episodes, an α that is too small might result in convergence so slow that it does not reach error as low as a larger α.  For the MC method, the range of α's already show the case of too slow convergence and too large α with the best outcome at α=0.02.  For the TD method, the best results shown are for α=0.05, so a smaller α might result in even better performance OR it could result in a curve that converges too slowly to beat α=0.05 in 100 episodes.  Either way, there is no alternative combination of step sizes for either method that would result in TD learning appearing worse than MC learning over this number of episodes.
+"""
+
+# ╔═╡ e6672866-c0a0-46f2-bb52-25fcc3352645
+md"""
+> *Exercise 6.5* In the right graph of the random walk example, the RMS error of the TD method seems to go down and then up again, particularly at high α’s. What could have caused this? Do you think this always occurs, or might it be a function of how the approximate value function was initialized?
+
+
+"""
+
+# ╔═╡ 105c5c23-270d-437e-89dd-12297814c6e0
+md"""
+> *Exercise 6.6* In Example 6.2 we stated that the true values for the random walk example are 1/6 , 2/6 , 3/6 , 4/6 , and 5/6 , for states A through E. Describe at least two different ways that these could have been computed. Which would you guess we actually used? Why?
+
+###### Method 1: Set up the following system of equations
+$V(A) = \frac{0+V(B)}{2} \implies 2V(A)=V(B)$
+$V(B) = \frac{V(A)+V(C)}{2} \implies 2V(B) = V(A)+V(C)$
+$V(C) = \frac{V(B)+V(D)}{2} \implies 2V(C)=V(B)+V(D)$
+$V(D) = \frac{V(C)+V(E)}{2} \implies 2V(D)=V(C)+V(E)$
+$V(E) = \frac{V(D)+1}{2} \implies 2V(E)=V(D)+1$
+
+We can work down from the top equation expressing everything in terms of A.  For shorter expressions $V(A)$ will be written below as $A$:
+
+$B=2A$
+
+$2B=A+C \implies C = 3A$
+
+$2C=B+D \implies D = 6A-2A=4A$
+
+$2D=C+E \implies E = 8A-3A = 5A$
+
+$2E = D + 1 \implies 10A = 4A + 1 \implies A = \frac{1}{6}$
+
+Now that we have the value for A, all the others are trivial multiplications of it from 2 to 5.
+
+###### Method 2: Calculate each value from probabilities
+With this method to get $V(A)$ we would write down every possible trajectory to a terminal state with the associated probability of each.  Since trajectories terminating to the left have a value of 0, we only need to add up the trajectories that terminate to the right.  Below are some examples for state A.
+
+$V(A) = 0.5^5 + 4 \times 0.5^7 + \cdots$
+
+This equation represents the single trajectory that takes 5 steps to the right each with probability one half and the 4 possible trajectories that turn around once on the way right resulting in 7 steps.  This sum will end up being infintely long to account for all of the trajectories that bounce back and forth arbitrarily large amounts of time.  This method is significantly harder to calculate for each state compared to the first method and is more in line with how estimates are calculated with MC sampling.  The first method is more analogous to TD sampling using the bootstrapped form of the Bellman equation.
+"""
+
+# ╔═╡ 48b557e3-e239-45e9-ab15-105bcca96492
+md"""
+## 6.3 Optimality of TD(0)
+
+### Example 6.3: Random walk under batch updating
+
+"""
+
+# ╔═╡ 6f185046-dfdb-41ca-bf3f-e2f90e2e4bc0
+
+
+# ╔═╡ 7ecd5159-2fea-45b5-a2b6-526d123f2c48
+
+
+# ╔═╡ 0e59e813-3d48-4a24-b5b3-9a9de7c500c2
+
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -272,7 +336,7 @@ Plots = "~1.29.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.7.0"
+julia_version = "1.7.2"
 manifest_format = "2.0"
 
 [[deps.Adapt]]
@@ -1178,7 +1242,7 @@ version = "0.9.1+5"
 # ╟─495f5606-0567-47ad-a266-d21320eecfc6
 # ╠═c3c43440-d8f5-4d16-8735-8d83981b9f15
 # ╟─7cd8e898-05c8-4fa0-b12a-60c5c1110cf8
-# ╠═b5187232-d808-49b6-9f7e-a4cbeb6c2b3e
+# ╟─b5187232-d808-49b6-9f7e-a4cbeb6c2b3e
 # ╠═9b9ee4f2-f5f9-444b-aa23-85f145d8f9ca
 # ╠═7b3e55f4-72b8-48a5-a62a-7ce7ffadae35
 # ╠═bc8bad61-a49a-47d6-8fa6-7dcf6c221910
@@ -1192,5 +1256,12 @@ version = "0.9.1+5"
 # ╟─2786101e-d365-4d6a-8de7-b9794499efb4
 # ╠═9db7a268-1e6d-4366-a0ec-ebf54916d3b0
 # ╟─0b9c6dbd-4eb3-4167-886e-64db9ec7ff04
+# ╟─52aebb7b-c2a9-443f-bc03-24cd25793b32
+# ╠═e6672866-c0a0-46f2-bb52-25fcc3352645
+# ╟─105c5c23-270d-437e-89dd-12297814c6e0
+# ╠═48b557e3-e239-45e9-ab15-105bcca96492
+# ╠═6f185046-dfdb-41ca-bf3f-e2f90e2e4bc0
+# ╠═7ecd5159-2fea-45b5-a2b6-526d123f2c48
+# ╠═0e59e813-3d48-4a24-b5b3-9a9de7c500c2
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
