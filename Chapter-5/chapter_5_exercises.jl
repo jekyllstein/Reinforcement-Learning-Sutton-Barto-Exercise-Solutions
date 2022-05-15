@@ -1,11 +1,11 @@
 ### A Pluto.jl notebook ###
-# v0.19.3
+# v0.14.7
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ c044c399-1f07-4312-b18b-4ba2a91d1d71
-using StatsBase
+using StatsBase, Statistics
 
 # ╔═╡ bd63d4b2-423d-4860-8dd3-3587a124ced5
 begin
@@ -133,6 +133,7 @@ function blackjackepisode(s0, a0, π::Function)
 	end
 	
 	(s, c, ua) = s0
+	playernatural = (s == 21)
 	splayer, traj = playersim(s0, a0, π)
 	rewardbase = zeros(length(traj) - 1)
 	finalr = if splayer > 21 
@@ -147,11 +148,12 @@ function blackjackepisode(s0, a0, π::Function)
 			addsum(c, false, hc)
 		end
 
-		playernatural = (splayer == 21) && (length(traj) == 1)
 		dealernatural = ds == 21
 
 		if playernatural
 			Float64(!dealernatural)
+		elseif dealernatural #not stated in book but used by authors in their code and matches actual blackjack rules
+			-1.0
 		else
 			sdealer = dealer_sim(ds, dua)
 			scoregame(splayer, sdealer)
@@ -351,9 +353,9 @@ struct Weighted <: ImportanceMethod end
 struct Ordinary <: ImportanceMethod end
 
 # ╔═╡ 6be7ff29-5845-4df4-ba18-bafea79ace71
-function monte_carlo_pred(π_target, π_behavior, states, actions, simulator, γ, nmax = 1000; gets0 = () -> rand(states), historystate = states[1], samplemethod::ImportanceMethod = Ordinary())
+function monte_carlo_pred(π_target, π_behavior, states, actions, simulator, γ, nmax = 1000; gets0 = () -> rand(states), historystate = states[1], samplemethod::ImportanceMethod = Ordinary(), V0 = 0.0)
 	#initialize values and counts at 0
-	V = Dict(s => 0.0 for s in states)
+	V = Dict(s => V0 for s in states)
 	Vhistory = zeros(nmax)
 	counts = Dict(s => 0.0 for s in states)
 	
@@ -505,7 +507,7 @@ end
 
 # ╔═╡ 2b9131c1-4d79-4ea3-b51f-7f3380aeb629
 #target policy state value estimate and variance, why is the mean squared error after 1 episode for weighted importance sampling less than the variance of the state values?  Also this value estimate does not match what it says in the book of -0.27726 so there might be something subtlely wrong with my simulator
-estimate_blackjack_state(10_000_000, π_blackjack1)
+estimate_blackjack_state(100_000_000, π_blackjack1)
 
 # ╔═╡ 70d9d39f-020d-4f25-810c-82a143a3335b
 const π_rand_blackjack = Dict(s => [0.5, 0.5] for s in blackjackstates)
@@ -519,6 +521,23 @@ v_offpol = monte_carlo_pred(π_blackjack1, Dict(s => [0.5, 0.5] for s in blackja
 
 # ╔═╡ c5482c11-1635-4016-bf6a-4c5f01ae66b9
 v_offpol[1][(13, 2, true)]
+
+# ╔═╡ 303c852d-177c-4ddc-aa53-b72e6e82cc55
+function figure5_3_check(n = 100; ep = 1)
+	v0 = 100.0
+	s0 = (13, 2, true)
+	gets0() = s0
+	π_rand = Dict(s => [0.5, 0.5] for s in blackjackstates)
+	vhist_ordinary = [monte_carlo_pred(π_blackjack1, π_rand, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, V0 = v0)[2][ep] for _ in 1:n]
+	vhist_weighted = [monte_carlo_pred(π_blackjack1, π_rand, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, samplemethod = Weighted(), V0 = v0)[2][ep] for _ in 1:n]
+	(vhist_ordinary, vhist_weighted)
+end
+
+# ╔═╡ 74fc1b42-9784-4968-8c85-f3d0b778fa2f
+(ordcheck, weightcheck) = figure5_3_check(10000, ep = 100)
+
+# ╔═╡ 2a5270d5-5a3d-4535-b302-beaaf7af1222
+(var(ordcheck), var(weightcheck))
 
 # ╔═╡ 00cd2194-af13-415a-b725-bb34832e5d9a
 function figure5_3(n = 100)
@@ -2065,6 +2084,9 @@ version = "0.9.1+5"
 # ╠═8faca500-b80d-4b50-88b6-683d18a1286b
 # ╠═d6863551-a254-44b6-b6fe-551d134cdf01
 # ╠═c5482c11-1635-4016-bf6a-4c5f01ae66b9
+# ╠═303c852d-177c-4ddc-aa53-b72e6e82cc55
+# ╠═74fc1b42-9784-4968-8c85-f3d0b778fa2f
+# ╠═2a5270d5-5a3d-4535-b302-beaaf7af1222
 # ╠═00cd2194-af13-415a-b725-bb34832e5d9a
 # ╠═1a97b3de-1aaa-4f51-b358-5c5f2b1d0851
 # ╟─e10378eb-12b3-4468-9c22-1838107da450
