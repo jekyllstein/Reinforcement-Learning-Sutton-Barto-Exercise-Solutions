@@ -98,17 +98,24 @@ $= \delta_t + \gamma \delta_{t+1} + \cdots + \gamma^{T-t-1}\delta_{T-1} + \gamma
 $= \delta_t + \gamma \delta_{t+1} + \cdots + \gamma^{T-t-1}\delta_{T-1} + \gamma \eta_t + \gamma^2 \eta_{t+1} + \cdots + \gamma^{T-t} \eta_{T-t} + \gamma^{T-t} \left [0 - 0 \right ]$
 
 $= \sum_{k=t}^{T-1} \gamma^{k-t} (\delta_k + \gamma \eta_k)$
-"""
 
-# ╔═╡ 8b2a09f5-37c5-4b91-af5c-4596c44b96ea
-md"""
-$V_{t+1}(S_t) = V_t(S_t) + \alpha \delta_t$
+Returning to the definition of $\eta_t$, we can simplify further:
+
 $\eta _t \dot = V_{t+1}(S_{t+1}) - V_t(S_{t+1})$ 
 
-if $S_t = S_{t+1}$
+We also know the following relationship between values estimates at future timesteps:
 
-$\eta _t \dot = (V_t(S_t) + \alpha \delta_t) - V_t(S_{t}) = \alpha \delta_t$ 
+$V_{t+1}(S_t) = V_t(S_t) + \alpha \delta_t \implies V_{t+2}(S_{t+1}) = V_{t+1}(S_{t+1}) + \alpha \delta_{t+1}$
 
+Consider a normal update where $S_{t+1} \neq S_{t}$.  In that case, the value at $S_{t+1}$ will not get updated until step $t+2$ so the difference in value at that state between steps $t$ and $t+1$ will be 0 and $\eta_t=0$
+
+What if instead $S_{t+1} = S_t$?  In that case we have $\eta _t = V_{t+1}(S_{t}) - V_t(S_{t})$.  But we also know that $V_{t+1}(S_t) - V_t(S_t) = \alpha \delta_t$, therefore
+
+$\eta _t = \alpha \delta_t \text{   if } S_{t+1} = S_t \text{ and 0 otherwise}$
+
+So the original equation can be written as:
+
+$G_t - V_t(S_t)=\sum_{k=t}^{T-1} \gamma^{k-t} \delta_k (1 + \gamma \alpha \mathbb{1}_k) \text{  where } \mathbb{1}_k = 1 \text{ if } S_{k+1}=S_{k} \text{ and 0 otherwise}$
 
 """
 
@@ -1899,8 +1906,7 @@ version = "0.9.1+5"
 # ╟─814d89be-cfdf-11ec-3295-49a8f302bbcf
 # ╟─495f5606-0567-47ad-a266-d21320eecfc6
 # ╠═c3c43440-d8f5-4d16-8735-8d83981b9f15
-# ╠═7cd8e898-05c8-4fa0-b12a-60c5c1110cf8
-# ╠═8b2a09f5-37c5-4b91-af5c-4596c44b96ea
+# ╟─7cd8e898-05c8-4fa0-b12a-60c5c1110cf8
 # ╟─b5187232-d808-49b6-9f7e-a4cbeb6c2b3e
 # ╠═9b9ee4f2-f5f9-444b-aa23-85f145d8f9ca
 # ╠═7b3e55f4-72b8-48a5-a62a-7ce7ffadae35
