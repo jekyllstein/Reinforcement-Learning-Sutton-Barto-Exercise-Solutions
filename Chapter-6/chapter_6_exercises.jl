@@ -10,6 +10,9 @@ using Plots
 # ╔═╡ 659cd7f9-38c7-4dde-818e-be5e26bed09f
 using Statistics
 
+# ╔═╡ 705fc9b0-6372-4c5f-8696-78c7cfaa3a76
+using Random, StatsBase
+
 # ╔═╡ 814d89be-cfdf-11ec-3295-49a8f302bbcf
 md"""
 # Chapter 6 Temporal-Difference Learning
@@ -97,6 +100,18 @@ $= \delta_t + \gamma \delta_{t+1} + \cdots + \gamma^{T-t-1}\delta_{T-1} + \gamma
 $= \sum_{k=t}^{T-1} \gamma^{k-t} (\delta_k + \gamma \eta_k)$
 """
 
+# ╔═╡ 8b2a09f5-37c5-4b91-af5c-4596c44b96ea
+md"""
+$V_{t+1}(S_t) = V_t(S_t) + \alpha \delta_t$
+$\eta _t \dot = V_{t+1}(S_{t+1}) - V_t(S_{t+1})$ 
+
+if $S_t = S_{t+1}$
+
+$\eta _t \dot = (V_t(S_t) + \alpha \delta_t) - V_t(S_{t}) = \alpha \delta_t$ 
+
+
+"""
+
 # ╔═╡ b5187232-d808-49b6-9f7e-a4cbeb6c2b3e
 md"""
 ### Example 6.1: Driving Home
@@ -180,8 +195,8 @@ function tabular_MC_value_est(π::Function, α, γ, states, sterm, actions, tr::
 	return V
 end		
 
-# ╔═╡ 2786101e-d365-4d6a-8de7-b9794499efb4
-function example_6_2()
+# ╔═╡ a116f557-ca8f-4e28-bf8c-84e7e19b30da
+function random_walk_6_2()
 	left(::A) = (Term(), 0, true)
 	left(::B) = (A(), 0, false)
 	left(::C) = (B(), 0, false)
@@ -198,7 +213,12 @@ function example_6_2()
 
 	states = [A(), B(), C(), D(), E(), Term()]
 	actions = [1]
+	(states = states, actions = actions, tr = tr)
+end
 
+# ╔═╡ 2786101e-d365-4d6a-8de7-b9794499efb4
+function example_6_2()
+	(states, actions, tr) = random_walk_6_2()
 	π(s) = 1
 	nlist = [1, 10, 100]
 
@@ -226,7 +246,7 @@ function example_6_2()
 	
 	maxepisodes = 100
 	
-	αlist1 = [0.05, 0.1, 0.15]
+	αlist1 = [0.05, 0.1, 0.15, 1.0]
 	αlist2 = [0.01, 0.02, 0.03, 0.04]
 	y2 = [[rms_TD0(n, α) for n in 1:maxepisodes] for α in αlist1]
 	y3 = [[rms_MC(n, α) for n in 1:maxepisodes] for α in αlist2]
@@ -238,6 +258,9 @@ end
 
 # ╔═╡ 9db7a268-1e6d-4366-a0ec-ebf54916d3b0
 example_6_2()
+
+# ╔═╡ b5d0def2-9b65-4e28-a910-d261a25e31f1
+sqrt(sum([(n/6)^2 for n in 1:5]))
 
 # ╔═╡ 0b9c6dbd-4eb3-4167-886e-64db9ec7ff04
 md"""
@@ -313,30 +336,665 @@ md"""
 
 """
 
+# ╔═╡ 620a6426-cb29-4010-997b-aa4f9d5f8fb0
+begin
+	abstract type BatchMethod end
+	struct TD0 <: BatchMethod end
+	struct MC <: BatchMethod end
+end
+
 # ╔═╡ 6f185046-dfdb-41ca-bf3f-e2f90e2e4bc0
+function batch_value_est(π::Function, α, γ, states::Vector{S}, sterm, actions::Vector{A}, tr::Function, n = 1000; gets0 = () -> rand(states), v0 = 0.0, ϵ = 0.01, Vref = Dict(s => v0 for s in states), estmethod = TD0()) where {S, A}
+	V = Dict(s => v0 for s in states)
+	V[sterm] = 0.0
+	errs = Vector{Float64}()
 
+	#store all episodes
+	episodes = Vector{Vector{Tuple{S, A, S, Float64}}}()
 
-# ╔═╡ 7ecd5159-2fea-45b5-a2b6-526d123f2c48
+	#add a new episode to the list
+	function add_episode!()
+		s0 = gets0()
+		a0 = π(s0)
+		traj = Vector{Tuple{S, A, S, Float64}}()
+		function run_episode!(s0, a0)
+			(s, r, isterm) = tr(s0, a0)
+			push!(traj, (s0, a0, s, r))
+			isterm && return nothing
+			a = π(s)
+			run_episode!(s, a)
+		end
+		run_episode!(s0, a0)
+		push!(episodes, traj)
+	end
 
+	#use existing episode list to update value estimates
+	function update_value!(::TD0, episodes)
+		maxpctdelt = 0.0
+		for traj in episodes
+			for (s0, a0, s, r) in traj
+				v0 = V[s0]
+				delt = α*(r + γ*V[s] - V[s0])
+				V[s0] += delt
+				pctdelt = if v0 == 0
+					if delt == 0
+						0.0
+					else
+						Inf
+					end
+				else
+					abs(delt/v0)
+				end
+				maxpctdelt = max(maxpctdelt, pctdelt)
+			end
+		end
+		return maxpctdelt
+	end
+	
+	function update_value!(::MC, episodes)
+		maxpctdelt = 0.0
+		for traj in episodes
+			g = 0.0
+			for (s0, a0, s, r) in reverse(traj)
+				g = γ*g + r
+				v0 = V[s0]
+				delt = α*(g - V[s0])
+				V[s0] += delt
+				pctdelt = if v0 == 0
+					if delt == 0
+						0.0
+					else
+						Inf
+					end
+				else
+					abs(delt/v0)
+				end
+				maxpctdelt = max(maxpctdelt, pctdelt)
+			end
+		end
+		return maxpctdelt
+	end
+
+	#use existing episode list to update value estimates until convergence
+	function update_value!()
+		i = 1
+		maxpctdelt = Inf
+		while (maxpctdelt > ϵ) && (i < 100)
+			maxpctdelt = update_value!(estmethod, episodes)
+			i += 1
+		end
+		return maxpctdelt
+	end
+
+	function rms_err()
+		mean(sqrt.(([V[s] for s in states[1:end-1]] .- [Vref[s] for s in states[1:end-1]]) .^2))
+	end
+	
+	for i in 1:n
+		add_episode!()
+		pctdelt = update_value!()
+		# println("On episode $i, value function converged with a maximum percent change of $pctdelt")
+		push!(errs, rms_err())
+	end
+	return V, errs
+end	
+
+# ╔═╡ 0ad7b475-6394-4780-908e-849c0684a966
+function example_6_3()
+	(states, actions, tr) = random_walk_6_2()
+	π(s) = 1
+
+	true_values = collect(1:5) ./ 6
+	Vref = Dict(zip(states[1:end-1], true_values))
+
+	TD0_est(α, n) = batch_value_est(π, α, 1.0, states, Term(), actions, tr, n, gets0 = () -> C(), v0 = 0.5, Vref = Vref, estmethod = TD0())
+
+	MC_est(α, n) = batch_value_est(π, α, 1.0, states, Term(), actions, tr, n, gets0 = () -> C(), v0 = 0.5, Vref = Vref, estmethod = MC())
+
+	# x1 = ["A", "B", "C", "D", "E"]
+	# y1 = [[V_ests[i][s] for s in states[1:end-1]] for i in 1:3]
+	# p1 = plot(vcat([true_values], y1), xticks = (1:5, x1), lab = hcat("True values", ["$n ep est" for n in nlist']), xlabel="State")
+
+	# MC_est(0.1, 1)
+
+	# function rms_err(Vest)
+	# 	sqrt(mean(([Vest[s] for s in states[1:end-1]] .- true_values) .^2))
+	# end
+	
+	samples = 100
+	rms_TD0(n, α) = mean(reduce(hcat, (TD0_est(α, n)[2] for _ in 1:samples)), dims = 2)
+	rms_MC(n, α) =mean(reduce(hcat, (MC_est(α, n)[2] for _ in 1:samples)), dims = 2)
+	
+	maxepisodes = 25
+	
+	y2 = rms_TD0(maxepisodes, 0.05)
+	y3 = rms_MC(maxepisodes, 0.02)
+	p2 = plot(y2, xlabel = "Episodes", title = "Empirical RMS error, averaged over states", lab = "TD0")
+	plot!(y3, lab = "MC")
+
+	# plot(p1, p2, layout = (2, 1), size = (680, 700))
+end		
+
+# ╔═╡ 22c2213e-5b9b-410f-a0ef-8f1e3db3c532
+example_6_3()
 
 # ╔═╡ 0e59e813-3d48-4a24-b5b3-9a9de7c500c2
+md"""
+> *Exercise 6.7* Design an off-policy version of the TD(0) update that can be used with arbitrary target policy $\pi$ and convering behavior policy $b$, using each step $t$ the importance sampling ratio $\rho_{t:t}$ (5.3).
 
+Recall that equation 5.3 defines:
+
+$\rho_{t:T-1} = \prod_{k=t}^{T-1}\frac{\pi(A_k|S_k)}{b(A_k|S_k)}$
+
+The TD(0) update rule is given by:
+
+$V(S_t) \leftarrow V(S_t) + \alpha [R_{t+1} + \gamma V(S_{t+1}) - V(S_t)]$
+
+based on the following form of the Bellman equation:
+
+$v_\pi=\text{E}_\pi[R_{t+1} + \gamma v_\pi(S_{t+1}) | S_t = s]$
+
+In the off-policy case, the only data we have to work with is from the behavior policy, yet we still want the expectation over the target policy.  However, the value estimates being updated will already represent the target policy, so the only random sampling value that needs to be adjusted is the reward signal.  We can therefore use the importance sampling ratio on the reward and ensure that our expected value is correct.
+
+$V(S_t) \leftarrow V(S_t) + \alpha [\rho_{t:t}R_{t+1} + \gamma V(S_{t+1}) - V(S_t)]$
+"""
+
+# ╔═╡ 0d6a11af-b146-4bbc-997e-a11b897269a7
+md"""
+## 6.4 Sarsa: On-policy TD Control
+
+TD(0) update rule for action values:
+
+$Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \alpha [R_{t+1} + \gamma Q(S_{t+1}, A_{t+1})-Q(S_t, A_t)]$
+"""
+
+# ╔═╡ 1ae30f5d-b25b-4dcb-800f-45c463641ec5
+md"""
+> *Exercise 6.8* Show that an action-value version of (6.6) holds for the action-value form of the TD error $\delta_t=R_{t+1}+\gamma Q(S_{t+1}, A_{t+1}) - Q(S_t, A_t)$, again assuming that the values don't change from step to step.
+
+The derivation in (6.6) starts with the definition in (3.9):
+
+$G_t = R_{t+1} + \gamma G_{t+1}$
+
+and derives the following:
+
+$\delta_t \dot = R_{t+1} + \gamma V(S_{t+1}) - V(S_t)$
+$G_t - V(S_t) = \sum_{k=t}^{T-1} \gamma^{k-t} \delta_k$
+
+Now we have the action-value form of the TD error:
+
+$\delta_t=R_{t+1}+\gamma Q(S_{t+1}, A_{t+1}) - Q(S_t, A_t)$
+
+Let us transform (3.9) in a similar manner to derive the rule:
+
+$G_t - Q(S_t, A_t) = R_{t+1} + \gamma G_{t+1} - Q(S_t, A_t) + \gamma Q(S_{t+1}, A_{t+1}) - \gamma Q(S_{t+1}, A_{t+1})$
+$= \delta_t + \gamma (G_{t+1} - Q(S_{t+1}, A_{t+1}))$
+$= \delta_t + \gamma \delta_{t+1} + \gamma^2 (G_{t+2} - Q(S_{t+2}, A_{t+2}))$
+$= \delta_t + \gamma \delta_{t+1} + \gamma^2 \delta_{t+1} + \cdots + \gamma^{T-t-1} \delta_{T-1} + \gamma^{T-t}(G_T - Q(S_T, A_T))$
+
+The action value is defined to be 0 whenever the state is terminal
+
+$= \delta_t + \gamma \delta_{t+1} + \gamma^2 \delta_{t+1} + \cdots + \gamma^{T-t-1} \delta_{T-1} + \gamma^{T-t}(0-0)$
+$=\sum_{k=t}^{T-1}\gamma^{k-t}\delta_k$
+"""
+
+# ╔═╡ 61bbf9db-49a0-4709-83f4-44f228be09c0
+function sarsa_onpolicy(α, γ, states, sterm, actions, tr::Function, n = 1000; gets0 = () -> rand(states), q0 = 0.0, ϵ = 0.1)
+	Q = Dict((s, a) => q0 for s in states for a in actions)
+	nact = length(actions)
+	π = Dict(s => fill(1.0 / nact, nact) for s in states) #create policy sampling
+	sampleπ(s) = sample(actions, weights(π[s]))
+	otherv = ϵ / nact #probability weight given to random actions
+	topv = 1.0 - ϵ + otherv #probability weight given to the top action in the distribution
+	
+	for a in actions
+		Q[(sterm, a)] = 0.0
+	end
+	steps = zeros(Int64, n)
+	rewardsums = zeros(n)
+	#update policy with epsilon greedy strategy following Q
+	function updateπ!()
+		for s in states
+			aind = argmax(Q[(s, a)] for a in actions) #index of selected action
+			π[s] .= otherv
+			π[s][aind] = topv
+		end
+	end
+
+	for i in 1:n
+		updateπ!()
+		s0 = gets0()
+		a0 = sampleπ(s0)
+
+		function updateq!(s0, a0, l = 1; rsum = 0.0)
+			(s, r, isterm) = tr(s0, a0)
+			rsum += r
+			a = sampleπ(s)
+			Q[(s0, a0)] += α*(r + γ*Q[(s, a)] - Q[(s0, a0)])
+			updateπ!()
+			isterm && return (l, rsum)
+			updateq!(s, a, l+1, rsum = rsum)
+		end
+		l, rsum = updateq!(s0, a0)
+		steps[i] = l
+		rewardsums[i] = rsum
+	end
+
+	π_det = Dict(s => actions[argmax(π[s])] for s in states)
+	return Q, π_det, steps, rewardsums
+end
+
+# ╔═╡ e19db54c-4b3c-42d1-b016-9620daf89bfb
+begin
+	abstract type GridworldAction end
+	struct Up <: GridworldAction end
+	struct Down <: GridworldAction end
+	struct Left <: GridworldAction end
+	struct Right <: GridworldAction end
+
+	wind_actions1 = [Up(), Down(), Left(), Right()]
+	
+	move(::Up, x, y) = (x, y+1)
+	move(::Down, x, y) = (x, y-1)
+	move(::Left, x, y) = (x-1, y)
+	move(::Right, x, y) = (x+1, y)
+
+	applywind(w, x, y) = (x, y+w)
+end
+
+# ╔═╡ 56f794c3-8e37-48b4-b953-7ad0a45aadd6
+function gridworld_sarsa_solve(gridworld; α=0.5, ϵ=0.1)
+	states, sterm, actions, tr, episode, gets0 = gridworld
+	tr(gets0(), Up())
+	(Qstar, πstar, steps, rsum) = sarsa_onpolicy(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
+	path = episode(s -> πstar[s])
+	p1 = plot(path, legend = false, title = "Finished in $(length(path)-1) steps")
+	p2 = plot(steps, legend = false, xlabel = "episodes", ylabel = "Steps")
+	p3 = plot([minimum(steps[1:i]) for i in eachindex(steps)], yaxis = :log, legend = false, ylabel = "Min Path So Far")
+	p4 = plot(cumsum(steps), 1:length(steps), legend = false)
+	l = @layout [
+    a{0.4w} [grid(3,1)]
+]
+	plot(p1, p2, p3, p4, layout = l, size = (680, 400))
+end
+
+# ╔═╡ 0ad739c9-8aca-4b82-bf20-c73584d29535
+md"""
+> *Exercise 6.9 Windy Gridworld with King's Moves (programming)* Re-solve the windy gridworld assuming eight possible actions, including the diagonal moves, rather than four.  How much better can you do with the extra actions?  Can you do even better by including a ninth action that causes no movement at all other than that caused by the wind?
+"""
+
+# ╔═╡ 031e1106-7408-4c7e-b78e-b713c19123d1
+begin
+	struct UpRight <: GridworldAction end
+	struct DownRight <: GridworldAction end
+	struct UpLeft <: GridworldAction end
+	struct DownLeft <: GridworldAction end
+
+	wind_actions2 = [UpRight(), UpLeft(), DownRight(), DownLeft()]
+	
+	move(::UpRight, x, y) = (x+1, y+1)
+	move(::UpLeft, x, y) = (x-1, y+1)
+	move(::DownRight, x, y) = (x+1, y-1)
+	move(::DownLeft, x, y) = (x-1, y-1)
+end
+
+# ╔═╡ 39470c74-e554-4f6c-919d-97bec1eec0f3
+md"""
+Adding king's move actions, the optimal policy can finish in 7 steps vs 15 for the original actions.  What happens after adding a 9th action that causes no movement?
+"""
+
+# ╔═╡ e9359ca3-4d11-4365-bc6e-7babc6fcc7de
+begin
+	struct Stay <: GridworldAction end
+	move(::Stay, x, y) = (x, y)
+	wind_actions3 = [Stay()]
+end
+
+# ╔═╡ ec285c96-4a75-4af6-8898-ec3176fa34c6
+function windy_gridworld(actions, applywind = applywind)
+	xmax = 10
+	ymax = 7
+	states = [(x, y) for x in 1:xmax for y in 1:ymax]
+	sterm = (8, 4)
+	gets0 = () -> (1, 4)
+
+	#wind values at each x value
+	winds = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
+
+	# applywind(w, x, y) = (x, y+w)
+
+	boundstate(x::Int64, y::Int64) = (clamp(x, 1, xmax), clamp(y, 1, ymax))
+	
+	function step(s::Tuple{Int64, Int64}, a::GridworldAction)
+		w = winds[s[1]]
+		(x, y) = s
+		(x1, y1) = move(a, x, y)
+		(x2, y2) = applywind(w, x1, y1)
+		boundstate(x2, y2)
+	end
+
+	function tr(s0::Tuple{Int64, Int64}, a0::GridworldAction)
+		snew = step(s0, a0)
+		r = -1
+		isterm = (snew == sterm)
+		(snew, r, isterm)
+	end
+
+	function episode(π, lmax = 1000)
+		s = gets0()
+		path = [s]
+		a = π(s)
+		isterm = false
+		l = 1
+		while !isterm && (l < lmax)
+			(s, r, isterm) = tr(s, a)
+			push!(path, s)
+			a = π(s)
+			l += 1
+		end
+		return path
+	end
+			
+	return states, sterm, actions, tr, episode, gets0
+end	
+
+# ╔═╡ 331d0b67-c00d-46fd-a175-b8412f6a93c5
+gridworld_sarsa_solve(windy_gridworld(wind_actions1))
+
+# ╔═╡ 1abefc8c-5be0-42b4-892e-14c0c47c16f0
+gridworld_sarsa_solve(windy_gridworld(vcat(wind_actions1, wind_actions2)))
+
+# ╔═╡ dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
+gridworld_sarsa_solve(windy_gridworld(vcat(wind_actions1, wind_actions2, wind_actions3)))
+
+# ╔═╡ db31579e-3e56-4271-8fc3-eb13bc95ac27
+md"""
+Adding the no-movement action doesn't seem to change the shortest path of 7 steps
+"""
+
+# ╔═╡ b59eacf8-7f78-4015-bf2c-66f89bf0e24e
+md"""
+> *Exercise 6.10: Stochastic Wind (programming)* Re-solve the windy gridworld task with King's moves, assuming the effect of the wind, if there is any, is stochastic, sometimes varying by 1 from the mean values given for each column.  That is, a third of the time you move exactly according to these values, as in the previous exercise, but also a third of the time you move one cell above that, and another third of the time you move one cell below that.  For example, if you are one cell to the right of the goal and you move left, then one-third of the time you move one cell above the goal, one-third of the time you move two cells above the goal, and one-third of the time you move to the goal.
+"""
+
+# ╔═╡ aa0791a5-8cf1-499b-9900-4d0c59be808c
+function stochastic_wind(w, x, y)
+	w == 0 && return (x, y)
+	
+	v = rand([-1, 0, 1])
+	(x, y+w+v)
+end
+
+# ╔═╡ ced61b99-9073-4dee-afbf-82531e59c7d8
+gridworld_sarsa_solve(windy_gridworld(vcat(wind_actions1, wind_actions2), stochastic_wind))
+
+# ╔═╡ 44c49006-e210-4f97-916e-fe62f36c593f
+md"""
+## 6.5 Q-learning: Off-policy TD Control
+
+One of the early breakthroughs in reinforcement learning was the development of an off-policy TD control algorithm known as *Q-learning* (Watkins, 1989), defined by
+
+$Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \alpha [R_{t+1} + \gamma \text{max}_a Q(S_{t+1}, a) - Q(S_t, A_t)]$
+"""
+
+# ╔═╡ f90263de-1053-48cb-8240-56112d6dc67f
+function Q_learning(α, γ, states, sterm, actions, tr::Function, n = 1000; gets0 = () -> rand(states), q0 = 0.0, ϵ = 0.1)
+	#initialize Q(s,a) and set Q(terminal, a) = 0 for all actions
+	Q = Dict((s, a) => q0 for s in states for a in actions)
+	for a in actions
+		Q[(sterm, a)] = 0.0
+	end
+	
+	nact = length(actions)
+	π = Dict(s => fill(1.0 / nact, nact) for s in states) #create policy sampling
+	sampleπ(s) = sample(actions, weights(π[s]))
+	otherv = ϵ / nact #probability given to a random action
+	topv = 1.0 - ϵ + otherv #probability weight given to the top action in the distribution
+	
+	steps = zeros(Int64, n) #keep track of length of each episode
+	rewardsums = zeros(n)
+	
+	#update policy with epsilon greedy strategy following Q
+	function updateπ!()
+		for s in states
+			aind = argmax(Q[(s, a)] for a in actions) #index of selected action
+			π[s] .= otherv
+			π[s][aind] = topv
+		end
+	end
+
+	function updateq!(s0, l = 1; rsum = 0.0)
+		a0 = sampleπ(s0)
+		(s, r, isterm) = tr(s0, a0)
+		rsum += r
+		Q[(s0, a0)] += α*(r + γ*maximum(Q[(s, a)] for a in actions) - Q[(s0, a0)])
+		updateπ!()
+		isterm && return (l, rsum)
+		updateq!(s, l+1, rsum=rsum)
+	end
+
+	for i in 1:n
+		s0 = gets0()
+		l, rsum = updateq!(s0)
+		steps[i] = l
+		rewardsums[i] = rsum
+	end
+
+	π_det = Dict(s => actions[argmax(π[s])] for s in states)
+	return Q, π_det, steps, rewardsums
+end
+
+# ╔═╡ 8224b808-5778-458b-b683-ea2603c82117
+md"""
+### Example 6.6: Cliff Walking
+"""
+
+# ╔═╡ 6556dafb-04fa-434c-868a-8d7bb7b5b196
+function cliffworld(actions)
+	xmax = 12
+	ymax = 4
+	states = [(x, y) for x in 1:xmax for y in 1:ymax]
+	sterm = (xmax, 1)
+	gets0 = () -> (1, 1)
+
+	cliffstates = [(x, 1) for x in 2:11]
+
+	# applywind(w, x, y) = (x, y+w)
+
+	boundstate(x::Int64, y::Int64) = (clamp(x, 1, xmax), clamp(y, 1, ymax))
+
+	function cliffcheck(s)
+		(x, y) = s
+		safereturn = (s, false)
+		unsafereturn = ((1, 1), true)
+		y > 1 && return safereturn
+		(x == 1) && return safereturn
+		(x == xmax) && return safereturn
+		unsafereturn
+	end
+	
+	function step(s::Tuple{Int64, Int64}, a::GridworldAction)
+		(x, y) = s
+		(x1, y1) = move(a, x, y)
+		s2 = boundstate(x1, y1)
+		(s3, hitcliff) = cliffcheck(s2)
+	end
+
+	function tr(s0::Tuple{Int64, Int64}, a0::GridworldAction)
+		(snew, hitcliff) = step(s0, a0)
+		r = hitcliff ? -100 : -1
+		isterm = (snew == sterm)
+		(snew, r, isterm)
+	end
+
+	function episode(π, lmax = 1000)
+		s = gets0()
+		path = [s]
+		a = π(s)
+		isterm = false
+		l = 1
+		while !isterm && (l < lmax)
+			(s, r, isterm) = tr(s, a)
+			push!(path, s)
+			a = π(s)
+			l += 1
+		end
+		return path
+	end
+			
+	return states, sterm, actions, tr, episode, gets0
+end	
+
+# ╔═╡ 6bffb08c-704a-4b7c-bfce-b3d099cf35c0
+function gridworld_Q_vs_sarsa_solve(gridworld; α=0.5, ϵ=0.1)
+	states, sterm, actions, tr, episode, gets0 = gridworld
+	tr(gets0(), Up())
+	(Qstar1, πstar1, steps1, rsum1) = sarsa_onpolicy(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
+	(Qstar2, πstar2, steps2, rsum2) = Q_learning(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
+	path1 = episode(s -> πstar1[s])
+	path2 = episode(s -> πstar2[s])
+	p1 = plot(path1, lab = "Sarsa finished in $(length(path1)-1) steps")
+	plot!(path2, lab = "Q-learning finished in $(length(path2)-1) steps")
+	p2 = plot(rsum1, lab = "Sarsa", xlabel = "episodes", ylabel = "Reward Sum", yaxis = [-100, 0])
+	plot!(rsum2, lab = "Q-learning")
+	plot(p1, p2, layout = (2, 1), size = (680, 400))
+end
+
+# ╔═╡ a4c4d5f2-d76d-425e-b8c9-9047fe53c4f0
+gridworld_Q_vs_sarsa_solve(cliffworld(wind_actions1), α=0.5)
+
+# ╔═╡ 05664aaf-575b-4249-974c-d8a2e63f380a
+md"""
+> *Exercise 6.11* Why is Q-learning considered an *off-policy* control method?
+
+If we compare to the on-policy update rule, the expected value being calculated at each state action pair should be:
+
+$Q_\pi(S_t, A_t) = \text{E}_\pi [R_{t+1} + \gamma Q_\pi(S_{t+1}, A_{t+1})]$
+
+which we estimate with sampling.  In Q-learning, the expected value being estimated is instead:
+
+$Q_\pi(S_t, A_t) = \text{E}_\pi [R_{t+1} + \gamma \text{max}_a Q_\pi(S_{t+1}, a)]$
+
+Also in Sarsa, we select the next action to take and update Q according to that action, so the estimate is reflecting the policy at the time.  In Q-learning, we update the Q-function prior to selecting the action based on the greedy policy with respect to the Q-function at that moment.  However, that assumes that the greedy action is always taken whereas the policy actually being sampled in ϵ-greedy.  The actual action taken at the next step should match the Sarsa algorithm because that next state has not yet been updated in both cases, but in Q-learning that action may not match the assumed greedy action in the update step.
+"""
+
+# ╔═╡ 2a3e4617-efbb-4bbc-9c61-8535628e439c
+md"""
+> *Exercise 6.12* Supposed action selection is greedy.  Is Q-learning then exactly the same algorithm as Sarsa?  Will they make exactly the same action selections and weight updates?
+
+Generally yes, because the term in the Sarsa update that uses the Q value of the subsequent state-action pair will always equal the maximization value in Q-learning.  Both will select the action at the next state that is greedy with respect to the Q-function.  There in one exception for the case where the state is identical through the transition.  In this case, Sarsa will chose the next action from that state prior to updating the Q value for that state.  In the case of Q-learning, the Q update will be identical, but then the subsequent action selection might be different because it occurs after the Q value for that state-action pair was updated.  If the value of that action is decreased for example then an alternative action may be selected on the next step whereas in Sarsa the same action would always be selected the next step.
+"""
+
+# ╔═╡ 6e06bd39-486f-425a-bbca-bf363b58988c
+md"""
+## 6.6 Expected Sarsa
+Consider the learning algorithm that is just like Q-learning except that intsead of the maximization over next state-action pairs it uses the expected value, taking into account how likely each action is under the current policy.  That is consider the algorithm with the update rule
+
+$Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \alpha \left [ R_{t+1} + \gamma \text{E}_\pi  [Q(S_{t+1}, A_{t+1})|S_{t+1}] - Q(S_t, A_t) \right ]$
+$= Q(S_t, A_t) + \alpha \left [ R_{t+1} + \gamma \sum_a \pi(a|S_{t+1})Q(S_{t+1}, a) - Q(S_t, A_t) \right ]$
+
+but that otherwise follows the scheme of Q-learning.  Given the next state, $S_{t+1}$, this algorithm moves *deterministically* in the same direction as Sarsa moves *in expectation*, and accordingly it is called *Expected Sarsa*.  Although more computationally complex than Sarsa, it eliminates the variance due to the random selection of $A_{t+1}$
+
+In general Expected Sarsa might use a policy different from the target policy π to generate behavior in which case it becomes an off-policy algorithm.  For example, supppose π is the greedy policy while behavior is more exploratory; then Expected Sarsa is exactly Q-learning.  In this sense Expected Sarsa subsumes and generalizes Q-learning while reliably improving over Sarsa.
+
+"""
+
+# ╔═╡ 1583b122-3570-4f93-92c8-4dd6bfa0944d
+function expected_sarsa(α, γ, states, sterm, actions, tr::Function, n = 1000; gets0 = () -> rand(states), q0 = 0.0, ϵ = 0.1)
+	#initialize Q(s,a) and set Q(terminal, a) = 0 for all actions
+	Q = Dict((s, a) => q0 for s in states for a in actions)
+	for a in actions
+		Q[(sterm, a)] = 0.0
+	end
+	
+	nact = length(actions)
+	π = Dict(s => fill(1.0 / nact, nact) for s in states) #create policy sampling
+	sampleπ(s) = sample(actions, weights(π[s]))
+	otherv = ϵ / nact #probability given to a random action
+	topv = 1.0 - ϵ + otherv #probability weight given to the top action in the distribution
+	
+	steps = zeros(Int64, n) #keep track of length of each episode
+	rewardsums = zeros(n)
+	
+	#update policy with epsilon greedy strategy following Q
+	function updateπ!()
+		for s in states
+			aind = argmax(Q[(s, a)] for a in actions) #index of selected action
+			π[s] .= otherv
+			π[s][aind] = topv
+		end
+	end
+
+	function updateq!(s0, l = 1; rsum = 0.0)
+		a0 = sampleπ(s0)
+		(s, r, isterm) = tr(s0, a0)
+		rsum += r
+		Q[(s0, a0)] += α*(r + γ*sum(π[s][i]*Q[(s, a)] for (i, a) in enumerate(actions)) - Q[(s0, a0)])
+		updateπ!()
+		isterm && return (l, rsum)
+		updateq!(s, l+1, rsum=rsum)
+	end
+
+	function run_episode!(i)
+		s0 = gets0()
+		l, rsum = updateq!(s0)
+		steps[i] = l
+		rewardsums[i] = rsum
+	end
+
+	for i in 1:n
+		run_episode!(i)
+	end
+
+	π_det = Dict(s => actions[argmax(π[s])] for s in states)
+	return Q, π_det, steps, rewardsums
+end
+
+# ╔═╡ 84584793-8274-4aa1-854f-b167c7434548
+function gridworld_Q_vs_sarsa_vs_expectedsarsa_solve(gridworld; α=0.5, ϵ=0.1)
+	states, sterm, actions, tr, episode, gets0 = gridworld
+	tr(gets0(), Up())
+	(Qstar1, πstar1, steps1, rsum1) = sarsa_onpolicy(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
+	(Qstar2, πstar2, steps2, rsum2) = Q_learning(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
+	(Qstar3, πstar3, steps3, rsum3) = expected_sarsa(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
+	path1 = episode(s -> πstar1[s])
+	path2 = episode(s -> πstar2[s])
+	path3 = episode(s -> πstar3[s])
+	p1 = plot(path1, lab = "Sarsa finished in $(length(path1)-1) steps")
+	plot!(path2, lab = "Q-learning finished in $(length(path2)-1) steps")
+	plot!(path3, lab = "Expected Sarsa finished in $(length(path3)-1) steps")
+	p2 = plot(rsum1, lab = "Sarsa", xlabel = "episodes", ylabel = "Reward Sum", yaxis = [-100, 0])
+	plot!(rsum2, lab = "Q-learning")
+	plot!(rsum3, lab = "Expected Sarsa")
+	plot(p1, p2, layout = (2, 1), size = (680, 400))
+end
+
+# ╔═╡ 667666b9-3ab6-4836-953d-9878208103c9
+gridworld_Q_vs_sarsa_vs_expectedsarsa_solve(cliffworld(wind_actions1))
+
+# ╔═╡ 6d9ae541-cf8c-4687-9f0a-f008944657e3
+function figure_6_3()
+
+end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 Plots = "~1.29.0"
+StatsBase = "~0.33.16"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.7.2"
+julia_version = "1.7.0"
 manifest_format = "2.0"
 
 [[deps.Adapt]]
@@ -1241,7 +1899,8 @@ version = "0.9.1+5"
 # ╟─814d89be-cfdf-11ec-3295-49a8f302bbcf
 # ╟─495f5606-0567-47ad-a266-d21320eecfc6
 # ╠═c3c43440-d8f5-4d16-8735-8d83981b9f15
-# ╟─7cd8e898-05c8-4fa0-b12a-60c5c1110cf8
+# ╠═7cd8e898-05c8-4fa0-b12a-60c5c1110cf8
+# ╠═8b2a09f5-37c5-4b91-af5c-4596c44b96ea
 # ╟─b5187232-d808-49b6-9f7e-a4cbeb6c2b3e
 # ╠═9b9ee4f2-f5f9-444b-aa23-85f145d8f9ca
 # ╠═7b3e55f4-72b8-48a5-a62a-7ce7ffadae35
@@ -1253,15 +1912,50 @@ version = "0.9.1+5"
 # ╠═d501f74b-c3a3-4591-b01f-5df5b71a85f2
 # ╠═ae182e8c-6fc0-4043-ac9f-cb6726d173e7
 # ╠═659cd7f9-38c7-4dde-818e-be5e26bed09f
-# ╟─2786101e-d365-4d6a-8de7-b9794499efb4
+# ╠═a116f557-ca8f-4e28-bf8c-84e7e19b30da
+# ╠═2786101e-d365-4d6a-8de7-b9794499efb4
 # ╠═9db7a268-1e6d-4366-a0ec-ebf54916d3b0
+# ╠═b5d0def2-9b65-4e28-a910-d261a25e31f1
 # ╟─0b9c6dbd-4eb3-4167-886e-64db9ec7ff04
 # ╟─52aebb7b-c2a9-443f-bc03-24cd25793b32
-# ╠═e6672866-c0a0-46f2-bb52-25fcc3352645
+# ╟─e6672866-c0a0-46f2-bb52-25fcc3352645
 # ╟─105c5c23-270d-437e-89dd-12297814c6e0
-# ╠═48b557e3-e239-45e9-ab15-105bcca96492
+# ╟─48b557e3-e239-45e9-ab15-105bcca96492
+# ╠═620a6426-cb29-4010-997b-aa4f9d5f8fb0
 # ╠═6f185046-dfdb-41ca-bf3f-e2f90e2e4bc0
-# ╠═7ecd5159-2fea-45b5-a2b6-526d123f2c48
-# ╠═0e59e813-3d48-4a24-b5b3-9a9de7c500c2
+# ╠═0ad7b475-6394-4780-908e-849c0684a966
+# ╠═22c2213e-5b9b-410f-a0ef-8f1e3db3c532
+# ╟─0e59e813-3d48-4a24-b5b3-9a9de7c500c2
+# ╟─0d6a11af-b146-4bbc-997e-a11b897269a7
+# ╟─1ae30f5d-b25b-4dcb-800f-45c463641ec5
+# ╠═705fc9b0-6372-4c5f-8696-78c7cfaa3a76
+# ╠═61bbf9db-49a0-4709-83f4-44f228be09c0
+# ╠═e19db54c-4b3c-42d1-b016-9620daf89bfb
+# ╠═ec285c96-4a75-4af6-8898-ec3176fa34c6
+# ╠═56f794c3-8e37-48b4-b953-7ad0a45aadd6
+# ╠═331d0b67-c00d-46fd-a175-b8412f6a93c5
+# ╟─0ad739c9-8aca-4b82-bf20-c73584d29535
+# ╠═031e1106-7408-4c7e-b78e-b713c19123d1
+# ╠═1abefc8c-5be0-42b4-892e-14c0c47c16f0
+# ╟─39470c74-e554-4f6c-919d-97bec1eec0f3
+# ╠═e9359ca3-4d11-4365-bc6e-7babc6fcc7de
+# ╠═dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
+# ╟─db31579e-3e56-4271-8fc3-eb13bc95ac27
+# ╟─b59eacf8-7f78-4015-bf2c-66f89bf0e24e
+# ╠═aa0791a5-8cf1-499b-9900-4d0c59be808c
+# ╠═ced61b99-9073-4dee-afbf-82531e59c7d8
+# ╟─44c49006-e210-4f97-916e-fe62f36c593f
+# ╠═f90263de-1053-48cb-8240-56112d6dc67f
+# ╟─8224b808-5778-458b-b683-ea2603c82117
+# ╠═6556dafb-04fa-434c-868a-8d7bb7b5b196
+# ╠═6bffb08c-704a-4b7c-bfce-b3d099cf35c0
+# ╠═a4c4d5f2-d76d-425e-b8c9-9047fe53c4f0
+# ╟─05664aaf-575b-4249-974c-d8a2e63f380a
+# ╟─2a3e4617-efbb-4bbc-9c61-8535628e439c
+# ╟─6e06bd39-486f-425a-bbca-bf363b58988c
+# ╠═1583b122-3570-4f93-92c8-4dd6bfa0944d
+# ╠═84584793-8274-4aa1-854f-b167c7434548
+# ╠═667666b9-3ab6-4836-953d-9878208103c9
+# ╠═6d9ae541-cf8c-4687-9f0a-f008944657e3
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
