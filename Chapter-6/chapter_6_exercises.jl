@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.4
+# v0.19.8
 
 using Markdown
 using InteractiveUtils
@@ -12,6 +12,9 @@ using Statistics
 
 # ╔═╡ 705fc9b0-6372-4c5f-8696-78c7cfaa3a76
 using Random, StatsBase
+
+# ╔═╡ 9f050aa1-8d98-41de-8abd-eb7d1efd121c
+using Base.Threads
 
 # ╔═╡ 814d89be-cfdf-11ec-3295-49a8f302bbcf
 md"""
@@ -868,7 +871,7 @@ function gridworld_Q_vs_sarsa_solve(gridworld; α=0.5, ϵ=0.1)
 end
 
 # ╔═╡ a4c4d5f2-d76d-425e-b8c9-9047fe53c4f0
-gridworld_Q_vs_sarsa_solve(cliffworld(wind_actions1), α=0.5)
+gridworld_Q_vs_sarsa_solve(cliffworld(wind_actions1), α=0.5, ϵ=0.1)
 
 # ╔═╡ 05664aaf-575b-4249-974c-d8a2e63f380a
 md"""
@@ -960,7 +963,6 @@ end
 # ╔═╡ 84584793-8274-4aa1-854f-b167c7434548
 function gridworld_Q_vs_sarsa_vs_expectedsarsa_solve(gridworld; α=0.5, ϵ=0.1)
 	states, sterm, actions, tr, episode, gets0 = gridworld
-	tr(gets0(), Up())
 	(Qstar1, πstar1, steps1, rsum1) = sarsa_onpolicy(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
 	(Qstar2, πstar2, steps2, rsum2) = Q_learning(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
 	(Qstar3, πstar3, steps3, rsum3) = expected_sarsa(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
@@ -977,12 +979,133 @@ function gridworld_Q_vs_sarsa_vs_expectedsarsa_solve(gridworld; α=0.5, ϵ=0.1)
 end
 
 # ╔═╡ 667666b9-3ab6-4836-953d-9878208103c9
-gridworld_Q_vs_sarsa_vs_expectedsarsa_solve(cliffworld(wind_actions1))
+gridworld_Q_vs_sarsa_vs_expectedsarsa_solve(cliffworld(wind_actions1), α=0.5)
 
 # ╔═╡ 6d9ae541-cf8c-4687-9f0a-f008944657e3
-function figure_6_3()
+function figure_6_3(gridworld)
+	states, sterm, actions, tr, episode, gets0 = gridworld
+	function generate_data(estimator, nep, nruns)
+		αlist = 0.1:0.05:1.0
+		out = zeros(length(αlist))
+		@threads for i in eachindex(αlist)
+			rmean = mean(begin
+				α = αlist[i]	
+				(Qstar, πstar, steps, rsum) = estimator(α, 1.0, states, sterm, actions, tr, nep, gets0 = gets0, q0 = 0.0, ϵ = 0.1)
+				mean(rsum)
+				end
+			for _ in 1:nruns)
+			out[i] = rmean
+		end
+		return out
+	end
 
+	interim_data(estimator) = generate_data(estimator, 100, 1)
+	asymp_data(estimator) = generate_data(estimator, 100_000, 1)
+	
+	plot(interim_data(expected_sarsa), lab = "Expected Sarsa", style = :dash, xlabel = "α", ylabel = "Sum of rewards per episode")	
+	plot!(interim_data(Q_learning), lab = "Q-learning", style = :dash)	
+	plot!(interim_data(sarsa_onpolicy), lab = "Sarsa", style = :dash)	
+
+	plot!(asymp_data(expected_sarsa), lab = "Expected Sarsa")
+	plot!(asymp_data(Q_learning), lab = "Q-learning")
+	plot!(asymp_data(sarsa_onpolicy), lab = "Sarsa")
 end
+
+# ╔═╡ cafedde8-be94-4697-a511-510a5fea0155
+# ╠═╡ disabled = true
+#=╠═╡
+figure_6_3(cliffworld(wind_actions1))
+  ╠═╡ =#
+
+# ╔═╡ c8500b89-644d-407f-881a-bcbd7da23502
+md"""
+**Figure 6.3** Interim and aymptotic performance shown for TD control methods on cliff-walking task as a function of α.  Dashed lines represent interim performance and solid lines are asymptotic.
+"""
+
+# ╔═╡ 4a152053-9ed6-46e4-8034-84b1c18fa16c
+md"""
+## 6.7 Maximization Bias and Double Learning
+
+### Example 6.7: Maximization Bias Example
+"""
+
+# ╔═╡ 69eedbfd-396f-4461-b7a1-c36abc094581
+function example_6_7_mdp()
+	states = [:A, :B, :term]
+	actions = [:left, :right]; 
+	sterm = Term()
+
+	gets0() = A()
+	
+	# tr(::A, ::Right) = (sterm, 0.0, true)
+	# tr(::A, ::Left) = (B(), 0.0, false)
+	# tr(::B, a) = (sterm, randn(-0.1, 1.0), true)
+
+	function episode(π, lmax = 1000)
+		s = gets0()
+		path = [s]
+		a = π(s)
+		isterm = false
+		l = 1
+		while !isterm && (l < lmax)
+			(s, r, isterm) = tr(s, a)
+			push!(path, s)
+			a = π(s)
+			l += 1
+		end
+		return path
+	end
+	(Qstar, πstar, steps, rsum) = Q_learning(0.1, 1.0, states, sterm, actions, tr, 300, gets0 = gets0)
+end
+
+# ╔═╡ 31acdb5f-5aa1-43a2-a08b-93208d0fae04
+md"""
+$\begin{align}
+H(x) = \begin{cases} 1 \quad \mathrm{if}; x \geq 0 \\
+0 \quad \mathrm{otherwise} 
+\end{cases}
+\end{align}$
+"""
+
+# ╔═╡ 42799973-9884-4a0e-b29a-039890e92d21
+md"""
+> *Exercise 6.13* What are the update equations for Double Expected Sarsa with an ϵ-greedy target policy?
+
+For Q-learning the action-value update equation is:
+
+$Q(S_t, A_t) = Q(S_t, A_t) + \alpha[R_{t+1} + \gamma \text{max}_a Q(S_{t+1}, a) - Q(S_t, A_t)]$
+
+For expected Sarsa the action-value update equation is:
+
+$Q(S_t, A_t) = Q(S_t, A_t) + \alpha [ R_{t+1} + \gamma \sum_a \pi(a|S_{t+1})Q(S_{t+1}, a) - Q(S_t, A_t)]$
+
+For double Q-learning, the twin action-value update equations are:
+
+$Q_1(S_t, A_t) = Q_1(S_t, A_t) + \alpha [ R_{t+1} + \gamma Q_2(S_{t+1}, \text{argmax}_a Q_1(S_{t+1}, a)) - Q_1(S_t, A_t)]$
+
+$Q_2(S_t, A_t) = Q_2(S_t, A_t) + \alpha [ R_{t+1} + \gamma Q_1(S_{t+1}, \text{argmax}_a Q_2(S_{t+1}, a)) - Q_2(S_t, A_t)]$
+
+For double expected sarsa, we have two action-value estimates but they are calculated using a deterministic expected value calculation rather than sampling:
+
+$Q_1(S_t, A_t) = Q_1(S_t, A_t) + \alpha [ R_{t+1} + \gamma \sum_a \pi(a|S_{t+1}) Q_2(S_{t+1}, a) - Q_1(S_t, A_t)]$
+
+$Q_2(S_t, A_t) = Q_2(S_t, A_t) + \alpha [ R_{t+1} + \gamma \sum_a \pi(a|S_{t+1}) Q_1(S_{t+1}, a) - Q_2(S_t, A_t)]$
+
+"""
+
+# ╔═╡ 35dc0d94-145a-4292-b0df-9e84a286c036
+md"""
+## 6.8 Games, Afterstates, and Other Special Cases 
+"""
+
+# ╔═╡ f95ceb98-f12e-4650-9ad3-0609b7ecd0f3
+md"""
+> *Exercise 6.14* Describe how the task of Jack's Car Rental (Example 4.2) could be reformulated in terms of afterstates.  Why, in terms of this specific task, would such a reformulation be likely to speed convergence?
+
+In the original problem the state is the number of cars at each location at the end of the day.  The actions are the net numbers of cars moved between the two locations overnight.  With an afterstate approach, the value function would only consider the number of cars after the movement is performed.  This would be equivalent to valuing the state the following morning when customers begin to return and rent new cars.
+
+The random processes that occur the following day will have a good/bad outcome based on the cars available at each location at the start of the day.  This approach would likely converge faster because we are only modeling the value of the state that is directly related to whether or not cars will be available.  Similar to the tic-tac-toe example, many actions will result in the same afterstate, but equivalent afterstates should have the same value.
+"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1001,7 +1124,7 @@ StatsBase = "~0.33.16"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.7.0"
+julia_version = "1.7.3"
 manifest_format = "2.0"
 
 [[deps.Adapt]]
@@ -1118,7 +1241,7 @@ uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 version = "0.8.6"
 
 [[deps.Downloads]]
-deps = ["ArgTools", "LibCURL", "NetworkOptions"]
+deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 
 [[deps.EarCut_jll]]
@@ -1144,6 +1267,9 @@ deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "JLLWrappers",
 git-tree-sha1 = "d8a578692e3077ac998b50c0217dfd67f21d1e5f"
 uuid = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
 version = "4.4.0+0"
+
+[[deps.FileWatching]]
+uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -1962,6 +2088,15 @@ version = "0.9.1+5"
 # ╠═1583b122-3570-4f93-92c8-4dd6bfa0944d
 # ╠═84584793-8274-4aa1-854f-b167c7434548
 # ╠═667666b9-3ab6-4836-953d-9878208103c9
+# ╠═9f050aa1-8d98-41de-8abd-eb7d1efd121c
 # ╠═6d9ae541-cf8c-4687-9f0a-f008944657e3
+# ╠═cafedde8-be94-4697-a511-510a5fea0155
+# ╟─c8500b89-644d-407f-881a-bcbd7da23502
+# ╟─4a152053-9ed6-46e4-8034-84b1c18fa16c
+# ╠═69eedbfd-396f-4461-b7a1-c36abc094581
+# ╟─31acdb5f-5aa1-43a2-a08b-93208d0fae04
+# ╟─42799973-9884-4a0e-b29a-039890e92d21
+# ╟─35dc0d94-145a-4292-b0df-9e84a286c036
+# ╟─f95ceb98-f12e-4650-9ad3-0609b7ecd0f3
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
