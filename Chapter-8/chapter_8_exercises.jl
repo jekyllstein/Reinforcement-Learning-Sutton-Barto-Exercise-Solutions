@@ -137,6 +137,35 @@ md"""
 For the n = 50 agent, it can learn a policy that covers nearly the entire maze during the second episode.  In the extreme case of a multistep method we would attempt to solve the maze using monte carlo sampling in which case after a single episode we would have action/value updates for every state visited along the random trajectory.  However, these action/value estimates would only be accurate for the random policy as only one step of optimization has been performed.  In contrast, the Dyna method after one randomly wandering episode has presumably captured most of the properties of the maze so during the long planning phase it can do a series of purely bootstrapped Q updates.  As long as something is sampled close to the goal that information will propagate through to the rest of the states and each update is simultaneously improving the ϵ-greedy policy.  With multi-step bootstrapping we can extend the updates back along the trajectory a certain distance, but in the extreme case we just sample values from the random policy without any bootstrapping or we bootstrap to a limited degree close to the goal and still have the lack of information further away from it.  The arbitrarily high number of planning steps can nearly fully optimize the Q function after just one wandering episode of data similar to the benefits of off policy learning in which we are learning a Q function from data gathered from a random policy but instead of actually sampling more trajectories we are just using the model to simulate those transitions with a continually improving Q function.
 """
 
+# ╔═╡ 4f4551fe-54a9-4186-ab8f-3535dc2bf4c5
+md"""
+## 8.3 When the Model Is Wrong
+
+### Example 8.2: Blocking Maze
+"""
+
+# ╔═╡ 24efe9b4-9308-4ad1-8ef0-69f6f93407c0
+md"""
+> *Exercise 8.2* Why did the Dyna agent with exploration bonus, Dyna-Q+, perform better in the first phase as well as in the second phase of the blocking and shortcut experiments?
+
+For the second phase, the maze changed in both cases so the exploration reward bonus in Dyna-Q+ encourages the policy to attempt different actions that have not been visited recently which would result in model updates that reflect the new environment.  For the first phase where the model is accurate, this task may benefit from larger initial exploration than the ϵ of 0.1 provides.  In that case the Dyna-Q+ reward simply acts like if we had a larger ϵ in the first place which may result in faster learning.
+"""
+
+# ╔═╡ 26fe0c28-8f0f-4cff-87fb-76f04fce1be1
+md"""
+> *Exercise 8.3* Careful inspection of Figure 8.5 reveals that the difference between Dyna-Q+ and Dyna-Q narrowed slightly over the first part of the experiment. What is the reason for this?
+
+As long as the environment isn't changing, no matter how small ϵ is both algorithms will converge to the optimal policy.  After more steps the difficiencies of each algorithm will diminish and they will converge to similar performance.
+	"""
+
+# ╔═╡ 340ba72b-172a-4d92-99b2-17687ab511c7
+md"""
+> *Exercise 8.4 (programming)* The exploration bonus described above actually changes the estimated values of states and actions. Is this necessary? Suppose the bonus $\kappa \sqrt{\tau}$ was used not in updates, but solely in action selection. That is, suppose the action selected was always that for which $Q(S_t,a) + \kappa \sqrt{\tau(S_t, a)}$ was maximal. Carry out a gridworld experiment that tests and illustrates the strengths and weaknesses of this alternate approach.
+"""
+
+# ╔═╡ 01f4268e-e947-4057-94a4-19d757be266d
+# need to make a maze environment which has an internal state which tracks how many steps have been simulated and then can alter the maze based on that.  Also need to implement Dyna-Q+ which involves augmenting the history with the time since last visited.  Curious about connection with the benefits of the "simulation" steps here with the generalized policy iteration method where you wait until the action/value function has converged with interative updates without actually changing the policy.  Those updates should apply to all states and benefit from fully using the existing experience.
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -532,5 +561,10 @@ version = "17.4.0+0"
 # ╠═b06b42ed-1a73-4ad6-a3b9-44dbf9d6ad7b
 # ╠═8dbc76fd-ac73-47ca-983e-0e90023390e3
 # ╟─e0cc1ca1-595d-44e2-8612-261df9e2d327
+# ╠═4f4551fe-54a9-4186-ab8f-3535dc2bf4c5
+# ╟─24efe9b4-9308-4ad1-8ef0-69f6f93407c0
+# ╟─26fe0c28-8f0f-4cff-87fb-76f04fce1be1
+# ╟─340ba72b-172a-4d92-99b2-17687ab511c7
+# ╠═01f4268e-e947-4057-94a4-19d757be266d
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
