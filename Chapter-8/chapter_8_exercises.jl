@@ -37,6 +37,7 @@ function tabular_dynaQ(env, sinit, sterm, states::AbstractVector{S}, actions::Ab
 	model = Dict((s, a) => (s, rinit) for s in states for a in actions)
 	aidx_lookup = Dict(zip(actions, 1:length(actions)))
 	steps = zeros(maxepisodes)
+	steprewards = Vector{Float64}()
 
 	for i in 1:maxepisodes
 		s = sinit
@@ -45,6 +46,7 @@ function tabular_dynaQ(env, sinit, sterm, states::AbstractVector{S}, actions::Ab
 			a = actions[aidx]
 			push!(history[s], a)
 			(s′, r) = env(s, a)
+			push!(steprewards, r)
 			Q[s][aidx] += α*(r + γ*maximum(Q[s′]) - Q[s][aidx])
 			model[(s, a)] = (s′, r)
 			s = s′
@@ -59,7 +61,7 @@ function tabular_dynaQ(env, sinit, sterm, states::AbstractVector{S}, actions::Ab
 			steps[i] += 1
 		end	
 	end
-	return Q, model, steps
+	return Q, model, steps, steprewards
 end
 
 # ╔═╡ 65818e67-c146-4686-a9aa-d0859ef662fb
@@ -111,16 +113,46 @@ function create_maze(xmax, ymax, start::GridPoint, goal::GridPoint; obstacles=Se
 	(states = states, actions = actions, start = start, goal = goal, env = env)
 end
 
+# ╔═╡ 773ac9c5-c126-4e7d-b280-299adffcd840
+function create_dynamic_maze(xmax, ymax, start::GridPoint, goal::GridPoint; dynamicobstacles=Dict(typemax(Int64) => Set{GridPoint}()))
+	states = [GridPoint(x, y) for x in 1:xmax for y in 1:ymax if !in((x, y), obstacles)]
+	actions = [Up(), Down(), Left(), Right()]
+	sterm = goal
+
+	function badpoint(s, obstacles)
+		s.x < 1 && return true
+		s.y < 1 && return true
+		s.x > xmax && return true
+		s.y > ymax && return true
+		in(s, obstacles) && return true
+		return false
+	end
+
+	function get_obstacles(τ)
+		k = findfirst(k -> k <= τ, keys(dynamicobstacles))
+		dynamicobstacles[k]
+	end
+		
+	function env(s, a, τ)
+		obstacles = get_obstacles(τ)
+		s′ = move(s, a)
+		badpoint(s′, obstacles) && return (s, 0.0)
+		(s′ == goal) && return (goal, 1.0)
+		return (s′, 0.0)
+	end
+	(states = states, actions = actions, start = start, goal = goal, env = env)
+end
+
 # ╔═╡ c71ae2cb-8492-4bbb-8fff-3f7c6d096563
 maze8_1 = create_maze(9, 6, GridPoint(1, 4), GridPoint(9, 6), obstacles = Set([GridPoint(p...) for p in [(3, 3), (3, 4), (3, 5), (6, 2), (8, 4), (8, 5), (8, 6)]]))
 
 # ╔═╡ cd139745-1877-43a2-97a0-3333e544cbd8
 function figure8_2()
 	results = [[begin
-		Random.seed!(1234)
+		Random.seed!(seed)
 		tabular_dynaQ(maze8_1.env, maze8_1.start, maze8_1.goal, maze8_1.states, maze8_1.actions, 0.1, 0.95, n, 50; qinit=0.0, rinit = 0.0)
 	end
-	for n in [0, 5, 50]] for _ in 1:30]
+	for n in [0, 5, 50]] for seed in 1:30]
 	t1 = scatter(x = 2:50, y = mean(r[1][3] for r in results)[2:end], name = "no planning steps")
 	t2 = scatter(x = 2:50, y = mean(r[2][3] for r in results)[2:end], name = "5 planning steps")
 	t3 = scatter(x = 2:50, y = mean(r[3][3] for r in results)[2:end], name = "50 planning steps")
@@ -144,6 +176,23 @@ md"""
 ### Example 8.2: Blocking Maze
 """
 
+# ╔═╡ 870b7e41-7d1f-4af3-a145-8952a7fc8d78
+maze8_2 = create_maze(9, 6, GridPoint(1, 4), GridPoint(9, 6), obstacles = Set([GridPoint(x, 3) for x in 1:8]))
+
+# ╔═╡ f3f05eb3-db68-44c8-806e-d09127276f4d
+function figure8_4()
+	dynaq_results = tabular_dynaQ(maze8_2.env, maze8_2.start, maze8_2.goal, maze8_2.states, maze8_2.actions, 0.1, 0.95, 5, 250; qinit=0.0, rinit = 0.0)
+
+	# t1 = scatter(y = cumsum(results[1][4]), name = "no planning steps")
+	# t2 = scatter(y = cumsum(results[2][4]), name = "5 planning steps")
+	# t3 = scatter(y = cumsum(results[3][4]), name = "50 planning steps")
+	# plot([t1, t2, t3], Layout(legend_orientation="h"))
+	plot(cumsum(dynaq_results[4]), Layout(title="5 Planning Steps DynaQ vs DynaQ+ on Blocking Maze"))
+end
+
+# ╔═╡ 79069fa0-56bc-4dca-9ccd-873c370bf9f8
+figure8_4()
+
 # ╔═╡ 24efe9b4-9308-4ad1-8ef0-69f6f93407c0
 md"""
 > *Exercise 8.2* Why did the Dyna agent with exploration bonus, Dyna-Q+, perform better in the first phase as well as in the second phase of the blocking and shortcut experiments?
@@ -166,6 +215,61 @@ md"""
 # ╔═╡ 01f4268e-e947-4057-94a4-19d757be266d
 # need to make a maze environment which has an internal state which tracks how many steps have been simulated and then can alter the maze based on that.  Also need to implement Dyna-Q+ which involves augmenting the history with the time since last visited.  Curious about connection with the benefits of the "simulation" steps here with the generalized policy iteration method where you wait until the action/value function has converged with interative updates without actually changing the policy.  Those updates should apply to all states and benefit from fully using the existing experience.
 
+# ╔═╡ d00014fa-1539-4f42-ba63-15c7c9fecfde
+function tabular_dynaQplus(env, sinit, sterm, states::AbstractVector{S}, actions::AbstractVector{A}, α, γ, κ, n, maxepisodes; qinit=0.0, rinit = 0.0) where {S, A}
+	history = Dict(s => Vector{A}() for s in states) #save a record of all visited states and actions taken
+	history_times = Dict{Tuple{S, A}, Int64}()
+	Q = Dict(s => fill(qinit, length(actions)) for s in states)
+	model = Dict((s, a) => (s, rinit) for s in states for a in actions)
+	aidx_lookup = Dict(zip(actions, 1:length(actions)))
+	steps = zeros(maxepisodes)
+	τ = 1
+	
+	steprewards = Vector{Float64}()
+	for i in 1:maxepisodes
+		s = sinit
+		while s != sterm
+			aidx = ϵ_greedy(s, Q)
+			a = actions[aidx]
+			push!(history[s], a)
+			history_times[(s, a)] = τ
+			(s′, r) = env(s, a, τ)
+			push!(steprewards, r)
+			Q[s][aidx] += α*(r + γ*maximum(Q[s′]) - Q[s][aidx])
+			model[(s, a)] = (s′, r)
+			s = s′
+			#planning updates
+			for j in 1:n
+				validstates = filter(s -> !isempty(history[s]), keys(history))
+				s_sim = rand(validstates)
+				a_sim = rand(history[s_sim])
+				aidx_sim = aidx_lookup[a_sim]
+				(s_sim′, r_sim) = model[(s_sim, a_sim)]
+				Q[s_sim][aidx_sim] += α*(r_sim + κ*sqrt(τ - history_times[(s_sim, a_sim)]) + γ*maximum(Q[s_sim′]) - Q[s_sim][aidx_sim])
+			end
+			steps[i] += 1
+			τ += 1
+		end	
+	end
+	return Q, model, steps, steprewards
+end
+
+# ╔═╡ a2dbb1e2-2038-40ee-a2d9-8f5a594dd7a8
+function test_dynaQplus()
+	results = [[begin
+		Random.seed!(seed)
+		tabular_dynaQplus(maze8_1.env, maze8_1.start, maze8_1.goal, maze8_1.states, maze8_1.actions, 0.1, 0.95, 0.0001, n, 50; qinit=0.0, rinit = 0.0)
+	end
+	for n in [0, 5, 50]] for seed in 1:30]
+	t1 = scatter(x = 2:50, y = mean(r[1][3] for r in results)[2:end], name = "no planning steps")
+	t2 = scatter(x = 2:50, y = mean(r[2][3] for r in results)[2:end], name = "5 planning steps")
+	t3 = scatter(x = 2:50, y = mean(r[3][3] for r in results)[2:end], name = "50 planning steps")
+	plot([t1, t2, t3], Layout(legend_orientation="h"))
+end
+
+# ╔═╡ 95d18377-aef7-468c-8b2c-57f82bc7fe91
+test_dynaQplus()
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -183,7 +287,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.0"
 manifest_format = "2.0"
-project_hash = "ba2d8ad00ca2e50d7195032009d266f11fc29242"
+project_hash = "7504e1c35d64e2674406ee5a0b3e63da6ee8eca9"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -410,9 +514,9 @@ version = "0.12.3"
 
 [[deps.Parsers]]
 deps = ["Dates"]
-git-tree-sha1 = "3d5bf43e3e8b412656404ed9466f1dcbf7c50269"
+git-tree-sha1 = "0044b23da09b5608b4ecacb4e5e6c6332f833a7e"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.4.0"
+version = "2.3.2"
 
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
@@ -556,15 +660,22 @@ version = "17.4.0+0"
 # ╟─65818e67-c146-4686-a9aa-d0859ef662fb
 # ╠═4b597372-a1a3-4d00-be58-046ca2e5dcc6
 # ╠═3c556510-d71f-44b3-a765-484d2060fe55
+# ╠═773ac9c5-c126-4e7d-b280-299adffcd840
 # ╠═c71ae2cb-8492-4bbb-8fff-3f7c6d096563
 # ╠═cd139745-1877-43a2-97a0-3333e544cbd8
 # ╠═b06b42ed-1a73-4ad6-a3b9-44dbf9d6ad7b
 # ╠═8dbc76fd-ac73-47ca-983e-0e90023390e3
 # ╟─e0cc1ca1-595d-44e2-8612-261df9e2d327
-# ╠═4f4551fe-54a9-4186-ab8f-3535dc2bf4c5
+# ╟─4f4551fe-54a9-4186-ab8f-3535dc2bf4c5
+# ╠═870b7e41-7d1f-4af3-a145-8952a7fc8d78
+# ╠═f3f05eb3-db68-44c8-806e-d09127276f4d
+# ╠═79069fa0-56bc-4dca-9ccd-873c370bf9f8
 # ╟─24efe9b4-9308-4ad1-8ef0-69f6f93407c0
 # ╟─26fe0c28-8f0f-4cff-87fb-76f04fce1be1
 # ╟─340ba72b-172a-4d92-99b2-17687ab511c7
 # ╠═01f4268e-e947-4057-94a4-19d757be266d
+# ╠═d00014fa-1539-4f42-ba63-15c7c9fecfde
+# ╠═a2dbb1e2-2038-40ee-a2d9-8f5a594dd7a8
+# ╠═95d18377-aef7-468c-8b2c-57f82bc7fe91
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
