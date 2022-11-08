@@ -1,11 +1,14 @@
 ### A Pluto.jl notebook ###
-# v0.19.11
+# v0.19.14
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ 24a0d98e-b015-4ba1-9eb3-c274a9669fef
 using Random, Statistics, PlutoPlotly
+
+# ╔═╡ 2e02b042-aa06-4c24-ad1b-65458d7e1999
+using PlutoUI
 
 # ╔═╡ 61958d96-3dea-11ed-20d2-2f87ba57e036
 md"""
@@ -108,24 +111,119 @@ end
 # ╔═╡ 4ca754f6-6646-410e-9172-e16db829fa09
 example_9_1()
 
+# ╔═╡ 3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
+md"""
+## 9.4 Linear Methods
+"""
+
+# ╔═╡ 6c6c0ef4-0e68-4f50-8c3a-76ed3afb2d20
+md"""
+$\hat v(s, \mathbf{w})\dot = \mathbf{w}^\top \mathbf{x}(x) \dot =\sum_{i=1}^d w_i x_i(s)$ 
+
+The vector $\mathbf{x}(s)$ is called a *feature vector* representing state x which is the same length as the number of parameters contained in $\mathbf{w}$.  For linear methods, features are *basis functions* because they form a linear basis for the set of approximate functions.
+"""
+
+# ╔═╡ f5203959-29ef-406c-abac-4f01fa9630a3
+md"""
+> *Exercise 9.1* Show that tabular methods such as presented in Part I of this book are a special case of linear function approximation.  What would the feature vectors be?
+
+The tabular methods in Part I store a single value estimate for each state.  Such a lookup can be thought of as a function that is simply a map from each state to a value.  The feature vectors for this function would be orthanormal basis vectors of dimension matching the number of states, thus state 1 would be represented by the feature vector [1, 0, 0, ...], state 2 by [0, 1, 0, 0, ...] and so on.  The parameters would simply be the value estimate for each state.
+"""
+
+# ╔═╡ c3da96b0-d584-4a43-acdb-16516e2d0452
+md"""
+## 9.5 Feature Construction for Linear Methods
+"""
+
+# ╔═╡ 0ee3afe9-9c33-45c8-b304-26062675e1b8
+md"""
+### 9.5.1 Polynomials
+"""
+
+# ╔═╡ d65a0ca9-5577-4df8-af77-44ecfbcc0a07
+md"""
+> *Exercise 9.2* Why does (9.17) define $(n+1)^k$ distinct features for dimension $k$?
+n represents the highest power to take for each individual dimension of the state and we consider powers from 0 up to n for each dimension.  If we list the exponent per dimension as a tuple, we have for n = 1, k = 2: (0, 0), (0, 1), (1, 0), (1, 1).
+For n = 1, k = 3: (0, 0, 0), (0, 0, 1), (0, 1, 0), (1, 0, 0), (1, 1, 0), (1, 0, 1), (0, 1, 1), (1, 1, 1).  This pattern consists of tuples of length k which can be formed by selecting from n + 1 choices of exponent.  The number of resulting tuples is $(n+1)^k$
+"""
+
+# ╔═╡ c5adf2d7-0b6b-4a87-974b-a90824d0323b
+md"""
+>*Exercise 9.3* What $n$ and $c_{i, j}$ produce the feature vectors $\mathbf{x}(s)=(1, s_1, s_2, s_1s_2, s_1^2, s_2^2, s_1s_2^2, s_1^2s_2, s_1^2s_2^2)^\top$
+
+Since the highest exponent considered is 2, $n=2$.  For the exponents we can visualize $c_{i, j}$ as the following matrix where rows correspond to $i$ and columns to $j$
+
+
+$\begin{matrix}
+0 & 0\\
+1 & 0\\
+0 & 1\\
+1 & 1\\
+2 & 0\\
+0 & 2\\
+1 & 2\\
+2 & 1\\
+2 & 2\\
+\end{matrix}$
+"""
+
+# ╔═╡ f5501489-46b8-4e5e-aa4f-427d8bc7a9b9
+md"""
+### 9.5.2 Fourier Basis
+### 9.5.3 Coarse Coding
+### 9.5.4 Tile Coding
+
+> *Exercise 9.4* Suppose we believe that one of two state dimensions is more likely to have an effect on the value function than is the other, that generalization should be primarily across this dimension rather than along it.  What kind of tilings could be used to take advantage of this prior knowledge?
+
+We could use striped tilings such that each stripe is the width of several of the important dimension but completely covers the entire space of the other dimension.  That way states that have the same value of the important dimension would be treated similarly regardless of their value in the other dimension and the overlap in the direction of the first dimension would allow some generalization if those states are close to each other along that dimension.
+"""
+
+# ╔═╡ dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
+md"""
+### 9.5.5 Radial Basis Functions
+Requires much more computational complexity to tile coding without much advantage.  Also more fine tuning is required.
+"""
+
+# ╔═╡ 6beee5a8-c262-469e-9b1b-00b91e3b1b55
+md"""
+## 9.6 Selecting Step-Size Parameters Manually
+"""
+
+# ╔═╡ 858a6d4f-2241-43c3-9db0-ff9cec00c2c1
+md"""
+> *Exercise 9.5* Suppose you are using tile coding to transform a seven-dimensional continuous state space into binary feature vectors to estimate a state value function $\hat v(s,\mathbf{w}) \approx v_\pi(s)$.  You believe that the dimensions do not interact strongly, so you decide to use eight tilings of each dimension separately (stripe tilings), for $7 \times 8 = 56$ tilings. In addition, in case there are some pairwise interactions between the dimensions, you also take all ${7\choose2} = 21$ pairs of dimensions and tile each pair conjunctively with rectangular tiles. You make two tilings for each pair of dimensions, making a grand total of $21 \times 2 + 56 = 98$ tilings.  Given these feature vectors, you suspect that you still have to average out some noise, so you decide that you want learning to be gradual, taking about 10 presentations with the same feature vector before learning nears its asymptote. What step-size parameter should you use? Why?
+
+Each tiling will contribute one non-zero element to the feature vector.  With 98 tilings, we have 98 one values in each feature vector so the inner product in equation (9.19) would be $\mathbb{E}\left[\sum_{i=1}^{98} x_i^2 \right]=98$ so $\alpha=\frac{1}{10 \times 98}=\frac{1}{980} \approx 0.001$ 
+	"""
+
+# ╔═╡ be019186-33ad-4eb7-a218-9124ff40b6fb
+md"""
+> *Exercise 9.6* If $\tau=1$ and $\mathbf{x}(S_t)^\top \mathbf{x}(S_t) = \mathbb{E} [\mathbf{x}^\top \mathbf{x}]$, prove that (9.19) together with (9.7) and linear function approximation results in the error being reduced to zero in one update.
+"""
+
+# ╔═╡ 3c91e23b-dff8-4db3-b209-0c6b7f00faba
+PlutoUI.TableOfContents(indent=true)
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
+PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 PlutoPlotly = "~0.3.4"
+PlutoUI = "~0.7.48"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.8.1"
+julia_version = "1.8.2"
 manifest_format = "2.0"
-project_hash = "ba2d8ad00ca2e50d7195032009d266f11fc29242"
+project_hash = "ca4f411998e3e99e4a3df66f98803271c5068019"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -303,6 +401,11 @@ version = "0.3.18"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
+[[deps.MIMEs]]
+git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
+uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
+version = "0.1.4"
+
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
@@ -374,10 +477,10 @@ uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 version = "0.3.4"
 
 [[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "UUIDs"]
-git-tree-sha1 = "2777a5c2c91b3145f5aa75b61bb4c2eb38797136"
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
+git-tree-sha1 = "efc140104e6d0ae3e7e30d56c98c4a927154d684"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.43"
+version = "0.7.48"
 
 [[deps.Preferences]]
 deps = ["TOML"]
@@ -440,7 +543,7 @@ version = "1.0.0"
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
 uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
-version = "1.10.0"
+version = "1.10.1"
 
 [[deps.TensorCore]]
 deps = ["LinearAlgebra"]
@@ -456,6 +559,11 @@ uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 git-tree-sha1 = "6bac775f2d42a611cdfcd1fb217ee719630c4175"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.6"
+
+[[deps.URIs]]
+git-tree-sha1 = "e59ecc5a41b000fa94423a578d29290c7266fc10"
+uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
+version = "1.4.0"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -498,5 +606,19 @@ version = "17.4.0+0"
 # ╠═27ce81c9-4223-4adb-b29c-60ca272a0195
 # ╠═c0c07d6d-4d9b-4cb2-b298-dfe2e4885e76
 # ╠═4ca754f6-6646-410e-9172-e16db829fa09
+# ╟─3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
+# ╟─6c6c0ef4-0e68-4f50-8c3a-76ed3afb2d20
+# ╟─f5203959-29ef-406c-abac-4f01fa9630a3
+# ╟─c3da96b0-d584-4a43-acdb-16516e2d0452
+# ╟─0ee3afe9-9c33-45c8-b304-26062675e1b8
+# ╟─d65a0ca9-5577-4df8-af77-44ecfbcc0a07
+# ╟─c5adf2d7-0b6b-4a87-974b-a90824d0323b
+# ╟─f5501489-46b8-4e5e-aa4f-427d8bc7a9b9
+# ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
+# ╟─6beee5a8-c262-469e-9b1b-00b91e3b1b55
+# ╟─858a6d4f-2241-43c3-9db0-ff9cec00c2c1
+# ╟─be019186-33ad-4eb7-a218-9124ff40b6fb
+# ╟─2e02b042-aa06-4c24-ad1b-65458d7e1999
+# ╟─3c91e23b-dff8-4db3-b209-0c6b7f00faba
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
