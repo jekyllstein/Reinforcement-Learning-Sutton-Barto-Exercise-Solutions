@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.14.7
+# v0.19.4
 
 using Markdown
 using InteractiveUtils
@@ -506,7 +506,7 @@ function estimate_blackjack_state(n, π)
 end
 
 # ╔═╡ 2b9131c1-4d79-4ea3-b51f-7f3380aeb629
-#target policy state value estimate and variance, why is the mean squared error after 1 episode for weighted importance sampling less than the variance of the state values?  Also this value estimate does not match what it says in the book of -0.27726 so there might be something subtlely wrong with my simulator
+#target policy state value estimate and variance, why is the mean squared error after 1 episode for weighted importance sampling less than the variance of the state values?  The reason is after 1 episode of weighted importance sampling, there is a greater than 50% chance of a 0% decision being made resulting in the value estimate not updating from its initial value.  Since that initial value is 0 and episodes are likely to terminate with rewards of -1 or 1, the variance is moved closer to 0 than for truly sampling the target policy rewards
 estimate_blackjack_state(100_000_000, π_blackjack1)
 
 # ╔═╡ 70d9d39f-020d-4f25-810c-82a143a3335b
@@ -517,27 +517,37 @@ const π_rand_blackjack = Dict(s => [0.5, 0.5] for s in blackjackstates)
 estimate_blackjack_state(10_000_000, π_rand_blackjack)
 
 # ╔═╡ d6863551-a254-44b6-b6fe-551d134cdf01
-v_offpol = monte_carlo_pred(π_blackjack1, Dict(s => [0.5, 0.5] for s in blackjackstates), blackjackstates, blackjackactions, blackjackepisode, 1.0, 1_000_000, gets0 = () -> (13, 2, true))
+v_offpol = monte_carlo_pred(π_blackjack1, Dict(s => [0.5, 0.5] for s in blackjackstates), blackjackstates, blackjackactions, blackjackepisode, 1.0, 10_000_000, gets0 = () -> (13, 2, true))
 
 # ╔═╡ c5482c11-1635-4016-bf6a-4c5f01ae66b9
+#confirms that the off policy value estimate is accurate
 v_offpol[1][(13, 2, true)]
 
 # ╔═╡ 303c852d-177c-4ddc-aa53-b72e6e82cc55
-function figure5_3_check(n = 100; ep = 1)
-	v0 = 100.0
+function figure5_3_extra(n = 100; ep = 10^4)
+	v0 = 0.0
 	s0 = (13, 2, true)
 	gets0() = s0
+
 	π_rand = Dict(s => [0.5, 0.5] for s in blackjackstates)
-	vhist_ordinary = [monte_carlo_pred(π_blackjack1, π_rand, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, V0 = v0)[2][ep] for _ in 1:n]
-	vhist_weighted = [monte_carlo_pred(π_blackjack1, π_rand, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, samplemethod = Weighted(), V0 = v0)[2][ep] for _ in 1:n]
-	(vhist_ordinary, vhist_weighted)
+
+	π_b = π_rand
+	# π_b = π_blackjack1
+	
+	vhist_ordinary = reduce(hcat, [monte_carlo_pred(π_blackjack1, π_b, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, V0 = v0)[2] for _ in 1:n])
+	vhist_weighted = reduce(hcat, [monte_carlo_pred(π_blackjack1, π_b, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, samplemethod = Weighted(), V0 = v0)[2] for _ in 1:n])
+	ord_var = var(vhist_ordinary, dims = 2)
+	ord_mean = mean(vhist_ordinary, dims = 2)
+	weighted_var = var(vhist_weighted, dims = 2)
+	weighted_mean = mean(vhist_weighted, dims = 2)
+	plot(ord_var, xaxis = :log, lab = "ordinary variance", yaxis = [-0.5, 2.0])
+	plot!(ord_mean, lab = "ordinary mean")
+	plot!(weighted_var, lab = "weighted variance")
+	plot!(weighted_mean, lab = "weighted mean")
 end
 
 # ╔═╡ 74fc1b42-9784-4968-8c85-f3d0b778fa2f
-(ordcheck, weightcheck) = figure5_3_check(10000, ep = 100)
-
-# ╔═╡ 2a5270d5-5a3d-4535-b302-beaaf7af1222
-(var(ordcheck), var(weightcheck))
+figure5_3_extra(1000)
 
 # ╔═╡ 00cd2194-af13-415a-b725-bb34832e5d9a
 function figure5_3(n = 100)
@@ -1060,7 +1070,7 @@ function visualize_policy_traj2(π)
 	fig = heatmap(track1grid', legend = false, size = 20 .* (size(track1grid)))
 	s0 = (position = (2, 0), velocity = (0, 0))
 	a0 = π[s0]
-	race_episode_star = race_track_episode(s0, a0, s -> π[s], track1, maxsteps = 10000, failchance = 0.0)
+	race_episode_star = race_track_episode(s0, a0, s -> π[s], track1, maxsteps = 100, failchance = 0.0)
 	x = [t[1].position[1] + 4 for t in race_episode_star[1]]
 	y = [t[1].position[2] + 1 for t in race_episode_star[1]]
 	vx = [t[1].velocity[1] for t in race_episode_star[1]]
@@ -1073,10 +1083,10 @@ function visualize_policy_traj2(π)
 end
 
 # ╔═╡ 7c81169f-5ac3-4660-8b0c-8ac737d86271
-visualize_policy_traj(πstar_racetrack1)
+visualize_policy_traj2(πstar_racetrack1)
 
 # ╔═╡ 8645934b-a141-41e4-ae5b-6a0a86a94156
-visualize_policy_traj(πstar_racetrack2)
+visualize_policy_traj2(πstar_racetrack2)
 
 # ╔═╡ 2a13fdd4-97b5-4b65-8cb5-a0124ecf3dac
 visualize_policy_traj(πstar_racetrack3)
@@ -1138,6 +1148,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
@@ -1150,7 +1161,7 @@ StatsBase = "~0.33.16"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.7.0"
+julia_version = "1.7.2"
 manifest_format = "2.0"
 
 [[deps.Adapt]]
@@ -2086,7 +2097,6 @@ version = "0.9.1+5"
 # ╠═c5482c11-1635-4016-bf6a-4c5f01ae66b9
 # ╠═303c852d-177c-4ddc-aa53-b72e6e82cc55
 # ╠═74fc1b42-9784-4968-8c85-f3d0b778fa2f
-# ╠═2a5270d5-5a3d-4535-b302-beaaf7af1222
 # ╠═00cd2194-af13-415a-b725-bb34832e5d9a
 # ╠═1a97b3de-1aaa-4f51-b358-5c5f2b1d0851
 # ╟─e10378eb-12b3-4468-9c22-1838107da450
