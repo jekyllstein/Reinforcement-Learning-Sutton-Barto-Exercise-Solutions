@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.14
+# v0.19.15
 
 using Markdown
 using InteractiveUtils
@@ -68,11 +68,13 @@ $S \leftarrow S^\prime$
 # ╔═╡ d06375b3-f377-45a6-be16-01b22c5a2b3f
 md"""
 > *Exercise 10.5* What equations are needed (beyond 10.10) to specify the differential version of TD(0)?
+
+10.10 includes a reward estimate at time t, $\bar R_t$, which also needs to be updated.  The TD error represents the newly observed reward the was experienced in excess of the estimated average to the update equation should move $\bar R$ in the direction of the TD error.
 """
 
 # ╔═╡ 2c6951f9-33cb-400e-a83a-1a16f2ee0870
 md"""
-> *Exercise 10.6* Suppose there is an MDP that under any policy produces the deterministic sequence of rewards +1, 0, +1, 0, +1, 0, . . . going on forever. Technically, this violates ergodicity; there is no stationary limiting distribution $μ_\pi$ and the limit (10.7) does not exist. Nevertheless, the average reward (10.6) is well defined. What is it? Now consider two states in this MDP. From A, the reward sequence is exactly as described above, starting with a +1, whereas, from B, the reward sequence starts with a 0 and then continues with +1, 0, +1, 0, . . .. We would like to compute the di↵erential values of A and B. Unfortunately, the di↵erential return (10.9) is not well defined when starting from these states as the implicit limit does not exist. To repair this, one could alternatively define the differential value of a state as $v_\pi (s) \dot = \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} \sum_{t=0}^h \gamma^t \left ( \mathbb{E_\pi} [R_{t+1}|S_0=s]-r(\pi)  \right )$.  Under this definition what are the differential values of states A and B?
+> *Exercise 10.6* Suppose there is an MDP that under any policy produces the deterministic sequence of rewards +1, 0, +1, 0, +1, 0, . . . going on forever. Technically, this violates ergodicity; there is no stationary limiting distribution $μ_\pi$ and the limit (10.7) does not exist. Nevertheless, the average reward (10.6) is well defined. What is it? Now consider two states in this MDP. From A, the reward sequence is exactly as described above, starting with a +1, whereas, from B, the reward sequence starts with a 0 and then continues with +1, 0, +1, 0, . . .. We would like to compute the di↵erential values of A and B. Unfortunately, the differential return (10.9) is not well defined when starting from these states as the implicit limit does not exist. To repair this, one could alternatively define the differential value of a state as $v_\pi (s) \dot = \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} \sum_{t=0}^h \gamma^t \left ( \mathbb{E_\pi} [R_{t+1}|S_0=s]-r(\pi)  \right )$.  Under this definition what are the differential values of states A and B?
 
 The average reward is 0.5 per step.
 
@@ -91,41 +93,137 @@ From 10.13 we have
 
 $v_\pi (s) \dot = \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} \sum_{t=0}^h \gamma^t \left ( \mathbb{E_\pi} [R_{t+1}|S_0=s]-r(\pi)  \right )$
 
-The average reward per step is $\frac{1}{3}$ so we can apply the same method used in exercise 10.6.  Now we need the value of the following infinite sums:
+The average reward per step is $\frac{1}{3}$ so we can apply the same method used in exercise 10.6 where the elements inside the parentheses of the sum are: $\frac{2}{3}$ for $C \rightarrow A$ and $-\frac{1}{3}$ for the other two.  Starting in state A we transition twice and then on the third arrive in state A leading to the following mean corrected values of $-\frac{1}{3}$, $-\frac{1}{3}$, and $\frac{2}{3}$.  The other states will have these values cyclically permuted leading to the following infinite sums:
 
 For state A:
-$\frac{2}{3} - \frac{1}{3}\gamma - \frac{1}{3} \gamma^2 + \frac{2}{3}\gamma^3 + \cdots = 3 \times (2 - \gamma - \gamma^2 + 2\gamma^3 + \cdots)$
-
-For state B:
 $-\frac{1}{3} - \frac{1}{3}\gamma + \frac{2}{3}\gamma^2 - \frac{1}{3}\gamma^3 - \frac{1}{3}\gamma^4 + \cdots$
 
-For state C:
+For state B:
 $-\frac{1}{3} + \frac{2}{3}\gamma - \frac{1}{3}\gamma^2 - \frac{1}{3}\gamma^3 + \frac{2}{3}\gamma^4 + \cdots$
+
+For state C:
+$\frac{2}{3} - \frac{1}{3}\gamma - \frac{1}{3} \gamma^2 + \frac{2}{3}\gamma^3 + \cdots = 3 \times (2 - \gamma - \gamma^2 + 2\gamma^3 + \cdots)$
 
 Comparing these sequences we have:
 
-$\gamma \times v(A) = v(C) + \frac{1}{3}$
-$\gamma \times v(B) = v(A) - \frac{2}{3}$
-$\gamma \times v(C) = v(B) + \frac{1}{3}$
+$\gamma \times v(A) = v(C) - \frac{2}{3} \implies v(A) = \frac{v(C) - \frac{2}{3}}{\gamma}$
+$\gamma \times v(B) = v(A) + \frac{1}{3} \implies v(A) = \gamma \times v(B) - \frac{1}{3}$
 
+so
 
-$\gamma \times v(A) = \frac{\frac{v(A) - \frac{2}{3}}{\gamma} + \frac{1}{3}}{\gamma} + \frac{1}{3}$
+$\frac{v(C) - \frac{2}{3}}{\gamma} = \gamma \times v(B) - \frac{1}{3} \implies v(C) = \gamma \left ( \gamma \times v(B) - \frac{1}{3} \right ) + \frac{2}{3}$
 
-$\gamma^2 \times v(A) = \frac{v(A) - \frac{2}{3}}{\gamma} + \frac{1}{3} + \frac{\gamma}{3}$
+also 
 
-$\gamma^3 \times v(A) = v(A) - \frac{2}{3} + \frac{\gamma}{3} + \frac{\gamma^2}{3}$
+$\gamma \times v(C) = v(B) + \frac{1}{3} \implies v(C) = \frac{v(B) + \frac{1}{3}}{\gamma}$
 
-$v(A) (\gamma^3 - 1) = - \frac{2}{3} + \frac{\gamma}{3} + \frac{\gamma^2}{3}$
+Equation the two sides for $v(C)$ that only contain $v(B)$ terms we have:
 
-$v(A) = \frac{-2 +\gamma + \gamma^2}{3 \times (\gamma^3 - 1)}$
+$\frac{v(B) + \frac{1}{3}}{\gamma} = \gamma \left ( \gamma \times v(B) - \frac{1}{3} \right ) + \frac{2}{3}$
 
-$v(A) = \frac{(\gamma + 1)(\gamma - 1)}{3 \times (\gamma-1)(\gamma^2+\gamma+1)} = \frac{(\gamma + 1)}{3 \times (\gamma^2+\gamma+1)}$
+$v(B) = \gamma \left ( \gamma \left ( \gamma \times v(B) - \frac{1}{3} \right ) + \frac{2}{3} \right ) - \frac{1}{3} = \gamma^3 v(B) - \gamma^2 \frac{1}{3} + \gamma\frac{2}{3} - \frac{1}{3}$
+
+$v(B) \left ( 1 - \gamma^3 \right ) = - \gamma^2 \frac{1}{3} + \gamma\frac{2}{3} - \frac{1}{3} \implies v(B) = \frac{- \gamma^2 \frac{1}{3} + \gamma\frac{2}{3} - \frac{1}{3}}{1 - \gamma^3}$
+
+$v(B) = -\frac{1}{3} \frac{\gamma^2 - 2\gamma + 1}{1 - \gamma^3} = -\frac{1}{3} \frac{(\gamma - 1)^2}{-(\gamma - 1)(\gamma^2 + \gamma + 1)} = \frac{1}{3} \frac{\gamma - 1}{\gamma^2 + \gamma + 1}$
 
 Therefore, 
 
-$\lim_{\gamma \rightarrow 1} v(A) =\frac{2}{9}$
-$\lim_{\gamma \rightarrow 1} v(B) = v(A) - \frac{2}{3}=\frac{2}{9}-\frac{6}{9}=-\frac{4}{9}$
-$\lim_{\gamma \rightarrow 1} v(C) = v(B) + \frac{1}{3}=-\frac{4}{9}+\frac{3}{9}=-\frac{1}{9}$
+$\lim_{\gamma \rightarrow 1} v(B) = \frac{1}{3} \frac{1 - 1}{3} = 0$
+$\lim_{\gamma \rightarrow 1} v(A) = \gamma \times 0 - \frac{1}{3} = -\frac{1}{3}$
+$\lim_{\gamma \rightarrow 1} v(C) =  \frac{0 + \frac{1}{3}}{\gamma} = \frac{1}{3}$
+"""
+
+# ╔═╡ 9aeacb77-5c2b-4244-878f-eb5d52af49e0
+md"""
+> *Exercise 10.8* The pseudocode in the box on page 251 updates $\bar R_t$ using $\delta_t$ as an error rather than simply $R_{t+1} - \bar R_t$.  Both errors work, but using $\delta_t$ is better.  To see why, consider the ring MRP of three states from Exercise 10.7.  The estimate of the average reward should tend towards its true value of $\frac{1}{3}$.  Suppose it was already there and was held stuck there.  What would the sequence of $R_{t+1} - \bar R_t$ errors be?  What would the sequence of $\delta_t$ errors be (using Equation 10.10)?  Which error sequence would produce a more stable estimate of the average reward if the estimate were allowed to change in response to the errors? Why?
+
+The sequence of $R_{t+1} - \bar R_t$ would be given by the cyclical sequence of rewards.  Let's assume we start the sequence at state A.  Then our reward sequence will be 0, 0, 1, 0, 0, 1... so the error sequence will be $-\frac{1}{3}$, $-\frac{1}{3}$, $\frac{2}{3}$,...  If we update the average error estimate using these corrections it would remain centered at the correct value but fluctuate up and down with each correction.
+
+In order to calculate $\delta_t$ we must use the definition given by 10.10:
+
+$\delta_t = R_{t+1} - \bar R_t + \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t)$
+
+This equation requires us to have value estimates for each state which we can assume have converged to the true values as we have for the average reward estimate: $\hat v(A) = -\frac{1}{3}$, $\hat v(B) = 0$, and $\hat v(C) = \frac{1}{3}$.  Starting at state A, $\delta_t = 0 - \frac{1}{3} + 0 - -\frac{1}{3} = 0$.  For the following state we have $0 - \frac{1}{3} + \frac{1}{3} - 0$.  Finally we have $1 - \frac{1}{3} + -\frac{1}{3} - \frac{1}{3} = 0$.  So if we use the TD error to update our average reward estimate, at equilibrium all the values will remain unchanged.
+
+"""
+
+# ╔═╡ 38f9069b-1675-4012-b3e7-74ddbdfd73cb
+md"""
+# 10.4 Deprecating the Discounted Setting
+
+In a special case of indistinguishable states, we can only use the actions and reward sequences to analyze a continuing task.  For a policy $\pi$, the average of the discounted returns with discount factor $\gamma$ is always $\frac{r(\pi)}{1-\gamma}$.  Therefore the *ordering* of all policies is independent of the discount rate and would match the ordering we get in the average reward setting.  This derivation however depends on states being indistinguishable allowing us to match up the weights on reward sequences from different policies.
+
+We can use discounting in approximate solution methods regardless but then $\gamma$ changes from a problem parameter to a solution method parameter.  Unfortunately, discounting algorithms with function approximation do not optimize discounted value over the on-policy distribution, and thus are not guaranteed to optimze average reward.
+
+The root cause of the problem applying discounting with function approximation is that we have lost the policy improvement theorem which states that a policy $\pi^\prime$ is better than policy $\pi$ if $v_{\pi^\prime}(s) \geq v_\pi(s) \forall s\in \mathcal{S}$.  Under this theorem we could take a deterministic policy, choose a specific state, and find a new action at that state with a higher expected reward than the current policy.  If the policy is an approximation function that uses states represented by feature vectors, then adjusting the parameters can in general affect the actions at many states including ones that have not been encountered yet.  In fact, with approximate solution methods we cannot guarantee  policy improvement in any setting.  Later we will introduce a theoretical guarantee called the "policy-gradient theorem" but for an alternative class of algorithms based on parametrized policies.
+"""
+
+# ╔═╡ c0318318-5ca4-4dea-86da-9092cd774656
+md"""
+Applying the derivation of discount independence to the MDP in exercise 3.22 who's optimal policy depends on $\gamma$
+
+$J(\pi) = \sum_s \mu_\pi(s)v_\pi^\gamma(s)$
+
+Consider $\pi_{left}$: $J(\pi_{left})=0.5 \times (1 + 0 + \gamma^2 + 0 + \gamma^4 + 0 + \cdots) + 0.5 \times(0 + \gamma + 0 + \gamma^3 + 0 + \gamma^5 + \cdots)$
+$J(\pi_{left}) = 0.5 \times (1 + \gamma + \gamma^2 + \gamma^3 + \gamma^4 + \gamma^5 + \cdots)$
+
+Consider $\pi_{right}$: $J(\pi_{right})=0.5 \times (0 + 2\gamma + 0 + 2\gamma^3 + 0 + \cdots) + 0.5 \times(2 + 0 + 2\gamma^2 + 0 + 2\gamma^4 + \cdots)$
+$J(\pi_{right}) = 0.5 \times 2 \times (1 + \gamma + \gamma^2 + \gamma^3 + \gamma^4 + \gamma^5 + \cdots)$
+
+So both average reward values have the same factor for the discount rate and thus the right policy appears better since the average reward value is higher.  Previously, we had calculated that a discount rate less than 0.5 made the left policy favorable since the reward was obtained sooner going left vs right.  In the original problem we can consider the value of the top state for both left and right policies:
+$v_{\pi_{left}} (top) = 1 + 0 + \gamma^2 + 0 + \gamma^4 + \cdots = 1 + \gamma^2 + \gamma^4 + \cdots$
+$v_{\pi_{right}} (top) = 0 + 2\gamma + 0 + 2\gamma^3 + \cdots = 2 \times (\gamma + \gamma^3 + \cdots) = 2\gamma(v_{\pi_{left}}(top))$
+
+Clearly for $\gamma > 0.5$ the right policy is better.
+
+Similarly, we can consider the value of the left state for both left and right policies:
+$v_{\pi_{left}} (left) = 0 + \gamma + 0 + \gamma^3 + \cdots = \gamma + \gamma^3 + \cdots$
+$v_{\pi_{right}} (left) = 0 + 0 + 2\gamma^2 + 0  + 2\gamma^4 + \cdots = 2 \times (\gamma^2 + \gamma^4 + \cdots) = 2\gamma(v_{\pi_{left}}(left))$
+
+Again, for $\gamma > 0.5$ the right policy is better.
+
+And finally for the right state:
+$v_{\pi_{left}} (right) = 2 + \gamma + 0 + \gamma^3 + 0 + \gamma^5 \cdots = 2+\gamma(1 + \gamma^2 + \gamma^4 + \cdots)=2 + \frac{\gamma}{1-\gamma^2}$ 
+$= \frac{2(1-\gamma^2) + \gamma}{1-\gamma^2} = \frac{2 - 2\gamma^2 + \gamma}{1-\gamma^2}$
+$v_{\pi_{right}} (right) = 2 + 0 + 2\gamma^2 + 0 + 2\gamma^4 +  \cdots = 2 \times (1+\gamma^2 + \gamma^4 + \cdots) = \frac{2}{1-\gamma^2}$
+
+$\frac{v_{\pi_{left}} (right)}{v_{\pi_{right}} (right)}=\frac{2 - 2\gamma^2 + \gamma}{2}$
+
+For $\gamma=0$ this quantity is 1 meaning the policies are equal and for $\gamma=1$ this quantity is 0.5 meaning that the right policy is better.  At $\gamma=0.5$ the quantity is $\frac{2 - 0.5 + 0.5}{2}=\frac{2}{2}=1$ meaning they are equal.  The maximum value occurs at $2\gamma = 0.5 \implies \gamma = 0.25$ with a ratio value of $\frac{2 - 0.125 + 0.25}{2}=\frac{2.125}{2}=1.0625$ meaning that the left policy is slightly better or equal from $0 \leq \gamma \leq 0.5$ and worse at $\gamma > 0.5$ which matches the earlier states.
+"""
+
+# ╔═╡ b1319fd7-5043-41d9-8971-ad88725f2d3c
+md"""
+The reason why the left policy can be better if $\gamma < 0.5$ in the original example is because it has a higher value in each state considered.  Consider $\gamma = 0.25$.  The left policy has the following approximate discounted value estimates for top, left, right: 
+
+1.0667, 0.2667, 2.2667. 
+
+Meanwhile the right policy has the corresponding values of: 
+
+0.533, 0.133, 2.133.
+
+Each value is smaller for the right policy.  However when we calculate the average value calculated over the long term distribution of states, the left policy averages the first two values while the right policy averages the first and third values because in the long run we expect the left policy to only exist in the top and left state while the right policy will exist in the top and right state.  Because the right state has such a high value for both policies but only the right policy includes it in the average it makes its entire objective estimate higher.  However, we can see that in the event of being in the right state, it is still a higher value expectation following the left policy in this case.  The decision to average based on the final distribution results in a policy ordering that doesn't match with what we know to be the optimal policy from the policy improvement theorem over finite states.
+"""
+
+# ╔═╡ e1e21ba6-07a6-4c35-ba71-0eaf6ccf74d6
+md"""
+# 10.5 Differential Semi-gradient *n*-step Sarsa
+"""
+
+# ╔═╡ a649e52b-e428-4f13-8628-7373b1163a4e
+md"""
+> *Exercise 10.9* In the differential semi-gradient n-step Sarsa algorithm, the step-size parameter on the average reward, $\beta$, needs to be quite small so that $\bar R$ becomes a good long-term estimate of the average reward. Unfortunately, $\bar R$ will then be biased by its initial value for many steps, which may make learning inefficient. Alternatively, one could use a sample average of the observed rewards for $\bar R$. That would initially adapt rapidly but in the long run would also adapt slowly. As the policy slowly changed, $\bar R$ would also change; the potential for such long-term nonstationarity makes sample-average methods ill-suited. In fact, the step-size parameter on the average reward is a perfect place to use the unbiased constant-step-size trick from Exercise 2.7. Describe the specific changes needed to the boxed algorithm for differential semi-gradient n-step Sarsa to use this trick.
+
+At the start initialize $\bar o = 0$ and select $\lambda > 0$ small instead of $\beta$. 
+
+Within the loop under the $\tau \geq 0$ line, add two lines; one to update $\bar o$ and one to calculate the update rate for the average reward: 
+
+Line 1: $\bar o \leftarrow \bar o + \lambda (1 - \bar o)$
+
+Line 2: $\beta = \lambda / \bar o$
+
+As steps progress $\beta$ will approach $\lambda$ but early on will take on much larger values as $\bar o$ starts close to 0 and approaches 1.
 """
 
 # ╔═╡ 685d31f0-7394-4a20-b9d0-3838b6d5645c
@@ -144,9 +242,9 @@ PlutoUI = "~0.7.48"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.8.2"
+julia_version = "1.8.3"
 manifest_format = "2.0"
-project_hash = "502a5e5263da26fcd619b7b7033f402a42a81ffc"
+project_hash = "97be6e027681c6ecfa37671630e179d506eb1167"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -399,6 +497,12 @@ version = "17.4.0+0"
 # ╟─d06375b3-f377-45a6-be16-01b22c5a2b3f
 # ╟─2c6951f9-33cb-400e-a83a-1a16f2ee0870
 # ╟─4a67aeba-dfaf-480d-84eb-7b8bcda549cb
+# ╟─9aeacb77-5c2b-4244-878f-eb5d52af49e0
+# ╟─38f9069b-1675-4012-b3e7-74ddbdfd73cb
+# ╟─c0318318-5ca4-4dea-86da-9092cd774656
+# ╟─b1319fd7-5043-41d9-8971-ad88725f2d3c
+# ╟─e1e21ba6-07a6-4c35-ba71-0eaf6ccf74d6
+# ╟─a649e52b-e428-4f13-8628-7373b1163a4e
 # ╠═310988d9-80f1-4fcd-9272-91908d1d367b
 # ╠═685d31f0-7394-4a20-b9d0-3838b6d5645c
 # ╟─00000000-0000-0000-0000-000000000001
