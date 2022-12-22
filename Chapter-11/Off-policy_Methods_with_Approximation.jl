@@ -79,6 +79,19 @@ md"""
 ### Baird Setup Functions
 """
 
+# ╔═╡ c044414e-77d5-4a54-865e-dca4a879cd30
+function make_baird_dynamics()
+	states = 1:7
+	actions = 1:2
+	
+	#dashed action takes system to one of six upper states with equal probability 
+	dash = [s′ <= 6 ? 1/6 : 0.0 for s′ in states][:, [1]] #turn into matrix
+	#solid action takes system to the 7th state
+	solid = [s′ == 7 ? 1.0 : 0.0 for s′ in states][:, [1]]
+	
+	Dict((s, a) => a == 1 ? dash : solid for s in states for a in actions)
+end
+
 # ╔═╡ d2033a7d-3d9d-4983-8fd1-b4e6ee015080
 function bairdtransition(s::Int64, a::Int64)
 	if a == 1 #dashed action takes system to one of the six upper states with equal probability
@@ -147,21 +160,33 @@ struct Continuing_MDP{S}
 	step::Function
 end
 
+# ╔═╡ 77ca116d-675d-4db5-8a68-53d1085528f4
+#step is a dictionary that maps state/action pairs to a matrix describing the distribution over possible subsequent state/reward pairs.  The value in each position is the probability of that transition occuring
+struct Episodic_Full_Finite_MDP{S} <: MDP_Environment
+	states::Vector{S}
+	actions
+	rewards::Vector{Float64}
+	step::Dict{Tuple{S, Int64}, Matrix{Float64}}
+	sterm::S
+	γ::Float64
+end
+
 # ╔═╡ 8efa076f-d14d-44ab-bc03-e7ff964bc3b3
 #On Policy Episodic Semi-gradient TD0 Value Estimation
 #update weight vector that act as parameters for a value function estimate and its gradient.  Weight updates will occur to optimize value function according to the policy π.  The function will modify the initially provided weight vector but also keep track of the weight vector history for the purpose of tracking progress of the value function over time
-function semi_gradient_TD0_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; α = 0.01)	
+function semi_gradient_TD0_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; α = 0.01, maxeplength = Inf)	
 	s0 = rand(mdp.states)
 	w_history = [copy(w)]
-	@tailrec function step!(s, nmax)
+	@tailrec function step!(s, nmax, eplength = 0)
 		nmax == 0 && return nothing
 		s == mdp.sterm && return step!(rand(mdp.states), nmax-1)
+		eplength > maxeplength && return step!(rand(mdp.states), nmax)
 		a = sample(mdp.states, pweights(π(s)))
 		(s′, r) = mdp.step(s, a)
 		δ =  r .+ (mdp.γ .* v̂(s′, w)) .- v̂(s, w) 
 		w .+= α .* δ .* ∇v̂(s, w)
 		push!(w_history, copy(w))
-		step!(s′, nmax-1)
+		step!(s′, nmax-1, eplength + 1)
 	end
 	step!(s0, maxsteps)
 	return w_history
@@ -227,6 +252,7 @@ function semi_gradient_DP_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, �
 			#calculate expected value of delta by multiplying the discounted reward expectations by the target policy distribution and dividing by the sum in case the provided policy distribution is not normalized
 			((ℰ / sum(ρ)) - v̂(s, w)) .* ∇v̂(s, w)
 		end
+		#note that this uniformly samples over states which effectively is doing a behavior policy with a uniform distribution rather than using μ(s).  This is fine in the non-approximate case because each state is updated independently but convergence will be worse if state visits for the policy in question doesn't match uniform.
 		for s in mdp.states)
 		w .+= α .* δ ./ length(mdp.states)
 		push!(w_history, copy(w))
@@ -236,8 +262,37 @@ function semi_gradient_DP_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, �
 	return w_history
 end
 
+# ╔═╡ c3ad2cdc-6e85-48a7-a746-c7599f80a126
+#On Policy Episodic Semi-gradient DP Value Estimation
+#update weight vector that act as parameters for a value function estimate and its gradient.  Weight updates will occur to optimize value function according to the target policy π.  The function will modify the initially provided weight vector but also keep track of the weight vector history for the purpose of tracking progress of the value function over time
+function semi_gradient_DP_v̂!(π::Function, mdp::Episodic_Full_Finite_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; α = 0.01, μ = Dict(s => 1.0 /length(mdp.states) for s in mdp.states))	
+	w_history = [copy(w)]
+	nactions = length(π(mdp.states[1]))
+	@tailrec function step!(nmax)
+		nmax == 0 && return nothing
+		v̂s = [v̂(s′, w) for s′ in mdp.states]
+		δ = sum(begin
+			ρ = π(s)
+			ℰ = sum(begin
+				δ = sum(mdp.step[(s, a)]' * (mdp.rewards' .+ v̂s .* mdp.γ))
+				δ * ρ[a]
+			end
+			for a in 1:nactions)
+			#calculate expected value of delta by multiplying the discounted reward expectations by the target policy distribution and dividing by the sum in case the provided policy distribution is not normalized
+			μ[s] .* (((ℰ / sum(ρ)) - v̂(s, w)) .* ∇v̂(s, w))
+		end
+		#note that this uniformly samples over states which effectively is doing a behavior policy with a uniform distribution rather than using μ(s).  This is fine in the non-approximate case because each state is updated independently but convergence will be worse if state visits for the policy in question doesn't match uniform.
+		for s in mdp.states)
+		w .+= α .*  δ ./ sum(μ[s] for s in mdp.states)
+		push!(w_history, copy(w))
+		step!(nmax-1)
+	end
+	step!(maxsteps)
+	return w_history
+end
+
 # ╔═╡ ad6c8986-8fb0-4682-ade8-ebb76b4c829a
-function figure11_2(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 1.])
+function figure11_2(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 1.], γ = 0.99)
 	epmax = 1000
 	
 	bairdfeatures = [
@@ -254,24 +309,39 @@ function figure11_2(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 1.]
 	v̂(s, w) = w' * bairdfeatures[s]
 	∇v̂(s, w) = bairdfeatures[s]
 
-	mdp = Episodic_MDP(collect(1:7), [1, 2], bairdtransition, 0, 0.99)
+	mdp = Episodic_MDP(collect(1:7), [1, 2], bairdtransition, 0, γ)
+	fullmdp = Episodic_Full_Finite_MDP(collect(1:7), [1, 2], [0.0], make_baird_dynamics(), 0, γ)
 
-	w_history_onpolicy = semi_gradient_TD0_v̂!(bairdπ, mdp, v̂, ∇v̂, initializeweights(), 20000)
+	#change the on policy state visit distribution to match the target policy.  setting x close to 1 will better match the policy which only stays in state 7
+	μ_π(x) = Dict(s => s == 7 ? x : (1.0 - x) / 6 for s in 1:7)
+
+	w_history_onpolicy = semi_gradient_TD0_v̂!(bairdπ, mdp, v̂, ∇v̂, initializeweights(), 10000, maxeplength = 1000)
 	w_history_offpolicy = semi_gradient_TD0_v̂!(bairdπ, bairdbehavior, mdp, v̂, ∇v̂, initializeweights(), epmax)
-	w_history_DP = semi_gradient_DP_v̂!(bairdπ, mdp, v̂, ∇v̂, initializeweights(), epmax)
-
+	# w_history_DP = semi_gradient_DP_v̂!(bairdπ, mdp, v̂, ∇v̂, initializeweights(), epmax)
+	w_history_DP = semi_gradient_DP_v̂!(bairdπ, fullmdp, v̂, ∇v̂, initializeweights(), epmax)
+	w_history_DP2 = semi_gradient_DP_v̂!(bairdπ, fullmdp, v̂, ∇v̂, initializeweights(), 10000, μ = μ_π(1.0))
+	
 	function plot_weights(w_history, title; legend = true)
 		l = length(w_history)
-		traces = [scatter(x = 1:l, y = [w[i] for w in w_history], name = "w_$i") for i in 1:8]
+		traces = [scatter(x = 1:l, y = [w[i] for w in w_history], name = "w_$i") for i in 1:length(initializeweights())]
 		Plot(traces, Layout(showlegend=legend, title=title, legend_orientation="h"))
 	end
 
+	calc_v̂s(w) = [v̂(s, w) for s in mdp.states]
+	plotvalue(w, name) = scatter(x = 1:7, y = calc_v̂s(w), name = name)
 	v_onpolicy = [v̂(s, w_history_onpolicy[end]) for s in mdp.states]
 	p1 = plot_weights(w_history_onpolicy, "On Policy TD")
 	p2 = plot_weights(w_history_offpolicy, "Off Policy TD")
 	p3 = plot_weights(w_history_DP, "Semi-gradient DP")
-	(v_onpolicy, p1, p2)
-	plot([p1 p2; p3])
+	p4 = plot_weights(w_history_DP2, "Semi-gradient DP On-policy Distribution")
+	valuetraces = [plotvalue(a...) for a in [(w_history_onpolicy[end], "On Policy TD"), (w_history_offpolicy[end], "Off Policy TD"), (w_history_DP[end], "Semi-gradient DP"), (w_history_DP2[end], "Semi-gradient DP On-policy Distribution")]]
+	p5 = plot(valuetraces, Layout(title = "Value Estimates", xaxis_title = "State", legend_orientation="h"))
+	md"""
+	$(plot([p1 p2; p3 p4]))
+	$p5
+
+	Note that if we correct the dynamic programming method for the on policy distribution we recover the convergence properties of on policy TD.  However because of the target policy repeatedly visiting state 7, only the parameters for that state have a chance of being updated.  So we can expect an accurate value estimate for state 7 based on updates to weights 7 and 8 but not for the other states since weights 1 through 6 won't be affected by updates
+	"""
 end
 
 # ╔═╡ fcef571c-9656-42e4-9a85-e13c3ed51edb
@@ -287,7 +357,7 @@ md"""
 
 # ╔═╡ a9264500-167f-4883-8514-d3fb962ef143
 md"""
-The following weight updates are calculated to minimize the average estimation error for each transition weighted by the probability of experiencing that transition.
+The following weight updates are calculated to minimize the average estimation error for each transition weighted by the probability of experiencing that transition. (Note that vs equation (9.1) this is missing the on policy distribution over states).
 $\begin{flalign}
 w_{k+1} &= \text{argmin}_{w \in \mathbb{R}} \enspace \sum_{s \in \mathcal{S}} \left ( \hat v(s, w) - \mathbb{E}_\pi[R_{t+1} + \gamma \hat v(S_{t+1}, w_k) | S_t = s] \right )^2\\ 
 &= \text{argmin}_{w \in \mathbb{R}} \enspace (w - \gamma2w_k)^2 + (2w - (1-\epsilon)\gamma2w_k)^2\\
@@ -299,6 +369,42 @@ w &= \gamma w_k \frac{4(3 - 2\epsilon)}{10} = \gamma w_k \frac{6 - 4\epsilon}{5}
 \end{flalign}$
 
 What if $\gamma > \frac{5}{6-4\epsilon}$?  In this case the factor multiplying $w_k$ on each update is greater than 1, thus the weight will diverge under any condition except where the initial value is 0.
+
+In the first equation we didn't correctly account for the on policy distribution over states.  To calculate this we need to first get the expected value of state visits.  For simplicity assume that episodes always begin in state 1:
+
+$\begin{flalign}
+\eta(1) &= 1\\
+\eta(2) &= 2 + \frac{1 - \epsilon}{\epsilon} = \frac{1+\epsilon}{\epsilon}\\
+\sum_{s}\eta(s) &= 1 + \frac{1+\epsilon}{\epsilon} = \frac{1+2\epsilon}{\epsilon}\\
+\mu(1) &= \frac{\epsilon}{1+2\epsilon}\\
+\mu(2) &= \frac{1+\epsilon}{\epsilon} \frac{\epsilon}{1+2\epsilon} = \frac{1+\epsilon}{1+2\epsilon}
+\end{flalign}$
+
+Returning to the previous expression but including the on-policy distribution results in:
+
+$\begin{flalign}
+w_{k+1} &= \text{argmin}_{w \in \mathbb{R}} \enspace \sum_{s \in \mathcal{S}} \mu(s) \left ( \hat v(s, w) - \mathbb{E}_\pi[R_{t+1} + \gamma \hat v(S_{t+1}, w_k) | S_t = s] \right )^2\\ 
+&= \text{argmin}_{w \in \mathbb{R}} \enspace \frac{\epsilon}{1+2\epsilon} (w - \gamma2w_k)^2 + \frac{1+\epsilon}{1+2\epsilon} (2w - (1-\epsilon)\gamma2w_k)^2\\
+\therefore\\
+\frac{\partial{w_{k+1}}}{\partial w} &= \frac{\epsilon}{1+2\epsilon} 2(w - \gamma2w_k) + \frac{1+\epsilon}{1+2\epsilon} 4(2w - (1-\epsilon)\gamma2w_k)\\
+&\text{setting this equal to 0 and solving for w yields}\\
+w &= 2 \gamma w_k \frac{\epsilon + 2 - 2\epsilon ^2}{5 \epsilon + 4}\\
+&\text{therefore weight updates will diverge when}\\
+\gamma &> 0.5 \frac{5 \epsilon + 4}{\epsilon + 2 - 2\epsilon ^2}\\
+\end{flalign}$
+
+Since γ never exceeds 1, this condition will never diverge for values of ϵ that result in a threshold that is greater than 1.  Under which conditions then will we always converge?
+
+$\begin{flalign}
+\frac{5 \epsilon + 4}{\epsilon + 2 - 2\epsilon ^2} &> 2\\
+5 \epsilon + 4 &> 2\epsilon + 4 - 4\epsilon ^2\\
+0 &> -3\epsilon - 4\epsilon^2\\
+4\epsilon &> -3\\
+\epsilon &> \frac{-3}{4}\\
+\end{flalign}$
+
+Since ϵ is always between 0 and 1 this condition will always hold.  This can be verified with a plot of the factor γ must exceed for divergence which ends up being greater than 1.
+$(plot(scatter(x = collect(0.0:0.01:1.0), y = [0.5 * (5x + 4) / (x + 2 - 2x^2) for x in 0.0:0.01:1.0]), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold")))
 """
 
 # ╔═╡ 3dade251-ddf7-463e-8d55-1c37e6d8ac9a
@@ -313,7 +419,9 @@ w_{t+1} &= w_t + \alpha(R_{t+1} + \gamma \hat v(S_{t+1}, w) - \hat v(S_t, w_t)) 
 &= w_t + 2\alpha(0 + \gamma 0 - 2w_t) = w_t(1 - 4\alpha)
 \end{flalign}$
 
-In this case we can see that the only update in which the weight will grow is the first one for the transition from state 1 to state 2.  So it seems that while for this counterexample dynamic programming and direct minimization fail, semi-gradient TD0 in fact can converge regardless of the value of γ and ϵ?
+In this case we can see that the only update in which the weight will grow is the first one for the transition from state 1 to state 2.  So it seems that while for this counterexample dynamic programming and direct minimization fail, semi-gradient TD0 in fact can converge regardless of the value of γ and ϵ?  
+
+Using the dynamic programming semi-gradient update yields:
 
 $\begin{flalign}
 w_{k+1} &= w_k + \alpha \sum_s \left( \mathbb{E}[R_{t+1} + \gamma \hat v(S_{t+1}, w_k) | S_t = s] - \hat v(s, w_k) \right) \nabla \hat v(s, w_k)\\ 
@@ -336,46 +444,63 @@ This is the same stability condition we had before with the explicit minimizatio
 """
 
 # ╔═╡ 3280e9dc-e0e4-4a18-88a5-0a4ac188e71c
-function tsitsiklis_counterexample(ϵ, γ, w_0)
+function tsitsiklis_counterexample(ϵ, γ, w_0; maxsteps = 1000, α = 0.01)
 	thresh = 5 / (6 - 4*ϵ)
 	if γ > thresh
-		println("Weights for value function approxmation will diverge dynamic programming and direct minimization since γ > 5/(6-4ϵ)): $γ > $thresh")
+		println("Weights for value function approxmation will diverge with dynamic programming and direct minimization since γ > 5/(6-4ϵ)): $γ > $thresh")
 		if w_0[1] == 0
 			println("Since the weight is initialized at 0 it is already at the value for perfect approximation the updates will not diverge.  Any starting value other than this will have a problem though.")
 		end
 	else
 		println("Weights for value function approxmation will NOT diverge under any method since γ < 5/(6-4ϵ)): $γ < $thresh")
 	end
+
+	states = [1, 2, 3]
+	actions = [1]
+	rewards = [0.0]
+	ptr = Dict((s, a) => (s == 1) ? [0.0, 1.0, 0.0][:, [1]] : [0.0, 1.0 - ϵ, ϵ][:, [1]] for s in states for a in actions)
 	
 	function transition(s, a)
 		if s == 1
 			(2, 0.)
 		elseif s == 2
 			if rand() < ϵ
-				(0, 0.)
+				(3, 0.)
 			else
 				(2, 0.)
 			end
 		end
 	end
 	
-	maxsteps = 1000
-	
-	features = [[1.], [2.]] 
+	features = [[1.], [2.], [0.0]] 
 	
 	#define value function estimator and its gradient with respect to parameters
-	v̂(s, w) = s == 0 ? 0. : w' * features[s]
-	∇v̂(s, w) = s == 0 ? 0. : features[s]
+	v̂(s, w) = w' * features[s]
+	∇v̂(s, w) = features[s]
 
-	mdp = Episodic_MDP(collect(1:2), [1], transition, 0, γ)
+	mdp = Episodic_MDP(states, actions, transition, 3, γ)
+	fullmdp = Episodic_Full_Finite_MDP(states, actions, rewards, ptr, 3, γ)
 
 	#there is no meaningful action here
 	π(s) = [1.]
 
-	sg_input = (π, mdp, v̂, ∇v̂, w_0, maxsteps)
+	make_input(mdp) = (π, mdp, v̂, ∇v̂, copy(w_0), maxsteps)
 
-	w_history_onpolicy = semi_gradient_TD0_v̂!(sg_input...)
-	w_history_DP = semi_gradient_DP_v̂!(sg_input...)
+	function η(s)
+		if s == 1
+			0.5
+		elseif s == 2
+			1.0 + (1. - ϵ)/ϵ
+		else
+			1.0
+		end
+	end
+
+	μ = [η(s) for s in states] ./ sum(η(s) for s in states)
+
+	w_history_onpolicy = semi_gradient_TD0_v̂!(make_input(mdp)..., α = α)
+	w_history_DP = semi_gradient_DP_v̂!(make_input(fullmdp)..., α = α)
+	w_history_DP_fixed = semi_gradient_DP_v̂!(make_input(fullmdp)..., μ = μ, α = α)
 
 	function plot_weights(w_history, title; legend = true)
 		l = length(w_history)
@@ -384,9 +509,10 @@ function tsitsiklis_counterexample(ϵ, γ, w_0)
 	end
 
 	v_onpolicy = [v̂(s, w_history_onpolicy[end]) for s in mdp.states]
-	p1 = plot_weights(w_history_onpolicy, "On Policy TD0")
-	p2 = plot_weights(w_history_DP, "Semi-gradient DP")
-	plot([p1 p2])
+	p1 = plot_weights(w_history_onpolicy, "On Policy TD0", legend=false)
+	p2 = plot_weights(w_history_DP, "Semi-gradient DP", legend=false)
+	p3 = plot_weights(w_history_DP_fixed, "Semi-gradient DP On-policy Distribution", legend=false)
+	plot([p1 p2; p3])
 	# w_history_onpolicy
 end
 
@@ -400,10 +526,10 @@ tsitsiklis_counterexample(0.01, 0.5, [1.])
 tsitsiklis_counterexample(0.01, 0.83, [1.])
 
 # ╔═╡ e28a8728-bf1d-4a94-89f3-24d15d81425a
-tsitsiklis_counterexample(0.01, 0.85, [1.])
+tsitsiklis_counterexample(0.01, 0.839, [1.])
 
 # ╔═╡ fab9d8f8-8dbc-450e-8a40-7b83b5a236d0
-tsitsiklis_counterexample(0.01, 0.99, [1.])
+tsitsiklis_counterexample(0.01, 0.99, [1.], maxsteps = 1000)
 
 # ╔═╡ 4965afd6-b7b9-4fa9-ad1c-9744d5b9727d
 md"""
@@ -529,7 +655,7 @@ function exercise_11_3(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 
 end
 
 # ╔═╡ 1b68a25e-9f12-4894-a3a7-3fdd6df34316
-exercise_11_3(maxsteps = 100_000, ϵ = 0.25, α = 0.01)
+exercise_11_3(maxsteps = 100_000, ϵ = 0.1, α = 0.01)
 
 # ╔═╡ 6a654e0e-2809-4e46-989f-815de38c8bf6
 md"""
@@ -600,6 +726,7 @@ TableOfContents()
 # ╟─8d463e53-12ee-441c-bd14-e8b377fcdced
 # ╠═27ca1027-d60c-4045-99b5-b08d50254f22
 # ╟─29364905-2458-426a-999c-210cd3c60263
+# ╠═c044414e-77d5-4a54-865e-dca4a879cd30
 # ╠═d2033a7d-3d9d-4983-8fd1-b4e6ee015080
 # ╠═1ba56556-2ac7-4d23-98c3-0d3fb54ec3d6
 # ╠═1be8182a-c183-486c-9991-bcc325e75449
@@ -612,10 +739,12 @@ TableOfContents()
 # ╠═5d85cf97-3e46-4ace-8246-2fc73a93cc2f
 # ╠═12ff2e46-fa3e-4fe8-9a1f-58afc2a43c25
 # ╠═84997a09-960f-4116-9045-74cb2e0e9d03
+# ╠═77ca116d-675d-4db5-8a68-53d1085528f4
 # ╠═8efa076f-d14d-44ab-bc03-e7ff964bc3b3
 # ╠═0b146651-a99f-489b-92f5-b5bd74d275fe
 # ╠═1853cb36-a97d-4922-92c2-02261843c761
 # ╠═d1cedda0-1ebf-42a6-b2f8-7df665252c08
+# ╠═c3ad2cdc-6e85-48a7-a746-c7599f80a126
 # ╠═ad6c8986-8fb0-4682-ade8-ebb76b4c829a
 # ╟─fcef571c-9656-42e4-9a85-e13c3ed51edb
 # ╟─6965a4d3-5422-4a3e-8eba-fa101cb1b16d
