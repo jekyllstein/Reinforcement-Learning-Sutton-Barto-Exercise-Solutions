@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
-using PlutoUI, PlutoPlotly
+using PlutoUI, PlutoPlotly, Statistics
 
 # ╔═╡ b5479c7a-9140-11ed-257a-b342885b47fa
 md"""
@@ -93,10 +93,39 @@ md"""
 # ╔═╡ 34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 md"""
 $\begin{flalign}
-\mathbf{z}_{-1} &\dot = \mathbf{0}\\
-\mathbf{z_t} & \dot = \gamma \lambda \mathbf{z}_{t-1} + \nabla \hat v(S_t, \mathbf{w_{t}}),  \hspace{5 mm} 0 \leq t \leq T-1 \tag{12.5}
+& \mathbf{z}_{-1} \dot = \mathbf{0}\\
+& \mathbf{z_t} \dot = \gamma \lambda \mathbf{z}_{t-1} + \nabla \hat v(S_t, \mathbf{w_{t}}),  \hspace{5 mm} 0 \leq t \leq T-1 \tag{12.5} \\
+& \delta_t \dot = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \tag{12.6} \\
+& \mathbf{w}_{t+1} \dot = \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t \tag{12.7}
 \end{flalign}$
 """
+
+# ╔═╡ 6f5168dc-f1f3-4533-a59e-bb85895f3b13
+md"""
+## Semi-gradient TD(λ) for estimating $\hat v \approx v_\pi$
+"""
+
+# ╔═╡ bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
+function semi_gradient_TDλ(π, v̂, ∇v̂, w, states, sterm, step, λ, γ, α, numepisodes, s_init, Vtrue)
+	rmserr() = sqrt(mean((Vtrue[s] - v̂(s, w))^2 for s in states))
+	rmserrs = zeros(numepisodes)
+	for ep in 1:numepisodes
+		s = s_init()
+		z = zeros(length(w))
+		function update!(s)
+			s == sterm && return
+			a = π(s)
+			(s′, r) = step(s, a)
+			z .= (γ*λ .* z) .+ ∇v̂(s, w)
+			δ = r + γ*v̂(s′, w) - v̂(s, w)
+			w .+= α*δ .* z 
+			update!(s′)
+		end
+		update!(s)
+		rmserrs[ep] = rmserr()
+	end
+	return w, rmserrs
+end		
 
 # ╔═╡ e597a042-9c03-4d49-a48f-6dff39283c54
 md"""
@@ -190,6 +219,157 @@ $\begin{flalign}
 But this coefficient is the same as we got previously for the TD(λ) weight updates, so we've shown that if weight updates are delayed unti the end of an episode both methods will perform exactly the same weight updates.
 """
 
+# ╔═╡ e6782d51-175c-4de7-9c75-1fc3f75a92f0
+md"""
+# Chapter 7 Code For Random Walk Comparison
+"""
+
+# ╔═╡ 013c2268-6ab8-441a-9fb4-5118dc3ae18a
+#based on pseudocode described in book for n-step TD value estimation
+function n_step_TD_Vest(π, α, n, states, sterm, sim, γ; v0 = 0.0, numep = 1000, Vtrue = Dict(s => v0 for s in states))
+	V = Dict(s => v0 for s in states)
+	V[sterm] = 0.0
+	Svec = Vector{eltype(states)}(undef, n+1)
+	Rvec = Vector{Float64}(undef, n+1)
+	rmserr() = sqrt(mean((V[s] - Vtrue[s])^2 for s in states))
+	rmserrs = Vector{Float64}(undef, numep)
+	for ep in 1:numep
+		#for each episode save a record of states and rewards
+		s0 = rand(states)
+		Svec[1] = s0
+		s = s0
+		T = typemax(Int64)
+		τ = 0
+		t = 0
+		while τ != T - 1
+			if t < T
+				a = π(s)
+				(s, r) = sim(Svec[mod(t, n+1)+1], a)
+				storeind = mod(t+1, n+1) + 1
+				Svec[storeind] = s
+				Rvec[storeind] = r
+				(s == sterm) && (T = t + 1)
+			end
+			τ = t - n + 1
+
+			if τ >= 0
+				G = sum(γ^(i - τ - 1) * Rvec[mod(i, n+1)+1] for i in (τ + 1):min(τ+n, T))
+				if τ+n < T
+					G += γ^n * V[Svec[mod(τ+n, n+1)+1]]
+				end
+				if τ == 0
+					V[s0] += α*(G - V[s0])
+				else
+					V[Svec[mod(τ, n+1)+1]] += α*(G - V[Svec[mod(τ, n+1)+1]])
+				end
+			end
+			t += 1
+		end
+		rmserrs[ep] = rmserr()
+	end
+	return V, rmserrs
+end
+
+# ╔═╡ 44a16c0a-9d0d-4e9b-9ae5-aef791c4f544
+begin
+	abstract type LinearMoves end
+	struct Left <: LinearMoves end
+	struct Right <: LinearMoves end
+end
+
+# ╔═╡ 13756b5d-b496-45fa-875b-7f6ee6468dcf
+#create a random walk mdp of length n where the left terminal state produces a reward of -1 and the right a reward of 1
+function create_random_walk(n)
+	states = Tuple(1:n)
+	sterm = 0
+	actions = (:left, :right)
+	move(s, ::Left) = s - 1
+	move(s, ::Right) = s + 1
+	function step(s0, action)
+		s = move(s0, action)
+		(s == 0) && return (sterm, -1.0)
+		(s > n) && return (sterm, 1.0)
+		return (s, 0.0)
+	end
+	(states, sterm, step)
+end
+
+# ╔═╡ 5f94ada5-5aa5-4c4a-8ea7-578931e04b6b
+create_random_walk(19)
+
+# ╔═╡ f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
+function random_walk_TDλ(nstates = 19; numepisodes = 10, nruns = 10)
+	#estimate random policy
+	π(s) = rand([Left(), Right()])
+
+	c = (nstates + 1)/2
+	Vtrue = [(s-c)/c for s in 1:nstates]
+
+	maxerr = sqrt(mean(Vtrue .^2))
+
+	(states, sterm, step) = create_random_walk(nstates)
+
+	make_w() = zeros(nstates) #using weight vector that keeps a value for each state
+	v̂(s, w) = s == sterm ? 0.0 : w[s] #take weight value for that state
+	∇v̂(s, w) = [i == s ? 1.0 : 0.0 for i in eachindex(w)]
+
+	s_init() = rand(1:nstates)
+	
+	function get_λ_error(α, λ)
+		w, rmserrs = semi_gradient_TDλ(π, v̂, ∇v̂, make_w(), states, sterm, step, λ, 1.0, α, numepisodes, s_init, Vtrue)
+		mean(rmserrs)
+	end
+
+	α_vec = 1.1 .^ (-30:0)
+	λ_vec = [0.0, 0.4, 0.8, 0.9, 0.95, 0.975, 0.99, 1.0]
+	rmsvecs = [[mean(get_λ_error(α, λ) for _ in 1:nruns) for α in α_vec] for λ in λ_vec]
+
+	traces = [scatter(x = α_vec, y = rmsvecs[i], name = "λ=$(λ_vec[i])") for i in eachindex(rmsvecs)]
+	ymin = minimum(minimum(filter(!isnan, v)) for v in rmsvecs) * 0.9
+	ymax = maxerr
+	plot(traces, Layout(yaxis_title="RMS Error for $nstates State Chain with Random Policy Over the First $numepisodes Episodes", title = "TD(λ) Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
+end
+
+# ╔═╡ 5cbe472f-4d96-483f-975f-07d41d809dc9
+random_walk_TDλ(5, nruns = 100)
+
+# ╔═╡ 9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
+random_walk_TDλ(nruns = 100)
+
+# ╔═╡ 2cafed7d-22c6-420f-9c8e-8ae734bfbad2
+function nsteptd_error_random_walk(nstates, estimator; v0=0.0, nruns = 10)
+	#estimate random policy
+	π(s) = rand([Left(), Right()])
+
+	c = (nstates + 1)/2
+	Vtrue = [(s-c)/c for s in 1:nstates]
+
+	maxerr = sqrt(mean(Vtrue .^2))
+
+	(states, sterm, step) = create_random_walk(nstates)
+	
+	function get_nstep_error(α, n)
+		Vest, rmserrs = estimator(π, α, n, states, sterm, step, 1.0, numep = 10, v0=v0, Vtrue = Vtrue)
+		mean(rmserrs)
+	end
+
+	α_vec = 1.1 .^ (-30:0)
+	n_vec = [2 .^ (0:7); 1_000]
+	rmsvecs = [[mean(get_nstep_error(α, n) for _ in 1:nruns) for α in α_vec] for n in n_vec]
+	(rmsvecs, α_vec, n_vec, ymax = maxerr)
+end
+
+# ╔═╡ a3484638-ae83-4810-9226-0a25b3fc58dc
+function optimize_n_randomwalk(nstates; estimator = n_step_TD_Vest, v0=0.0, nruns = 10)
+	(rmsvecs, α_vec, n_vec, ymax) = nsteptd_error_random_walk(nstates, estimator, v0=v0, nruns = nruns)
+	traces = [scatter(x = α_vec, y = rmsvecs[i], name = "n=$(n_vec[i])") for i in eachindex(rmsvecs)]
+	ymin = minimum(minimum(v) for v in rmsvecs) * 0.9
+	plot(traces, Layout(title="RMS Error for $nstates State Chain with Random Policy Over the First 10 Episodes, n-step TD Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
+end
+
+# ╔═╡ f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
+walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
+
 # ╔═╡ 773a0bed-4d14-4643-818f-02e9d93898eb
 TableOfContents()
 
@@ -198,6 +378,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 PlutoPlotly = "~0.3.6"
@@ -210,7 +391,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "7a8849a7eb7d17cc2d4bdeffad6ca2bc77af985c"
+project_hash = "aeb18ac83191a890eba920d1dffa3bd3dc313671"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -596,9 +777,22 @@ version = "17.4.0+0"
 # ╟─752a80ea-1da6-49ef-91ef-a03c590b825d
 # ╠═9d131051-eeee-4aba-8f78-9ddff9babab4
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
-# ╠═34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
+# ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
+# ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
+# ╠═bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
+# ╠═5f94ada5-5aa5-4c4a-8ea7-578931e04b6b
+# ╠═f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
+# ╠═5cbe472f-4d96-483f-975f-07d41d809dc9
+# ╠═9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
+# ╠═f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
 # ╟─e597a042-9c03-4d49-a48f-6dff39283c54
 # ╟─0c6ebdeb-77f4-44f0-9bf3-c539d54bcaec
+# ╟─e6782d51-175c-4de7-9c75-1fc3f75a92f0
+# ╠═013c2268-6ab8-441a-9fb4-5118dc3ae18a
+# ╠═44a16c0a-9d0d-4e9b-9ae5-aef791c4f544
+# ╠═13756b5d-b496-45fa-875b-7f6ee6468dcf
+# ╠═2cafed7d-22c6-420f-9c8e-8ae734bfbad2
+# ╠═a3484638-ae83-4810-9226-0a25b3fc58dc
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═773a0bed-4d14-4643-818f-02e9d93898eb
 # ╟─00000000-0000-0000-0000-000000000001
