@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.19
+# v0.19.20
 
 using Markdown
 using InteractiveUtils
@@ -219,6 +219,135 @@ $\begin{flalign}
 But this coefficient is the same as we got previously for the TD(λ) weight updates, so we've shown that if weight updates are delayed unti the end of an episode both methods will perform exactly the same weight updates.
 """
 
+# ╔═╡ 27f535a4-2245-45aa-aefa-4c0fc6bb218d
+md"""
+# 12.3 n-step Truncated λ-return Methods
+
+Define the *truncated λ-return* for time t, given data only up to some later horizon, h, as 
+
+$\begin{flalign}
+G_{t:h}^\lambda \dot = (1-\lambda) \sum_{n=1}^{h-t-1} \lambda ^{n-1} G_{t:t+n} + \lambda^{h-t-1} G_{t:h}, \hspace{5mm} 0 \leq t < h \leq T \tag{12.9}
+\end{flalign}$
+
+The weight updates for Truncated TD(λ) or TTD(λ) is given by:
+
+$\mathbf{w}_{t+n} \dot = \mathbf{w}_{t+n-1} + \alpha \left [ G_{t:t+n}^\lambda - \hat v(S_t, \mathbf{w}_{t+n-1}) \right ] \nabla \hat v (S_t, \mathbf{w}_{t+n-1})$
+
+where the maximum number of steps in the future to consider returns for is n.  Much as in *n*-step TD methods, no updates are made on the first n-1 steps of each episode, and n-1 additional updates are made upon termination.  Efficient imlementation relies on the fact that the *k*-step λ-return can be written exactly as 
+
+$\begin{flalign}
+G_{t:t+k}^\lambda = \hat v(S_t, \mathbf{w}_{t-1}) + \sum_{i=t}^{t+k-1} (\gamma \lambda)^{i-t} \delta_i ^\prime \tag{12.10}
+\end{flalign}$
+
+where 
+
+$\delta_i ^\prime \dot = R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_{t-1})$
+
+"""
+
+# ╔═╡ e1e9f2eb-4751-4f5c-aa4d-a0cf75e193b2
+md"""
+> *Exercise 12.5* Several times in this book (often in exercises) we have established that returns can be written as sums of TD errors if the value function is held constant.  Why is (12.10) another instance of this?  Prove (12.10).
+
+To prove (12.10) let's return to the definition of $G_{t:k}^\lambda$ given in (12.9) and compare it to (12.10)
+
+$\begin{flalign}
+G_{t:h}^\lambda &\dot = (1-\lambda) \sum_{n=1}^{h-t-1} \lambda ^{n-1} G_{t:t+n} + \lambda^{h-t-1} G_{t:h}, \hspace{5mm} 0 \leq t < h \leq T \tag{12.9} \\
+G_{t:k}^\lambda &= \hat v(S_t, \mathbf{w}_{t-1}) + \sum_{i=t}^{t+k-1} (\gamma \lambda)^{i-t} \delta_i ^\prime \tag{12.10}\\
+\delta_t & \dot = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_{t-1})
+\end{flalign}$
+
+Also note that from (12.9) we can conclude:
+
+$G_{t+1:h}^\lambda = (1-\lambda) \sum_{n=1}^{h-t-2} \lambda ^{n-1} G_{t+1:t+1+n} + \lambda^{h-t-2} G_{t+1:h}$
+"""
+
+# ╔═╡ 531263cf-274e-4a64-932f-821e8583a316
+md"""
+$\begin{flalign}
+G_{t:h}^\lambda &= (1-\lambda) \sum_{n=1}^{h-t-1} \lambda ^{n-1} (R_{t+1} + \gamma G_{t+1:t+n}) + \lambda^{h-t-1} G_{t:h}\\
+ &= (1-\lambda) \left [ R_{t+1} \sum_{n=1}^{h-t-1} \lambda ^{n-1}  + \gamma \hat v(S_{t+1}, \mathbf{w}) + \gamma \sum_{n=2}^{h-t-1} \lambda ^{n-1} G_{t+1:t+n} \right ] + \lambda^{h-t-1} G_{t:h} \tag{separating sum}\\
+ &= (1-\lambda) \left [ R_{t+1} \frac{\lambda^{h-t-1} - 1}{\lambda - 1}  + \gamma \hat v(S_{t+1}, \mathbf{w}) + \gamma \sum_{n=2}^{h-t-1} \lambda ^{n-1} G_{t+1:t+n} \right ] + \lambda^{h-t-1} G_{t:h} \tag{simplifying sum}\\
+ &= R_{t+1}(1 - \lambda^{h-t-1}) + \gamma (1-\lambda) \left [ \hat v(S_{t+1}, \mathbf{w}) + \sum_{n=2}^{h-t-1} \lambda ^{n-1} G_{t+1:t+n} \right ] + \lambda^{h-t-1} G_{t:h}\\
+\end{flalign}$
+"""
+
+# ╔═╡ 0df08e27-18d3-4f2c-a7e1-75674418ba01
+md"""
+Let's look at just the sum expression and reindex by m = n - 1
+
+$\begin{flalign}
+& \sum_{m=1}^{h-t-2} \lambda^m G_{t+1:t+m+1} \\
+& \lambda \sum_{m=1}^{h-t-2} \lambda^{m-1} G_{t+1:t+m+1} \tag{dividing sum by λ} \\ 
+& \lambda \sum_{n=1}^{h-t-2} \lambda^{n-1} G_{t+1:t+n+1} \tag{renaming m to n} \\ 
+\end{flalign}$
+
+Also let's rewrite the final term as follows:
+$\lambda^{h-t-1} G_{t:h} = \lambda^{h-t-1} (R_{t+1} + \gamma G_{t+1:h})$
+"""
+
+# ╔═╡ c65dc168-9fa4-4e1b-af39-02f80c9ec0e3
+md"""
+Using this new sum expression and the final term we can group some terms at the end to get a recurrance relationship.
+
+$\begin{flalign}
+G_{t:h}^\lambda & = R_{t+1}(1 - \lambda^{h-t-1}) + \gamma (1-\lambda) \left [ \hat v(S_{t+1}, \mathbf{w}) + \lambda \sum_{n=1}^{h-t-2} \lambda^{n-1} G_{t+1:t+n+1} \right ] + \lambda^{h-t-1} (R_{t+1} + \gamma G_{t+1:h})\\
+& = R_{t+1} + \gamma (1-\lambda) \left [ \hat v(S_{t+1}, \mathbf{w}) + \lambda \sum_{n=1}^{h-t-2} \lambda^{n-1} G_{t+1:t+n+1} \right ] + \gamma \lambda^{h-t-1}G_{t+1:h} \tag{cancelling out R terms}\\
+& = R_{t+1} + \gamma (1-\lambda)\hat v(S_{t+1}, \mathbf{w}) + \gamma \lambda \left [ (1 - \lambda) \sum_{n=1}^{h-t-2} \lambda^{n-1} G_{t+1:t+n+1} + \lambda^{h-t-2}G_{t+1:h} \right ] \tag{grouping terms}\\
+& = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}) + \gamma \lambda \left [ G_{t+1:h}^\lambda - \hat v(S_{t+1}, \mathbf{w}) \right ] \tag{using recurrence relation for G}\\
+& = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}) + \gamma \lambda \left [ R_{t+2} + \gamma \hat v(S_{t+2}, \mathbf{w}) + \gamma \lambda \left [ G_{t+2:h}^\lambda - \hat v(S_{t+2}, \mathbf{w}) \right ]- \hat v(S_{t+1}, \mathbf{w}) \right ] \tag{noticing recurssion}\\
+& = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}) + \gamma \lambda \left [ R_{t+2} + \gamma \hat v(S_{t+2}, \mathbf{w}) - \hat v(S_{t+1}, \mathbf{w}) + \gamma \lambda \left [ G_{t+2:h}^\lambda - \hat v(S_{t+2}, \mathbf{w}) \right ] \right ] \tag{grouping terms} \\
+& \vdots \\
+& \text{when will this sum terminate?  The horizon return is only well defined up to t = h - 1 }\\
+G_{h-1:h}^\lambda &= G_{h-1:h} = R_{h} + \gamma \hat v(S_h, \mathbf{w})\\  
+& \text{so the final reward subscript is h which can be achieved with the following sum}\\
+& = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}) + \sum_{i=t+1}^{h-1} (\gamma \lambda)^{i-t} \left [ R_{i+1} + \gamma \hat v(S_{i+1}, \mathbf{w}) - \hat v(S_{i}, \mathbf{w}) \right ]\\
+\end{flalign}$
+"""
+
+# ╔═╡ 8d41a846-3a12-4e32-bc1a-50be12629eb2
+md"""
+Going back to equation (12.10), let's see how the terms line up noticing the cancelation of the estimator at state t and keeping the parameters fixed.
+
+$\begin{flalign}
+G_{t:t+k}^\lambda &= R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}) + \gamma \lambda \left [ R_{t+2} + \gamma \hat v(S_{t+2}, \mathbf{w}) - \hat v(S_{t+1}, \mathbf{w}) \right ] + \cdots + (\gamma \lambda)^{k-1} \left [ R_{t+k} + \gamma \hat v(S_{t+k}, \mathbf{w}) - \hat v(S_{t+k-1}, \mathbf{w}) \right ]  
+\end{flalign}$
+
+If we compare to the expression we have $h = t+k$, the sum terminates at $h-1=t+k-1$.  The starting terms are the same and the ending terms also share the same exponent of $k-1$ and a reward term of $R_{t+k}$, so this proves (12.10).  The only difference is the expression in the book begins the sum at $i = t$ instead of $i = t+1$ so the added terms are different.  Either way an addtional term outside the sum is required due to the starting point.
+
+"""
+
+# ╔═╡ 2c664592-eddf-4438-b153-075282f6e491
+md"""
+# 12.4 Redoing Updates: Online λ-return Algorithm
+# 12.5 True Online TD(λ)
+The online λ-return algorithm just presented is currently the best performing temporal-difference algorithm. It is an ideal which online TD(λ) only approximates.  (why is this the case?  I thought TD(λ) was equivalent to the full λ return, they mentioned in figures that at higher learning rates it can be unstable though.  True online TD(λ) doesn't have that problem.  In the plot there isn't even a horizon anymore but this was truncated.  So what happened to the cutoff point?)  So at each step in the episode, the target is the n-step λ return for that step so there is no selection of the horizon.  The largest possible horizon for every previous state is always being used in the update target.
+"""
+
+# ╔═╡ 5324724c-93d1-4186-9dcf-55afd410aa72
+function true_online_TDλ(π, x, w, states, sterm, step, λ, γ, α, numepisodes, s_init, Vtrue)
+	rmserr() = sqrt(mean((Vtrue[s] - w'*x(s))^2 for s in states))
+	rmserrs = zeros(numepisodes)
+	for ep in 1:numepisodes
+		s = s_init()
+		z = zeros(length(w))
+		function update!(s, v_old = 0.0)
+			s == sterm && return
+			a = π(s)
+			(s′, r) = step(s, a)
+			v = w' * x(s)
+			v′ = w' * x(s′)
+			δ = r + γ*v′-v
+			z .= (γ*λ .* z) .+ (1-α*γ*λ*(z'*x(s)))*x(s)
+			w .+= α*(δ + v - v_old) .* z .- α*(v - v_old) 
+			update!(s′, v′)
+		end
+		update!(s)
+		rmserrs[ep] = rmserr()
+	end
+	return w, rmserrs
+end	
+
 # ╔═╡ e6782d51-175c-4de7-9c75-1fc3f75a92f0
 md"""
 # Chapter 7 Code For Random Walk Comparison
@@ -336,6 +465,44 @@ random_walk_TDλ(5, nruns = 100)
 # ╔═╡ 9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
 random_walk_TDλ(nruns = 100)
 
+# ╔═╡ 2336e059-34a5-4c81-be53-fa3f66733bd9
+function random_walk_true_onlineTDλ(nstates = 19; numepisodes = 10, nruns = 10)
+	#estimate random policy
+	π(s) = rand([Left(), Right()])
+
+	c = (nstates + 1)/2
+	Vtrue = [(s-c)/c for s in 1:nstates]
+
+	maxerr = sqrt(mean(Vtrue .^2))
+
+	(states, sterm, step) = create_random_walk(nstates)
+
+	make_w() = zeros(nstates) #using weight vector that keeps a value for each state
+	function x(s)
+		s == sterm && return zeros(nstates)
+		[i == s ? 1.0 : 0.0 for i in 1:nstates]
+	end
+
+	s_init() = rand(1:nstates)
+	
+	function get_λ_error(α, λ)
+		w, rmserrs = true_online_TDλ(π, x, make_w(), states, sterm, step, λ, 1.0, α, numepisodes, s_init, Vtrue)
+		mean(rmserrs)
+	end
+
+	α_vec = 1.1 .^ (-30:0)
+	λ_vec = [0.0, 0.4, 0.8, 0.9, 0.95, 0.975, 0.99, 1.0]
+	rmsvecs = [[mean(get_λ_error(α, λ) for _ in 1:nruns) for α in α_vec] for λ in λ_vec]
+
+	traces = [scatter(x = α_vec, y = rmsvecs[i], name = "λ=$(λ_vec[i])") for i in eachindex(rmsvecs)]
+	ymin = minimum(minimum(filter(!isnan, v)) for v in rmsvecs) * 0.9
+	ymax = maxerr
+	plot(traces, Layout(yaxis_title="RMS Error for $nstates State Chain with Random Policy Over the First $numepisodes Episodes", title = "True online TD(λ) Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
+end
+
+# ╔═╡ 9123aa11-9187-4203-b671-d5f5feaf5813
+random_walk_true_onlineTDλ(nruns = 100)
+
 # ╔═╡ 2cafed7d-22c6-420f-9c8e-8ae734bfbad2
 function nsteptd_error_random_walk(nstates, estimator; v0=0.0, nruns = 10)
 	#estimate random policy
@@ -391,7 +558,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "aeb18ac83191a890eba920d1dffa3bd3dc313671"
+project_hash = "0c57e66a64aebb682ace83bb59f1399c1c7007a8"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -787,6 +954,16 @@ version = "17.4.0+0"
 # ╠═f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
 # ╟─e597a042-9c03-4d49-a48f-6dff39283c54
 # ╟─0c6ebdeb-77f4-44f0-9bf3-c539d54bcaec
+# ╟─27f535a4-2245-45aa-aefa-4c0fc6bb218d
+# ╟─e1e9f2eb-4751-4f5c-aa4d-a0cf75e193b2
+# ╟─531263cf-274e-4a64-932f-821e8583a316
+# ╟─0df08e27-18d3-4f2c-a7e1-75674418ba01
+# ╟─c65dc168-9fa4-4e1b-af39-02f80c9ec0e3
+# ╟─8d41a846-3a12-4e32-bc1a-50be12629eb2
+# ╟─2c664592-eddf-4438-b153-075282f6e491
+# ╠═5324724c-93d1-4186-9dcf-55afd410aa72
+# ╠═2336e059-34a5-4c81-be53-fa3f66733bd9
+# ╠═9123aa11-9187-4203-b671-d5f5feaf5813
 # ╟─e6782d51-175c-4de7-9c75-1fc3f75a92f0
 # ╠═013c2268-6ab8-441a-9fb4-5118dc3ae18a
 # ╠═44a16c0a-9d0d-4e9b-9ae5-aef791c4f544
