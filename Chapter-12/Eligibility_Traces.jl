@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
-using PlutoUI, PlutoPlotly, Statistics
+using PlutoUI, PlutoPlotly, Statistics ,StatsBase
 
 # ╔═╡ b5479c7a-9140-11ed-257a-b342885b47fa
 md"""
@@ -322,6 +322,15 @@ md"""
 # 12.4 Redoing Updates: Online λ-return Algorithm
 # 12.5 True Online TD(λ)
 The online λ-return algorithm just presented is currently the best performing temporal-difference algorithm. It is an ideal which online TD(λ) only approximates.  (why is this the case?  I thought TD(λ) was equivalent to the full λ return, they mentioned in figures that at higher learning rates it can be unstable though.  True online TD(λ) doesn't have that problem.  In the plot there isn't even a horizon anymore but this was truncated.  So what happened to the cutoff point?)  So at each step in the episode, the target is the n-step λ return for that step so there is no selection of the horizon.  The largest possible horizon for every previous state is always being used in the update target.
+
+In the linear case for which $\hat v(s_\mathbf{w}) = \mathbf{w}^\intercal \mathbf{x}(s)$, then we arrive at the true online TD(λ) algorithm:
+
+$\begin{flalign}
+\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t + \alpha (\mathbf{w}_t^\intercal \mathbf{x}_t - \mathbf{w}_{t-1}^\intercal \mathbf{x}+t)(\mathbf{z}_t - \mathbf{x}_t) \\
+\mathbf{x}_t & \dot = \mathbf{x}(S_t) \\
+\mathbf{z}_t & \dot = \gamma \lambda \mathbf{z}_{t-1} + (1 - \alpha\gamma\lambda \mathbf{z}_{t-1}^\intercal \mathbf{x}_t)\mathbf{x}_t \tag{12.11}
+
+\end{flalign}$
 """
 
 # ╔═╡ 5324724c-93d1-4186-9dcf-55afd410aa72
@@ -347,6 +356,198 @@ function true_online_TDλ(π, x, w, states, sterm, step, λ, γ, α, numepisodes
 	end
 	return w, rmserrs
 end	
+
+# ╔═╡ b36896b1-6802-48e1-8cd3-f08bf3b99e3e
+md"""
+# 12.6 Dutch Traces in Monte Carlo Learning
+
+It can be shown that the linear MC algorithm can be used to drive an equivalent yet computationally cheapter backward-view algorithm using dutch traces.  This equivalence gives some flavor of teh proof of equivalence of true online TD(λ) and the online λ-return algorithm, but is much simpler.
+
+The linear version of gradient Monte Carlo prediction algorithm makes the following sequence updates, one for each time step of the episode:
+
+$\begin{flalign}
+\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \left [ G - \mathbf{w}_t^\intercal \mathbf{x}_t \right ] \mathbf{x}_t, \hspace{4 mm} 0 \leq t < T \tag{12.13} \\
+\end{flalign}$
+
+To simplify assume that the return $G$ is a single reward received at the end of teh episode and that there is no discounting.  In this case the update is also known as the Least Mean Square (LMS) rule.  As a Monte Carlo algirithm, all the updates depend on teh final reward/return, so none can be made until the end of the episode.  We seek an implementation of this algorithm with computational advantages by doing some computation during each step of the episode.
+
+$\begin{flalign}
+\mathbf{w}_T & = a_{t-1} + \alpha G\mathbf{z}_{T-1} \tag{12.14} \\
+\mathbf{z}_t & = \mathbf{z}_{t-1} + (1 - \alpha \mathbf{z}_{t-1}^\intercal \mathbf{x}_t)\mathbf{x}_t \text{,  with } \mathbf{z}_0 = \mathbf{x}_0 \\
+\mathbf{a}_t & = \mathbf{a}_{t-1} - \alpha \mathbf{x}_t \mathbf{x}_t^\intercal \mathbf{a}_{t-1} \text{,  with } \mathbf{a}_0 = \mathbf{w}_0
+\end{flalign}$
+
+
+This computation uses the dutch trace for the case of $\gamma \lambda = 1$.  This is not specific to temporal-difference learning but is useful any time long term predictions are computed in an efficient manner.
+"""
+
+# ╔═╡ 0086dc4a-e0ba-43f0-a721-296cd50e1a76
+md"""
+# 12.7 Sarsa(λ)
+"""
+
+# ╔═╡ 72895891-9212-4722-b2a1-0e13c30a8ecf
+function sarsaλ_linear(ℱ, w, states, actions, sterm, step, λ, γ, α, numepisodes, s_init, ϵ, usedutch = false)
+	function ϵ_greedy(s, ϵ)
+		rand() < ϵ && return rand(actions)
+		qa = [sum(w[i] for i in ℱ(s, a)) for a in actions]
+		(maxq, ind) = findmax(qa)
+		inds = findall(q -> q == maxq, qa)
+		isempty(inds) && return rand(actions)
+		rand(actions[inds])
+	end
+	stepcounts = zeros(Int64, numepisodes)
+	z = zeros(length(w))
+	for ep in 1:numepisodes
+		s = s_init()
+		z .= 0.0
+		stepcount = 0
+		a = ϵ_greedy(s, ϵ)
+		while true
+			(s′, r) = step(s, a)
+			stepcount += 1
+			δ = r
+			for i in ℱ(s, a)
+				δ -= w[i]
+				# accumulating traces
+				z[i] += 1.0 - usedutch*(α*γ*z[i])
+				# replacing traces
+				# z[i] = 1.0
+			end
+			if s′ == sterm 
+				w .+= α*δ .* z
+				break
+			end
+			a′ = ϵ_greedy(s′, ϵ)
+			for i in ℱ(s′, a′)
+				δ += γ*w[i]
+			end
+			w .+= α*δ .* z
+			z .*= γ*λ
+			s = s′
+			a = a′
+		end
+		stepcounts[ep] = stepcount
+	end
+	
+	return w, stepcounts, s -> ϵ_greedy(s, 0.0)
+end
+
+# ╔═╡ 07245a98-cab2-4b0c-a17a-4eaaa8a30703
+function gridworld_sarsa(width, height, goal, λ, ϵ, α, numepisodes, usedutch = false; f = sarsaλ_linear)
+	#states are tuples in an nxm grid
+	states = [(x, y) for x in 1:width for y in 1:height]
+	actions = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+	move(s, a) = (clamp(s[1] + a[1], 1, width), clamp(s[2] + a[2], 1, height))
+	function step(s, a)
+		s′ = move(s, a)
+		(s′, Float64(s′ == goal))
+	end
+
+	function run_episode(π, s, maxsteps = 1e6)
+		slist = [s]
+		steps = 0
+		while (s != goal) && (steps < maxsteps)
+			(s, r) = step(s, π(s))
+			steps +=1 
+			push!(slist, s)
+		end
+		return slist
+	end
+
+	π_rand(s) = rand(actions)
+		
+
+	state_action_list = [(s, a) for s in states for a in actions]
+	state_action_lookup = Dict(zip(state_action_list, eachindex(state_action_list)))
+	
+	#map state action pair to active features, the simplest case is to have a separate feature for every state action pair which is equivalent to the tabular method.  to do that we assign each state action pair a number.  Using a feature vector that just selects a single feature for states according to that index and then appends a later value for action would result in vectors that are not suitable for learning.  If we had a 5x5 gridworld that would be 25 states and 4 actions, so we could have activated features like [1, 26] and [2, 26].  Note that in this case whatever the weights are for indices 26 through 29 would impose a strict ordering on actions for every state because the q value for each (s, a) pair is just w[i_1] + w[i_2].  Short of the tabular case, our tilings need to allow the actions to be handled differently in different states so there are more than two activated features for a given state/action pair
+	w_init() = zeros(length(states)*length(actions))
+	s_init() = (1, 1)
+	ℱ(s, a) = state_action_lookup[(s, a)]
+
+	w, steps, π = f(ℱ, w_init(), states, actions, goal, step, λ, 1.0, α, numepisodes, s_init, ϵ, usedutch)
+
+	# run_episode(π_rand, (1, 1))
+	(w, steps, π, π_rand, run_episode, step, states)
+end
+
+# ╔═╡ f5c3d5a4-7fe8-420e-af0a-4318b1eeda2c
+function eval_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=false)
+	function runtrial(α, λ)
+		(w, steps, π, π_rand, makepath, step, states) = gridworld_sarsa(lmax, wmax, goal, λ, ϵ, α, 100, usedutch, f = f)
+		sum(steps[51:end])/50
+	end
+
+
+	runtrials(α, λ) = mean(runtrial(α, λ) for _ in 1:100)
+
+	[[runtrials(α, λ) for α in [0.05, 0.1, 0.2, 0.4, 0.8]] for λ in [0.0, 0.4, 0.8, 0.9, 0.99]]
+end
+
+# ╔═╡ 32832503-d48b-48bb-be7b-cf2cb6855a57
+eval_grid(10, 10, (5, 8), usedutch=false)
+
+# ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
+md"""
+> *Exercise 12.6* Modify the pseudocode for Sarsa(λ) to use dutch traces (12.11) without the other distinctive features of a true online algorithm.  Assume linear function approximation and binary features.
+
+See the above function `sarsaλ_linear`.  In the step where $z_i$ is updated an additional term is subtracted in the case of using dutch traces which matches equation (12.11)
+"""
+
+# ╔═╡ b1d56779-9a06-4b25-9a1b-09a12923e646
+function true_online_sarsaλ_binary(ℱ, w, states, actions, sterm, step, λ, γ, α, numepisodes, s_init, ϵ, usedutch=true)
+	function ϵ_greedy(s, ϵ)
+		rand() < ϵ && return rand(actions)
+		qa = [sum(w[i] for i in ℱ(s, a)) for a in actions]
+		(maxq, ind) = findmax(qa)
+		inds = findall(q -> q == maxq, qa)
+		isempty(inds) && return rand(actions)
+		rand(actions[inds])
+	end
+	stepcounts = zeros(Int64, numepisodes)
+	z = zeros(length(w))
+	for ep in 1:numepisodes
+		s = s_init()
+		z .= 0.0
+		q_old = 0.0
+		stepcount = 0
+		a = ϵ_greedy(s, ϵ)
+		while s != sterm
+			(s′, r) = step(s, a)
+			stepcount += 1
+			a′ = ϵ_greedy(s′, ϵ)
+
+			q = 0.0
+			q′ = 0.0
+			for i in ℱ(s, a)
+				q += w[i]
+				z[i] += 1.0 - α*γ*λ*z[i]
+			end
+
+			for i in ℱ(s′, a′)
+				q′ += w[i]
+			end
+			
+			δ = r + γ*q′ - q
+			
+			w .+= (α*(δ + q + q_old) .* z)
+			for i in ℱ(s, a)
+				w[i] -= α*(q - q_old)
+			end
+			q_old = q′
+			z .*= γ*λ
+			s = s′
+			a = a′
+		end
+		stepcounts[ep] = stepcount
+	end
+	
+	return w, stepcounts, s -> ϵ_greedy(s, 0.0)
+end
+
+# ╔═╡ f3c3f934-6601-4383-8204-55d04c973881
+eval_grid(10, 10, (5, 8), f = true_online_sarsaλ_binary)
 
 # ╔═╡ e6782d51-175c-4de7-9c75-1fc3f75a92f0
 md"""
@@ -546,10 +747,12 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 PlutoPlotly = "~0.3.6"
 PlutoUI = "~0.7.49"
+StatsBase = "~0.33.21"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -558,7 +761,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "0c57e66a64aebb682ace83bb59f1399c1c7007a8"
+project_hash = "e1410752d90c72a9ffd8f4d257bebee23226c502"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -622,6 +825,17 @@ version = "4.5.0"
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.0.1+0"
+
+[[deps.DataAPI]]
+git-tree-sha1 = "e8119c1a33d267e16108be441a287a6981ba1630"
+uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
+version = "1.14.0"
+
+[[deps.DataStructures]]
+deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
+git-tree-sha1 = "d1fff3a548102f48987a52a2e0d114fa97d730f0"
+uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+version = "0.18.13"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -750,6 +964,12 @@ deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.0+0"
 
+[[deps.Missings]]
+deps = ["DataAPI"]
+git-tree-sha1 = "f66bdc5de519e8f8ae43bdc598782d35a25b1272"
+uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
+version = "1.1.0"
+
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 
@@ -861,6 +1081,12 @@ version = "1.0.1"
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 
+[[deps.SortingAlgorithms]]
+deps = ["DataStructures"]
+git-tree-sha1 = "a4ada03f999bd01b3a25dcaa30b2d929fe537e00"
+uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
+version = "1.1.0"
+
 [[deps.SparseArrays]]
 deps = ["LinearAlgebra", "Random"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
@@ -874,6 +1100,18 @@ version = "2.1.7"
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[[deps.StatsAPI]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "f9af7f195fb13589dd2e2d57fdb401717d2eb1f6"
+uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
+version = "1.5.0"
+
+[[deps.StatsBase]]
+deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
+git-tree-sha1 = "d1bf48bfcc554a3761a133fe3a9bb01488e06916"
+uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+version = "0.33.21"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -964,6 +1202,15 @@ version = "17.4.0+0"
 # ╠═5324724c-93d1-4186-9dcf-55afd410aa72
 # ╠═2336e059-34a5-4c81-be53-fa3f66733bd9
 # ╠═9123aa11-9187-4203-b671-d5f5feaf5813
+# ╟─b36896b1-6802-48e1-8cd3-f08bf3b99e3e
+# ╟─0086dc4a-e0ba-43f0-a721-296cd50e1a76
+# ╠═72895891-9212-4722-b2a1-0e13c30a8ecf
+# ╠═07245a98-cab2-4b0c-a17a-4eaaa8a30703
+# ╠═f5c3d5a4-7fe8-420e-af0a-4318b1eeda2c
+# ╠═32832503-d48b-48bb-be7b-cf2cb6855a57
+# ╟─fbe8691b-6d71-4cba-90e4-5de63421f634
+# ╠═b1d56779-9a06-4b25-9a1b-09a12923e646
+# ╠═f3c3f934-6601-4383-8204-55d04c973881
 # ╟─e6782d51-175c-4de7-9c75-1fc3f75a92f0
 # ╠═013c2268-6ab8-441a-9fb4-5118dc3ae18a
 # ╠═44a16c0a-9d0d-4e9b-9ae5-aef791c4f544
