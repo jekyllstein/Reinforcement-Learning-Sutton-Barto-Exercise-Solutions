@@ -323,12 +323,12 @@ md"""
 # 12.5 True Online TD(λ)
 The online λ-return algorithm just presented is currently the best performing temporal-difference algorithm. It is an ideal which online TD(λ) only approximates.  (why is this the case?  I thought TD(λ) was equivalent to the full λ return, they mentioned in figures that at higher learning rates it can be unstable though.  True online TD(λ) doesn't have that problem.  In the plot there isn't even a horizon anymore but this was truncated.  So what happened to the cutoff point?)  So at each step in the episode, the target is the n-step λ return for that step so there is no selection of the horizon.  The largest possible horizon for every previous state is always being used in the update target.
 
-In the linear case for which $\hat v(s_\mathbf{w}) = \mathbf{w}^\intercal \mathbf{x}(s)$, then we arrive at the true online TD(λ) algorithm:
+In the linear case for which $\hat v(s_\mathbf{w}) = \mathbf{w}^\top \mathbf{x}(s)$, then we arrive at the true online TD(λ) algorithm:
 
 $\begin{flalign}
-\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t + \alpha (\mathbf{w}_t^\intercal \mathbf{x}_t - \mathbf{w}_{t-1}^\intercal \mathbf{x}+t)(\mathbf{z}_t - \mathbf{x}_t) \\
+\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t + \alpha (\mathbf{w}_t^\top \mathbf{x}_t - \mathbf{w}_{t-1}^\top \mathbf{x}+t)(\mathbf{z}_t - \mathbf{x}_t) \\
 \mathbf{x}_t & \dot = \mathbf{x}(S_t) \\
-\mathbf{z}_t & \dot = \gamma \lambda \mathbf{z}_{t-1} + (1 - \alpha\gamma\lambda \mathbf{z}_{t-1}^\intercal \mathbf{x}_t)\mathbf{x}_t \tag{12.11}
+\mathbf{z}_t & \dot = \gamma \lambda \mathbf{z}_{t-1} + (1 - \alpha\gamma\lambda \mathbf{z}_{t-1}^\top \mathbf{x}_t)\mathbf{x}_t \tag{12.11}
 
 \end{flalign}$
 """
@@ -366,15 +366,15 @@ It can be shown that the linear MC algorithm can be used to drive an equivalent 
 The linear version of gradient Monte Carlo prediction algorithm makes the following sequence updates, one for each time step of the episode:
 
 $\begin{flalign}
-\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \left [ G - \mathbf{w}_t^\intercal \mathbf{x}_t \right ] \mathbf{x}_t, \hspace{4 mm} 0 \leq t < T \tag{12.13} \\
+\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \left [ G - \mathbf{w}_t^\top \mathbf{x}_t \right ] \mathbf{x}_t, \hspace{4 mm} 0 \leq t < T \tag{12.13} \\
 \end{flalign}$
 
 To simplify assume that the return $G$ is a single reward received at the end of teh episode and that there is no discounting.  In this case the update is also known as the Least Mean Square (LMS) rule.  As a Monte Carlo algirithm, all the updates depend on teh final reward/return, so none can be made until the end of the episode.  We seek an implementation of this algorithm with computational advantages by doing some computation during each step of the episode.
 
 $\begin{flalign}
 \mathbf{w}_T & = a_{t-1} + \alpha G\mathbf{z}_{T-1} \tag{12.14} \\
-\mathbf{z}_t & = \mathbf{z}_{t-1} + (1 - \alpha \mathbf{z}_{t-1}^\intercal \mathbf{x}_t)\mathbf{x}_t \text{,  with } \mathbf{z}_0 = \mathbf{x}_0 \\
-\mathbf{a}_t & = \mathbf{a}_{t-1} - \alpha \mathbf{x}_t \mathbf{x}_t^\intercal \mathbf{a}_{t-1} \text{,  with } \mathbf{a}_0 = \mathbf{w}_0
+\mathbf{z}_t & = \mathbf{z}_{t-1} + (1 - \alpha \mathbf{z}_{t-1}^\top \mathbf{x}_t)\mathbf{x}_t \text{,  with } \mathbf{z}_0 = \mathbf{x}_0 \\
+\mathbf{a}_t & = \mathbf{a}_{t-1} - \alpha \mathbf{x}_t \mathbf{x}_t^\top \mathbf{a}_{t-1} \text{,  with } \mathbf{a}_0 = \mathbf{w}_0
 \end{flalign}$
 
 
