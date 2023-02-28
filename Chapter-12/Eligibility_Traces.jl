@@ -15,7 +15,7 @@ $\begin{flalign}
 G_{t:t+n} \hspace{2mm}&  \dot = \hspace{2mm} R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}) \tag{12.1}\\
 G_t^\lambda \hspace{2mm}&  \dot = \hspace{2mm} (1 - \lambda) \sum_{n=1}^\infty \lambda^{n-1} G_{t:t+n} \tag{12.2}\\
 
-&\text{We can rewrite (12.2) as follows:}\\
+&\text{We can rewrite (12.2) as follows in the case of an episode terminating at step T:}\\
 G_t^\lambda \hspace{2mm}&  \dot = \hspace{2mm} (1 - \lambda) \sum_{n=1}^{T-t+1} \lambda^{n-1} G_{t:t+n} + \lambda^{T-t+1}G_t \tag{12.3}\\
 \end{flalign}$
 
@@ -127,10 +127,17 @@ function semi_gradient_TDλ(π, v̂, ∇v̂, w, states, sterm, step, λ, γ, α,
 	return w, rmserrs
 end		
 
+# ╔═╡ 5e5fdcee-356e-46d4-a5b0-3c433aee989d
+md"""
+$\hat v(S, w) \dot = w^\top x = \sum_i w_i x_i$
+$\nabla \hat v(S, w) = [x_1, x_2, x_3, ...] = \mathbf{x}(S)$
+$\mathbf{x}(S_i) = \text{1 at i and 0 elsewhere}$
+$\mathbf{x}(S_1) = [1, 0, 0, \cdots]$
+"""
+
 # ╔═╡ e597a042-9c03-4d49-a48f-6dff39283c54
 md"""
-> *Exercise 12.3* Some insight into how TD(λ) can closely approximate the on-line 
-λ-return algorithm can be gained by seeing that the latter’s error term (in brackets in (12.4)) can be written as the sum of TD errors (12.6) for a single fixed w. Show this, following the pattern of (6.6), and using the recursive relationship for the λ-return you obtained in Exercise 12.1.
+> *Exercise 12.3* Some insight into how TD(λ) can closely approximate the on-line λ-return algorithm can be gained by seeing that the latter’s error term (in brackets in (12.4)) can be written as the sum of TD errors (12.6) for a single fixed w. Show this, following the pattern of (6.6), and using the recursive relationship for the λ-return you obtained in Exercise 12.1.
 
 The error term at step t is: $G_t^\lambda - \hat v(S_t, \mathbf{w_t})$
 
@@ -1227,6 +1234,7 @@ version = "17.4.0+0"
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
 # ╠═bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
 # ╠═5f94ada5-5aa5-4c4a-8ea7-578931e04b6b
+# ╠═5e5fdcee-356e-46d4-a5b0-3c433aee989d
 # ╠═f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
 # ╠═5cbe472f-4d96-483f-975f-07d41d809dc9
 # ╠═9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
