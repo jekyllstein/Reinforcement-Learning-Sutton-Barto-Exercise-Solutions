@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.20
+# v0.19.22
 
 using Markdown
 using InteractiveUtils
@@ -473,7 +473,7 @@ function gridworld_sarsa(width, height, goal, λ, ϵ, α, numepisodes, usedutch 
 end
 
 # ╔═╡ f5c3d5a4-7fe8-420e-af0a-4318b1eeda2c
-function eval_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=false)
+function eval_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=false,  αlist = [0.05, 0.1, 0.2, 0.4, 0.8], λlist = [0.0, 0.4, 0.8, 0.9, 0.99])
 	function runtrial(α, λ)
 		(w, steps, π, π_rand, makepath, step, states) = gridworld_sarsa(lmax, wmax, goal, λ, ϵ, α, 100, usedutch, f = f)
 		sum(steps[51:end])/50
@@ -482,11 +482,22 @@ function eval_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=fals
 
 	runtrials(α, λ) = mean(runtrial(α, λ) for _ in 1:100)
 
-	[[runtrials(α, λ) for α in [0.05, 0.1, 0.2, 0.4, 0.8]] for λ in [0.0, 0.4, 0.8, 0.9, 0.99]]
+	results = [[runtrials(α, λ) for α in αlist] for λ in λlist]
+	(results = results, αlist=αlist, λlist=λlist)
+end
+
+# ╔═╡ 4bd9d7a4-979d-492f-b863-8359864004ea
+function plot_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=false, αlist = [0.05, 0.1, 0.2, 0.4, 0.8], λlist = [0.0, 0.4, 0.8, 0.9, 0.99])
+	(results, αlist, λlist) = eval_grid(lmax, wmax, goal, ϵ=ϵ, f = f, usedutch=usedutch, αlist = αlist, λlist = λlist)
+	traces = [begin
+		scatter(x = αlist, y = results[i], name = "λ = $(λlist[i])")
+	end
+	for i in eachindex(results)]
+	plot(traces, Layout(yaxis_title = "Steps", xaxis_title = "α", title = "Mean Steps For 100 Episodes"))
 end
 
 # ╔═╡ 32832503-d48b-48bb-be7b-cf2cb6855a57
-eval_grid(10, 10, (5, 8), usedutch=false)
+plot_grid(10, 10, (5, 8), usedutch=true)
 
 # ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
 md"""
@@ -547,7 +558,37 @@ function true_online_sarsaλ_binary(ℱ, w, states, actions, sterm, step, λ, γ
 end
 
 # ╔═╡ f3c3f934-6601-4383-8204-55d04c973881
-eval_grid(10, 10, (5, 8), f = true_online_sarsaλ_binary)
+plot_grid(10, 10, (5, 8), f = true_online_sarsaλ_binary, λlist = [0.0, 0.01, 0.02], αlist = [0.00001, 0.0001, 0.001, 0.002, 0.004])
+
+# ╔═╡ 862026e9-ebe6-4f2e-8832-086bbba8db17
+md"""
+# 12.8 Variable λ and γ
+"""
+
+# ╔═╡ 8f894492-260e-4ab0-87b6-c02216a631e6
+md"""
+$\begin{flalign}
+G_t &= \sum_{k=t}^\infty \left ( \prod_{i=t+1}^k \gamma_i \right ) R_{k+1} \tag{12.17}\\
+G_t^{\lambda_s} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat v (S_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_s} \right ) \tag{12.18}\\
+G_t^{\lambda_a} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat q (S_{t+1}, A_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_a} \right ) \tag{12.19}\\
+G_t^{\lambda_a} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \overline V_t(S_{t+1}) + \lambda_{t+1}G_{t+1}^{\lambda_a} \right ) \tag{12.19}\\
+\overline V_t(s) & \dot = \sum_a \pi(a|s)\hat q(s, a, \mathbf{w}_t) \tag{12.21}
+\end{flalign}$
+"""
+
+# ╔═╡ c80256a7-be4f-4407-b0bf-7a13415482ad
+md"""
+> *Exercise 12.7* Generalize the three recursive equations above to their truncated versions, defining $G_{t:h}^{\lambda_s}$ and $G_{t:h}^{\lambda_a}$
+
+Starting with (12.18) we want to get a truncated version $G_{t:h}^{\lambda_s}$.  We can also use as a model the truncated λ-return
+
+$\begin{flalign}
+G_t^{\lambda_s} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat v (S_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_s} \right )\\
+G_{t:h}^\lambda &\dot = (1-\lambda) \sum_{n=1}^{h-t-1}\lambda^{n-1} G_{t:t+n} + \lambda^{h-t-1}G_{t:h}\\
+G_{t:h}^{\lambda_s} &\dot = (1-\lambda) \sum_{n=1}^{h-t-1} \left ( \prod_{i=t}^{t+n-1} \lambda_i \right ) G_{t:t+n} + \left ( \prod_{i=h-t-1}^{\infty} \lambda_i \right ) G_{t:h}
+\end{flalign}$
+
+"""
 
 # ╔═╡ e6782d51-175c-4de7-9c75-1fc3f75a92f0
 md"""
@@ -761,7 +802,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "e1410752d90c72a9ffd8f4d257bebee23226c502"
+project_hash = "fba562a8540152a8e4888628ad8394fbbc366253"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1207,10 +1248,14 @@ version = "17.4.0+0"
 # ╠═72895891-9212-4722-b2a1-0e13c30a8ecf
 # ╠═07245a98-cab2-4b0c-a17a-4eaaa8a30703
 # ╠═f5c3d5a4-7fe8-420e-af0a-4318b1eeda2c
+# ╠═4bd9d7a4-979d-492f-b863-8359864004ea
 # ╠═32832503-d48b-48bb-be7b-cf2cb6855a57
 # ╟─fbe8691b-6d71-4cba-90e4-5de63421f634
 # ╠═b1d56779-9a06-4b25-9a1b-09a12923e646
 # ╠═f3c3f934-6601-4383-8204-55d04c973881
+# ╟─862026e9-ebe6-4f2e-8832-086bbba8db17
+# ╟─8f894492-260e-4ab0-87b6-c02216a631e6
+# ╟─c80256a7-be4f-4407-b0bf-7a13415482ad
 # ╟─e6782d51-175c-4de7-9c75-1fc3f75a92f0
 # ╠═013c2268-6ab8-441a-9fb4-5118dc3ae18a
 # ╠═44a16c0a-9d0d-4e9b-9ae5-aef791c4f544
