@@ -220,7 +220,7 @@ $\begin{flalign}
 \delta_1 \text{ coefficient} &= \alpha \nabla \hat v(S_{0}, \mathbf{w}) (\gamma \lambda) +  \alpha \nabla \hat v(S_{1}, \mathbf{w}) \\ 
 \delta_2 \text{ coefficient} &= \alpha \nabla \hat v(S_{0}, \mathbf{w}) (\gamma \lambda)^2 + \alpha \nabla \hat v(S_{1}, \mathbf{w}) (\gamma \lambda) + \alpha \nabla \hat v(S_{2}, \mathbf{w}) \\ 
 \vdots \\
-\delta_t \text{ coefficient} &= \alpha \sum_{n = 0}^t (\gamma \lambda)^{t - n} \nabla \hat v(S_{t}, \mathbf{w})
+\delta_t \text{ coefficient} &= \alpha \sum_{n = 0}^t (\gamma \lambda)^{t - n} \nabla \hat v(S_{n}, \mathbf{w})
 \end{flalign}$
 
 But this coefficient is the same as we got previously for the TD(λ) weight updates, so we've shown that if weight updates are delayed unti the end of an episode both methods will perform exactly the same weight updates.
@@ -504,7 +504,7 @@ function plot_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=fals
 end
 
 # ╔═╡ 32832503-d48b-48bb-be7b-cf2cb6855a57
-plot_grid(10, 10, (5, 8), usedutch=true)
+plot_grid(10, 10, (5, 8), usedutch=false)
 
 # ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
 md"""
@@ -788,6 +788,16 @@ walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
 
 # ╔═╡ 773a0bed-4d14-4643-818f-02e9d93898eb
 TableOfContents()
+
+# ╔═╡ adf8da5b-9195-42fd-bcd2-437eb1218d5a
+html"<style>
+	main {
+		margin: 0 auto;
+		max-width: 2500px;
+    	padding-left: max(150px, 20%);
+    	padding-right: max(150px, 20%);
+	}
+</style>"
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1234,7 +1244,7 @@ version = "17.4.0+0"
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
 # ╠═bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
 # ╠═5f94ada5-5aa5-4c4a-8ea7-578931e04b6b
-# ╠═5e5fdcee-356e-46d4-a5b0-3c433aee989d
+# ╟─5e5fdcee-356e-46d4-a5b0-3c433aee989d
 # ╠═f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
 # ╠═5cbe472f-4d96-483f-975f-07d41d809dc9
 # ╠═9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
@@ -1272,5 +1282,6 @@ version = "17.4.0+0"
 # ╠═a3484638-ae83-4810-9226-0a25b3fc58dc
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═773a0bed-4d14-4643-818f-02e9d93898eb
+# ╠═adf8da5b-9195-42fd-bcd2-437eb1218d5a
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
