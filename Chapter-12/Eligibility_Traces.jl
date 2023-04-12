@@ -1,11 +1,11 @@
 ### A Pluto.jl notebook ###
-# v0.19.22
+# v0.19.24
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
-using PlutoUI, PlutoPlotly, Statistics ,StatsBase
+using PlutoUI, PlutoPlotly, Statistics ,StatsBase, BenchmarkTools
 
 # ╔═╡ b5479c7a-9140-11ed-257a-b342885b47fa
 md"""
@@ -113,7 +113,7 @@ function semi_gradient_TDλ(π, v̂, ∇v̂, w, states, sterm, step, λ, γ, α,
 		s = s_init()
 		z = zeros(length(w))
 		function update!(s)
-			s == sterm && return
+			s == sterm && return nothing
 			a = π(s)
 			(s′, r) = step(s, a)
 			z .= (γ*λ .* z) .+ ∇v̂(s, w)
@@ -348,7 +348,7 @@ function true_online_TDλ(π, x, w, states, sterm, step, λ, γ, α, numepisodes
 		s = s_init()
 		z = zeros(length(w))
 		function update!(s, v_old = 0.0)
-			s == sterm && return
+			s == sterm && return nothing
 			a = π(s)
 			(s′, r) = step(s, a)
 			v = w' * x(s)
@@ -393,15 +393,70 @@ md"""
 # 12.7 Sarsa(λ)
 """
 
+# ╔═╡ e7b274c5-4f0c-4e5f-8a4a-b574130e64c0
+function getmaxinds(v::AbstractVector)
+	maxinds = [1]
+	nmax = 1
+	maxval = first(v)
+
+	function update!(i, maxval, maxinds, nmax)
+		if v[i] > maxval
+			maxinds[1] = i
+			return (v[i], 1)
+		end
+		
+		if v[i] == maxval
+			push!(maxinds, i)
+			return (maxval, nmax+1)
+		end
+
+		return (maxval, nmax)
+	end
+	
+	for i in 2:lastindex(v)
+		(maxval, nmax) = update!(i, maxval, maxinds, nmax)
+	end
+
+	maxinds[1:nmax]
+end	
+
+# ╔═╡ 2fbdb817-da15-4011-bb1c-126f1f311e7a
+function findmaxrand(v::AbstractVector)
+	maxval = first(v)
+	imax = 1
+	l = length(v)
+	p = inv(l)
+
+	function update!(i, maxval, imax)
+		v[i] > maxval && return (v[i], i)
+		v[i] < maxval && return (maxval, imax)
+
+		r = rand()
+		if r < p 
+			(maxval, i) #randomly accept if the two are equal
+		else
+			(maxval, imax)
+		end
+	end
+	
+	for i in 2:lastindex(v)
+		(maxval, imax) = update!(i, maxval, imax)
+	end
+
+	maxval, imax
+end	
+
 # ╔═╡ 72895891-9212-4722-b2a1-0e13c30a8ecf
 function sarsaλ_linear(ℱ, w, states, actions, sterm, step, λ, γ, α, numepisodes, s_init, ϵ, usedutch = false)
 	function ϵ_greedy(s, ϵ)
 		rand() < ϵ && return rand(actions)
 		qa = [sum(w[i] for i in ℱ(s, a)) for a in actions]
-		(maxq, ind) = findmax(qa)
-		inds = findall(q -> q == maxq, qa)
-		isempty(inds) && return rand(actions)
-		rand(actions[inds])
+		# (inds, val) = getmaxinds(qa)
+		(maxq, ind) = findmaxrand(qa)
+		# inds = findall(q -> q == maxq, qa)
+		# isempty(inds) && return rand(actions)
+		# rand(actions[inds])
+		actions[ind]
 	end
 	stepcounts = zeros(Int64, numepisodes)
 	z = zeros(length(w))
@@ -436,7 +491,6 @@ function sarsaλ_linear(ℱ, w, states, actions, sterm, step, λ, γ, α, numepi
 		end
 		stepcounts[ep] = stepcount
 	end
-	
 	return w, stepcounts, s -> ϵ_greedy(s, 0.0)
 end
 
@@ -473,15 +527,16 @@ function gridworld_sarsa(width, height, goal, λ, ϵ, α, numepisodes, usedutch 
 	s_init() = (1, 1)
 	ℱ(s, a) = state_action_lookup[(s, a)]
 
-	w, steps, π = f(ℱ, w_init(), states, actions, goal, step, λ, 1.0, α, numepisodes, s_init, ϵ, usedutch)
+	w, steps::Vector{Int64}, π = f(ℱ, w_init(), states, actions, goal, step, λ, 1.0, α, numepisodes, s_init, ϵ, usedutch)
 
+	# return steps
 	# run_episode(π_rand, (1, 1))
 	(w, steps, π, π_rand, run_episode, step, states)
 end
 
 # ╔═╡ f5c3d5a4-7fe8-420e-af0a-4318b1eeda2c
 function eval_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=false,  αlist = [0.05, 0.1, 0.2, 0.4, 0.8], λlist = [0.0, 0.4, 0.8, 0.9, 0.99])
-	function runtrial(α, λ)
+	function runtrial(α, λ)::Float64
 		(w, steps, π, π_rand, makepath, step, states) = gridworld_sarsa(lmax, wmax, goal, λ, ϵ, α, 100, usedutch, f = f)
 		sum(steps[51:end])/50
 	end
@@ -518,10 +573,11 @@ function true_online_sarsaλ_binary(ℱ, w, states, actions, sterm, step, λ, γ
 	function ϵ_greedy(s, ϵ)
 		rand() < ϵ && return rand(actions)
 		qa = [sum(w[i] for i in ℱ(s, a)) for a in actions]
-		(maxq, ind) = findmax(qa)
-		inds = findall(q -> q == maxq, qa)
-		isempty(inds) && return rand(actions)
-		rand(actions[inds])
+		(maxq, ind) = findmaxrand(qa)
+		# inds = findall(q -> q == maxq, qa)
+		# isempty(inds) && return rand(actions)
+		# rand(actions[inds])
+		actions[ind]
 	end
 	stepcounts = zeros(Int64, numepisodes)
 	z = zeros(length(w))
@@ -617,9 +673,8 @@ function n_step_TD_Vest(π, α, n, states, sterm, sim, γ; v0 = 0.0, numep = 100
 		Svec[1] = s0
 		s = s0
 		T = typemax(Int64)
-		τ = 0
 		t = 0
-		while τ != T - 1
+		while true
 			if t < T
 				a = π(s)
 				(s, r) = sim(Svec[mod(t, n+1)+1], a)
@@ -642,6 +697,7 @@ function n_step_TD_Vest(π, α, n, states, sterm, sim, γ; v0 = 0.0, numep = 100
 				end
 			end
 			t += 1
+			(τ == T - 1) && break
 		end
 		rmserrs[ep] = rmserr()
 	end
@@ -657,13 +713,14 @@ end
 
 # ╔═╡ 13756b5d-b496-45fa-875b-7f6ee6468dcf
 #create a random walk mdp of length n where the left terminal state produces a reward of -1 and the right a reward of 1
-function create_random_walk(n)
+function create_random_walk(n::Int64)
 	states = Tuple(1:n)
 	sterm = 0
-	actions = (:left, :right)
-	move(s, ::Left) = s - 1
-	move(s, ::Right) = s + 1
+	
 	function step(s0, action)
+		move(s, ::Left) = s - 1
+		move(s, ::Right) = s + 1
+
 		s = move(s0, action)
 		(s == 0) && return (sterm, -1.0)
 		(s > n) && return (sterm, 1.0)
@@ -671,9 +728,6 @@ function create_random_walk(n)
 	end
 	(states, sterm, step)
 end
-
-# ╔═╡ 5f94ada5-5aa5-4c4a-8ea7-578931e04b6b
-create_random_walk(19)
 
 # ╔═╡ f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
 function random_walk_TDλ(nstates = 19; numepisodes = 10, nruns = 10)
@@ -687,9 +741,11 @@ function random_walk_TDλ(nstates = 19; numepisodes = 10, nruns = 10)
 
 	(states, sterm, step) = create_random_walk(nstates)
 
+	gradlookup = [[i == s ? 1.0 : 0.0 for i in 1:nstates] for s in 1:nstates]
+
 	make_w() = zeros(nstates) #using weight vector that keeps a value for each state
-	v̂(s, w) = s == sterm ? 0.0 : w[s] #take weight value for that state
-	∇v̂(s, w) = [i == s ? 1.0 : 0.0 for i in eachindex(w)]
+	v̂(s::Int64, w::Vector{Float64}) = s == sterm ? 0.0 : w[s] #take weight value for that state
+	∇v̂(s::Int64, w::Vector{Float64}) = gradlookup[s]
 
 	s_init() = rand(1:nstates)
 	
@@ -727,9 +783,13 @@ function random_walk_true_onlineTDλ(nstates = 19; numepisodes = 10, nruns = 10)
 	(states, sterm, step) = create_random_walk(nstates)
 
 	make_w() = zeros(nstates) #using weight vector that keeps a value for each state
+
+	statevectors = [[i == s ? 1.0 : 0.0 for i in 1:nstates] for s in 1:nstates]
+	zerovec = zeros(nstates)
+	
 	function x(s)
-		s == sterm && return zeros(nstates)
-		[i == s ? 1.0 : 0.0 for i in 1:nstates]
+		s == sterm && return zerovec
+		statevectors[s]
 	end
 
 	s_init() = rand(1:nstates)
@@ -786,10 +846,10 @@ end
 # ╔═╡ f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
 walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
 
-# ╔═╡ 773a0bed-4d14-4643-818f-02e9d93898eb
+# ╔═╡ 3e433591-2efc-4f3a-9333-13156bf1529c
 TableOfContents()
 
-# ╔═╡ adf8da5b-9195-42fd-bcd2-437eb1218d5a
+# ╔═╡ 326b3355-7941-403b-bf1e-3031f585f666
 html"<style>
 	main {
 		margin: 0 auto;
@@ -797,17 +857,19 @@ html"<style>
     	padding-left: max(150px, 20%);
     	padding-right: max(150px, 20%);
 	}
-</style>"
+	</style>"
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
+BenchmarkTools = "~1.3.2"
 PlutoPlotly = "~0.3.6"
 PlutoUI = "~0.7.49"
 StatsBase = "~0.33.21"
@@ -817,9 +879,9 @@ StatsBase = "~0.33.21"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.8.5"
+julia_version = "1.9.0-rc2"
 manifest_format = "2.0"
-project_hash = "fba562a8540152a8e4888628ad8394fbbc366253"
+project_hash = "16bfe90cf2094f07e23924c268017efcb65090b9"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -837,17 +899,11 @@ uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
-[[deps.ChainRulesCore]]
-deps = ["Compat", "LinearAlgebra", "SparseArrays"]
-git-tree-sha1 = "e7ff6cadf743c098e08fca25c91103ee4303c9bb"
-uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-version = "1.15.6"
-
-[[deps.ChangesOfVariables]]
-deps = ["ChainRulesCore", "LinearAlgebra", "Test"]
-git-tree-sha1 = "38f7a08f19d8810338d4f5085211c7dfa5d5bdd8"
-uuid = "9e997f8a-9a97-42d5-a9f1-ce6bfc15e2c0"
-version = "0.1.4"
+[[deps.BenchmarkTools]]
+deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "d9a9701b899b30332bbcb3e1679c41cce81fb0e8"
+uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+version = "1.3.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "Random", "SnoopPrecompile"]
@@ -874,15 +930,19 @@ uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.12.10"
 
 [[deps.Compat]]
-deps = ["Dates", "LinearAlgebra", "UUIDs"]
-git-tree-sha1 = "00a2cccc7f098ff3b66806862d275ca3db9e6e5a"
+deps = ["UUIDs"]
+git-tree-sha1 = "7a60c856b9fa189eb34f5f8a6f6b5529b7942957"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "4.5.0"
+version = "4.6.1"
+weakdeps = ["Dates", "LinearAlgebra"]
+
+    [deps.Compat.extensions]
+    CompatLinearAlgebraExt = "LinearAlgebra"
 
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.1+0"
+version = "1.0.2+0"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "e8119c1a33d267e16108be441a287a6981ba1630"
@@ -901,7 +961,9 @@ uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
+git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+version = "1.9.1"
 
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
@@ -945,16 +1007,10 @@ version = "0.2.2"
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 
-[[deps.InverseFunctions]]
-deps = ["Test"]
-git-tree-sha1 = "49510dfcb407e572524ba94aeae2fced1f3feb0f"
-uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
-version = "0.1.8"
-
 [[deps.IrrationalConstants]]
-git-tree-sha1 = "7fd44fd4ff43fc60815f8e764c0f352b83c49151"
+git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
-version = "0.1.1"
+version = "0.2.2"
 
 [[deps.JLLWrappers]]
 deps = ["Preferences"]
@@ -996,14 +1052,24 @@ version = "1.10.2+0"
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 
 [[deps.LinearAlgebra]]
-deps = ["Libdl", "libblastrampoline_jll"]
+deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [[deps.LogExpFunctions]]
-deps = ["ChainRulesCore", "ChangesOfVariables", "DocStringExtensions", "InverseFunctions", "IrrationalConstants", "LinearAlgebra"]
-git-tree-sha1 = "946607f84feb96220f480e0422d3484c49c00239"
+deps = ["DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
+git-tree-sha1 = "0a1b7c2863e44523180fdb3146534e265a91870b"
 uuid = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
-version = "0.3.19"
+version = "0.3.23"
+
+    [deps.LogExpFunctions.extensions]
+    LogExpFunctionsChainRulesCoreExt = "ChainRulesCore"
+    LogExpFunctionsChangesOfVariablesExt = "ChangesOfVariables"
+    LogExpFunctionsInverseFunctionsExt = "InverseFunctions"
+
+    [deps.LogExpFunctions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    ChangesOfVariables = "9e997f8a-9a97-42d5-a9f1-ce6bfc15e2c0"
+    InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -1020,7 +1086,7 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.0+0"
+version = "2.28.2+0"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -1033,7 +1099,7 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2022.2.1"
+version = "2022.10.11"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1042,7 +1108,7 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.20+0"
+version = "0.3.21+4"
 
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1056,9 +1122,9 @@ uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
 version = "0.5.5+0"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "85f8e6578bf1f9ee0d11e7bb1b1456435479d47c"
+git-tree-sha1 = "d321bf2de576bf25ec4d3e4360faca399afca282"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.4.1"
+version = "1.6.0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -1068,14 +1134,14 @@ version = "0.12.3"
 
 [[deps.Parsers]]
 deps = ["Dates", "SnoopPrecompile"]
-git-tree-sha1 = "6466e524967496866901a78fca3f2e9ea445a559"
+git-tree-sha1 = "478ac6c952fddd4399e71d4779797c538d0ff2bf"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.5.2"
+version = "2.5.8"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.8.0"
+version = "1.9.0"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -1091,9 +1157,9 @@ version = "0.3.6"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "eadad7b14cf046de6eb41f13c9275e5aa2711ab6"
+git-tree-sha1 = "5bb5129fdd62a2bbbe17c2756932259acf467386"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.49"
+version = "0.7.50"
 
 [[deps.Preferences]]
 deps = ["TOML"]
@@ -1104,6 +1170,10 @@ version = "1.3.0"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[[deps.Profile]]
+deps = ["Printf"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
@@ -1132,9 +1202,10 @@ version = "0.7.0"
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 
 [[deps.SnoopPrecompile]]
-git-tree-sha1 = "f604441450a3c0569830946e5b33b78c928e1a85"
+deps = ["Preferences"]
+git-tree-sha1 = "e760a70afdcd461cf01a575947738d359234665c"
 uuid = "66db9d55-30c0-4569-8b51-7e840670fc0c"
-version = "1.0.1"
+version = "1.0.3"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
@@ -1146,24 +1217,31 @@ uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
 version = "1.1.0"
 
 [[deps.SparseArrays]]
-deps = ["LinearAlgebra", "Random"]
+deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [[deps.SpecialFunctions]]
-deps = ["ChainRulesCore", "IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
-git-tree-sha1 = "d75bda01f8c31ebb72df80a46c88b25d1c79c56d"
+deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
+git-tree-sha1 = "ef28127915f4229c971eb43f3fc075dd3fe91880"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
-version = "2.1.7"
+version = "2.2.0"
+
+    [deps.SpecialFunctions.extensions]
+    SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
+
+    [deps.SpecialFunctions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+version = "1.9.0"
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "f9af7f195fb13589dd2e2d57fdb401717d2eb1f6"
+git-tree-sha1 = "45a7769a04a3cf80da1c1c7c60caf932e6f4c9f7"
 uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
-version = "1.5.0"
+version = "1.6.0"
 
 [[deps.StatsBase]]
 deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
@@ -1171,15 +1249,20 @@ git-tree-sha1 = "d1bf48bfcc554a3761a133fe3a9bb01488e06916"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.33.21"
 
+[[deps.SuiteSparse_jll]]
+deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
+uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
+version = "5.10.1+6"
+
 [[deps.TOML]]
 deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
-version = "1.0.0"
+version = "1.0.3"
 
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
 uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
-version = "1.10.1"
+version = "1.10.0"
 
 [[deps.TensorCore]]
 deps = ["LinearAlgebra"]
@@ -1192,14 +1275,14 @@ deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[deps.Tricks]]
-git-tree-sha1 = "6bac775f2d42a611cdfcd1fb217ee719630c4175"
+git-tree-sha1 = "aadb748be58b492045b4f56166b5188aa63ce549"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
-version = "0.1.6"
+version = "0.1.7"
 
 [[deps.URIs]]
-git-tree-sha1 = "ac00576f90d8a259f2c9d823e91d1de3fd44d348"
+git-tree-sha1 = "074f993b0ca030848b897beff716d93aca60f06a"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.4.1"
+version = "1.4.2"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -1216,12 +1299,12 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.12+3"
+version = "1.2.13+0"
 
 [[deps.libblastrampoline_jll]]
-deps = ["Artifacts", "Libdl", "OpenBLAS_jll"]
+deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.1.1+0"
+version = "5.4.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1243,7 +1326,6 @@ version = "17.4.0+0"
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
 # ╠═bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
-# ╠═5f94ada5-5aa5-4c4a-8ea7-578931e04b6b
 # ╟─5e5fdcee-356e-46d4-a5b0-3c433aee989d
 # ╠═f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
 # ╠═5cbe472f-4d96-483f-975f-07d41d809dc9
@@ -1263,6 +1345,8 @@ version = "17.4.0+0"
 # ╠═9123aa11-9187-4203-b671-d5f5feaf5813
 # ╟─b36896b1-6802-48e1-8cd3-f08bf3b99e3e
 # ╟─0086dc4a-e0ba-43f0-a721-296cd50e1a76
+# ╠═e7b274c5-4f0c-4e5f-8a4a-b574130e64c0
+# ╠═2fbdb817-da15-4011-bb1c-126f1f311e7a
 # ╠═72895891-9212-4722-b2a1-0e13c30a8ecf
 # ╠═07245a98-cab2-4b0c-a17a-4eaaa8a30703
 # ╠═f5c3d5a4-7fe8-420e-af0a-4318b1eeda2c
@@ -1281,7 +1365,7 @@ version = "17.4.0+0"
 # ╠═2cafed7d-22c6-420f-9c8e-8ae734bfbad2
 # ╠═a3484638-ae83-4810-9226-0a25b3fc58dc
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
-# ╠═773a0bed-4d14-4643-818f-02e9d93898eb
-# ╠═adf8da5b-9195-42fd-bcd2-437eb1218d5a
+# ╠═3e433591-2efc-4f3a-9333-13156bf1529c
+# ╠═326b3355-7941-403b-bf1e-3031f585f666
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
