@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
-using PlutoUI, PlutoPlotly
+using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase
 
 # ╔═╡ 36a6e43f-6bcf-4c27-bfbb-047760e77ada
 md"""
@@ -22,6 +22,51 @@ If the state/action space is discrete and not too large then we can have numeric
 
 Another advantage is that for some problems the policy may be easier to approximate than the action-value function.  We can also inject some prior knowledge of the environment into how the policy is parametrized.
 """
+
+# ╔═╡ 7a6fb1f0-fc3c-4c29-a6d9-769d32ca98a9
+md"""
+## Example 13.1 Short corridor gridworld
+"""
+
+# ╔═╡ 1b89a5be-d4f6-43b6-b778-0895d77d0962
+abstract type LinearMove end
+
+# ╔═╡ 759afa53-2b01-4d9b-b398-80120626634f
+struct Left <: LinearMove end
+
+# ╔═╡ 97046258-7753-4edb-b0c9-0981d587ad35
+struct Right <: LinearMove end
+
+# ╔═╡ 423321cc-1c8c-44a0-bd8e-a4d3cb68962b
+function make_corridor()
+	move(s::Integer, ::Left) = s == 2 ? s + 1 : s - 1
+	move(s::Integer, ::Right) = s == 2 ? s - 1 : s + 1
+	function step(s::Integer, a::LinearMove)
+		s′ = max(1, move(s, a))
+		(s′, -1.0)
+	end
+	(states = 1:3, sterm = 4, actions = [Left(), Right()], step = step)
+end	
+
+# ╔═╡ 980af3e7-2f1c-49be-8f6b-fc61271dff52
+function run_corridor_episode(π)
+	cor = make_corridor()
+	s = first(cor.states)
+	G = 0.0
+	state_history = [s]
+	rewardhistory = Vector{Float64}()
+	select_action(vec) = sample(eachindex(vec), pweights(vec))
+	while s != cor.sterm
+		a = cor.actions[select_action(π(s))]
+		(s, r) = cor.step(s, a)
+		push!(state_history, s)
+		push!(rewardhistory, r)
+	end
+	return state_history, rewardhistory
+end
+
+# ╔═╡ edb145d7-95e0-44c9-a60f-57d517edb0c7
+run_corridor_episode(s -> [0.5, 0.5])
 
 # ╔═╡ 9d815d9c-6e5a-473e-a395-6f92d504dbf3
 md"""
@@ -88,18 +133,109 @@ md"""
 # 13.2 The Policy Gradient Theorem
 """
 
+# ╔═╡ aa450da4-fe84-4eea-b6c4-9820b7982437
+md"""
+With continuous policy parametrization, we can smoothly very action selection probabilities by arbitrarily small amounts, something that was not possible with ϵ-greedy action selection.  Therefore stronger convergence guarantees are possible for policy-gradient methods than for action-value methods.
+
+In the episodic case, assuming some particular non-random starting state $s_0$, we define the performance of a policy parametrized by *θ* as:
+
+$\begin{align}
+J(\mathbf{\theta}) \hspace{5px} \dot = \hspace{5px} v_{\pi_\mathbf{\theta}}(s_0) \tag{13.4}
+\end{align}$
+
+where $v_{\pi_\mathbf{\theta}}$ is the true value function for $\pi_\mathbf{\theta}$, the policy determined by $\mathbf{\theta}$.
+
+The *policy gradient theorem* provides an analytic expression for the gradient of performance with respect to the policy parameter that does *not* involve the derivative of the state distribution:
+
+$\begin{align}
+\nabla J(\mathbf{\theta}) \propto \sum_s \mu (s) \sum_a q_\pi (s, a) \nabla \pi (a|s,\mathbf{\theta}) \tag{13.5}
+\end{align}$
+
+where the gradients are column vectors of partial derivatives with respect to the components of $\mathbf{\theta}$.  In the episodic case, the constant of proportionality is the average length of an episode, and in the continuing case it is 1.  The distribution here $\mu$ is the on-policy distribution under $\pi$.
+"""
+
+
+# ╔═╡ f924eb30-d1cc-4941-8fb5-ff70ad425ab9
+md"""
+# 13.3 REINFORCE: Monte Carlo Policy Gradient
+
+If we replace the true action-value function in (13.5) with a learned approximation $\hat q_\pi$, then we have a method called the *all-actions* method because the update involves the sum over all actions.  For the REINFORCE algorithm, we instead sample this value using the actual return and the policy distribution.
+
+We can re-write (13.5) using an expected value under the policy and continue from there:
+
+$\begin{flalign}
+\nabla J(\mathbf{\theta}) & \propto \mathbb{E}_\pi \left [ \sum_a q_\pi (S_t, a) \nabla \pi(a|S_t, \mathbf{\theta}) \right ] \tag{13.6}\\
+ &= \mathbb{E}_\pi \left [ \sum_a \pi(a|S_t, \mathbf{\theta}) q_\pi (S_t, a) \frac{\nabla \pi(a|S_t, \mathbf{\theta})}{\pi(a|S_t, \mathbf{\theta})} \right ] \tag{multiply and divide by policy} \\
+ &= \mathbb{E}_\pi \left [ q_\pi (S_t, A_t) \frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})} \right ] \tag{replace a with sample under policy} \\
+ &= \mathbb{E}_\pi \left [ G_t \frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})} \right ] \tag{replace value with sample return} \\
+\end{flalign}$
+
+Using the expression in the brackets we can write down an update rule for the parameters that can be sampled on each time step.  This is the **REINFORCE update**:
+
+$\begin{align}
+\mathbf{\theta}_{t+1} \hspace{5px} \dot = \hspace{5px} \mathbf{\theta}_t + \alpha G_t \frac{\nabla \pi(A_t|S_t, \mathbf{\theta}_t)}{\pi(A_t|S_t, \mathbf{\theta}_t)} \tag{13.8}
+\end{align}$
+
+Because it uses all future returns after step t, REINFORCE is a Monte Carlo algorithm and is well defined only for the episodic case.  For implementation purposes we can replace $\frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})}$ with $\nabla \ln \pi(A_t|S_t, \mathbf{\theta}_t)$ which is usually refered to as the *eligibility vector*.
+"""
+
+# ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
+function reinforce_monte_carlo_control(π::Function, ∇π::Function, d::Int64, s0, α, step, sterm; γ = 1.0, max_episodes = 1000)
+	θ = zeros(d)
+	rewards = zeros(max_episodes)
+	select_action(vec) = sample(eachindex(vec), pweights(vec))
+	
+	function run_episode()
+		state_history = [s0]
+		a = select_action(π(s, θ))
+		action_history = [a]
+		(s, r) = step(s0, a)
+		reward_history = [r]
+		while s != sterm
+			a = select_action(π(s, θ))
+			push!(action_history, a)
+			(s, r) = step(s, a)
+			push!(reward_history, r)
+			push!(state_history, s)
+		end
+		return state_history, action_history, reward_history
+	end	
+	for i in eachindex(rewards)
+		state_history, action_history, reward_history = run_episode()
+		G = 0
+		for i in lastindex(ep_rewards):1
+			G = (γ * G) + ep_rewards[i]
+			θ .+= α * γ^(i-1) * G .* ∇π(state_history[i], θ) ./ π(state_history[i], θ)
+		end
+		rewards[i] = sum(reward_history)
+	end
+end
+
+# ╔═╡ c2d8a622-b8f9-454b-9fd1-dc940280624c
+
+
+# ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
+md"""
+# Dependencies and Settings
+"""
+
 # ╔═╡ ea8cdebd-7a25-49ae-9695-48dda2a880b4
 TableOfContents()
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
+Distributions = "~0.25.87"
 PlutoPlotly = "~0.3.6"
 PlutoUI = "~0.7.50"
+StatsBase = "~0.33.21"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -108,7 +244,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0-rc2"
 manifest_format = "2.0"
-project_hash = "12f5c6c46256f3968b5c35394188fc17326b75d2"
+project_hash = "f951d4790a187a0345f320a87f38612812dc8cf4"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -125,6 +261,12 @@ uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+
+[[deps.Calculus]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "f641eb0a4f00c343bbc32346e1217b86f3ce9dad"
+uuid = "49dc2e85-a5d0-5ad3-a950-438e2897f1b9"
+version = "0.5.1"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "Random", "SnoopPrecompile"]
@@ -150,10 +292,31 @@ git-tree-sha1 = "fc08e5930ee9a4e03f84bfb5211cb54e7769758a"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.12.10"
 
+[[deps.Compat]]
+deps = ["UUIDs"]
+git-tree-sha1 = "7a60c856b9fa189eb34f5f8a6f6b5529b7942957"
+uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
+version = "4.6.1"
+weakdeps = ["Dates", "LinearAlgebra"]
+
+    [deps.Compat.extensions]
+    CompatLinearAlgebraExt = "LinearAlgebra"
+
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.0.2+0"
+
+[[deps.DataAPI]]
+git-tree-sha1 = "e8119c1a33d267e16108be441a287a6981ba1630"
+uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
+version = "1.14.0"
+
+[[deps.DataStructures]]
+deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
+git-tree-sha1 = "d1fff3a548102f48987a52a2e0d114fa97d730f0"
+uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+version = "0.18.13"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -164,6 +327,20 @@ deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
+
+[[deps.Distributions]]
+deps = ["FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SparseArrays", "SpecialFunctions", "Statistics", "StatsBase", "StatsFuns", "Test"]
+git-tree-sha1 = "13027f188d26206b9e7b863036f87d2f2e7d013a"
+uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
+version = "0.25.87"
+
+    [deps.Distributions.extensions]
+    DistributionsChainRulesCoreExt = "ChainRulesCore"
+    DistributionsDensityInterfaceExt = "DensityInterface"
+
+    [deps.Distributions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
 
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
@@ -176,14 +353,32 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
+[[deps.DualNumbers]]
+deps = ["Calculus", "NaNMath", "SpecialFunctions"]
+git-tree-sha1 = "5837a837389fccf076445fce071c8ddaea35a566"
+uuid = "fa6b7ba4-c1ee-5f82-b5fc-ecf0adba8f74"
+version = "0.6.8"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+
+[[deps.FillArrays]]
+deps = ["LinearAlgebra", "Random", "SparseArrays", "Statistics"]
+git-tree-sha1 = "fc86b4fd3eff76c3ce4f5e96e2fdfa6282722885"
+uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
+version = "1.0.0"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
 git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
+
+[[deps.HypergeometricFunctions]]
+deps = ["DualNumbers", "LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
+git-tree-sha1 = "432b5b03176f8182bd6841fbfc42c718506a2d5f"
+uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
+version = "0.3.15"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -288,12 +483,24 @@ deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.2+0"
 
+[[deps.Missings]]
+deps = ["DataAPI"]
+git-tree-sha1 = "f66bdc5de519e8f8ae43bdc598782d35a25b1272"
+uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
+version = "1.1.0"
+
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2022.10.11"
+
+[[deps.NaNMath]]
+deps = ["OpenLibm_jll"]
+git-tree-sha1 = "0877504529a3e5c3343c6f8b4c0381e57e4387e4"
+uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
+version = "1.0.2"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -319,6 +526,12 @@ version = "0.5.5+0"
 git-tree-sha1 = "d321bf2de576bf25ec4d3e4360faca399afca282"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 version = "1.6.0"
+
+[[deps.PDMats]]
+deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
+git-tree-sha1 = "67eae2738d63117a196f497d7db789821bce61d1"
+uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
+version = "0.11.17"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -365,6 +578,12 @@ version = "1.3.0"
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
+[[deps.QuadGK]]
+deps = ["DataStructures", "LinearAlgebra"]
+git-tree-sha1 = "6ec7ac8412e83d57e313393220879ede1740f9ee"
+uuid = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
+version = "2.8.2"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -384,6 +603,18 @@ git-tree-sha1 = "838a3a4188e2ded87a4f9f184b4b0d78a1e91cb7"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.0"
 
+[[deps.Rmath]]
+deps = ["Random", "Rmath_jll"]
+git-tree-sha1 = "f65dcb5fa46aee0cf9ed6274ccbd597adc49aa7b"
+uuid = "79098fc4-a85e-5d69-aa6a-4863f24498fa"
+version = "0.7.1"
+
+[[deps.Rmath_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "6ed52fdd3382cf21947b15e8870ac0ddbff736da"
+uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
+version = "0.4.0+0"
+
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 version = "0.7.0"
@@ -399,6 +630,12 @@ version = "1.0.3"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
+
+[[deps.SortingAlgorithms]]
+deps = ["DataStructures"]
+git-tree-sha1 = "a4ada03f999bd01b3a25dcaa30b2d929fe537e00"
+uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
+version = "1.1.0"
 
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
@@ -420,6 +657,36 @@ version = "2.2.0"
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 version = "1.9.0"
+
+[[deps.StatsAPI]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "45a7769a04a3cf80da1c1c7c60caf932e6f4c9f7"
+uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
+version = "1.6.0"
+
+[[deps.StatsBase]]
+deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
+git-tree-sha1 = "d1bf48bfcc554a3761a133fe3a9bb01488e06916"
+uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+version = "0.33.21"
+
+[[deps.StatsFuns]]
+deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
+git-tree-sha1 = "f625d686d5a88bcd2b15cd81f18f98186fdc0c9a"
+uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
+version = "1.3.0"
+
+    [deps.StatsFuns.extensions]
+    StatsFunsChainRulesCoreExt = "ChainRulesCore"
+    StatsFunsInverseFunctionsExt = "InverseFunctions"
+
+    [deps.StatsFuns.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
+
+[[deps.SuiteSparse]]
+deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
+uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
@@ -492,9 +759,21 @@ version = "17.4.0+0"
 # ╔═╡ Cell order:
 # ╟─36a6e43f-6bcf-4c27-bfbb-047760e77ada
 # ╟─2501cbc0-9772-4b2f-ab01-ef7903e62950
+# ╟─7a6fb1f0-fc3c-4c29-a6d9-769d32ca98a9
+# ╠═1b89a5be-d4f6-43b6-b778-0895d77d0962
+# ╠═759afa53-2b01-4d9b-b398-80120626634f
+# ╠═97046258-7753-4edb-b0c9-0981d587ad35
+# ╠═423321cc-1c8c-44a0-bd8e-a4d3cb68962b
+# ╠═980af3e7-2f1c-49be-8f6b-fc61271dff52
+# ╠═edb145d7-95e0-44c9-a60f-57d517edb0c7
 # ╟─9d815d9c-6e5a-473e-a395-6f92d504dbf3
 # ╟─e5faaa1b-88cb-43e2-8d04-8972b58b4bda
 # ╟─406638af-1e08-44d2-9ee4-97aa9294a94b
+# ╟─aa450da4-fe84-4eea-b6c4-9820b7982437
+# ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
+# ╠═2b11ef08-288f-4110-b741-ba580782b6a7
+# ╠═c2d8a622-b8f9-454b-9fd1-dc940280624c
+# ╠═0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═ea8cdebd-7a25-49ae-9695-48dda2a880b4
 # ╟─00000000-0000-0000-0000-000000000001
