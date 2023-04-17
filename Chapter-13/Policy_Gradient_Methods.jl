@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
-using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase
+using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase, LinearAlgebra, LaTeXStrings, Base.Threads
 
 # ╔═╡ 36a6e43f-6bcf-4c27-bfbb-047760e77ada
 md"""
@@ -49,8 +49,7 @@ function make_corridor()
 end	
 
 # ╔═╡ 980af3e7-2f1c-49be-8f6b-fc61271dff52
-function run_corridor_episode(π)
-	cor = make_corridor()
+function run_corridor_episode(π; cor = make_corridor())
 	s = first(cor.states)
 	G = 0.0
 	state_history = [s]
@@ -66,7 +65,7 @@ function run_corridor_episode(π)
 end
 
 # ╔═╡ edb145d7-95e0-44c9-a60f-57d517edb0c7
-run_corridor_episode(s -> [0.5, 0.5])
+run_corridor_episode(s -> [0.5, 0.5]) #this policy chooses randomly between both actions
 
 # ╔═╡ 9d815d9c-6e5a-473e-a395-6f92d504dbf3
 md"""
@@ -103,7 +102,7 @@ Using the quadratic equation, there are two solutions but since we know p has to
 
 $p = \frac{-2 \pm \sqrt{4 + 4}}{2} = -1 \pm \sqrt{2} \implies p = \sqrt{2} - 1 \approx 0.414$
 
-So, in order to maximize the value at state 1, we have $p_{\text{left}} \approx 0.414$ and $p_{\text{right}} \approx 0.586$.  That also implies that $v(S_1) = \frac{2(1+p)}{p^2 - p} = \frac{2\sqrt{2}}{2 - 2 \sqrt{2} + 1 + 1 - \sqrt{2}} = \frac{2\sqrt{2}}{4 - 3\sqrt{2}} = \frac{2\sqrt{2}(4 + 3\sqrt{2})}{16 - 18}=\frac{8\sqrt{2}+12}{-2} = 6-4\sqrt{2}\approx-11.657$
+So, in order to maximize the value at state 1, we have $p_{\text{left}} \approx 0.414$ and $p_{\text{right}} \approx 0.586$.  That also implies that $v(S_1) = \frac{2(1+p)}{p^2 - p} = \frac{2\sqrt{2}}{2 - 2 \sqrt{2} + 1 + 1 - \sqrt{2}} = \frac{2\sqrt{2}}{4 - 3\sqrt{2}} = \frac{2\sqrt{2}(4 + 3\sqrt{2})}{16 - 18}=\frac{8\sqrt{2}+12}{-2} = -6-4\sqrt{2}\approx-11.657$
 
 If we solve the same problem at state 2 we get:
 
@@ -125,7 +124,7 @@ begin
 	v3(p) = 3/(p-1)
 	plist = 0.:0.001:1.
 	traces = [scatter(x = plist, y = f.(plist), name = n) for (f, n) in zip([v1, v2, v3], ["V(S1)", "V(S2)", "V(S3)"])]
-	plot(traces, Layout(yaxis_range = [-100, 0]))
+	plot(traces, Layout(yaxis_range = [-100, 0], xaxis_title = "probability of right action", yaxis_title = "State Value"))
 end
 
 # ╔═╡ 406638af-1e08-44d2-9ee4-97aa9294a94b
@@ -180,39 +179,166 @@ Because it uses all future returns after step t, REINFORCE is a Monte Carlo algo
 """
 
 # ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
-function reinforce_monte_carlo_control(π::Function, ∇π::Function, d::Int64, s0, α, step, sterm; γ = 1.0, max_episodes = 1000)
-	θ = zeros(d)
+function reinforce_monte_carlo_control(π::Function, ∇lnπ::Function, d::Int64, s0, α, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), maxsteps = Inf, baseline = 0.0)
 	rewards = zeros(max_episodes)
 	select_action(vec) = sample(eachindex(vec), pweights(vec))
 	
-	function run_episode()
+	function run_episode(maxsteps)
 		state_history = [s0]
-		a = select_action(π(s, θ))
+		a = select_action(π(s0, θ))
 		action_history = [a]
-		(s, r) = step(s0, a)
+		(s, r) = step(s0, actions[a])
 		reward_history = [r]
-		while s != sterm
+		while s != sterm && length(state_history) < maxsteps
 			a = select_action(π(s, θ))
 			push!(action_history, a)
-			(s, r) = step(s, a)
+			(s, r) = step(s, actions[a])
 			push!(reward_history, r)
 			push!(state_history, s)
 		end
 		return state_history, action_history, reward_history
 	end	
 	for i in eachindex(rewards)
-		state_history, action_history, reward_history = run_episode()
+		state_history, action_history, reward_history = run_episode(maxsteps)
 		G = 0
-		for i in lastindex(ep_rewards):1
-			G = (γ * G) + ep_rewards[i]
-			θ .+= α * γ^(i-1) * G .* ∇π(state_history[i], θ) ./ π(state_history[i], θ)
+		#iterate through episode beginning at the end
+		for i in reverse(eachindex(reward_history))
+			G = (γ * G) + reward_history[i]
+			θ .+= α * γ^(i-1) * (G - baseline) .* ∇lnπ(action_history[i], state_history[i], θ)
 		end
 		rewards[i] = sum(reward_history)
 	end
+	return rewards, θ
 end
 
-# ╔═╡ c2d8a622-b8f9-454b-9fd1-dc940280624c
+# ╔═╡ 71973c41-5fbb-40bf-8cc9-e063c7372a1c
+#calculate the softmax of a vector and store the result in another vector of equal length
+function soft_max!(v::AbstractVector, out::AbstractVector)
+	out .= exp.(v)
+	s = sum(out)
+	out .= out ./ s
+end
 
+# ╔═╡ 49a1d508-b491-4d3a-8415-f5def06884e9
+soft_max(v::AbstractVector) = soft_max!(v, similar(v))
+
+# ╔═╡ c6b61679-8a06-47ae-abab-6997ad5cbfea
+md"""
+Using one hot encoding feature vectors each parameter θ simply represents each state preference, so the policy just takes a softmax of the feature vector to get the action distribution.
+
+$\pi(s, \theta) = \sigma(\mathbf{\theta}) = \frac{e^{\theta_i}}{\sum_{j} e^{\theta_j}} \forall i$
+
+The components of the gradient of the softmax function σ is given by:
+
+$\frac{\partial \sigma(\theta)_i}{\partial \theta_j} = \sigma(\theta)_i(\delta_{ij} - \sigma(\theta)_j)$ 
+
+We can use this expression to get the gradient of the policy output with respect to the parameters:
+
+$\nabla\pi(a| s, \theta) = \sigma(\theta)_a(\delta_{a
+j} - \sigma(\theta)_j)$ where we overload the notation for a to also be the index of the selected action
+
+Combining these the *eligibility vector* for one hot encoding and action a is:
+$\frac{\nabla \pi(a|s, \mathbf{\theta})}{\pi(a|s, \mathbf{\theta})} = (\delta_{aj} - \sigma(\theta)_j) \forall j$
+
+To calculate this practically, we can use the columns of a one hot matrix who's dimension is dxd and subtract from that the policy vector for state s.
+"""
+
+# ╔═╡ c2d8a622-b8f9-454b-9fd1-dc940280624c
+function run_corridor_reinforce(;α = 0.0002, θ_0 = [0.0, 0.0], kwargs...)
+	features = [1.0 0.0; 0.0 1.0] #feature vectors of length 2 for each action
+	avec = zeros(2) #vector to store action output distribution
+	e_vec = zeros(2) #storage for eligibility vector
+
+	corridor = make_corridor()
+
+	#we have one parameter for each action
+	d = length(corridor.actions)
+
+	#starting state is always 1
+	s0 = 1
+	
+	#policy does not distinguish between states and updates the distribution vector
+	π!(s, θ) = soft_max!(θ, avec)
+	function ∇lnπ!(a, s, θ)
+		π!(s, θ) #fill avec with the appropriate softmax
+		#softmax derivative
+		for i in eachindex(e_vec)
+			e_vec[i] = features[a, i] - avec[i]
+		end
+		return e_vec
+	end
+
+	reinforce_monte_carlo_control(π!, ∇lnπ!, d, s0, α, corridor.step, corridor.sterm, corridor.actions; θ = copy(θ_0), kwargs...)
+end
+
+# ╔═╡ 5f91ce14-c9d4-4818-8955-8e7381b4943b
+function average_runs(n; kwargs...) 
+	runs = Vector{Any}(undef, n)
+	@threads for i in 1:n
+		runs[i] = run_corridor_reinforce(;kwargs...)[1]
+	end
+	reduce(+, runs) ./ n
+end
+
+# ╔═╡ f9c0aef8-8975-4596-ace1-964269e57bbb
+typeof(scatter(x = 1:10, y = 1:10))
+
+# ╔═╡ a45c1930-ad70-44f4-a6bc-10ccb03f65ab
+function figure_13_1(αlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
+	Random.seed!(seed)
+	traces = [begin
+		v = average_runs(nruns; α = α, θ_0 = θ_0, kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("α = 2^{$(log2(α))}"))
+	end
+	for α in αlist]
+
+	baselinetrace = scatter(x = 1:1000, y = fill(-6 - 4*sqrt(2), 1000), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+
+	plot([traces; baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld",  height = 500))
+end
+
+# ╔═╡ 71c8d422-8177-4324-b048-98dd39198fee
+#in the source code used to generate this for the book found here: http://incompleteideas.net/book/code/figure_13_1.py-remove the episodes start with poor performace because the parameter vector is initialized to prefer left with 95% probability
+figure_13_1(2.0 .^ [-12, -13, -14]; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+
+# ╔═╡ a206c759-3f6e-4003-8cba-5f6ce6742646
+md"""
+## Figure 13.1
+"""
+
+# ╔═╡ 2e6d0374-1c93-48c8-b8ba-dd1a0c682d01
+md"""
+> *Exercise 13.3* In Section 13.1 we considered policy parameterizations using the soft-max in action preferences (13.2) with linear action preferences (13.3).  For this parameterization, prove that the eligibility vector is
+ 
+$\begin{flalign}
+	\nabla \ln \pi(a|s, \mathbf{\theta}) = \mathbf{x}(s, a) - \sum_b \pi(b|s, \mathbf{\theta}) \mathbf{x}(s, b) \tag{13.9}
+\end{flalign}$
+
+> using the definitions and elementary calculus.
+
+$\begin{flalign}
+\pi(a|s, \mathbf{\theta}) \hspace{5 px} &\dot = \hspace{5 px} \frac{e^{h(s, a, \mathbf{\theta})}}{\sum_b e^{h(s, b, \mathbf{\theta})}} \tag{13.2} \\
+h(s, a, \mathbf{\theta}) &= \mathbf{\theta}^\top \mathbf{x}(s, a) \tag{13.3}
+\end{flalign}$
+
+Working from these definitions we can derive the following:
+
+$\begin{flalign}
+\nabla h(s, a, \mathbf{\theta}) &= \mathbf{x}(s, a) \tag{by linearity of h}\\
+\ln \pi(a|s, \mathbf{\theta}) &= h(s, a, \mathbf{\theta}) - \ln{\sum_b e^{h(s, b, \mathbf{\theta})}} \\
+\nabla \ln \pi(a|s, \mathbf{\theta}) &= \nabla h(s, a, \mathbf{\theta}) - \nabla \ln{\sum_b e^{h(s, b, \mathbf{\theta})}} \tag{distributing gradient} \\
+&= \mathbf{x}(s, a) - \frac{\sum_b \nabla  e^{h(s, b, \mathbf{\theta})}}{\sum_b e^{h(s, b, \mathbf{\theta})}} \tag{using chain rule} \\
+&= \mathbf{x}(s, a) - \frac{\sum_b e^{h(s, b, \mathbf{\theta})} \mathbf{x}(s, b)}{\sum_b e^{h(s, b, \mathbf{\theta})}} \tag{using chain rule} \\
+&= \mathbf{x}(s, a) - \sum_i \frac{e^{h(s, i, \mathbf{\theta})} \mathbf{x}(s, i)}{\sum_t e^{h(s, t, \mathbf{\theta})}} \forall i \tag{separating fractions} \\
+&= \mathbf{x}(s, a) - \sum_i \pi(i|s, \mathbf{\theta}) \mathbf{x}(s, i) \tag{definition of π} \\
+\square\\
+\end{flalign}$
+"""
+
+# ╔═╡ cc45091e-b889-4d5a-9eef-84d80f792046
+md"""
+# 13.4 REINFORCE with Baseline
+"""
 
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
@@ -226,6 +352,8 @@ TableOfContents()
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
@@ -233,6 +361,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 Distributions = "~0.25.87"
+LaTeXStrings = "~1.3.0"
 PlutoPlotly = "~0.3.6"
 PlutoUI = "~0.7.50"
 StatsBase = "~0.33.21"
@@ -244,7 +373,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0-rc2"
 manifest_format = "2.0"
-project_hash = "f951d4790a187a0345f320a87f38612812dc8cf4"
+project_hash = "9ccd09c53a721dc19cf7597969947ce533dde97d"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -772,8 +901,18 @@ version = "17.4.0+0"
 # ╟─aa450da4-fe84-4eea-b6c4-9820b7982437
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
 # ╠═2b11ef08-288f-4110-b741-ba580782b6a7
+# ╠═71973c41-5fbb-40bf-8cc9-e063c7372a1c
+# ╠═49a1d508-b491-4d3a-8415-f5def06884e9
+# ╟─c6b61679-8a06-47ae-abab-6997ad5cbfea
 # ╠═c2d8a622-b8f9-454b-9fd1-dc940280624c
-# ╠═0ab70fc3-6188-42eb-aba2-d808f319be9f
+# ╠═5f91ce14-c9d4-4818-8955-8e7381b4943b
+# ╠═f9c0aef8-8975-4596-ace1-964269e57bbb
+# ╠═a45c1930-ad70-44f4-a6bc-10ccb03f65ab
+# ╟─71c8d422-8177-4324-b048-98dd39198fee
+# ╟─a206c759-3f6e-4003-8cba-5f6ce6742646
+# ╟─2e6d0374-1c93-48c8-b8ba-dd1a0c682d01
+# ╠═cc45091e-b889-4d5a-9eef-84d80f792046
+# ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═ea8cdebd-7a25-49ae-9695-48dda2a880b4
 # ╟─00000000-0000-0000-0000-000000000001
