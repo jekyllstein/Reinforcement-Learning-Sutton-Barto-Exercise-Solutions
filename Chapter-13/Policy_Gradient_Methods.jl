@@ -39,9 +39,10 @@ struct Right <: LinearMove end
 
 # ╔═╡ 423321cc-1c8c-44a0-bd8e-a4d3cb68962b
 function make_corridor()
-	move(s::Integer, ::Left) = s == 2 ? s + 1 : s - 1
-	move(s::Integer, ::Right) = s == 2 ? s - 1 : s + 1
 	function step(s::Integer, a::LinearMove)
+		f(s) = ifelse(s == 2, -1, 1) #reverse actions for 2nd state
+		move(s::Integer, ::Left) = s - f(s)
+		move(s::Integer, ::Right) = s + f(s) 
 		s′ = max(1, move(s, a))
 		(s′, -1.0)
 	end
@@ -200,7 +201,7 @@ function reinforce_monte_carlo_control(π::Function, ∇lnπ::Function, d::Int64
 	end	
 	for i in eachindex(rewards)
 		state_history, action_history, reward_history = run_episode(maxsteps)
-		G = 0
+		G = 0.0
 		#iterate through episode beginning at the end
 		for i in reverse(eachindex(reward_history))
 			G = (γ * G) + reward_history[i]
