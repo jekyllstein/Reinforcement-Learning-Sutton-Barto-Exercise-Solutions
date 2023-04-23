@@ -859,6 +859,15 @@ Why is this different, in the book the expression should have a -1 not a +1.  Ca
 
 """
 
+# ╔═╡ 68e6f17e-8c87-40f0-a673-1115ecd1b71d
+md"""
+> *Exercise 13.5* A *Bernoulli-logistic unit* is a stochastic neuron-like unit used in some ANNs.  Its input at time *t* is a feature vector $\mathbf{x}(S_t)$; its output, $A_t$, is a random variable having two values, 0 and 1, with $/Pr{A_t=1}=P_t$ and $/Pr{A_t=0}=1-P_t$ (the Bernoulli distribution).  Let $h(s, 0, \mathbf{\theta})$ and $h(s, 1, \mathbf{\theta})$ be the preferences in state $s$ for the unit's two actions given by policy parameter $\mathbf{\theta}$.  Assume that the difference between the action preferences is given by a weights sum of teh unit's input vector, that is, assume that $h(s, 1, \mathbf{\theta})-h(s,0, \mathbf{\theta}) = \mathbf{\theta}^\top \mathbf{x}(s)$, where $\mathbf{\theta}$ is the unit's weight vector.
+> 1. Show that if the exponential soft-max distribution (13.2) is used to convert action preferences to policies, then ${P_t = \pi(1|S_t, \theta_t)=1/(1+\exp(-\theta_t^\top\mathbf{x}(S_t)))}$ (the logistic function). 
+> 2. What is the Monte-Carlo REINFORCE update of $\theta_t$ to $\theta_{t+1}$ upon receipt of return $G_t$?
+> 3. Express the eligility $\nabla \ln \pi(a|s, \theta)$ for a Bernoulli-logistic unit, in terms of $a$, $\mathbf{x}(s)$, and $\pi(a|s, \theta)$ by calculating the gradient.
+> Hint for part (c): Define $P=\pi(1|s,\theta)$ and compute the derivative of the logarithm, for each action, using the chain rule on $P$.  Combine the two results into one expression that depends on $a$ and $P$, and then use the chain rule again, this time on $\theta^\top\mathbf{x}(s)$, noting that the derivative of the logistic function $f(x)=1/(1+e^{-x})$ is $f(x)(1-f(x))$.
+"""
+
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
 # Dependencies and Settings
@@ -1449,7 +1458,8 @@ version = "17.4.0+0"
 # ╟─735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 # ╠═79c85707-ea09-4f6b-ad51-a2683c3923c0
 # ╟─7ccadf01-fbba-4dfd-a5ad-770dab9946f9
-# ╠═beb01fb8-c77d-4b5c-a66d-3812415e04a3
+# ╟─beb01fb8-c77d-4b5c-a66d-3812415e04a3
+# ╠═68e6f17e-8c87-40f0-a673-1115ecd1b71d
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═ea8cdebd-7a25-49ae-9695-48dda2a880b4
