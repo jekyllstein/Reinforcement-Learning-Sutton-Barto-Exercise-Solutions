@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.24
+# v0.19.25
 
 using Markdown
 using InteractiveUtils
@@ -180,6 +180,30 @@ Because it uses all future returns after step t, REINFORCE is a Monte Carlo algo
 """
 
 # ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
+"""
+	reinforce_monte_carlo_control(π, ∇lnπ, d, s0, α, step, sterm, actions; 
+                             	γ = 1.0, max_episodes = 1000, maxsteps = Inf,
+								baseline = 0.0, θ = zeros(d))
+
+Implements the REINFORCE algorithm for Monte Carlo control, which is a policy gradient method for reinforcement learning. Given a function π that maps states to probability distributions over actions, and a function ∇lnπ that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ, this function learns the optimal policy for a given Markov decision process (MDP).
+
+Required arguments:
+- π: A function that maps a state to a probability distribution over actions. This function must take two arguments: the current state and the policy parameters θ.
+- ∇lnπ: A function that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ. This function must take three arguments: the action, the current state, and the policy parameters θ.
+- d: An integer representing the number of policy parameters to be learned.
+- s0: The initial state of the MDP.
+- α: The learning rate for the policy gradient update.
+- step: A function that takes a state and an action and returns the next state and the reward received. This function must take two arguments: the current state and the chosen action.
+- sterm: A state representing the terminal state of the MDP.
+- actions: A collection of all possible actions in the MDP.
+
+Optional keyword arguments:
+- γ: The discount factor for future rewards. Default value is 1.0.
+- max_episodes: The maximum number of episodes to run the algorithm. Default value is 1000.
+- maxsteps: The maximum number of steps to take in each episode. Default value is Inf.
+- baseline: The baseline value for the policy gradient update. Default value is 0.0.
+- θ: The initial policy parameters. Default value is a vector of zeros with length d.
+"""
 function reinforce_monte_carlo_control(π::Function, ∇lnπ::Function, d::Int64, s0, α, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), maxsteps = Inf, baseline = 0.0)
 	rewards = zeros(max_episodes)
 	select_action(vec) = sample(eachindex(vec), pweights(vec))
@@ -213,7 +237,39 @@ function reinforce_monte_carlo_control(π::Function, ∇lnπ::Function, d::Int64
 end
 
 # ╔═╡ 71973c41-5fbb-40bf-8cc9-e063c7372a1c
-#calculate the softmax of a vector and store the result in another vector of equal length
+"""
+    soft_max!(v::AbstractVector, out::AbstractVector)
+
+Calculate the softmax of a vector `v` and store the result in another vector `out` of equal length.
+
+# Arguments
+- `v::AbstractVector`: The input vector.
+- `out::AbstractVector`: The output vector of equal length as `v`.
+
+# Output
+- `out` is modified in-place to contain the softmax of `v`.
+
+# Examples
+```julia
+julia> v = [1.0, 2.0, 3.0]
+3-element Vector{Float64}:
+ 1.0
+ 2.0
+ 3.0
+
+julia> out = similar(v)
+3-element Vector{Float64}:
+ 0.0
+ 0.0
+ 0.0
+
+julia> soft_max!(v, out)
+3-element Vector{Float64}:
+ 0.09003057317038046
+ 0.24472847105479767
+ 0.6652409557748219
+```
+"""
 function soft_max!(v::AbstractVector, out::AbstractVector)
 	out .= exp.(v)
 	s = sum(out)
@@ -221,6 +277,32 @@ function soft_max!(v::AbstractVector, out::AbstractVector)
 end
 
 # ╔═╡ 49a1d508-b491-4d3a-8415-f5def06884e9
+"""
+    soft_max(v::AbstractVector) -> AbstractVector
+
+Calculate the softmax of a vector `v` and return the result in a new vector.
+
+# Arguments
+- `v::AbstractVector`: The input vector.
+
+# Output
+- A new vector of the same length as `v`, containing the softmax of `v`.
+
+# Examples
+```julia
+julia> v = [1.0, 2.0, 3.0]
+3-element Vector{Float64}:
+ 1.0
+ 2.0
+ 3.0
+
+julia> out = soft_max(v)
+3-element Vector{Float64}:
+ 0.09003057317038046
+ 0.24472847105479767
+ 0.6652409557748219
+```
+"""
 soft_max(v::AbstractVector) = soft_max!(v, similar(v))
 
 # ╔═╡ c6b61679-8a06-47ae-abab-6997ad5cbfea
@@ -273,22 +355,20 @@ function run_corridor_reinforce(;α = 0.0002, θ_0 = [0.0, 0.0], kwargs...)
 end
 
 # ╔═╡ 5f91ce14-c9d4-4818-8955-8e7381b4943b
-function average_runs(n; kwargs...) 
+function average_runs(f, n; kwargs...) 
 	runs = Vector{Any}(undef, n)
+	# for i in 1:n
 	@threads for i in 1:n
-		runs[i] = run_corridor_reinforce(;kwargs...)[1]
+		runs[i] = f(;kwargs...)[1]
 	end
 	reduce(+, runs) ./ n
 end
-
-# ╔═╡ f9c0aef8-8975-4596-ace1-964269e57bbb
-typeof(scatter(x = 1:10, y = 1:10))
 
 # ╔═╡ a45c1930-ad70-44f4-a6bc-10ccb03f65ab
 function figure_13_1(αlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
 	Random.seed!(seed)
 	traces = [begin
-		v = average_runs(nruns; α = α, θ_0 = θ_0, kwargs...)
+		v = average_runs(run_corridor_reinforce, nruns; α = α, θ_0 = θ_0, kwargs...)
 		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("α = 2^{$(log2(α))}"))
 	end
 	for α in αlist]
@@ -339,6 +419,444 @@ $\begin{flalign}
 # ╔═╡ cc45091e-b889-4d5a-9eef-84d80f792046
 md"""
 # 13.4 REINFORCE with Baseline
+
+The policy gradient theorem (13.5) can be generalized to include a comparison of teh action value to an arbitrary *baseline* b(s):
+
+$\nabla J(\mathbf{\theta}) \propto \sum_s \mu(s)\sum_a\left( q_\pi(s,a)-b(s) \right ) \nabla\pi(a|s,\mathbf{\theta}) \tag{13.10}$
+
+The baseline can be any function, even a random variable, as long as it does not vary with $a$; the euation remains valid because the subtracted quantity is zero:
+
+$\sum_ab(s)\nabla\pi(a|s,\mathbf{\theta})=b(s)\nabla\sum_a\pi(a|s,\mathbf{\theta})=b(s)\nabla1=0$
+
+The policy gradient theorem with baseline (13.10) can be used to derive an update rule using similar steps as in the previous section.  The update rule that we end up with is a new version of REINFORCE that includes a general baseline:
+
+$\mathbf{\theta}_{t+1} \dot = \mathbf{\theta}_t+\alpha(G_t-b(S_t))\frac{\nabla\pi(A_t|S_t,\mathbf{\theta}_t)}{\pi(A_t|S_t,\mathbf{\theta}_t)} \tag{13.11}$
+
+Since the baseline could be uniformly zero, this is a strict generalization of REINFORCE.  To have an effective baseline that depends on state we can use a state value estimate that is also updated with gradient steps: $\hat v(S_t, \mathbf{w})$.  Using such an estimate we can revise the previous REINFORCE algorithm.
+"""
+
+# ╔═╡ 5bebef34-e266-4c18-95c3-28e1f1cb4b64
+"""
+	reinforce_with_baseline_MC_control(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
+
+Implements the REINFORCE algorithm for Monte Carlo control, which is a policy gradient method for reinforcement learning. Given a function π that maps states to probability distributions over actions, and a function ∇lnπ that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ, this function learns the optimal policy for a given Markov decision process (MDP).  The baseline value is determined by a state value estimator function parametrized by w.
+
+Required arguments:
+- π: A function that maps a state to a probability distribution over actions. This function must take two arguments: the current state and the policy parameters θ.
+- ∇lnπ: A function that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ. This function must take three arguments: the action, the current state, and the policy parameters θ.
+- d: An integer representing the number of policy parameters to be learned.
+- s0: The initial state of the MDP.
+- α: The learning rate for the policy gradient update.
+- step: A function that takes a state and an action and returns the next state and the reward received. This function must take two arguments: the current state and the chosen action.
+- sterm: A state representing the terminal state of the MDP.
+- actions: A collection of all possible actions in the MDP.
+
+Optional keyword arguments:
+- γ: The discount factor for future rewards. Default value is 1.0.
+- max_episodes: The maximum number of episodes to run the algorithm. Default value is 1000.
+- maxsteps: The maximum number of steps to take in each episode. Default value is Inf.
+- baseline: The baseline value for the policy gradient update. Default value is 0.0.
+- θ: The initial policy parameters. Default value is a vector of zeros with length d.
+"""
+function reinforce_with_baseline_MC_control(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
+	rewards = zeros(max_episodes)
+	select_action(vec) = sample(eachindex(vec), pweights(vec))
+	
+	function run_episode(maxsteps)
+		s = s0
+		state_history = [s0]
+		a = select_action(π(s0, θ))
+		action_history = [a]
+		(s′, r) = step(s0, actions[a])
+		reward_history = [r]
+		while s′ != sterm && length(state_history) < maxsteps
+			s = s′
+			a = select_action(π(s, θ))
+			(s′, r) = step(s, actions[a])
+			push!(reward_history, r)
+			push!(state_history, s)
+			push!(action_history, a)
+		end
+		return state_history, action_history, reward_history
+	end	
+	for i in eachindex(rewards)
+		state_history, action_history, reward_history = run_episode(maxsteps)
+		#iterate through episode beginning at the end
+		G = 0.0
+		for i in reverse(eachindex(reward_history))
+			G = (γ * G) + reward_history[i]
+			s = state_history[i]
+			δ = G - v̂(s, w)
+			w .+= αw * δ .* ∇v̂(s, w)
+			θ .+= αθ * γ^(i-1) * δ .* ∇lnπ(action_history[i], s, θ)		
+		end
+		rewards[i] = sum(reward_history)
+	end
+	return rewards, θ, w
+end
+
+# ╔═╡ d26cd4cb-9a62-4a03-8b71-b415c9be79f6
+function run_corridor_critic(;αθ = 0.0002, αw = 0.0002, θ_0 = [0.0, 0.0], w_0 = [0.0, 0.0, 0.0, 0.0], f = reinforce_with_baseline_MC_control, kwargs...)
+	features = [1.0 0.0; 0.0 1.0] #feature vectors of length 2 for each action
+	avec = zeros(2) #vector to store action output distribution
+	e_vec = zeros(2) #storage for eligibility vector
+
+	#one hot vectors for each state including 0 for terminal state
+	state_features = [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.], [0., 0., 0., 0.]]
+	
+	corridor = make_corridor()
+
+	#we have one parameter for each action
+	d = length(corridor.actions)
+	d′ = 4
+
+	#starting state is always 1
+	s0 = 1
+	
+	#policy does not distinguish between states and updates the distribution vector
+	π!(s, θ) = soft_max!(θ, avec)
+	function ∇lnπ!(a, s, θ)
+		π!(s, θ) #fill avec with the appropriate softmax
+		#softmax derivative
+		for i in eachindex(e_vec)
+			e_vec[i] = features[a, i] - avec[i]
+		end
+		return e_vec
+	end
+
+	#linear model for state values simply returns the corresponding weight
+	v̂(s::Int64, w::AbstractVector) = w[s]
+	
+	#gradient with respect to weights is just the state vector
+	∇v̂(s::Int64, w::AbstractVector) = state_features[s]
+	
+
+	# reinforce_monte_carlo_control(π!, ∇lnπ!, d, s0, α, corridor.step, corridor.sterm, corridor.actions; θ = copy(θ_0), kwargs...)
+
+	f(π!, ∇lnπ!, v̂, ∇v̂, d, d′, s0, αθ, αw, corridor.step, corridor.sterm, corridor.actions; θ = copy(θ_0), w = copy(w_0), kwargs...)
+end
+
+# ╔═╡ 5f042c7e-45ad-4f8f-94d8-9133e67dd0f6
+function figure_13_2(α, αθ, αw; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
+	Random.seed!(seed)
+	trace1 = begin
+		v = average_runs(run_corridor_critic, nruns; αθ = αθ, αw = αw, θ_0 = θ_0, kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("\\text{with baseline } α^θ = 2^{$(log2(αθ))}, α^w = 2^{$(log2(αw))}"))
+	end
+	Random.seed!(seed)
+	trace2 = begin
+		v = average_runs(run_corridor_reinforce, nruns; α = α, θ_0 = θ_0, kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("\\text{no baseline } α = 2^{$(log2(α))}"))
+	end
+
+	baselinetrace = scatter(x = 1:1000, y = fill(-6 - 4*sqrt(2), 1000), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+
+	plot([trace1, trace2, baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld",  height = 500))
+end
+
+# ╔═╡ b72e030f-7d52-481f-b4f7-2b16b227e547
+md"""
+### Figure 13.2
+"""
+
+# ╔═╡ 87876de4-ca40-4736-81a8-bb26bc273d89
+figure_13_2(2.0 ^-13, 2.0 .^ -9, 2.0 ^-3; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+
+# ╔═╡ ce33f710-fd9d-4dfa-acda-40204e54d518
+md"""
+# 13.5 Actor-Critic Methods
+
+Here we also use the value function estimator to calculate the the return estimate using the one step bootstrap return.  When the state value function is used in this way we call it the *critic*.  In general we can use this function with n-step returns and eligibility traces.
+
+The one-step actor-critic method is the analog of the one step methods such as TD(0), Sarsa(0), and Q learning.  These methods replace the full return of REINFORCE with the one step return as follows:
+
+$\begin{flalign}
+\mathbf{\theta}_{t+1} &\hspace{5px}   \dot = \hspace{5px} \mathbf{\theta}_t + \alpha(G_{t:t+1} - \hat v(S_t, \mathbf{w}))\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.12} \\
+& = \mathbf{\theta}_t + \alpha(R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}) - \hat v(S_t, \mathbf{w}))\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.13} \\
+& = \mathbf{\theta}_t + \delta_t\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.14} \\
+\end{flalign}$
+
+This can be implemented as a fully online algorithm because we do not have to wait until the end of an episode to calculate return estimates.
+"""
+
+# ╔═╡ f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
+md"""
+## One-step Actor-Critic
+"""
+
+# ╔═╡ bf656d55-19cb-4052-baaa-0896ab6d23a0
+function one_step_actor_critic(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
+	rewards = zeros(max_episodes)
+	select_action(vec) = sample(eachindex(vec), pweights(vec))
+	
+	function run_episode!(maxsteps)
+		I = 1.0
+		s = s0
+		state_history = [s0]
+		a = select_action(π(s0, θ))
+		action_history = [a]
+		(s′, r) = step(s0, actions[a])
+		reward_history = [r]
+		δ = r + γ*v̂(s′, w) - v̂(s, w)
+		w .+= αw * δ .* ∇v̂(s, w)
+		θ .+= αθ * I * δ .* ∇lnπ(a, s, θ)		
+		
+		while s′ != sterm && length(state_history) < maxsteps
+			I = γ*I
+			s = s′
+			a = select_action(π(s, θ))
+			(s′, r) = step(s, actions[a])
+			push!(state_history, s)
+			push!(action_history, a)
+			push!(reward_history, r)
+			δ = r + γ*v̂(s′, w) - v̂(s, w)
+			w .+= αw * δ .* ∇v̂(s, w)
+			θ .+= αθ * I * δ .* ∇lnπ(a, s, θ)		
+		end
+		return state_history, action_history, reward_history
+	end	
+
+	for i in eachindex(rewards)		
+		state_history, action_history, reward_history = run_episode!(maxsteps)
+		rewards[i] = sum(reward_history)
+	end
+	return rewards, θ, w
+end
+
+# ╔═╡ 4cbdb082-22ba-49e9-a6ed-4380917625ac
+md"""
+## Actor-Critic with Eligibility Traces
+"""
+
+# ╔═╡ 58ad84b0-f9c9-424e-8c05-0b15fbe7b349
+function actor_critic_eligibility(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; λθ = 0.0, λw = 0.0, γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
+	rewards = zeros(max_episodes)
+	select_action(vec) = sample(eachindex(vec), pweights(vec))
+
+	#initialize trace vectors
+	zθ = zeros(d)
+	zw = zeros(d′)
+	
+	function run_episode!(maxsteps)
+		I = 1.0
+		zθ .= 0.0
+		zw .= 0.0
+		s = s0
+		state_history = [s0]
+		a = select_action(π(s0, θ))
+		action_history = [a]
+		(s′, r) = step(s0, actions[a])
+		reward_history = [r]
+		δ = r + γ*v̂(s′, w) - v̂(s, w)
+		zw .= γ*λw .* zw .+ ∇v̂(s, w)
+		zθ .= γ*λθ .* zθ .+ I .* ∇lnπ(a, s, θ)
+		w .+= αw * δ .* zw
+		θ .+= αθ * δ .* zθ		
+		
+		while s′ != sterm && length(state_history) < maxsteps
+			I = γ*I
+			s = s′
+			a = select_action(π(s, θ))
+			(s′, r) = step(s, actions[a])
+			push!(state_history, s)
+			push!(action_history, a)
+			push!(reward_history, r)
+			δ = r + γ*v̂(s′, w) - v̂(s, w)
+			zw .= γ*λw .* zw .+ ∇v̂(s, w)
+			zθ .= γ*λθ .* zθ .+ I .* ∇lnπ(a, s, θ)
+			w .+= αw * δ .* zw
+			θ .+= αθ * δ .* zθ			
+		end
+		return state_history, action_history, reward_history
+	end	
+
+	for i in eachindex(rewards)		
+		state_history, action_history, reward_history = run_episode!(maxsteps)
+		rewards[i] = sum(reward_history)
+	end
+	return rewards, θ, w
+end
+
+# ╔═╡ 8f11b8dc-2c3e-41a5-8dbb-9af06235fe85
+function corridor_actor_critic(α, αθ, αw; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
+	Random.seed!(seed)
+	trace1 = begin
+		v = average_runs(run_corridor_critic, nruns; αθ = αθ, αw = αw, θ_0 = θ_0, kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("\\text{with baseline } α^θ = 2^{$(log2(αθ))}, α^w = 2^{$(log2(αw))}"))
+	end
+	Random.seed!(seed)
+	trace2 = begin
+		# v = average_runs((args...; kwargs...) -> run_corridor_critic(args...; f = one_step_actor_critic, kwargs...), nruns; αθ = αθ, αw = αw, θ_0 = θ_0, kwargs...)
+		v = average_runs(run_corridor_critic, nruns; αθ = αθ, αw = αw, θ_0 = θ_0, f = one_step_actor_critic, kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("\\text{actor-critic } α^θ = 2^{$(log2(αθ))}, α^w = 2^{$(log2(αw))}"))
+	end
+	Random.seed!(seed)
+	trace3 = begin
+		v = average_runs(run_corridor_reinforce, nruns; α = α, θ_0 = θ_0, kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("\\text{no baseline } α = 2^{$(log2(α))}"))
+	end
+
+	baselinetrace = scatter(x = 1:1000, y = fill(-6 - 4*sqrt(2), 1000), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+
+	plot([trace1, trace2, trace3, baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld",  height = 500))
+end
+
+# ╔═╡ 70d4e199-2941-46dd-99c0-0f0520bf976b
+corridor_actor_critic(2.0 ^ -13, 2.0 ^ -9, 2.0 ^-3; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+
+# ╔═╡ 72900e88-98f4-4879-b005-d79ef6c7ee7f
+function corridor_actor_critic_λ(αθ, αw, λlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
+	Random.seed!(seed)
+	traces = [begin
+		name = latexstring("\\lambda^θ = $λθ, \\lambda^w = $λw")
+		v = average_runs(run_corridor_critic, nruns; f = actor_critic_eligibility, θ_0 = θ_0, λθ = λθ, λw = λw, αθ = αθ, αw = αw,  kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = name)
+	end
+	for λθ in λlist for λw in λlist]
+
+	baselinetrace = scatter(x = 1:1000, y = fill(-6 - 4*sqrt(2), 1000), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+
+	plot([traces; baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "Actor-Critic λ Comparison short-Corridor gridworld",  height = 500))
+end
+
+# ╔═╡ 225ab967-7c7a-44ea-925b-5fa786382d62
+corridor_actor_critic_λ(2.0 ^ -6, 2.0 ^-3, [0.0, 0.1, 0.93]; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+
+# ╔═╡ 511a847f-234c-465e-8f4a-688e79d9b975
+md"""
+# 13.6 Policy Gradient for Continuing Problems
+
+In the continuing case we need to define the average reward per time step as discussed in Section 10.3.  In the update procedure the δ is calculated differently in terms of the reward compared to this long running average.  The value functions in this case will also learn the reward difference from the average which is assumed to have a well defined expected value under the stationary state distribution for the policy.  This shift in the value function will not affect performance since shifting the value function up and down by a constant does not affect the learned policy.  To implement this we need a new learning rate αr which controls how quickly the reward average updates.  This replaces γ in a sense since we no longer discount rewards of future time steps.
+"""
+
+# ╔═╡ 533cbf4b-ac14-47eb-98cf-e569f32cc215
+function actor_critic_eligibility_continuing(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0::S, αθ, αw, αR, step, actions::AbstractVector{A}; λθ = 0.0, λw = 0.0, maxsteps = 1000, θ = zeros(d), w = zeros(d′)) where {S, A}
+	state_history = Vector{S}(undef, maxsteps+1)
+	action_history = Vector{A}(undef, maxsteps+1)
+	reward_history = zeros(maxsteps+1)
+	select_action(vec) = sample(eachindex(vec), pweights(vec))
+
+	#initialize trace vectors
+	zθ = zeros(d)
+	zw = zeros(d′)
+
+	#fill in first step history
+	state_history[1] = s0
+
+	#initialize reward average
+	r̄ = 0.0
+	
+	s = s0
+	state_history = [s0]
+	a = select_action(π(s0, θ))
+	action_history = [a]
+	(s′, r) = step(s0, actions[a])
+	reward_history = [r]
+	δ = r + γ*v̂(s′, w) - v̂(s, w)
+	zw .= γ*λw .* zw .+ ∇v̂(s, w)
+	zθ .= γ*λθ .* zθ .+ I .* ∇lnπ(a, s, θ)
+	w .+= αw * δ .* zw
+	θ .+= αθ * δ .* zθ		
+	
+	for i in 2:maxsteps+1
+		s = state_history[i-1]
+		a = select_action(π(s, θ))
+		action_history[i-1] = a
+		(s′, r) = step(s, actions[a])
+		reward_history[i-1] = r
+		state_history[i] = s′
+		
+		δ = r - r̄ + v̂(s′, w) - v̂(s, w)
+		r̄ += αR * δ
+		zw .= γ*λw .* zw .+ ∇v̂(s, w)
+		zθ .= γ*λθ .* zθ .+ ∇lnπ(a, s, θ)
+		w .+= αw * δ .* zw
+		θ .+= αθ * δ .* zθ			
+	end
+	
+	return reward_history, state_history, action_history, θ, w
+end
+
+# ╔═╡ 735b548a-88f5-4a30-ab8f-dfb3d6401b2b
+md"""
+# 13.7 Policy Parameterization for Continuous Actions
+
+With a parameterized policy we are to learn statistics of teh distribution that selects actions.  As a foundation consider the normal distribution:
+
+$p(x) \hspace{5px} \dot = \hspace{5px} \frac{1}{\sigma \sqrt{2\pi}} \exp \left ( - \frac{(x-\mu)^2}{2\sigma^2} \right ) \tag{13.18}$
+"""
+
+# ╔═╡ 79c85707-ea09-4f6b-ad51-a2683c3923c0
+let x = LinRange(-5, 5, 10_000)
+	traces = [scatter(x = x, y = pdf.(Normal(0.0, σ), x), name = latexstring("\\sigma^2 = $(round(σ^2, sigdigits = 2))")) for σ in sqrt.([0.2, 1.0, 0.5, 5.0])]
+	plot(traces, Layout(xaxis_title = "x", title = "Normal Distribution N(μ, σ)"))
+end
+
+# ╔═╡ 7ccadf01-fbba-4dfd-a5ad-770dab9946f9
+md"""
+We can define our policy as a normal distribution function over actions for a given state and parameter vector.
+
+$\pi(a|s, \mathbf{\theta}) \hspace{5px} \dot = \hspace{5px} \frac{1}{\sigma(s, \mathbf{\theta}) \sqrt{2\pi}} \exp \left ( - \frac{(a-\mu(s, \mathbf{\theta}))^2}{2\sigma(s, \mathbf{\theta})^2} \right ) \tag{13.19}$
+
+This policy requires μ and σ to be parameterized by the parameter vector.  To make a linear model for both parameters we can use the following formulas:
+
+$\mu(s, \mathbf{\theta}) \hspace{5px} \dot = \hspace{5px} \mathbf{\theta}_\mu ^\top \mathbf{x}_\mu(s) \text{ and } \sigma(s, \mathbf{\theta}) \hspace{5px} \dot = \hspace{5px} \exp{( \mathbf{\theta}_\sigma ^ \top \mathbf{x}_\sigma (s))} \tag{13.20}$
+
+where $\mathbf{x}_\mu(s)$ and $\mathbf{x}_\sigma(s)$ are state feature vectors.  With these formulas we can apply the previous algorithms to solve environments with real-valued actions. 
+"""
+
+# ╔═╡ beb01fb8-c77d-4b5c-a66d-3812415e04a3
+md"""
+> *Exercise 13.4* For the Gaussian policy parameterization, derive the formula for the eligibility vector $\nabla \ln{\pi(a|s, \mathbf{\theta})}$
+
+Starting with our expression for the parameter function, we can calculate the gradient: 
+
+$\nabla \pi(a|s, \mathbf{\theta}) = \nabla \left ( \frac{1}{\sigma(s, \mathbf{\theta}) \sqrt{2\pi}} \exp \left ( - \frac{(a-\mu(s, \mathbf{\theta}))^2}{2\sigma(s, \mathbf{\theta})^2} \right ) \right )$
+
+We will eventually need $\nabla \mu$ and $\nabla \sigma$ so let's calculate them now.
+
+$\nabla (\sigma(s, \mathbf{\theta})) = \nabla \exp{( \mathbf{\theta}_\sigma ^ \top \mathbf{x}_\sigma (s))} = \sigma(s, \mathbf{\theta})\mathbf{x}_\sigma (s)$
+
+$\nabla(\mu(s, \mathbf{\theta})) = \nabla ( \mathbf{\theta}_\mu ^\top \mathbf{x}_\mu(s)) = \mathbf{x}_\mu (s)$
+
+
+The first application of the quotient rule is trivial, I will omit the input arguments to μ and σ keeping in mind that these are functions of the parameters.  Also let $\left ( - \frac{(a-\mu)^2}{2\sigma^2} \right ) = f(\mu, \sigma)$ which results in $\pi(a|s, \mathbf{\theta}) =  \frac{1}{\sigma \sqrt{2\pi}} \exp{(f(\mu, \sigma))}$.  Therefore:
+
+$\begin{flalign}
+\nabla \pi(a|s, \mathbf{\theta}) \sqrt{2\pi} &= \frac{1}{\sigma ^2} \left ( \exp{(f(\mu, \sigma))} \nabla \sigma - \sigma \exp{(f(\mu, \sigma))}\nabla f(\mu, \sigma) \right ) \\
+&= \frac{1}{\sigma ^2} \left ( \exp{(f(\mu, \sigma))} \sigma\mathbf{x}_\sigma - \sigma \exp{(f(\mu, \sigma))}\nabla f(\mu, \sigma) \right ) \\
+&=\frac{\exp{(f(\mu, \sigma))}}{\sigma} \left (\mathbf{x}_\sigma - \nabla f(\mu, \sigma) \right ) \\
+\end{flalign}$
+
+Now we need only calculate the gradient of $f$:
+
+$\begin{flalign}
+\nabla f(\mu, \sigma) &= - \nabla \left [ \frac{(a-\mu)^2}{2\sigma^2} \right ] \\
+& = \frac{-1}{4\sigma^4} \left [ (a - \mu)^2 4\sigma \nabla \sigma + 4 \sigma^2 (a - \mu) \nabla \mu \right ] \\
+& = \frac{-1}{\sigma^3} \left [ (a - \mu)^2\nabla \sigma + \sigma (a - \mu) \nabla \mu \right ] \\
+& = \frac{-1}{\sigma^3} \left [ (a - \mu)^2 \sigma \mathbf{x}_\sigma + \sigma (a - \mu) \mathbf{x}_\mu \right ] \tag{substituting gradients}\\
+& = \frac{-(a - \mu)}{\sigma^2} (\mathbf{x}_\mu + (a - \mu) \mathbf{x}_\sigma) \tag{simplifying}\\
+\end{flalign}$
+
+Now substitute this back into the policy gradient:
+
+$\nabla \pi(a|s, \mathbf{\theta}) \sqrt{2\pi} = \frac{\exp{(f(\mu, \sigma))}}{\sigma} \left (\mathbf{x}_\sigma + \frac{(a - \mu)}{\sigma^2} (\mathbf{x}_\mu +(a - \mu) \mathbf{x}_\sigma) \right )$
+
+Furthermore, observe that $\pi(a|s, \mathbf{\theta}) = \frac{1}{\sigma\sqrt{2\pi}} \exp(f(\mu, \sigma))$
+
+So our expression for the policy gradient is:
+
+$\nabla \pi(a|s, \mathbf{\theta}) = \pi(a|s, \mathbf{\theta}) \left (\mathbf{x}_\sigma + \frac{(a - \mu)}{\sigma^2} (\mathbf{x}_\mu + (a - \mu) \mathbf{x}_\sigma) \right )$
+
+To get the eligibility vector we must divide this by the policy which is conveniently already in the expression:
+
+$\begin{flalign}
+\frac{\nabla \pi(a|s, \mathbf{\theta})}{\pi(a|s, \mathbf{\theta})} &= \mathbf{x}_\sigma + \frac{(a - \mu)}{\sigma^2} (\mathbf{x}_\mu + (a - \mu) \mathbf{x}_\sigma)\\
+&= \mathbf{x}_\mu \left [ \frac{(a - \mu)}{\sigma^2} \right ] + \mathbf{x}_\sigma \left [ 1 + \frac{(a-\mu)^2}{\sigma^2} \right ] \\
+\end{flalign}$
+
+Why is this different, in the book the expression should have a -1 not a +1.  Can't see what the issue is.
+
 """
 
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
@@ -902,17 +1420,36 @@ version = "17.4.0+0"
 # ╟─aa450da4-fe84-4eea-b6c4-9820b7982437
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
 # ╠═2b11ef08-288f-4110-b741-ba580782b6a7
-# ╠═71973c41-5fbb-40bf-8cc9-e063c7372a1c
-# ╠═49a1d508-b491-4d3a-8415-f5def06884e9
+# ╟─71973c41-5fbb-40bf-8cc9-e063c7372a1c
+# ╟─49a1d508-b491-4d3a-8415-f5def06884e9
 # ╟─c6b61679-8a06-47ae-abab-6997ad5cbfea
 # ╠═c2d8a622-b8f9-454b-9fd1-dc940280624c
 # ╠═5f91ce14-c9d4-4818-8955-8e7381b4943b
-# ╠═f9c0aef8-8975-4596-ace1-964269e57bbb
 # ╠═a45c1930-ad70-44f4-a6bc-10ccb03f65ab
 # ╟─71c8d422-8177-4324-b048-98dd39198fee
 # ╟─a206c759-3f6e-4003-8cba-5f6ce6742646
 # ╟─2e6d0374-1c93-48c8-b8ba-dd1a0c682d01
-# ╠═cc45091e-b889-4d5a-9eef-84d80f792046
+# ╟─cc45091e-b889-4d5a-9eef-84d80f792046
+# ╠═5bebef34-e266-4c18-95c3-28e1f1cb4b64
+# ╠═d26cd4cb-9a62-4a03-8b71-b415c9be79f6
+# ╠═5f042c7e-45ad-4f8f-94d8-9133e67dd0f6
+# ╟─b72e030f-7d52-481f-b4f7-2b16b227e547
+# ╟─87876de4-ca40-4736-81a8-bb26bc273d89
+# ╟─ce33f710-fd9d-4dfa-acda-40204e54d518
+# ╟─f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
+# ╠═bf656d55-19cb-4052-baaa-0896ab6d23a0
+# ╟─4cbdb082-22ba-49e9-a6ed-4380917625ac
+# ╠═58ad84b0-f9c9-424e-8c05-0b15fbe7b349
+# ╠═8f11b8dc-2c3e-41a5-8dbb-9af06235fe85
+# ╟─70d4e199-2941-46dd-99c0-0f0520bf976b
+# ╠═72900e88-98f4-4879-b005-d79ef6c7ee7f
+# ╟─225ab967-7c7a-44ea-925b-5fa786382d62
+# ╟─511a847f-234c-465e-8f4a-688e79d9b975
+# ╠═533cbf4b-ac14-47eb-98cf-e569f32cc215
+# ╟─735b548a-88f5-4a30-ab8f-dfb3d6401b2b
+# ╠═79c85707-ea09-4f6b-ad51-a2683c3923c0
+# ╟─7ccadf01-fbba-4dfd-a5ad-770dab9946f9
+# ╠═beb01fb8-c77d-4b5c-a66d-3812415e04a3
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═ea8cdebd-7a25-49ae-9695-48dda2a880b4
