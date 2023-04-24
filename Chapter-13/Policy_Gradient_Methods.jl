@@ -362,6 +362,7 @@ function average_runs(f, n; kwargs...)
 	runs = Vector{Any}(undef, n)
 	# for i in 1:n
 	@threads for i in 1:n
+		Random.seed!(i)
 		runs[i] = f(;kwargs...)[1]
 	end
 
@@ -636,7 +637,7 @@ function one_step_actor_critic(π::Function, ∇lnπ::Function, v̂::Function, �
 	rewards = zeros(max_episodes)	
 	function run_episode!(maxsteps)
 		I = 1.0
-		s = s0w
+		s = s0
 		state_history = [s0]
 		a = select_action(π(s0, θ))
 		action_history = [a]
@@ -1203,10 +1204,12 @@ function eval_racetrack(track; nruns = nthreads(), αlist = 2. .^(-3:-1), λlist
 end
 
 # ╔═╡ ab29ec76-0b89-4eaa-81a0-1b31c901f97d
+#=╠═╡
 eval_racetrack(track1; max_episodes = 100, maxsteps = 5_000, termination_threshold = (episode = 30, reward = -1000))
+  ╠═╡ =#
 
 # ╔═╡ 4b96e0b4-eca4-46ba-beba-40bcaefdb30a
-plot(execute_racetrack_actor_critic(track1, 0.3, 0.3; λθ = 0.7, λw = 0.6, max_episodes = 500, maxsteps = 10000)[1])
+plot(execute_racetrack_actor_critic(track1, 0.3, 0.3; λθ = 0.5, λw = 0.5, max_episodes = 1000, maxsteps = 5000)[1])
 
 # ╔═╡ b50282ed-e599-4687-bfbc-0ac9c4f30c84
 function racetrack_optimize_λ(track, αθlist, αwlist; nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
@@ -1224,7 +1227,9 @@ function racetrack_optimize_λ(track, αθlist, αwlist; nruns = nthreads(), λl
 end
 
 # ╔═╡ 801a2dbd-b663-4bfa-b763-092579a8599c
+#=╠═╡
 racetrack_optimize_λ(track1, [0.3, 0.5, 0.8], [0.3, 0.5]; max_episodes = 1000, maxsteps = 5000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8])
+  ╠═╡ =#
 
 # ╔═╡ 80e40d2b-a67b-46eb-86fd-294c0a87a80f
 md"""
@@ -1436,38 +1441,83 @@ function plotblackjackwinrate(αθ, αw, max_episodes; kwargs...)
 end
 
 # ╔═╡ 4c4ba58e-e3b7-4d02-81ae-b8d753487caa
-plotblackjackwinrate(0.3, 0.3, 1_000_000; λθ = 0.5, λw = 0.5)
+plotblackjackwinrate(0.3, 0.3, 100_000; λθ = 0.5, λw = 0.5)
+
+# ╔═╡ 06d508ea-640d-4e55-b3b6-05c929f82c3b
+function blackjack_optimize_λ(αθlist, αwlist; nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
+	function maketrace(αθ, αw) 
+		rewards = [begin
+			out = average_runs((;kwargs...) -> execute_blackjack_actor_critic(αθ, αw, blackjackstatelookup; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
+			mean(out[end-1000:end])
+		end
+		for λ in λlist]
+		scatter(x = λlist, y = rewards, name = "αθ = $(round(αθ, sigdigits = 2)), αw = $(round(αw, sigdigits = 2))")
+	end
+
+	traces = [maketrace(a, b) for a in αθlist for b in αwlist]
+	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last 1000 Episodes"))
+end
+
+# ╔═╡ bfcfe7ca-65eb-484e-9dea-2badffb7207e
+blackjack_optimize_λ(2. .^ (-3:-1), 2. .^ (-3:-1); max_episodes = 1_000_000, λlist = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0])
 
 # ╔═╡ 8cb58177-cc29-4bf0-af2f-704bebb9871f
-_, blackjackθ, _ = execute_blackjack_actor_critic(0.1, 0.1, blackjackstatelookup; max_episodes = 1_000_000, λθ = 0.5, λw = 0.5)
+_, blackjackθ, blackjackw = execute_blackjack_actor_critic(0.7, 0.7, blackjackstatelookup; max_episodes = 2_000_000, λθ = 0.7, λw = 0.7)
 
 # ╔═╡ 0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
-function plot_blackjack_policy(θ)
+function plot_blackjack_policy(θ, w)
 	πstargridua = zeros(10, 10)
 	πstargridnua = zeros(10, 10)
+	v̂starua = zeros(10, 10)
+	v̂starnua = zeros(10, 10)
 	for state in blackjackstates
 		(s, c, ua) = state
 		n = blackjackstatelookup[state]
 		a = blackjackactions[argmax(θ[n, :])]
-		if ua
-			(πstargridua[s-11, c] = soft_max(θ[n, :])[1])
+	
+		(i, j) = (s-11, c)
+
+		πout = soft_max(θ[n, :])[1]
+		vout = w[n]
+		
+		(π, v̂) = if ua
+			πstargridua, v̂starua
 		else
-			(πstargridnua[s-11, c] = soft_max(θ[n, :])[1])
+			πstargridnua, v̂starnua
 		end
+
+		π[i, j] = πout
+		v̂[i, j] = vout 
 	end
 
+	x = ["A"; string.([2, 3, 4, 5, 6, 7, 8, 9, 10])]
+	y = 12:21
+
+	layout =  Layout(title = "Usable Ace Policy, Stick Probability", width = 400, height = 300, x_label = "Dealer Showing", y_label = "Player sum")
+
+	testtitle = 
+		"""
+		Usable Ace
+		Stick Probability
+		"""
+	
 	# vstar = eval_blackjack_policy(Dict(s => π[s] == :hit ? [1.0, 0.0] : [0.0, 1.0] for s in blackjackstates), 500_000)
-	p1 = plot(heatmap(z = πstargridua, x = ["A"; string.([2, 3, 4, 5, 6, 7, 8, 9, 10])], y = 12:21), Layout(legend = false, title = "Usable Ace Policy, Stick Probability"))
-	p2 = plot(heatmap(z = πstargridnua, x = ["A"; string.([2, 3, 4, 5, 6, 7, 8, 9, 10])], y = 12:21), Layout(legend = false, title = "No usable Ace Policy", x_label = "Dealer Showing", y_label = "Player sum"))
-	[p1, p2]
-	# p3 = heatmap(vstar[1], legend = false, yticks = (1:10, 12:21), title = "V*")
-	# p4 = heatmap(vstar[2], yticks = (1:10, 12:21))
-	# plot(p1, p3, p2, p4, layout = (2,2))
+	p1 = Plot(heatmap(z = πstargridua, x = x, y = y, showscale = false, name = "Policy Usable Ace"), Layout(title = "Usable Ace", yaxis_title = "Player sum", margin = attr(b = 10), xaxis_title = "Policy Stick Probability", xaxis_tickvals = fill("", length(x))))
+	p2 = Plot(heatmap(z = πstargridnua, x = x, y = y, showscale = false, name = "Policy No Usable Ace"), Layout(margin =attr(b = 10), title = "No Usable Ace"))
+	
+	# md"""
+	# $p1 $p2
+	# """
+	p3 = Plot(heatmap(z = v̂starua, x = x, y = y, showscale=false, name = "Value Estimate Usable Ace"), Layout(title = "Value Estimate", xaxis_title = "Dealer Showing" , margin = attr(t = 10)))
+	p4 = Plot(heatmap(z = v̂starnua, x = x, y = y, showscale=true, name = "Value Estimate No Usable Ace"), Layout(margin = attr(t = 10)))
+	p = [p1 p2; p3 p4]
+	relayout!(p, autosize = true, margin = attr(b = 10), height = 700, width = 900, title_text = "Blackjack Policy and Value Functions Estimates")
+	p
 end
 	
 
 # ╔═╡ 8a909bf5-55fe-4b0a-b3e6-e862678e62b4
-plot_blackjack_policy(blackjackθ)
+plot_blackjack_policy(blackjackθ, blackjackw)
 
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
@@ -2116,6 +2166,8 @@ version = "17.4.0+0"
 # ╠═097b8fc1-b4a4-4b93-bc08-2ceebd5d759a
 # ╠═519e6da0-efbf-4b0a-a61c-5849ba403389
 # ╠═4c4ba58e-e3b7-4d02-81ae-b8d753487caa
+# ╠═06d508ea-640d-4e55-b3b6-05c929f82c3b
+# ╠═bfcfe7ca-65eb-484e-9dea-2badffb7207e
 # ╠═8cb58177-cc29-4bf0-af2f-704bebb9871f
 # ╠═8a909bf5-55fe-4b0a-b3e6-e862678e62b4
 # ╠═0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
