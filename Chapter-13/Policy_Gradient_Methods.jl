@@ -180,6 +180,9 @@ $\begin{align}
 Because it uses all future returns after step t, REINFORCE is a Monte Carlo algorithm and is well defined only for the episodic case.  For implementation purposes we can replace $\frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})}$ with $\nabla \ln \pi(A_t|S_t, \mathbf{\theta}_t)$ which is usually refered to as the *eligibility vector*.
 """
 
+# ╔═╡ b406577a-5478-42fd-8ed0-e36b5574cfc6
+select_action(vec) = wsample(eachindex(vec), vec)
+
 # ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
 """
 	reinforce_monte_carlo_control(π, ∇lnπ, d, s0, α, step, sterm, actions; 
@@ -207,7 +210,6 @@ Optional keyword arguments:
 """
 function reinforce_monte_carlo_control(π::Function, ∇lnπ::Function, d::Int64, s0, α, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), maxsteps = Inf, baseline = 0.0)
 	rewards = zeros(max_episodes)
-	select_action(vec) = sample(eachindex(vec), pweights(vec))
 	
 	function run_episode(maxsteps)
 		state_history = [s0]
@@ -473,9 +475,7 @@ Optional keyword arguments:
 - θ: The initial policy parameters. Default value is a vector of zeros with length d.
 """
 function reinforce_with_baseline_MC_control(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
-	rewards = zeros(max_episodes)
-	select_action(vec) = sample(eachindex(vec), pweights(vec))
-	
+	rewards = zeros(max_episodes)	
 	function run_episode(maxsteps)
 		s = s0
 		state_history = [s0]
@@ -633,12 +633,10 @@ Run the one-step actor-critic algorithm to learn a policy and state-value functi
 This function implements the one-step actor-critic algorithm, which updates the policy and state-value function estimates in an online fashion using the gradients of the log-probability and state-value function estimates, respectively, with respect to their parameters. The algorithm uses the eligibility trace method to update the state-value function estimates.
 """
 function one_step_actor_critic(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
-	rewards = zeros(max_episodes)
-	select_action(vec) = sample(eachindex(vec), pweights(vec))
-	
+	rewards = zeros(max_episodes)	
 	function run_episode!(maxsteps)
 		I = 1.0
-		s = s0
+		s = s0w
 		state_history = [s0]
 		a = select_action(π(s0, θ))
 		action_history = [a]
@@ -676,10 +674,8 @@ md"""
 """
 
 # ╔═╡ 58ad84b0-f9c9-424e-8c05-0b15fbe7b349
-function actor_critic_eligibility(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; λθ = 0.0, λw = 0.0, γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf, termination_threshold = (episode = Inf, reward = -Inf))
+function actor_critic_eligibility(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; λθ = 0.0, λw = 0.0, γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf, termination_threshold = (episode = Inf, reward = -Inf), zθ = zeros(size(θ)...), zw = zeros(size(w)...))
 	rewards = zeros(max_episodes)
-	select_action(vec) = sample(eachindex(vec), pweights(vec))
-
 	#initialize trace vectors
 	zθ = zeros(size(θ)...)
 	zw = zeros(size(w)...)
@@ -786,8 +782,7 @@ function actor_critic_eligibility_continuing(π::Function, ∇lnπ::Function, v�
 	state_history = Vector{S}(undef, maxsteps+1)
 	action_history = Vector{A}(undef, maxsteps+1)
 	reward_history = zeros(maxsteps+1)
-	select_action(vec) = sample(eachindex(vec), pweights(vec))
-
+	
 	#initialize trace vectors
 	zθ = zeros(d)
 	zw = zeros(d′)
@@ -1229,7 +1224,250 @@ function racetrack_optimize_λ(track, αθlist, αwlist; nruns = nthreads(), λl
 end
 
 # ╔═╡ 801a2dbd-b663-4bfa-b763-092579a8599c
-racetrack_optimize_λ(track1, [0.3, 0.5, 0.8], [0.3]; max_episodes = 1000, maxsteps = 5000, termination_threshold = (episode = 100, reward = -500), λlist = [0.0, 0.4, 0.5, 0.6, 0.7, 0.8])
+racetrack_optimize_λ(track1, [0.3, 0.5, 0.8], [0.3, 0.5]; max_episodes = 1000, maxsteps = 5000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8])
+
+# ╔═╡ 80e40d2b-a67b-46eb-86fd-294c0a87a80f
+md"""
+## Blackjack Environment
+"""
+
+# ╔═╡ 8edb3337-0902-45fa-a5b0-c7cc3d40f97f
+const cards = (2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, :A)
+
+# ╔═╡ 37dc5518-d378-41fd-b0ef-bc5e3b1b3687
+const blackjackactions = (:hit, :stick)
+
+# ╔═╡ 0ac08421-20d2-4e56-bce8-1bc47b36fe2e
+#deal a card from an infinite deck and return either the value of that card or an ace
+deal() = rand(cards)
+
+# ╔═╡ 064b06ae-903b-4430-b925-534925bca733
+const blackjackstates = [(s, c, ua) for s in 12:21 for c in 1:10 for ua in (true, false)]
+
+# ╔═╡ 9be279fa-9325-4eb1-8c73-7742c066664d
+const blackjack_sterm = (100, 100, false)
+
+# ╔═╡ 6353a374-9eba-4184-a528-f8ca9f32dfe5
+const blackjack_s0 = (0, 0, false)
+
+# ╔═╡ b265b8e6-994a-4be2-a7c9-05adef570fda
+makestatelookup(states) = Dict(zip(states, eachindex(states)))
+
+# ╔═╡ 460d9e76-9841-4fb8-8e35-0efbbf6f9f08
+const blackjackstatelookup = makestatelookup([blackjackstates; blackjack_s0; blackjack_sterm])
+
+# ╔═╡ 8ea91577-57eb-4afc-8919-95bd16ae6865
+#takes a previous sum, usable ace indicator, and a card to be added to the sum.  Returns the updated sum and whether an ace is still usable
+function addsum(s::Int64, ua::Bool, c::Symbol)
+	if !ua
+		s >= 11 ? (s+1, false) : (s+11, true)
+	else
+		(s+1, true)
+	end
+end
+
+# ╔═╡ 6324046e-c766-444f-8a74-f6e3569154fa
+function addsum(s::Int64, ua::Bool, c::Int64)
+	if !ua
+		(s + c, false)
+	else
+		if (s + c) > 21
+			(s + c - 10, false)
+		else
+			(s + c, true)
+		end
+	end
+end
+
+# ╔═╡ 7f8ea283-8b42-4bb7-8d49-a54855a98c5d
+function playerstep(s, ua, a)
+	a == :stick && return (s, ua)
+	addsum(s, ua, deal())
+end
+
+# ╔═╡ 8f133852-12da-41b3-8071-51a12211f432
+function dealer_sim(s::Int64, ua::Bool)
+	(s >= 17) && return s
+	(s, ua) = addsum(s, ua, deal())
+	dealer_sim(s, ua)
+end
+
+# ╔═╡ ebeabff8-4779-49e6-a04f-16a76e0b9b04
+function blackjack_step(state, action)
+	#score a game in which the player didn't go bust
+	function scoregame(playersum, dealersum)
+		#if the dealer goes bust, the player wins
+		dealersum > 21 && return 1.0
+
+		#if the player is closer to 21 the player wins
+		playersum > dealersum && return 1.0
+
+		#if the dealer sum is closer to 21 the player loses
+		playersum < dealersum && return -1.0
+
+		#otherwise the outcome is a draw
+		return 0.0
+	end
+	
+	(s, c, ua) = state
+
+	#initial state
+	if s == 0 
+		initstate = true
+		#deal two cards and check for player natural
+		(s, ua) = addsum(s, ua, deal())
+		(s, ua) = addsum(s, ua, deal())
+		playernatural = (s == 21)
+
+		#if sum is less than 12 then keep dealing since these are not states with any action choice
+		while s < 12
+			(s, ua) = addsum(s, ua, deal())
+		end
+
+		#generate dealer card
+		c = rand(1:10)
+	else
+		initstate = false
+		playernatural = false
+	end
+	
+	#generate hidden dealer card and final state
+	hc = deal()
+	(ds, dua) = if c == 1
+		addsum(11, true, hc)
+	else 
+		addsum(c, false, hc)
+	end
+
+	dealernatural = ds == 21
+
+	sdealer = dealer_sim(ds, dua)
+
+	#calculate score in case of player natural
+	playernatural && return (blackjack_sterm, Float64(!dealernatural))
+
+	#if there is no playernatural and we are in the initial state, then return the new initial state ignoring the action selection and giving no reward
+	initstate && return ((s, c, ua), 0.0)
+
+	#sticking always ends the game 
+	action == :stick && return (blackjack_sterm, scoregame(s, sdealer))
+
+	#deal player new card if hitting
+	(s, ua) = addsum(s, ua, deal())
+
+	#player always looses if busts
+	s > 21 && return (blackjack_sterm, -1.0)
+
+	#if player has 21 game also ends
+	s == 21 && return (blackjack_sterm, scoregame(s, sdealer))
+
+	#otherwise return new state and 0 reward
+	return ((s, c, ua), 0.0)
+end			
+
+# ╔═╡ 097b8fc1-b4a4-4b93-bc08-2ceebd5d759a
+function execute_blackjack_actor_critic(αθ, αw, statelookup; kwargs...)
+	nstates = length(statelookup)
+	
+	#create state feature one hot vectors
+	xs = [zeros(nstates) for i in 1:nstates]
+	for i in values(statelookup)
+		xs[i][i] = 1.0
+	end
+	
+	#parameters
+	θ = zeros(nstates, lastindex(blackjackactions))
+	w = zeros(nstates)
+
+	#allocations for outputs
+	πoutput = zeros(lastindex(blackjackactions))
+	gradoutput = similar(θ)
+
+	#value function and gradient
+	v̂(s, w) = w[statelookup[s]]
+	∇v̂(s, w) = xs[statelookup[s]]
+
+	function clean_output!(v::AbstractVector{T}) where T <: AbstractFloat
+		for (i, x) in enumerate(v)
+			if isnan(x) || isinf(x)
+				v[i] = zero(T)
+			end
+		end
+		return v
+	end
+
+	#policy function and gradient
+	function π!(s, θ) 
+		soft_max!(θ[statelookup[s], :], πoutput)
+		clean_output!(πoutput)
+	end
+
+	function ∇lnπ!(a, s, θ)
+		#ensure πoutput contains the current softmax output for this state
+		# π!(s, θ)
+		i = statelookup[s]
+		 for n in eachindex(blackjackactions)
+			@inbounds @simd for m in 1:nstates
+				gradoutput[m, n] = (i == m) * ((n == a) - πoutput[n])
+				# if i == m
+				# 	println("At state $i Updated gradient of $(gradoutput[m, n])")
+				# end
+			end
+		end
+		return gradoutput
+	end
+	
+	# reinforce_monte_carlo_control(π!, ∇lnπ!, length(θ), s0, αθ, step, sterm, actions; θ = θ, kwargs...)
+
+	actor_critic_eligibility(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), blackjack_s0, αθ, αw, blackjack_step, blackjack_sterm, blackjackactions; θ = θ, w = w, kwargs...)
+
+	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
+end
+
+# ╔═╡ 519e6da0-efbf-4b0a-a61c-5849ba403389
+function plotblackjackwinrate(αθ, αw, max_episodes; kwargs...)
+	y = cumsum(execute_blackjack_actor_critic(αθ, αw, blackjackstatelookup; max_episodes = max_episodes, kwargs...)[1])[100:end]
+	x = (100:max_episodes)
+
+	l = length(y)
+
+	i = ceil(Int64, l / 10_000)
+	plot(y[1:i:l] ./ x[1:i:l])
+end
+
+# ╔═╡ 4c4ba58e-e3b7-4d02-81ae-b8d753487caa
+plotblackjackwinrate(0.3, 0.3, 1_000_000; λθ = 0.5, λw = 0.5)
+
+# ╔═╡ 8cb58177-cc29-4bf0-af2f-704bebb9871f
+_, blackjackθ, _ = execute_blackjack_actor_critic(0.1, 0.1, blackjackstatelookup; max_episodes = 1_000_000, λθ = 0.5, λw = 0.5)
+
+# ╔═╡ 0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
+function plot_blackjack_policy(θ)
+	πstargridua = zeros(10, 10)
+	πstargridnua = zeros(10, 10)
+	for state in blackjackstates
+		(s, c, ua) = state
+		n = blackjackstatelookup[state]
+		a = blackjackactions[argmax(θ[n, :])]
+		if ua
+			(πstargridua[s-11, c] = soft_max(θ[n, :])[1])
+		else
+			(πstargridnua[s-11, c] = soft_max(θ[n, :])[1])
+		end
+	end
+
+	# vstar = eval_blackjack_policy(Dict(s => π[s] == :hit ? [1.0, 0.0] : [0.0, 1.0] for s in blackjackstates), 500_000)
+	p1 = plot(heatmap(z = πstargridua, x = ["A"; string.([2, 3, 4, 5, 6, 7, 8, 9, 10])], y = 12:21), Layout(legend = false, title = "Usable Ace Policy, Stick Probability"))
+	p2 = plot(heatmap(z = πstargridnua, x = ["A"; string.([2, 3, 4, 5, 6, 7, 8, 9, 10])], y = 12:21), Layout(legend = false, title = "No usable Ace Policy", x_label = "Dealer Showing", y_label = "Player sum"))
+	[p1, p2]
+	# p3 = heatmap(vstar[1], legend = false, yticks = (1:10, 12:21), title = "V*")
+	# p4 = heatmap(vstar[2], yticks = (1:10, 12:21))
+	# plot(p1, p3, p2, p4, layout = (2,2))
+end
+	
+
+# ╔═╡ 8a909bf5-55fe-4b0a-b3e6-e862678e62b4
+plot_blackjack_policy(blackjackθ)
 
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
@@ -1815,6 +2053,7 @@ version = "17.4.0+0"
 # ╟─406638af-1e08-44d2-9ee4-97aa9294a94b
 # ╟─aa450da4-fe84-4eea-b6c4-9820b7982437
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
+# ╠═b406577a-5478-42fd-8ed0-e36b5574cfc6
 # ╠═2b11ef08-288f-4110-b741-ba580782b6a7
 # ╟─71973c41-5fbb-40bf-8cc9-e063c7372a1c
 # ╟─49a1d508-b491-4d3a-8415-f5def06884e9
@@ -1860,6 +2099,26 @@ version = "17.4.0+0"
 # ╠═4b96e0b4-eca4-46ba-beba-40bcaefdb30a
 # ╠═b50282ed-e599-4687-bfbc-0ac9c4f30c84
 # ╠═801a2dbd-b663-4bfa-b763-092579a8599c
+# ╟─80e40d2b-a67b-46eb-86fd-294c0a87a80f
+# ╠═8edb3337-0902-45fa-a5b0-c7cc3d40f97f
+# ╠═37dc5518-d378-41fd-b0ef-bc5e3b1b3687
+# ╠═0ac08421-20d2-4e56-bce8-1bc47b36fe2e
+# ╠═064b06ae-903b-4430-b925-534925bca733
+# ╠═9be279fa-9325-4eb1-8c73-7742c066664d
+# ╠═6353a374-9eba-4184-a528-f8ca9f32dfe5
+# ╠═b265b8e6-994a-4be2-a7c9-05adef570fda
+# ╠═460d9e76-9841-4fb8-8e35-0efbbf6f9f08
+# ╠═8ea91577-57eb-4afc-8919-95bd16ae6865
+# ╠═6324046e-c766-444f-8a74-f6e3569154fa
+# ╠═7f8ea283-8b42-4bb7-8d49-a54855a98c5d
+# ╠═8f133852-12da-41b3-8071-51a12211f432
+# ╠═ebeabff8-4779-49e6-a04f-16a76e0b9b04
+# ╠═097b8fc1-b4a4-4b93-bc08-2ceebd5d759a
+# ╠═519e6da0-efbf-4b0a-a61c-5849ba403389
+# ╠═4c4ba58e-e3b7-4d02-81ae-b8d753487caa
+# ╠═8cb58177-cc29-4bf0-af2f-704bebb9871f
+# ╠═8a909bf5-55fe-4b0a-b3e6-e862678e62b4
+# ╠═0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═c75b36a3-41d6-4ad8-83d6-1cf83734e1fc
