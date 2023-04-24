@@ -868,6 +868,69 @@ md"""
 > Hint for part (c): Define $P=\pi(1|s,\theta)$ and compute the derivative of the logarithm, for each action, using the chain rule on $P$.  Combine the two results into one expression that depends on $a$ and $P$, and then use the chain rule again, this time on $\theta^\top\mathbf{x}(s)$, noting that the derivative of the logistic function $f(x)=1/(1+e^{-x})$ is $f(x)(1-f(x))$.
 """
 
+# ╔═╡ 692c1043-4eaf-491e-b8fe-368618867f99
+md"""
+1. The soft-max distribution is: 
+$\sigma(a|s, \theta) = \frac{e^{h(s, a, \theta)}}{\sum_b e^{h(s, b, \theta)}}$ 
+
+We only have two possible actions in each state so the policy for action 1 would be given by: 
+
+$\pi(1|S_t, \theta_t) = \frac{e^{h(s, 1, \theta_t)}}{e^{h(S_t, 0, \theta_t)} + e^{h(S_t, 1, \theta)}}$ 
+
+Simplify this expression by dividing by $e^{h(s, 1, \theta_t)}$ which results in: 
+
+$\pi(1|S_t, \theta_t) = \frac{1}{e^{h(S_t, 0, \theta_t) - h(S_t, 1, \theta_t)} + 1}$ 
+
+Given the assumption that $h(s, 1, \theta)-h(s, 0, \theta) = \theta^\top\mathbf{x}(s)$, we replace the expression in the exponent resulting in the final expression of: 
+
+$\pi(1|S_t, \theta_t) = \frac{1}{e^{-\theta_t^\top\mathbf{x}(S_t)} + 1}$
+
+Using the notation $f(x) = 1/(1+e^{-x})$ we can write $\pi(1|S_t, \theta_t) = f(\theta_t^\top \mathbf{x}(S_t))$ where $f$ is the logistic function.  Consider this notation for the rest of the exercises.
+
+2. The REINFORCE update is given by: $\theta_{t+1} = \theta_t + \alpha G_t \frac{\nabla\pi(A_t|S_t, \theta_t)}{\pi(A_t|S_t, \theta_t)}$, so we need to compute the gradient of the policy in terms of the parameters for this action selection: $\nabla \pi(1|S_t, \theta_t)$.  Luckily, the derivative of the logistic function is simply given by: $f(x)(1-f(x))$ where $f(x)$ is the logistic function itself.  In our case $x = \theta_t^\top \mathbf{x}_t$  so after applying the chain rule we have: 
+
+$\nabla\pi(1|S_t, \theta_t) = f(x)(1-f(x))\nabla x = f(x)(1-f(x)) \mathbf{x_t}$ since $x$ is just a linear function of the parameters.  So for the parameter update step we have: 
+
+$\frac{\nabla\pi(1|S_t, \theta_t)}{\pi(1|S_t, \theta_t)} = \frac{f(x)(1-f(x))\mathbf{x}_t}{f(x)} = (1 - f(x))\mathbf{x}_t$
+
+Also note that:
+
+$1 - f(x) = 1 - \frac{1}{e^{-\theta_t^\top\mathbf{x}(S_t)} + 1} = \frac{e^{-\theta_t^\top\mathbf{x}(S_t)} + 1 - 1}{e^{-\theta_t^\top\mathbf{x}(S_t)} + 1} = \frac{e^{-\theta_t^\top\mathbf{x}(S_t)}}{e^{-\theta_t^\top\mathbf{x}(S_t)} + 1}$
+
+The REINFORCE update will then be: 
+
+$\theta_{t+1} = \theta_t + \alpha G_t \left ( \frac{e^{-\theta_t^\top\mathbf{x}(S_t)}}{e^{-\theta_t^\top\mathbf{x}(S_t)} + 1} \right ) \mathbf{x}_t$
+
+3. For the general case, we want to calculate $\frac{\nabla\pi(a|s, \theta)}{\pi(a|s, \theta)}$.  We already know this expression for $a = 1$.   
+
+$\nabla {\pi(1|s, \mathbf{\theta})} = f(x)(1 - f(x))\mathbf{x}(s) = \pi(1|s, \mathbf{\theta})(1 - \pi(1|s, \mathbf{\theta})\mathbf{x}(s)$
+
+Since $\pi(a|s, \theta)$ is a probability distribution across actions, we also know that 
+
+$\pi(0|s, \theta) = 1 - \pi(1|s, \theta)$ 
+
+which implies that 
+
+$\nabla \pi(0|s, \theta) = -\nabla \pi(1|s, \theta) = -\pi(1|s, \mathbf{\theta})(1 - \pi(1|s, \mathbf{\theta}))\mathbf{x}(s)$ 
+
+We can express this in terms of $\pi(0|s, \theta)$ completely:
+
+$\nabla \pi(0|s, \theta) = (\pi(0|s, \mathbf{\theta}) - 1)\pi(0|s, \theta)\mathbf{x}(s) = -\pi(0|s, \theta)(1 - \pi(0|s, \mathbf{\theta}))\mathbf{x}(s)$ 
+
+Let's now compare the two expressions for the policy gradient at each action:
+
+$\begin{align}
+\nabla {\pi(1|s, \mathbf{\theta})} &= \pi(1|s, \mathbf{\theta})(1 - \pi(1|s, \mathbf{\theta})\mathbf{x}(s) \\
+\nabla \pi(0|s, \theta) &= -\pi(0|s, \theta)(1 - \pi(0|s, \mathbf{\theta}))\mathbf{x}(s) \\
+\therefore \\
+\nabla \pi(a|s, \theta) &= \chi (a) \pi(a|s, \theta)(1 - \pi(a|s, \mathbf{\theta}))\mathbf{x}(s) \\
+\end{align}$
+
+Where $\chi (a)$ is a function that returns 1 for $a=1$ and -1 for $a=0$.  There are many ways to achieve this but the following expression is simple and works: $\chi(a) = 2a - 1$.  Dividing by the gradient yields a unified expression for the eligibility vector:
+
+$\nabla \ln{\pi(a|s,\theta)} = (2a - 1) (1 - \pi(a|s, \mathbf{\theta}))\mathbf{x}(s)$ 
+"""
+
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
 # Dependencies and Settings
@@ -1459,7 +1522,8 @@ version = "17.4.0+0"
 # ╠═79c85707-ea09-4f6b-ad51-a2683c3923c0
 # ╟─7ccadf01-fbba-4dfd-a5ad-770dab9946f9
 # ╟─beb01fb8-c77d-4b5c-a66d-3812415e04a3
-# ╠═68e6f17e-8c87-40f0-a673-1115ecd1b71d
+# ╟─68e6f17e-8c87-40f0-a673-1115ecd1b71d
+# ╟─692c1043-4eaf-491e-b8fe-368618867f99
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═ea8cdebd-7a25-49ae-9695-48dda2a880b4
