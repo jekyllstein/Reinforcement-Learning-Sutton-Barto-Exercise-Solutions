@@ -14,12 +14,9 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 9011ca9f-309b-40df-85f4-bccf6e81c19b
-using ProgressLogging
-
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 begin
-	using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase, LinearAlgebra, LaTeXStrings, Base.Threads, ProfileCanvas
+	using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase, LinearAlgebra, LaTeXStrings, Base.Threads, ProfileCanvas, HypertextLiteral, ProgressLogging
 	TableOfContents()
 	html"""
 	<style>
@@ -177,7 +174,7 @@ begin
 	v3(p) = 3/(p-1)
 	plist = 0.:0.001:1.
 	traces = [scatter(x = plist, y = f.(1 .- plist), name = n) for (f, n) in zip([v1, v2, v3], ["V(S1)", "V(S2)", "V(S3)"])]
-	plot(traces, Layout(yaxis_range = [-100, 0], xaxis_title = "probability of right action", yaxis_title = "State Value"))
+	plot(traces, Layout(yaxis_range = [-100, 0], xaxis_title = "probability of right action", yaxis_title = "State Value", width = 900, height = 600))
 end
 
 # ╔═╡ 406638af-1e08-44d2-9ee4-97aa9294a94b
@@ -1177,8 +1174,8 @@ function make_racetrack(track)
 	(states, sterm, racetrack_actions, step, s0, runepisode)
 end
 
-# ╔═╡ e5a0a3fc-2eb3-4f31-8ab6-4a3130c70932
-function execute_racetrack_actor_critic(track, αθ, αw; kwargs...)
+# ╔═╡ d314361e-4d4f-413b-b935-1e88c1112fa0
+function setup_racetrack_actor_critic(track)
 	(states, sterm, actions, step) = make_racetrack(track)
 	s0 = (position = first(track.start), velocity = (0, 0))
 
@@ -1194,13 +1191,9 @@ function execute_racetrack_actor_critic(track, αθ, αw; kwargs...)
 		xs[i][i] = 1.0
 	end
 	
-	#parameters
-	θ = zeros(lastindex(states)+1, lastindex(actions))
-	w = zeros(lastindex(states)+1)
-
 	#allocations for outputs
 	πoutput = zeros(lastindex(actions))
-	gradoutput = similar(θ)
+	gradoutput = zeros(lastindex(states)+1, lastindex(actions))
 
 	#value function and gradient
 	v̂(s, w) = w[statelookup[s]]
@@ -1235,6 +1228,23 @@ function execute_racetrack_actor_critic(track, αθ, αw; kwargs...)
 		end
 		return gradoutput
 	end
+
+	#parameters
+	θ = zeros(lastindex(states)+1, lastindex(actions))
+	w = zeros(lastindex(states)+1)
+	
+	return (π!, ∇lnπ!, v̂, ∇v̂, s0, step, states, sterm, actions, θ, w)
+end
+
+# ╔═╡ 9040a58b-afd7-49cd-a253-054a5b26c603
+track1_setup = setup_racetrack_actor_critic(track1)
+
+# ╔═╡ e5a0a3fc-2eb3-4f31-8ab6-4a3130c70932
+function execute_racetrack_actor_critic(track, setup, αθ, αw; kwargs...)
+	(π!, ∇lnπ!, v̂, ∇v̂, s0, step, states, sterm, actions, θ, w) = setup
+	#parameters
+	θ .= zeros(lastindex(states)+1, lastindex(actions))
+	w .= zeros(lastindex(states)+1)
 	
 	# reinforce_monte_carlo_control(π!, ∇lnπ!, length(θ), s0, αθ, step, sterm, actions; θ = θ, kwargs...)
 
@@ -1246,80 +1256,53 @@ end
 # ╔═╡ 85fc29c9-e5ca-4bc8-b607-51d75906a1f2
 # ╠═╡ show_logs = false
 function eval_racetrack(track; nruns = nthreads(), αlist = 2. .^(-3:-1), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, 1.0], kwargs...)
-	traces = [begin
-		out = average_runs((;kwargs...) -> execute_racetrack_actor_critic(track, α, α; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
-		scatter(x = eachindex(out), y = out, name = "α = $α, λ = $λ")
+	opt_setup = setup_racetrack_actor_critic(track)
+	params = [(α, λ) for α in αlist for λ in λlist]
+	@progress traces = [begin
+		 (α, λ) = p
+		@info "running for α = $α and λ = $λ"
+		out = average_runs((;kwargs...) -> execute_racetrack_actor_critic(track, opt_setup, α, α; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
+		scatter(x = eachindex(out), y = -cumsum(out) ./ (1:length(out)), name = "α = $α, λ = $λ")
 	end
-	for α in αlist for λ in λlist]
-	plot(traces)
+	for p in params]
+	plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "Cumulative Average Steps to Finish So Far", yaxis_type="log", width = 900, height = 600))
 end
 
 # ╔═╡ 4b96e0b4-eca4-46ba-beba-40bcaefdb30a
-plot(execute_racetrack_actor_critic(track1, 0.5, 0.3; λθ = 0.5, λw = 0.5, max_episodes = 1000, maxsteps = 5000)[1])
+plot(-cumsum(execute_racetrack_actor_critic(track1, track1_setup, 0.3, 0.3; λθ = 0.6, λw = 0.6, max_episodes = 1_000, maxsteps = 10_000)[1])./(1:1_000), Layout(width = 900, height = 600, yaxis_type="log", xaxis_title = "Episode", yaxis_title="Steps to Completion"))
 
-# ╔═╡ 4a989dac-165c-4d41-bbab-e5e7bbdfc2b5
-md"""
-#### Select to run `eval_racetrack` and plot rewards per episode for different α and λ: $(@bind run_eval_racetrack CheckBox())
-	"""
+# ╔═╡ 6e2e9c99-8664-40f2-a1df-bd182db9859e
+@bind run_eval_racetrack CounterButton("Click to run `eval_racetrack` and plot rewards per episode for different α and λ")
 
-# ╔═╡ ab29ec76-0b89-4eaa-81a0-1b31c901f97d
-if run_eval_racetrack
-	eval_racetrack(track1; max_episodes = 100, maxsteps = 5_000, termination_threshold = (episode = 30, reward = -1000))
-else
+# ╔═╡ e256975c-18e0-4650-b671-762e87dfcfee
+if run_eval_racetrack == 0
 	md"""
-	#### Click above checkbox to create plot
+	#### Placeholder for racetrack episode progress plot.  Click the above button to create plot.
 	"""
+else
+	eval_racetrack(track1; max_episodes = 1000, maxsteps = 10_000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8])
 end
 
 # ╔═╡ b50282ed-e599-4687-bfbc-0ac9c4f30c84
-function racetrack_optimize_λ(track, αθlist, αwlist; nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
+function racetrack_optimize_λ(track, αθlist, αwlist; epavg = 100, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
+	opt_setup = setup_racetrack_actor_critic(track)
 	function maketrace(αθ, αw) 
-		rewards = [begin
-			out = average_runs((;kwargs...) -> execute_racetrack_actor_critic(track, αθ, αw; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
-			mean(out[end-100:end])
+		@info "running for αθ = $αθ and αw = $αw"
+		@progress rewards = [begin
+			out = average_runs((;kwargs...) -> execute_racetrack_actor_critic(track, opt_setup, αθ, αw; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
+			mean(out[max(1, end-epavg):end])
 		end
 		for λ in λlist]
 		scatter(x = λlist, y = rewards, name = "αθ = $αθ, αw = $αw")
 	end
 
-	traces = [maketrace(a, b) for a in αθlist for b in αwlist]
-	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last 100 Episodes"))
+	params = [(a, b) for a in αθlist for b in αwlist]
+	@progress traces = [maketrace(p...) for p in params]
+	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", width = 900, height = 600))
 end
 
 # ╔═╡ aeffb168-06d2-484e-beea-b507f329e4b8
-md"""
-#### Select to run `racetrack_optimize_λ`: $(@bind run_racetrack_optimize_λ CheckBox())
-	"""
-
-# ╔═╡ 801a2dbd-b663-4bfa-b763-092579a8599c
-if run_racetrack_optimize_λ
-	racetrack_optimize_λ(track1, [0.3, 0.5, 0.8], [0.3, 0.5]; max_episodes = 1000, maxsteps = 5000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8])
-else
-	md"""
-	#### Select checkbox above this to create plot
-	"""
-end
-
-# ╔═╡ d6f69910-2404-4d8b-a0b3-e37b0250653e
-md"""
-$(@bind testselect CheckBox())
-"""
-
-# ╔═╡ 27586f96-4100-496d-b3ff-213cdd37b6b2
-if testselect
-	@info "running"
-	@progress for i = 1:1000
-		sleep(.01)
-	end
-	@info "done"
-	md"""
-	Pretty Plot
-	"""
-else
-	md"""
-	not running
-	"""
-end
+@bind run_racetrack_optimize CounterButton("Click to run racetrack optimize λ")
 
 # ╔═╡ 80e40d2b-a67b-46eb-86fd-294c0a87a80f
 md"""
@@ -1527,43 +1510,44 @@ function plotblackjackwinrate(αθ, αw, max_episodes; kwargs...)
 	l = length(y)
 
 	i = ceil(Int64, l / 10_000)
-	plot(y[1:i:l] ./ x[1:i:l])
+	plot(scatter(x = x, y = y[1:i:l] ./ x[1:i:l]), Layout(xaxis_title = "Episode", yaxis_title = "Average Cumulative Reward", width = 800, height = 500))
 end
 
 # ╔═╡ 4c4ba58e-e3b7-4d02-81ae-b8d753487caa
 plotblackjackwinrate(0.3, 0.3, 100_000; λθ = 0.5, λw = 0.5)
 
 # ╔═╡ 06d508ea-640d-4e55-b3b6-05c929f82c3b
-function blackjack_optimize_λ(αθlist, αwlist; nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
+function blackjack_optimize_λ(αθlist, αwlist; epavg = 1000, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
 	function maketrace(αθ, αw) 
-		rewards = [begin
+		@info "running for αθ = $αθ and αw = $αw"
+		@progress rewards = [begin
 			out = average_runs((;kwargs...) -> execute_blackjack_actor_critic(αθ, αw, blackjackstatelookup; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
-			mean(out[end-1000:end])
+			mean(out[max(1, end-epavg):end])
 		end
 		for λ in λlist]
 		scatter(x = λlist, y = rewards, name = "αθ = $(round(αθ, sigdigits = 2)), αw = $(round(αw, sigdigits = 2))")
 	end
 
-	traces = [maketrace(a, b) for a in αθlist for b in αwlist]
-	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last 1000 Episodes"))
+	paramlist = [(a, b) for a in αθlist for b in αwlist]
+
+	@progress traces = [maketrace(p...) for p in paramlist]
+	plot(traces, Layout(font_color = "white", plot_bgcolor = "black", paper_bgcolor="rgb(40, 40, 40)", xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", height = 600))
 end
 
-# ╔═╡ e2b68218-4a9c-48cd-b78c-0c0eb4a11ad0
-md"""
-#### Select to Run Blackjack Optimize λ (note could take over 10 minutes): $(@bind run_blackjack_optimize CheckBox())
-"""
+# ╔═╡ 0c3714fd-821a-4dae-8d1e-1db35ebef315
+@bind blackjackruncount CounterButton("Click to run Blackjack Optimize λ")
 
 # ╔═╡ bfcfe7ca-65eb-484e-9dea-2badffb7207e
-if run_blackjack_optimize 
-	blackjack_optimize_λ(2. .^ (-3:-1), 2. .^ (-3:-1); max_episodes = 1_000_000, λlist = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0])
-else
+if blackjackruncount == 0 
 	md"""
-	#### To see Average reward chart for different parameters select the checkbox above
+	#### Placeholder for blackjack optimize λ plot.  Click above button to run
 	"""
+else
+	blackjack_optimize_λ(2. .^ (-3:-1), 2. .^ (-3:-1); max_episodes = 1_000_000, λlist = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0])
 end
 
 # ╔═╡ 8cb58177-cc29-4bf0-af2f-704bebb9871f
-_, blackjackθ, blackjackw = execute_blackjack_actor_critic(0.25, 0.25, blackjackstatelookup; max_episodes = 500_000, λθ = 0.4, λw = 0.4)
+_, blackjackθ, blackjackw = execute_blackjack_actor_critic(0.25, 0.25, blackjackstatelookup; max_episodes = 500_000, λθ = 0.2, λw = 0.2)
 
 # ╔═╡ 0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
 function plot_blackjack_policy(θ, w)
@@ -1595,30 +1579,53 @@ function plot_blackjack_policy(θ, w)
 	y = 12:21
 
 	layout =  Layout(title = "Usable Ace Policy, Stick Probability", width = 400, height = 300, x_label = "Dealer Showing", y_label = "Player sum")
-
-	testtitle = 
-		"""
-		Usable Ace
-		Stick Probability
-		"""
 	
 	# vstar = eval_blackjack_policy(Dict(s => π[s] == :hit ? [1.0, 0.0] : [0.0, 1.0] for s in blackjackstates), 500_000)
-	p1 = Plot(heatmap(z = πstargridua, x = x, y = y, showscale = true, name = "Policy Usable Ace"), Layout(title = "Usable Ace", yaxis_title = "Player sum", margin = attr(b = 10), xaxis_title = "Policy Stick Probability", xaxis_tickvals = fill("", length(x))))
-	p2 = Plot(heatmap(z = πstargridnua, x = x, y = y, showscale = false, name = "Policy No Usable Ace"), Layout(margin =attr(b = 10), title = "No Usable Ace"))
+	p1 = Plot(heatmap(z = πstargridua, x = x, y = y, colorbar=attr(y = .8, len = 0.4), name = "Policy Usable Ace"), Layout(title = attr(text="Policy Hit Probability", x = 0.5), margin = attr(b = 1, t = 1, l = 1, r = 1), yaxis_title = "Player sum", xaxis_title = "Usable Ace", font_color="white", xaxis_tickvals = fill("", length(x))))
+	# p1 = Plot(heatmap(z = rand(10, 10), x = 1:10, y = 1:10, colorbar = attr(orientation = "h", len = 0.5)))
+	p2 = Plot(heatmap(z = πstargridnua, x = x, y = y, showscale = false, name = "Policy No Usable Ace"), Layout(xaxis_tickvals = fill("", length(x)), xaxis_title = "No Usable Ace", title = "Policy Hit Probability"))
 	
 	# md"""
 	# $p1 $p2
 	# """
-	p3 = Plot(heatmap(z = v̂starua, x = x, y = y, showscale=false, name = "Value Estimate Usable Ace"), Layout(title = "Value Estimate", xaxis_title = "Dealer Showing" , margin = attr(t = 10)))
-	p4 = Plot(heatmap(z = v̂starnua, x = x, y = y, showscale=true, name = "Value Estimate No Usable Ace"), Layout(margin = attr(t = 10)))
+	p3 = Plot(heatmap(z = v̂starua, x = x, y = y, showscale=false, name = "Value Estimate Usable Ace"), Layout(title = "Value Estimate", xaxis_title = "Dealer Showing", yaxis_title = "Player sum"))
+	p4 = Plot(heatmap(z = v̂starnua, x = x, y = y, colorbar = attr(len=0.4, y = .2), showscale=true, name = "Value Estimate No Usable Ace"), Layout(xaxis_title="Dealer Showing", title = "Value Estimate"))
 	p = [p1 p2; p3 p4]
-	relayout!(p, autosize = true, margin = attr(b = 10), height = 700, width = 700, title_text = "Blackjack Policy and Value Functions Estimates")
-	p
+	relayout!(p, paper_bgcolor="rgb(40, 40, 40)", font_color="white", height = 700, width = 700,  title_text = "Blackjack Policy and Value Functions Estimates")
+	plot(p)
 end
 	
 
-# ╔═╡ 8a909bf5-55fe-4b0a-b3e6-e862678e62b4
+# ╔═╡ 7550213b-8174-4623-9abc-9dcbdc0351a8
 plot_blackjack_policy(blackjackθ, blackjackw)
+
+# ╔═╡ 2b964c13-c961-4ed9-8b66-a6715ff7d0ef
+md"""
+## Tic Tac Toe Environment
+"""
+
+# ╔═╡ f7ede764-5ad8-426b-a805-cc21b622d977
+md"""
+# Results Caching
+"""
+
+# ╔═╡ 2e2435bc-ca24-4b1f-87bb-4d20e7a346d8
+racetrack_optimize_λ_plots = Dict()
+
+# ╔═╡ 801a2dbd-b663-4bfa-b763-092579a8599c
+if run_racetrack_optimize == 0
+	md"""
+	#### Placeholder for racetrack parameter plot.  Click the above button to create plot.
+	"""
+else
+	racetrack_optimize_λ_args = (track1, [0.3, 0.5, 0.8], [0.3, 0.5])
+	racetrack_optimize_λ_kwargs = (max_episodes = 1000, maxsteps = 10_000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8])
+	if haskey(racetrack_optimize_λ_plots, (racetrack_optimize_λ_args, racetrack_optimize_λ_kwargs))
+		racetrack_optimize_λ_plots[(racetrack_optimize_λ_args, racetrack_optimize_λ_kwargs)]
+	else
+		racetrack_optimize_λ_plots[(racetrack_optimize_λ_args, racetrack_optimize_λ_kwargs)] = racetrack_optimize_λ(racetrack_optimize_λ_args...; racetrack_optimize_λ_kwargs...)
+	end
+end
 
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
@@ -1632,6 +1639,7 @@ TableOfContents()
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
@@ -1643,6 +1651,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 Distributions = "~0.25.87"
+HypertextLiteral = "~0.9.4"
 LaTeXStrings = "~1.3.0"
 PlutoPlotly = "~0.3.6"
 PlutoUI = "~0.7.50"
@@ -1657,7 +1666,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0-rc2"
 manifest_format = "2.0"
-project_hash = "85a96f711e138e6683aecfea89f52d74fb8e1b0a"
+project_hash = "0afe8d3f74370c1d536ef29844c60e5e7a6f89f0"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2196,7 +2205,7 @@ version = "17.4.0+0"
 # ╠═980af3e7-2f1c-49be-8f6b-fc61271dff52
 # ╠═edb145d7-95e0-44c9-a60f-57d517edb0c7
 # ╟─9d815d9c-6e5a-473e-a395-6f92d504dbf3
-# ╟─e5faaa1b-88cb-43e2-8d04-8972b58b4bda
+# ╠═e5faaa1b-88cb-43e2-8d04-8972b58b4bda
 # ╟─406638af-1e08-44d2-9ee4-97aa9294a94b
 # ╟─aa450da4-fe84-4eea-b6c4-9820b7982437
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
@@ -2240,17 +2249,16 @@ version = "17.4.0+0"
 # ╠═76af787d-7a3d-4c65-ab6a-898fba148705
 # ╠═0538aaf4-716b-4f3c-aa7e-dcb1dd456172
 # ╠═d37e21ac-b82a-423f-8719-b513bddf433d
+# ╠═d314361e-4d4f-413b-b935-1e88c1112fa0
+# ╠═9040a58b-afd7-49cd-a253-054a5b26c603
 # ╠═e5a0a3fc-2eb3-4f31-8ab6-4a3130c70932
 # ╠═85fc29c9-e5ca-4bc8-b607-51d75906a1f2
-# ╠═4b96e0b4-eca4-46ba-beba-40bcaefdb30a
-# ╟─4a989dac-165c-4d41-bbab-e5e7bbdfc2b5
-# ╟─ab29ec76-0b89-4eaa-81a0-1b31c901f97d
+# ╟─4b96e0b4-eca4-46ba-beba-40bcaefdb30a
+# ╟─6e2e9c99-8664-40f2-a1df-bd182db9859e
+# ╠═e256975c-18e0-4650-b671-762e87dfcfee
 # ╠═b50282ed-e599-4687-bfbc-0ac9c4f30c84
 # ╟─aeffb168-06d2-484e-beea-b507f329e4b8
 # ╟─801a2dbd-b663-4bfa-b763-092579a8599c
-# ╟─d6f69910-2404-4d8b-a0b3-e37b0250653e
-# ╟─27586f96-4100-496d-b3ff-213cdd37b6b2
-# ╠═9011ca9f-309b-40df-85f4-bccf6e81c19b
 # ╟─80e40d2b-a67b-46eb-86fd-294c0a87a80f
 # ╠═8edb3337-0902-45fa-a5b0-c7cc3d40f97f
 # ╠═37dc5518-d378-41fd-b0ef-bc5e3b1b3687
@@ -2269,11 +2277,14 @@ version = "17.4.0+0"
 # ╠═519e6da0-efbf-4b0a-a61c-5849ba403389
 # ╠═4c4ba58e-e3b7-4d02-81ae-b8d753487caa
 # ╠═06d508ea-640d-4e55-b3b6-05c929f82c3b
-# ╟─e2b68218-4a9c-48cd-b78c-0c0eb4a11ad0
-# ╟─bfcfe7ca-65eb-484e-9dea-2badffb7207e
+# ╟─0c3714fd-821a-4dae-8d1e-1db35ebef315
+# ╠═bfcfe7ca-65eb-484e-9dea-2badffb7207e
 # ╠═8cb58177-cc29-4bf0-af2f-704bebb9871f
-# ╠═8a909bf5-55fe-4b0a-b3e6-e862678e62b4
+# ╠═7550213b-8174-4623-9abc-9dcbdc0351a8
 # ╠═0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
+# ╠═2b964c13-c961-4ed9-8b66-a6715ff7d0ef
+# ╟─f7ede764-5ad8-426b-a805-cc21b622d977
+# ╠═2e2435bc-ca24-4b1f-87bb-4d20e7a346d8
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═ea8cdebd-7a25-49ae-9695-48dda2a880b4
