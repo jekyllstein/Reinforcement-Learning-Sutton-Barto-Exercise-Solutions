@@ -4,6 +4,9 @@
 using Markdown
 using InteractiveUtils
 
+# ╔═╡ 4ff3a707-0bc2-4a71-8e64-958fdd9e5d52
+using HTTP, Transducers
+
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase, LinearAlgebra, LaTeXStrings, Base.Threads, ProfileCanvas
 
@@ -1204,12 +1207,16 @@ function eval_racetrack(track; nruns = nthreads(), αlist = 2. .^(-3:-1), λlist
 end
 
 # ╔═╡ ab29ec76-0b89-4eaa-81a0-1b31c901f97d
+# ╠═╡ disabled = true
 #=╠═╡
 eval_racetrack(track1; max_episodes = 100, maxsteps = 5_000, termination_threshold = (episode = 30, reward = -1000))
   ╠═╡ =#
 
 # ╔═╡ 4b96e0b4-eca4-46ba-beba-40bcaefdb30a
+# ╠═╡ disabled = true
+#=╠═╡
 plot(execute_racetrack_actor_critic(track1, 0.3, 0.3; λθ = 0.5, λw = 0.5, max_episodes = 1000, maxsteps = 5000)[1])
+  ╠═╡ =#
 
 # ╔═╡ b50282ed-e599-4687-bfbc-0ac9c4f30c84
 function racetrack_optimize_λ(track, αθlist, αwlist; nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
@@ -1227,6 +1234,7 @@ function racetrack_optimize_λ(track, αθlist, αwlist; nruns = nthreads(), λl
 end
 
 # ╔═╡ 801a2dbd-b663-4bfa-b763-092579a8599c
+# ╠═╡ disabled = true
 #=╠═╡
 racetrack_optimize_λ(track1, [0.3, 0.5, 0.8], [0.3, 0.5]; max_episodes = 1000, maxsteps = 5000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8])
   ╠═╡ =#
@@ -1459,7 +1467,10 @@ function blackjack_optimize_λ(αθlist, αwlist; nruns = nthreads(), λlist = [
 end
 
 # ╔═╡ bfcfe7ca-65eb-484e-9dea-2badffb7207e
+# ╠═╡ disabled = true
+#=╠═╡
 blackjack_optimize_λ(2. .^ (-3:-1), 2. .^ (-3:-1); max_episodes = 1_000_000, λlist = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0])
+  ╠═╡ =#
 
 # ╔═╡ 8cb58177-cc29-4bf0-af2f-704bebb9871f
 _, blackjackθ, blackjackw = execute_blackjack_actor_critic(0.7, 0.7, blackjackstatelookup; max_episodes = 2_000_000, λθ = 0.7, λw = 0.7)
@@ -1519,6 +1530,247 @@ end
 # ╔═╡ 8a909bf5-55fe-4b0a-b3e6-e862678e62b4
 plot_blackjack_policy(blackjackθ, blackjackw)
 
+# ╔═╡ ab75cebc-f9fe-4fe7-9585-7ef3fcf147c7
+word_data = String(HTTP.get("https://raw.githubusercontent.com/3b1b/videos/master/_2022/wordle/data/allowed_words.txt").body)
+
+# ╔═╡ e2bddbe3-f6f4-45f1-b655-d2cbf9084d24
+wordlist = split(word_data, "\n") |> Filter(!isempty) |> Map(String) |> collect
+
+# ╔═╡ fb3785dd-04b5-4989-8482-a503f9d276a1
+const letter_lookup = Dict(zip('a':'z', UInt8.(eachindex('a':'z'))))
+
+# ╔═╡ 5b7abbda-f5cf-4968-91d9-7b960b18a4c7
+const EXACT = 0x02
+
+# ╔═╡ adef5b38-876b-446b-a091-5fcfc4198e70
+const MISPLACED = 0x01
+
+# ╔═╡ aee2c48e-c4d4-46e5-b364-9a70e6660a7c
+function words_to_int_arrays(words)
+	[[letter_lookup[c] for c in w] for w in words]
+end
+
+# ╔═╡ c1a7f49b-ad89-430c-9313-166a1a18a7ca
+const word_index = Dict(zip(wordlist, eachindex(wordlist)))
+
+# ╔═╡ 78214b4a-d391-4e80-b6f0-d9bb7e04d426
+convert_bytes(v) = eachindex(v) |> Map(i -> v[i] * (3 ^ (i-1))) |> sum |> UInt8
+
+# ╔═╡ a9e59dac-33ee-4763-a0b5-d64142d48562
+"""
+    A pattern for two words represents the wordle-similarity
+    pattern (grey -> 0, yellow -> 1, green -> 2) but as an integer
+    between 0 and 3^5. Reading this integer in ternary gives the
+    associated pattern.
+
+    This function computes the pairwise patterns between two lists
+    of words, returning the result as a grid of hash values. Since
+    this can be time-consuming, many operations that can be are vectorized
+    (perhaps at the expense of easier readibility), and the the result
+    is saved to file so that this only needs to be evaluated once, and
+    all remaining pattern matching is a lookup.
+"""
+function generate_pattern_matrix(words1, words2)
+    # Number of letters/words
+    nl = lastindex(first(words1))
+    nw1 = length(words1)  # Number of words
+    nw2 = length(words2)  # Number of words
+
+    # Convert word lists to integer arrays
+    word_arr1, word_arr2 = map(words_to_int_arrays, (words1, words2))
+
+    # equality_grid keeps track of all equalities between all pairs
+    # of letters in words. Specifically, equality_grid[a, b, i, j]
+    # is true when words[i][a] == words[b][j]
+    equality_grid = zeros(Bool, (nw1, nw2, nl, nl))
+    for a in 1:nw1 for b in 1:nw2 for i in 1:nl @inbounds @simd for j in 1:nl
+        equality_grid[a, b, i, j] = (word_arr1[a][i] == word_arr2[b][j])
+	end end end end
+
+    # full_pattern_matrix[a, b] should represent the 5-color pattern
+    # for guess a and answer b, with 0 -> grey, 1 -> yellow, 2 -> green
+    full_pattern_matrix = zeros(UInt8, (nw1, nw2, nl))
+
+    # Green pass
+    for i in 1:nl
+        matches = view(equality_grid, :, :, i, i)  # matches[a, b] is true when words[a][i] = words[b][i]
+        
+		view(view(full_pattern_matrix, :, :, i), matches) .= EXACT
+
+         for k in 1:nl for a in 1:nw1 @inbounds @simd for b in 1:nw2 
+            # If it's a match, mark all elements associated with
+            # that letter, both from the guess and answer, as covered.
+            # That way, it won't trigger the yellow pass.
+			equality_grid[a, b, k, i] *= !matches[a, b]
+			equality_grid[a, b, i, k] *= !matches[a, b]
+		end end end
+	end
+
+    # Yellow pass
+    for i in 1:nl for j in 1:nl
+		for a in 1:nw1 for b in 1:nw2
+			if equality_grid[a, b, i, j]
+				full_pattern_matrix[a, b, i] = MISPLACED
+			end
+		end end
+
+		for a in 1:nw1 for b in 1:nw2
+			#if a letter matches then ignore it for future letters in answer and guess
+			if equality_grid[a, b, i, j]
+				for k in 1:nl
+					equality_grid[a, b, k, j] = false
+					equality_grid[a, b, i, k] = false
+				end
+			end
+		end	end
+	end end
+
+	pattern_matrix = zeros(UInt8, nw1, nw2)
+	for i in 1:nw1 @inbounds  @simd for j in 1:nw2
+		pattern_matrix[i, j] = convert_bytes(view(full_pattern_matrix, i, j, :))
+	end end
+
+	return pattern_matrix
+end
+
+# ╔═╡ dcd61098-441e-4c50-bb3a-fbf77d00386b
+const pattern_matrix = generate_pattern_matrix(wordlist, wordlist)
+
+# ╔═╡ 23f1f721-4daa-4b24-a0b6-fa30b4dbce05
+get_pattern(guess, answer) = pattern_matrix[word_index[guess], word_index[answer]]
+
+# ╔═╡ 6d45b3fe-441b-40df-a1d7-4d66fbc031b7
+function pattern_to_list(pattern::UInt8)
+	result = []
+	curr = pattern
+	for x in 1:5
+		push!(result, curr % 3)
+		curr = floor(UInt8, curr / 3)
+	end
+	return result
+end
+
+# ╔═╡ 55f4fa35-5ef8-405e-8052-026e8ca4dc08
+MISPLACED
+
+# ╔═╡ 6d34fcdc-e55a-44bb-88e9-ccf0c352ae00
+const MISS = 0x00
+
+# ╔═╡ d095a6ad-ff33-4fec-bfcd-bda7b9f46080
+const string_lookup = Dict(eval(s) => String(s) for s in [:MISPLACED, :EXACT, :MISS])
+
+# ╔═╡ fdda0b9c-ca4e-46fd-aab3-c93d983a7a19
+pattern_to_string(pattern::UInt8) = pattern |> pattern_to_list |> Map(s -> string_lookup[s]) |> foldxl((a, b) -> "$a $b")
+
+# ╔═╡ 6455538a-7ee6-4c84-8f6f-85ab8e1edb3d
+get_pattern("green", "white") |> pattern_to_string
+
+# ╔═╡ fbe00f3c-7acd-484d-9901-6906e2846c1e
+function show_pattern(guess, answer)
+	pattern = get_pattern(guess, answer)
+	int_pattern = pattern_to_list(pattern)
+	colorlookup = Dict([0x00 => "#3a3a3c", 0x01 => "#b59f3b", 0x02 => "#538d4e"])
+	colors = [colorlookup[i] for i in int_pattern]
+
+	final_box_style = """
+			color: #ffffff;
+	"""
+
+	function make_win_style(i)
+		"""
+		@keyframes example$i {
+			0% {transform: rotateX(90deg);}	
+			50% {transform: translateY(0px); background-color: $(colors[i]); $final_box_style}
+			60% {transform: translateY(0px);}
+			80% {transform: translateY(-20px);}
+			100% {transform: translateY(0px); background-color: $(colors[i]); $final_box_style}
+		}
+		#box$i {
+			animation-name: example$i;
+			animation-duration: 1.6s;
+			animation-fill-mode: both;
+			animation-delay: $(i/5)s;
+			background-color: rgba(0, 0, 0, 0);
+			color: rgba(0, 0, 0, 0); 
+		}	
+		"""
+	end
+
+		function make_box_style(i)
+		"""
+		@keyframes example$i {
+			0% {transform: rotateX(90deg);}
+			100% {background-color: $(colors[i]); $final_box_style} 
+		}
+		#box$i {
+			animation-name: example$i;
+			animation-duration: .9s;
+			animation-fill-mode: forwards;
+			animation-delay: $(i/5)s;
+			animation-timing-function: ease;
+			background-color: rgba(0, 0, 0, 0);
+			color: rgba(0, 0, 0, 0);
+		}	
+		"""
+	end
+
+	box_style = guess == answer ? make_win_style : make_box_style
+
+	function make_box(i)
+		"""
+		<div class = inputbox id = "box$i">$(guess[i])</div>
+		"""
+	end
+
+	function add_elements(a, b)
+		"""
+		$a
+		$b
+		"""
+	end
+	
+	HTML("""
+	<span id = wordleoutput>
+		<div class="wordle-box">
+			$(mapreduce(make_box, add_elements, 1:5))
+		</div>
+
+	<style>
+		
+		.wordle-box {
+			display: flex;
+			height: 150px;
+			align-items: center;
+			justify-content: center;
+		}
+
+		.wordle-box * {
+			display: inline-flex;
+			width: 100px;
+			height: 100px;
+			align-items: center;
+			justify-content: center;
+			vertical-align: middle;	
+			margin: 4px;
+			font-family: "nyt-franklin", sans-serif;
+			font-weight: bold;
+			display: inline-flex;
+			box-sizing: border: box;
+			text-align: center;
+			-webkit-font-smoothing: antialiased;
+			text-transform: uppercase;
+			font-size: 60px; 
+		}
+	
+		$(mapreduce(box_style, add_elements, 1:5))
+	</style>
+	</span>
+	""")
+end
+
+# ╔═╡ 99228977-5b58-424b-b34d-1da14195e08a
+show_pattern("green", "white")
+
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
 # Dependencies and Settings
@@ -1543,6 +1795,7 @@ TableOfContents()
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
@@ -1550,29 +1803,49 @@ PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 ProfileCanvas = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]
 Distributions = "~0.25.87"
+HTTP = "~1.8.0"
 LaTeXStrings = "~1.3.0"
 PlutoPlotly = "~0.3.6"
 PlutoUI = "~0.7.50"
 ProfileCanvas = "~0.1.6"
 StatsBase = "~0.33.21"
+Transducers = "~0.4.75"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.0-rc2"
+julia_version = "1.9.0-rc3"
 manifest_format = "2.0"
-project_hash = "98067cea35f86f7dfcfaf1734e9def984d12141d"
+project_hash = "93de00e306862d8f209493976955d899abc997cb"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "8eaf9f1b4921132a4cff3f36a1d9ba923b14a481"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.1.4"
+
+[[deps.Adapt]]
+deps = ["LinearAlgebra", "Requires"]
+git-tree-sha1 = "cc37d689f599e8df4f464b2fa3870ff7db7492ef"
+uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+version = "3.6.1"
+
+    [deps.Adapt.extensions]
+    AdaptStaticArraysExt = "StaticArrays"
+
+    [deps.Adapt.weakdeps]
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[[deps.ArgCheck]]
+git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
+version = "2.3.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -1581,14 +1854,42 @@ version = "1.1.1"
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
+[[deps.BangBang]]
+deps = ["Compat", "ConstructionBase", "Future", "InitialValues", "LinearAlgebra", "Requires", "Setfield", "Tables", "ZygoteRules"]
+git-tree-sha1 = "7fe6d92c4f281cf4ca6f2fba0ce7b299742da7ca"
+uuid = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
+version = "0.3.37"
+
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+
+[[deps.Baselet]]
+git-tree-sha1 = "aebf55e6d7795e02ca500a689d326ac979aaf89e"
+uuid = "9718e550-a3fa-408a-8086-8db961cd8217"
+version = "0.1.1"
+
+[[deps.BitFlags]]
+git-tree-sha1 = "43b1a4a8f797c1cddadf60499a8a077d4af2cd2d"
+uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
+version = "0.1.7"
 
 [[deps.Calculus]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "f641eb0a4f00c343bbc32346e1217b86f3ce9dad"
 uuid = "49dc2e85-a5d0-5ad3-a950-438e2897f1b9"
 version = "0.5.1"
+
+[[deps.ChainRulesCore]]
+deps = ["Compat", "LinearAlgebra", "SparseArrays"]
+git-tree-sha1 = "c6d890a52d2c4d55d326439580c3b8d0875a77d9"
+uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+version = "1.15.7"
+
+[[deps.CodecZlib]]
+deps = ["TranscodingStreams", "Zlib_jll"]
+git-tree-sha1 = "9c209fb7536406834aa938fb149964b985de6c83"
+uuid = "944b1d66-785c-5afd-91f1-9de20f533193"
+version = "0.7.1"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "Random", "SnoopPrecompile"]
@@ -1629,6 +1930,31 @@ deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.0.2+0"
 
+[[deps.CompositionsBase]]
+git-tree-sha1 = "455419f7e328a1a2493cabc6428d79e951349769"
+uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
+version = "0.1.1"
+
+[[deps.ConcurrentUtilities]]
+deps = ["Serialization", "Sockets"]
+git-tree-sha1 = "b306df2650947e9eb100ec125ff8c65ca2053d30"
+uuid = "f0e56b4a-5159-44fe-b623-3e5288b988bb"
+version = "2.1.1"
+
+[[deps.ConstructionBase]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "89a9db8d28102b094992472d333674bd1a83ce2a"
+uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
+version = "1.5.1"
+
+    [deps.ConstructionBase.extensions]
+    IntervalSetsExt = "IntervalSets"
+    StaticArraysExt = "StaticArrays"
+
+    [deps.ConstructionBase.weakdeps]
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
 [[deps.DataAPI]]
 git-tree-sha1 = "e8119c1a33d267e16108be441a287a6981ba1630"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
@@ -1640,15 +1966,29 @@ git-tree-sha1 = "d1fff3a548102f48987a52a2e0d114fa97d730f0"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 version = "0.18.13"
 
+[[deps.DataValueInterfaces]]
+git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
+version = "1.0.0"
+
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+
+[[deps.DefineSingletons]]
+git-tree-sha1 = "0fba8b706d0178b4dc7fd44a96a92382c9065c2c"
+uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
+version = "0.1.2"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
+
+[[deps.Distributed]]
+deps = ["Random", "Serialization", "Sockets"]
+uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[deps.Distributions]]
 deps = ["FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SparseArrays", "SpecialFunctions", "Statistics", "StatsBase", "StatsFuns", "Test"]
@@ -1696,6 +2036,16 @@ git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
 
+[[deps.Future]]
+deps = ["Random"]
+uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
+
+[[deps.HTTP]]
+deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
+git-tree-sha1 = "69182f9a2d6add3736b7a06ab6416aafdeec2196"
+uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+version = "1.8.0"
+
 [[deps.HypergeometricFunctions]]
 deps = ["DualNumbers", "LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
 git-tree-sha1 = "432b5b03176f8182bd6841fbfc42c718506a2d5f"
@@ -1720,6 +2070,11 @@ git-tree-sha1 = "f7be53659ab06ddc986428d3a9dcc95f6fa6705a"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.2"
 
+[[deps.InitialValues]]
+git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
+uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
+version = "0.3.1"
+
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -1728,6 +2083,11 @@ uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.2"
+
+[[deps.IteratorInterfaceExtensions]]
+git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+uuid = "82899510-4779-5014-852e-03e436cf321d"
+version = "1.0.0"
 
 [[deps.JLLWrappers]]
 deps = ["Preferences"]
@@ -1791,19 +2151,43 @@ version = "0.3.23"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
+[[deps.LoggingExtras]]
+deps = ["Dates", "Logging"]
+git-tree-sha1 = "cedb76b37bc5a6c702ade66be44f831fa23c681e"
+uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
+version = "1.0.0"
+
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "0.1.4"
 
+[[deps.MacroTools]]
+deps = ["Markdown", "Random"]
+git-tree-sha1 = "42324d08725e200c23d4dfb549e0d5d89dede2d2"
+uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+version = "0.5.10"
+
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+
+[[deps.MbedTLS]]
+deps = ["Dates", "MbedTLS_jll", "MozillaCACerts_jll", "Random", "Sockets"]
+git-tree-sha1 = "03a9b9718f5682ecb107ac9f7308991db4ce395b"
+uuid = "739be429-bea8-5141-9913-cc70e7f3736d"
+version = "1.1.7"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.2+0"
+
+[[deps.MicroCollections]]
+deps = ["BangBang", "InitialValues", "Setfield"]
+git-tree-sha1 = "629afd7d10dbc6935ec59b32daeb33bc4460a42e"
+uuid = "128add7d-3638-4c79-886c-908ea0c25c34"
+version = "0.1.4"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -1837,6 +2221,18 @@ version = "0.3.21+4"
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
 version = "0.8.1+0"
+
+[[deps.OpenSSL]]
+deps = ["BitFlags", "Dates", "MozillaCACerts_jll", "OpenSSL_jll", "Sockets"]
+git-tree-sha1 = "7fb975217aea8f1bb360cf1dde70bad2530622d2"
+uuid = "4d8831e6-92b7-49fb-bdf8-b643e874388c"
+version = "1.4.0"
+
+[[deps.OpenSSL_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "6cc6366a14dbe47e5fc8f3cbe2816b1185ef5fc4"
+uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
+version = "3.0.8+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
@@ -1954,6 +2350,17 @@ version = "0.7.0"
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 
+[[deps.Setfield]]
+deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
+git-tree-sha1 = "e2cc6d8c88613c05e1defb55170bf5ff211fbeac"
+uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
+version = "1.1.1"
+
+[[deps.SimpleBufferStream]]
+git-tree-sha1 = "874e8867b33a00e784c8a7e4b60afe9e037b74e1"
+uuid = "777ac1f9-54b0-4bf8-805c-2214025038e7"
+version = "1.1.0"
+
 [[deps.SnoopPrecompile]]
 deps = ["Preferences"]
 git-tree-sha1 = "e760a70afdcd461cf01a575947738d359234665c"
@@ -1978,12 +2385,21 @@ deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_j
 git-tree-sha1 = "ef28127915f4229c971eb43f3fc075dd3fe91880"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
 version = "2.2.0"
+weakdeps = ["ChainRulesCore"]
 
     [deps.SpecialFunctions.extensions]
     SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
 
-    [deps.SpecialFunctions.weakdeps]
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+[[deps.SplittablesBase]]
+deps = ["Setfield", "Test"]
+git-tree-sha1 = "e08a62abc517eb79667d0a29dc08a3b589516bb5"
+uuid = "171d559e-b47b-412a-8079-5efa626c420e"
+version = "0.1.15"
+
+[[deps.StaticArraysCore]]
+git-tree-sha1 = "6b7ba252635a5eff6a0b0664a41ee140a1c9e72a"
+uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+version = "1.4.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
@@ -2030,6 +2446,18 @@ deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
 
+[[deps.TableTraits]]
+deps = ["IteratorInterfaceExtensions"]
+git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
+uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
+version = "1.0.1"
+
+[[deps.Tables]]
+deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "LinearAlgebra", "OrderedCollections", "TableTraits", "Test"]
+git-tree-sha1 = "1544b926975372da01227b382066ab70e574a3ec"
+uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+version = "1.10.1"
+
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
 uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
@@ -2044,6 +2472,18 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[[deps.TranscodingStreams]]
+deps = ["Random", "Test"]
+git-tree-sha1 = "9a6ae7ed916312b41236fcef7e0af564ef934769"
+uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
+version = "0.9.13"
+
+[[deps.Transducers]]
+deps = ["Adapt", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "Setfield", "SplittablesBase", "Tables"]
+git-tree-sha1 = "c42fa452a60f022e9e087823b47e5a5f8adc53d5"
+uuid = "28d57a85-8fef-5791-bfe6-a80928e7c999"
+version = "0.4.75"
 
 [[deps.Tricks]]
 git-tree-sha1 = "aadb748be58b492045b4f56166b5188aa63ce549"
@@ -2072,10 +2512,16 @@ deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.2.13+0"
 
+[[deps.ZygoteRules]]
+deps = ["ChainRulesCore", "MacroTools"]
+git-tree-sha1 = "977aed5d006b840e2e40c0b48984f7463109046d"
+uuid = "700de1a5-db45-46bc-99cf-38207098b444"
+version = "0.2.3"
+
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.4.0+0"
+version = "5.7.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -2171,6 +2617,26 @@ version = "17.4.0+0"
 # ╠═8cb58177-cc29-4bf0-af2f-704bebb9871f
 # ╠═8a909bf5-55fe-4b0a-b3e6-e862678e62b4
 # ╠═0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
+# ╠═ab75cebc-f9fe-4fe7-9585-7ef3fcf147c7
+# ╠═e2bddbe3-f6f4-45f1-b655-d2cbf9084d24
+# ╠═fb3785dd-04b5-4989-8482-a503f9d276a1
+# ╠═5b7abbda-f5cf-4968-91d9-7b960b18a4c7
+# ╠═adef5b38-876b-446b-a091-5fcfc4198e70
+# ╠═aee2c48e-c4d4-46e5-b364-9a70e6660a7c
+# ╠═dcd61098-441e-4c50-bb3a-fbf77d00386b
+# ╠═c1a7f49b-ad89-430c-9313-166a1a18a7ca
+# ╠═78214b4a-d391-4e80-b6f0-d9bb7e04d426
+# ╠═a9e59dac-33ee-4763-a0b5-d64142d48562
+# ╠═23f1f721-4daa-4b24-a0b6-fa30b4dbce05
+# ╠═6d45b3fe-441b-40df-a1d7-4d66fbc031b7
+# ╠═55f4fa35-5ef8-405e-8052-026e8ca4dc08
+# ╠═6d34fcdc-e55a-44bb-88e9-ccf0c352ae00
+# ╠═d095a6ad-ff33-4fec-bfcd-bda7b9f46080
+# ╠═fdda0b9c-ca4e-46fd-aab3-c93d983a7a19
+# ╠═6455538a-7ee6-4c84-8f6f-85ab8e1edb3d
+# ╠═99228977-5b58-424b-b34d-1da14195e08a
+# ╠═fbe00f3c-7acd-484d-9901-6906e2846c1e
+# ╠═4ff3a707-0bc2-4a71-8e64-958fdd9e5d52
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═c75b36a3-41d6-4ad8-83d6-1cf83734e1fc
