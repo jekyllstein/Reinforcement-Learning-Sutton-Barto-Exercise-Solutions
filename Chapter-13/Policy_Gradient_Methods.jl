@@ -1756,6 +1756,11 @@ Each of the 9 elements of the board can contain an X, O, or nothing.  To encode 
 Additional filters for valid boards should include ensuring that the O count either 1 less than the X count or equal to it.  Also boards where more than one player has 3 in a row are invalid.
 """
 
+# ╔═╡ 078a1739-911c-4673-821b-488a878bab37
+md"""
+### Game Setup
+"""
+
 # ╔═╡ 205fcf67-e79c-4f20-bb8b-ddb6b980ed9d
 const d4_symmetries = SVector{9}.([
 		[1, 2, 3, 4, 5, 6, 7, 8, 9], #identity
@@ -2048,6 +2053,11 @@ function ttt_step(board::BoardTTT, m::UInt8, get_opponent_action::Function; kwar
 	ttt_step(newboard, m2; kwargs...)[[1, 2]]
 end
 
+# ╔═╡ 3f927561-7b13-4f19-946a-67c310c60255
+md"""
+### Actor-Critic Agents vs Fixed Opponent
+"""
+
 # ╔═╡ 04d93927-6206-4d32-91fb-81b73568f1f7
 struct ActorCriticTTTAgent{Vest, Vgrad, Pfunc, Pgrad}
 	v̂::Vest
@@ -2150,6 +2160,7 @@ x_step_vs_random_results = execute_ttt_actor_critic(active_x_boards, x_step_vs_r
 @bind avgeps Slider(100:10000, show_value=true)
 
 # ╔═╡ 3728a916-a502-48ec-9c84-5b2e7e4df61c
+#train O-player vs the first X policy
 o_step_vs_x1(board, move) = ttt_step(board, move, b -> select_action(x_step_vs_random_results.eval_board(b)[1]))
 
 # ╔═╡ e6cd6459-6e50-4c5c-b6d3-a55706bbb257
@@ -2160,6 +2171,11 @@ x_vs_o1(board, move) = ttt_step(board, move, b -> select_action(o_vs_x1_results.
 
 # ╔═╡ aea8317c-fb5f-4817-b927-1c6d48072ea7
 x_vs_o1_results = execute_ttt_actor_critic(active_x_boards, x_vs_o1, () -> rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
+
+# ╔═╡ 9e32d0d4-bdbb-46a7-ad3c-34184cea0b92
+md"""
+Compare these three policies on a single board state
+"""
 
 # ╔═╡ 9e9d1b3a-d8a5-45f2-87b1-20f7edf56793
 run_ttt_game(πx, πo) = run_ttt_game(πx, πo, [ttt_environment.init_board], Vector{UInt8}(), Vector{UInt8}())
@@ -2184,12 +2200,6 @@ function run_ttt_game(πx::Function, πo::Function, board_history::Vector{BoardT
 	push!(board_history, board′′)
 	run_ttt_game(πx, πo, board_history, xturns, oturns)
 end
-
-# ╔═╡ cb3809f2-a600-4edd-b99f-9fe9d8752cf3
-random_game = run_ttt_game(get_random_move, get_random_move)
-
-# ╔═╡ 5c5fea30-b566-41d1-b8a8-da05ced1cfef
-@bind game_step Slider(1:length(random_game[1]), show_value=true)
 
 # ╔═╡ 75f13e3d-90a5-461e-9f64-479a01465fab
 function get_ttt_matchup_statistics(πx, πo; trials = 100_000)
@@ -2286,6 +2296,9 @@ ttt_selfplay_results = execute_ttt_actor_critic(active_ttt_boards, ttt_step, () 
 # ╔═╡ 46277863-5e64-4e23-87e3-7980110a8742
 compare_ttt_policies(ttt_selfplay_results, o_vs_x1_results)
 
+# ╔═╡ fe2d0874-ac60-421d-9632-9310af0b8d1f
+compare_ttt_policies(ttt_selfplay_results, ttt_rounds_results[end][2])
+
 # ╔═╡ cf7dd9c3-6c51-40c9-bbea-08ccf4d3a8b1
 compare_ttt_policies(ttt_selfplay_results, get_random_move)
 
@@ -2297,6 +2310,9 @@ compare_ttt_policies(x_vs_o1_results, get_random_move)
 
 # ╔═╡ c5502e6e-751a-4e24-851d-6cc1ed119c3f
 compare_ttt_policies(x_step_vs_random_results, get_random_move)
+
+# ╔═╡ b72f2485-e9a9-4b2c-a126-d7a42a3d6ba6
+compare_ttt_policies(ttt_selfplay_results, ttt_selfplay_results)
 
 # ╔═╡ 83ccd36d-96c8-4665-9148-bdf95eb8dda1
 function plot_tttresults(ttt_results::PolicyResultsTTT, avgeps = 100)
@@ -2356,60 +2372,37 @@ For the previous two environments, value iteration was not feasible because defi
 """
 
 # ╔═╡ f1d6e558-6e7c-4238-983a-b756d4ea9450
-function make_ttt_mdp()
-	function get_o_transitions(oldboard, oldmove, board)
-		moves = findall(==(0), board)
-
-		#equal probability for each unique outcome under random policy
-		outcomes = unique(ttt_environment.move(board, a) for a in moves)
-		p = 1. / lastindex(outcomes)
-		
-		[begin
-			(newboard, xwon, owon, isdone, o_move) = outcome
-			reward = get_reward_x(newboard)
-			basetuple = (reward, oldboard, oldmove)
-			s′ = (xwon || owon || isdone) ? term_board : newboard
-			(s′, reward, oldboard, oldmove) => p
+function make_ttt_ptf(boards, π_opponent)
+	function get_opponent_transitions(board, s, a)
+		prbs = π_opponent(board)
+		inds = findall(!=(0), prbs)
+		#add up probabilities for each transition accumulating them if the ending state is equivalent
+		mapreduce(mergewith(+), inds) do i
+			(s′, r, active) = ttt_step(board, i)
+			Dict((s′, r, s, a) => prbs[i])
 		end
-		for outcome in outcomes]
 	end
 
 	function get_transitions(board, a)
-		newboard = ttt_environment.move(board, a)
-		reward = get_reward_x(newboard)
-		status, isym = lookup_board_status(newboard)
-		!status.is_active && return [(ttt_environment.term_board, reward, board, a) => 1.]
-		get_o_transitions(board, a, newboard) #if game isn't over get the transition from the subsequent move
+		(newboard, r, active) = ttt_step(board, a)
+		!active && return Dict((newboard, r, board, a) => 1.)
+		get_opponent_transitions(newboard, board, a) #if game isn't over get the transition from the subsequent move
 	end
 
 	function get_transitions(board::S) where S
 		moves = findall(==(0), board)
-		isempty(moves) && return Vector{Tuple{S, Float64, S, UInt8}}()
-		mapreduce(vcat, moves) do move
+		isempty(moves) && return Dict{Tuple{S, Float64, S, UInt8}, Float64}()
+		mapreduce(mergewith(+), moves) do move
 			get_transitions(board, move)
 		end
 	end
 
 	#only calculate transitions from valid states for x player
-	ptf_list = mapreduce(get_transitions, vcat, active_x_boards)
-
-	ptf = Dict(ptf_list)
+	ptf = mapreduce(get_transitions, mergewith(+), boards)
 	sa_keys = get_sa_keys(ptf)
 
 	return (ptr = ptf, sa_keys = sa_keys)
 end
-
-# ╔═╡ 6b5dde96-31f5-4105-8756-86b5f5ac5919
-lookup_board_status(ttt_environment.move(ttt_environment.init_board, 0x01))
-
-# ╔═╡ 50094f4f-31c5-4ec0-b4e5-c23e3b9df8cb
-symmetric_move(ttt_environment.init_board, 0x03)
-
-# ╔═╡ 8568dd44-ad15-42a6-9aff-62c41d2ff739
-const ttt_mdp = make_ttt_mdp()
-
-# ╔═╡ 9b726b74-0e54-4031-b48b-f99248363962
-ttt_value_results = begin_value_iteration_v(ttt_mdp, term_board, 1.0; θ = 0.0, nmax=Inf, Vinit = 0.0)
 
 # ╔═╡ f4e8f556-b131-4c86-b245-0f7a09760353
 #takes a policy that only is defined for the unique symmetrical boards and applies it to any board
@@ -2421,100 +2414,22 @@ end
 
 # ╔═╡ 8a9bbf5b-18f3-4cbe-ac15-d2d88b68f8bd
 function value_policy_output(value_policy, board)
-	(newplayboard, inds) = state_symmetry_lookup[mapboard(board)]
-	invertinds = [findfirst(inds .== i) for i in 1:9]
-	!haskey(value_policy[3], newplayboard) && return ("Invalid State", zeros(9))
+	(newplayboard, isym) = symmetric_board_lookup[board]
+	!haskey(value_policy[3], newplayboard) && return (zeros(9), "Invalid State")
 	πs = convertπs(value_policy[3][newplayboard])
 	board_value = (value_policy |> first |> last)[newplayboard]
-	prbs = [haskey(πs, a) ? πs[a] : 0.0 for a in UInt8.(1:9)][invertinds]
-	return (board_value, prbs)
+	prbs = [haskey(πs, a) ? πs[a] : 0.0 for a in UInt8.(1:9)][d4_inverted[isym]]
+	return (prbs, board_value)
 end
 
-# ╔═╡ 69d2f3e9-53ae-4674-b6f0-3d2267e7a9ce
-base_board = UInt8.([0, 0, 0, 0, 0, 0, 0, 0, 0])
-
-# ╔═╡ 05257909-7642-4a7e-b379-65757af72c10
-function make_ttt_mdp_oplayer(π_x)
-	function get_x_transitions(oldboard, oldmove, board)
-		#get propabilities based on x policy
-		ps = π_x[board]
-		[begin
-			(newboard, xwon, owon, isdone, o_move) = move(board, a)
-			reward = get_reward_o(newboard)
-			basetuple = (reward, oldboard, oldmove)
-			s′ = (xwon || owon || isdone) ? term_board : newboard
-			(s′, reward, oldboard, oldmove) => ps[a]
-		end
-		for a in keys(ps)]
-	end
-
-	function get_transitions(board, a)
-		(newboard, xwon, owon, isdone, o_move) = move(board, a)
-		reward = get_reward_o(newboard)
-		(xwon || owon || isdone) && return [(term_board, reward, board, a) => 1.]
-		get_x_transitions(board, a, newboard) #if game isn't over get the transition from the subsequent move
-	end
-
-	function get_transitions(board::S) where S
-		moves = check_available_moves(board)
-		isempty(moves) && return Vector{Tuple{S, Float64, S, UInt8}}()
-		mapreduce(vcat, moves) do move
-			get_transitions(board, move)
-		end
-	end
-
-	#only calculate transitions from valid states for x player
-	o_boards = filter(is_o_move, unique_boards)
-	ptf_list = mapreduce(get_transitions, vcat, o_boards)
-
-	ptf = Dict(ptf_list)
-	sa_keys = get_sa_keys(ptf)
-
-	return (ptr = ptf, sa_keys = sa_keys)
+# ╔═╡ f0a358b5-9733-4593-8174-fa44c87d93b7
+function eval_value_policy(board, results, name)
+	(newplayboard, inds) = state_symmetry_lookup[mapboard(board)]
+	invertinds = [findfirst(inds .== i) for i in 1:9]
+	!haskey(results[3], newplayboard) && return (value = "Not a valid state for first player", actions = heatmap_board(name, board, zeros(9))) 
+	πs = convertπs(results[3][newplayboard])
+	(value = results[1][end][newplayboard], actions = heatmap_board(name, board, [haskey(πs, UInt8(a)) ? πs[UInt8(a)] : 0.0 for a in 1:9][invertinds])) 
 end
-
-# ╔═╡ 0bbe79b8-b0f5-472f-a95a-2deff62e7688
-function make_ttt_mdp_xplayer(π_o)
-	function get_x_transitions(oldboard, oldmove, board)
-		#get propabilities based on x policy
-		ps = π_o[board]
-		[begin
-			(newboard, xwon, owon, isdone, o_move) = move(board, a)
-			reward = get_reward_x(newboard)
-			basetuple = (reward, oldboard, oldmove)
-			s′ = (xwon || owon || isdone) ? term_board : newboard
-			(s′, reward, oldboard, oldmove) => ps[a]
-		end
-		for a in keys(ps)]
-	end
-
-	function get_transitions(board, a)
-		(newboard, xwon, owon, isdone, o_move) = move(board, a)
-		reward = get_reward_x(newboard)
-		(xwon || owon || isdone) && return [(term_board, reward, board, a) => 1.]
-		get_x_transitions(board, a, newboard) #if game isn't over get the transition from the subsequent move
-	end
-
-	function get_transitions(board::S) where S
-		moves = check_available_moves(board)
-		isempty(moves) && return Vector{Tuple{S, Float64, S, UInt8}}()
-		mapreduce(vcat, moves) do move
-			get_transitions(board, move)
-		end
-	end
-
-	#only calculate transitions from valid states for x player
-	x_boards = filter(!is_o_move, unique_boards)
-	ptf_list = mapreduce(get_transitions, vcat, x_boards)
-
-	ptf = Dict(ptf_list)
-	sa_keys = get_sa_keys(ptf)
-
-	return (ptr = ptf, sa_keys = sa_keys)
-end
-
-# ╔═╡ f9063856-b2bf-4b01-90cf-2420d53405d2
-ttt_mdp_oplayer = make_ttt_mdp_oplayer(convertπ(ttt_value_results[3]))
 
 # ╔═╡ 73f0ca1b-b331-4682-9741-3399a0ac3d46
 oplayer_value_results = begin_value_iteration_v(ttt_mdp_oplayer, term_board, 1.0; θ = 0.0)
@@ -2523,7 +2438,15 @@ oplayer_value_results = begin_value_iteration_v(ttt_mdp_oplayer, term_board, 1.0
 #can alternate this as well until each player's policy is identical for every state similar to how the value iteration stops running
 
 # ╔═╡ 07e29c7d-ec52-4abd-9d60-46bdfc51ba15
+# ╠═╡ disabled = true
+#=╠═╡
 board2 = UInt8.([1, 0, 0, 1, 2, 0, 0, 0, 0])
+  ╠═╡ =#
+
+# ╔═╡ 55636bc9-0500-4327-894a-a6b2a67f4ef9
+#=╠═╡
+eval_value_policy(board2, oplayer_value_results, "value_o_vs_x1")
+  ╠═╡ =#
 
 # ╔═╡ 514e48df-9fdd-41d8-bf7b-d3562531c91c
 ttt_mdp_xplayer = make_ttt_mdp_xplayer(convertπ(oplayer_value_results[3]))
@@ -2546,31 +2469,83 @@ filter(a -> a[2][1] != a[2][2], compactions)
 # ╔═╡ a7d3ac39-4317-428b-8a66-6a353a8a1ca5
 board3 = UInt8.([0, 0, 0, 0, 0, 0, 0, 0, 0])
 
-# ╔═╡ 22d4e0bb-916e-4cb0-ac29-18b217457ee6
-function make_ttt_selfplay_mdp()
-	function get_transitions(board, a)
-		(newboard, xwon, owon, isdone, o_move) = ttt_environment.move(board, a)
-		reward = (get_reward_x(newboard))
-		(xwon || owon || isdone) && return [(term_board, reward, board, a) => 1.]
-		[(newboard, reward, board, a) => 1.]
-	end
+# ╔═╡ f726ddb2-e33f-40e0-8c91-b3a2163e7db1
+eval_value_policy(board3, xplayer_value_results, "value_x_vs_o")
 
+# ╔═╡ be0ab5f8-a89f-4127-96ee-3d9a52f6887a
+function make_ttt_ptf()
 	function get_transitions(board::S) where S
 		moves = findall(==(0), board)
-		isempty(moves) && return Vector{Tuple{S, Float64, S, UInt8}}()
-		mapreduce(vcat, moves) do move
-			get_transitions(board, move)
+		isempty(moves) && return Dict{Tuple{S, Float64, S, UInt8}, Float64}()
+		mapreduce(mergewith(+), moves) do move
+			(newboard, r, active) = ttt_step(board, move)
+			Dict((newboard, r, board, move) => 1.)
 		end
 	end
 
-	#calculate transitions for every board
-	ptf_list = mapreduce(get_transitions, vcat, active_ttt_boards)
-
-	ptf = Dict(ptf_list)
+	#only calculate transitions from valid states for x player
+	ptf = mapreduce(get_transitions, mergewith(+), active_ttt_boards)
 	sa_keys = get_sa_keys(ptf)
 
 	return (ptr = ptf, sa_keys = sa_keys)
 end
+
+# ╔═╡ 8568dd44-ad15-42a6-9aff-62c41d2ff739
+const x_vs_random_ptf = make_ttt_ptf(active_x_boards, b -> (b .== 0) ./ count(==(0), b))
+
+# ╔═╡ 9b726b74-0e54-4031-b48b-f99248363962
+ttt_value_results = begin_value_iteration_v(x_vs_random_ptf, ttt_environment.term_board, 0.9; θ = 0.0, nmax=Inf, Vinit = 0.0)
+
+# ╔═╡ 16c09b54-23cf-46bc-8dfe-77c78065e8cb
+eval_value_policy(board3, ttt_value_results, "value_x_vs_random")
+
+# ╔═╡ 47492b1f-2ff4-4f98-9489-68b2d8bc45ac
+const o_vs_random_ptf = make_ttt_ptf(active_o_boards, b -> (b .== 0) ./ count(==(0), b))
+
+# ╔═╡ 19fbb0b8-bc03-4203-a65d-0b1516b73174
+o_vs_random_value_results = begin_value_iteration_v(o_vs_random_ptf, ttt_environment.term_board, 1.0; θ = 0.0, nmax=Inf, Vinit = 0.0, invert_state = s -> -1.0)
+
+# ╔═╡ f9063856-b2bf-4b01-90cf-2420d53405d2
+o_vs_x1_ptf = make_ttt_ptf(active_o_boards, b -> convertπ(ttt_value_results[3])[b])
+
+# ╔═╡ 540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
+o_vs_x1_value_results = begin_value_iteration_v(o_vs_x1_ptf, ttt_environment.term_board, 1.0; θ = 0.0, nmax=Inf, Vinit = 0.0, invert_state = s -> -1.0)
+
+# ╔═╡ 28729f3c-2f68-4399-afe6-2c56a76cb3cc
+const selfplay_ptf = make_ttt_ptf()
+
+# ╔═╡ 1539ff60-3082-4e5c-ad52-dbb93299bac2
+selfplay_value_results = begin_value_iteration_v(selfplay_ptf, ttt_environment.term_board, 1.0; θ = 0.0, nmax=Inf, Vinit = 0.0, invert_state = s -> is_o_move(s) ? -1.0 : 1.0)
+
+# ╔═╡ 93ca1d37-1f88-4c9d-958d-8ee30c9ee079
+selfplay_value_π(b) = select_action(value_policy_output(selfplay_value_results, b)[1])
+
+# ╔═╡ df2f8ceb-e231-4580-8faf-0e73209d8d4b
+x_vs_random_value_π(b) = select_action(value_policy_output(ttt_value_results, b)[1])
+
+# ╔═╡ a7e03990-4cb3-4d1a-9cbe-a362ec8870cd
+o_vs_random_value_π(b) = select_action(value_policy_output(o_vs_random_value_results, b)[1])
+
+# ╔═╡ cb707369-245d-455d-a6b0-8b62b4f13635
+get_ttt_matchup_statistics(selfplay_value_π, b -> select_action(o_vs_x1_results.eval_board(b)[1]))
+
+# ╔═╡ 88faed7e-9e0d-48a2-8992-72f20854157f
+get_ttt_matchup_statistics(selfplay_value_π, get_random_move)
+
+# ╔═╡ cdf467f0-1dec-46cb-a354-8fde5eb22e09
+get_ttt_matchup_statistics(x_vs_random_value_π, get_random_move)
+
+# ╔═╡ d2abed56-7b34-4885-96ed-9c295870d061
+get_ttt_matchup_statistics(x_vs_random_value_π, selfplay_value_π)
+
+# ╔═╡ b771489e-7bd8-4977-bc26-f667bb036b82
+get_ttt_matchup_statistics(selfplay_value_π, selfplay_value_π)
+
+# ╔═╡ 49de73c3-dcbe-4012-a997-924e06e6f912
+get_ttt_matchup_statistics(get_random_move, selfplay_value_π)
+
+# ╔═╡ 737d4566-a737-46d1-87f0-c691c7a12525
+get_ttt_matchup_statistics(get_random_move, o_vs_random_value_π)
 
 # ╔═╡ 3b403f52-c12e-4477-9597-b1ba89096738
 const boardnodes = Dict(begin
@@ -2578,24 +2553,50 @@ const boardnodes = Dict(begin
 		nextboards = if isempty(moves) 
 			Set{SVector{9, UInt8}}()
 		else
-			Set(first(ttt_environment.move(b, a)) for a in moves)
+			Set(symmetric_move(b, a) for a in moves)
 		end
 		b => nextboards
 	
 	end
 	for b in active_ttt_boards)
 
-# ╔═╡ 0c3c667b-263c-4afc-bc57-f23b4935643c
-const ttt_mdp_selfplay = make_ttt_selfplay_mdp()
+# ╔═╡ 9373e86e-2bdf-4d71-ab48-181be977f8ba
+# ╠═╡ disabled = true
+#=╠═╡
+@bind board4raw heatmap_board("fjehjkwio6786fe", zeros(9), ones(9))
+  ╠═╡ =#
 
-# ╔═╡ 077f05d4-7338-4262-a8d2-bf75bc8234e6
-selfplay_ttt_value_results = begin_value_iteration_v(ttt_mdp_selfplay, term_board, 0.1, θ = 0.0, invert_state = s -> is_o_move(s) ? -1.0 : 1.0)
+# ╔═╡ 64b56556-2c3e-4f6f-b874-50c48ac4b439
+#=╠═╡
+board4 = UInt8.(board4raw)
+  ╠═╡ =#
+
+# ╔═╡ b19df237-4158-4168-9736-280f05c29a2e
+#=╠═╡
+checkboard(state_symmetry_lookup[mapboard(board4)][1])
+  ╠═╡ =#
 
 # ╔═╡ a21a92d2-cd52-47ad-9043-78f2e1f59ab3
 #should address this problem of having values for states that should be terminal.  The value of every terminal state should be 0.0 and the symmetry map should turn every such state into the terminal state.  Also states where more than one player has 3 in a row should be eliminated from the MDP
 
+# ╔═╡ da67b5bb-3b44-462a-86b5-3e536545b0fa
+#=╠═╡
+eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
+  ╠═╡ =#
+
 # ╔═╡ c6781d81-6497-41b0-ad4b-1248b7212d21
 #next step is to implement the HTML program for adding moves to the state and updating a board object.  Ideally we could recompute the policy as well but another cell could actually update the style for these grid elements which would change the appearance.  Yeah so I can make the HTML where the bound variable is the board and then another cell styles that board with the correct policy.  But then I would need to just stick with one policy per board.  Also wanna implement the reset button.
+
+# ╔═╡ 262c8cad-ff83-42ea-a6fc-b763611d8688
+#=╠═╡
+(value = minimaxvalues[state_symmetry_lookup[mapboard(board4)][1]], actions =  show_policy(board4, s -> apply_sym_π(minimax_policy, board4)))
+  ╠═╡ =#
+
+# ╔═╡ 44d6a906-2966-4342-8b24-48682dfc4db7
+show_policy(board, f) = heatmap_board(hash(f), board, f(board))
+
+# ╔═╡ 9b1ec178-bebf-489b-8376-58b574d3c9dd
+show_policy(ttt_selfplay[2][end], board3, "self_play_actor_critic")
 
 # ╔═╡ de982a01-2d17-40fc-a005-a1d500ae38bf
 function get_minimax_policy(minimaxvalues, board)
@@ -2646,7 +2647,7 @@ function run_minimax(startboard)
 end
 
 # ╔═╡ 811fcaed-fcbb-4109-bf79-05cf1bfec645
-(baseval, minimaxvalues, minimax_policy) = run_minimax(initboard)
+(baseval, minimaxvalues, minimax_policy) = run_minimax(ttt_environment.init_board)
 
 # ╔═╡ f7ede764-5ad8-426b-a805-cc21b622d977
 md"""
@@ -2688,410 +2689,21 @@ show_or_lookup_plot(run_racetrack_optimize, (track1, [0.3, 0.5, 0.8], [0.3, 0.5]
 # ╔═╡ 6046893f-2f7a-40cc-8844-22c62f2e2660
 show_or_lookup_plot(blackjackruncount, (2. .^ (-3:-1), 2. .^ (-3:-1)), (max_episodes = 1_000_000, λlist = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0]), blackjack_optimize_λ_plots, blackjack_optimize_λ, "blackjack optimize λ plot")
 
-# ╔═╡ 16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
-import HypertextLiteral.@htl
-
-# ╔═╡ 92b62688-2cff-4286-958f-9f4e32de52ee
-function makeboardselector() 
-	PlutoUI.combine() do Child
-		makechild() = @htl("""<div>$(Child(Select([0x00 => "", 0x01 => "X", 0x02 => "O", ])))</div>""")
-		makechildren() = mapreduce(a -> makechild(), (a, b) -> @htl("""$a \n $b"""), 1:9)
-		children = makechildren()
-		@htl("""
-		<div class = "button-grid">
-			$(children)
-		</div>
-		<style>
-			.button-grid {
-				display: grid;
-				grid-template-columns: repeat(3, auto);
-				width: 100px;
-				height: 100px;
-			}
-		</style>
-		""")
-	end
-end
-
-# ╔═╡ db790c47-5169-4d5a-a2ef-5e56dd55d7b6
-function color_board(boardname::AbstractString, action_prbs::AbstractVector{T}) where T <: Real
-	mapcolor(x) = round(Int64, 255*(x .^(1/2)))
-	colors = [begin
-		c = mapcolor(x)
-		"rgb($(40), $(max(40, .9*c)), $(40))"
-	end
-	for x in action_prbs]
-	color_board(boardname, colors)
-end
-
-# ╔═╡ f801ecfa-2bdd-4896-9c4a-3272a1792b0d
-function colorcell(name, i, c)
-	"""
-	.$name .cell$i {
-		background-color: $c;
-	}
-	"""
-end
-
-# ╔═╡ 3db231d5-dc5f-434a-ac83-d3fb5cd125ee
-joinelements(a, b) =  """$a \n $b"""
-
-# ╔═╡ 82081131-c099-4b14-af96-6ee616a79139
-function color_board(boardname::AbstractString, colors::AbstractVector{T}) where T <: AbstractString
-	"""
-	<style>
-		$(mapreduce(a -> colorcell(boardname, a...), joinelements, enumerate(colors)))
-	</style>
-	"""
-end
-
-# ╔═╡ b3846537-df26-4e3d-b336-0990a544c2f9
-function value_board(name, v)
-"""
-<style>
-.$name .board-value::after {
-	content: 'Value Estimate: $v';
-	background-color: "rgba(0, 0, 0, 0)";
-	font-weight: normal;
-	color: rgb(180, 180, 180);
-	font-size: 20px;
-	font-family: Arial;
-	text-shadow: 1px 2px 1px black;
-}
-</style>
-"""
-end
-
-# ╔═╡ abe86494-c43c-4999-9d0e-4d11f6e6292d
-function style_value_policy(get_value_policy, board, boardname)
-	(prbs, v) = try get_value_policy(board) catch; (zeros(9), "Invalid State") end
-	c = color_board(boardname, prbs)
-	htmlstr = if isa(v, Real)
-		joinelements(c, value_board(boardname, round(v, sigdigits = 2)))
-	else
-		joinelements(c, value_board(boardname, v))
-	end
-	HTML(htmlstr)
-end
-
-# ╔═╡ 7427b126-32cb-4732-9789-ea2ae9fbb59a
-function show_value_policy(value_policy, board, boardname)
-	v, prbs = value_policy_output(value_policy, board)
-	c = color_board(boardname, prbs)
-	htmlstr = if isa(v, Real)
-		joinelements(c, value_board(boardname, round(v, sigdigits = 2)))
-	else
-		c
-	end
-	HTML(htmlstr)
-end
-
-# ╔═╡ 1f68a898-e828-4d2a-8b1d-7df425d8b96c
-function TTTBoard(name)
-	joinelements(a, b) =  """$a \n $b"""
-
-	function makehtmlcell(i)
-		"""<div class = "gridcell cell$i" data-cell></div>"""
-	end
-
-	htmlcells = mapreduce(i -> makehtmlcell(i), joinelements, 1:9)
-
-	gridstr = "x"
-
-	html_board = 
-		"""
-		<button class="resetButton">Reset Board</button>
-		<div class = "board-value"></div>
-		<div class = "grid-container $gridstr">
-			$htmlcells
-		</div>
-		"""
-
-	board_style = 
-		"""
-		<style>
-			body {
-				margin: 0;
-			}
-			.board-value {
-				height: 20px;
-			}
-			.grid-container {
-				width: 100vw
-				height: 100vh;
-				display: grid;
-				justify-content: center;
-				align-content: center;
-				grid-template-columns: repeat(3, auto);
-				background-color: rgb(31, 31, 31);
-			}
-
-			.gridcell {
-				border: 1px solid black;
-				height: 100px;
-				width: 100px;
-				display: flex;
-				justify-content: center;
-				align-items: center;
-				position: relative;
-				cursor: pointer;
-			}
-
-			.gridcell.x, .gridcell.o {
-				cursor: not-allowed;
-			}
-
-			.gridcell:first-child,
-			.gridcell:nth-child(2),
-			.gridcell:nth-child(3) {
-				border-top: none;
-			}
-	
-			.gridcell:nth-child(3),
-			.gridcell:nth-child(6),
-			.gridcell:nth-child(9) {
-				border-right: none;
-			}
-	
-			.gridcell:nth-child(7),
-			.gridcell:nth-child(8),
-			.gridcell:nth-child(9) {
-				border-bottom: none;
-			}
-	
-			.gridcell:nth-child(1),
-			.gridcell:nth-child(4),
-			.gridcell:nth-child(7) {
-				border-left: none;
-			}
-
-			.gridcell.x::before,
-			.gridcell.x::after,
-			.grid-container.x .gridcell:hover:not(.x):not(.o)::before,
-			.grid-container.x .gridcell:hover:not(.x):not(.o)::after {
-				content: '';
-				position: absolute;
-				width: 10px;
-				height: 90px;
-				background-color: black;
-			}
-	
-			.gridcell.x::before,
-			.grid-container.x .gridcell:hover::before {
-				transform: rotate(45deg);
-			}
-	
-			.gridcell.x::after,
-			.grid-container.x .gridcell:hover::after {
-				transform: rotate(-45deg);
-			}
-	
-			.gridcell.o::before, 
-			.grid-container.o .gridcell:hover:not(.x):not(.o)::before
-			{
-				content: '';
-				background-color: rgba(1, 1, 1, 0);
-				border: 10px solid black;
-				height: 70px;
-				width: 70px;
-				border-radius:50%;
-			}
-	
-			.grid-container.x .gridcell:hover:not(.x):not(.o)::before,
-			.grid-container.x .gridcell:hover:not(.x):not(.o)::after {
-				background-color: gray;
-			}
-	
-			.grid-container.o .gridcell:hover:not(.x):not(.o)::before {
-				border-color: gray;
-			}
-		</style>
-		"""
-
-		js = 
-			"""
-			<script>
-				const resetButton = document.querySelector(".$name .resetButton");
-				console.log("got button")
-				console.log(resetButton)
-				resetButton.addEventListener("click", resetClick);
-				resetButton.onclick = console.log("clicked");
-				
-				const X_CLASS = 'x'
-				const CIRCLE_CLASS = 'o'
-				const span = currentScript.parentElement
-				const cellElements = document.querySelectorAll('.$name [data-cell]')
-				const board = document.querySelector('.$name .grid-container')
-				
-				
-				let circleTurn 
-		
-				span.value = $(zeros(Int64, 9))
-				span.dispatchEvent(new CustomEvent('input'))
-			
-				cellElements.forEach(gridcell => {
-					gridcell.addEventListener('click', handleClick, { once: true })
-				})
-		
-				function resetClick(e) {
-					console.log('button pushed')
-					restart()
-				}
-		
-				function restart() {
-					circleTurn = false
-					cellElements.forEach(cell => {
-						cell.classList.remove(X_CLASS)
-						cell.classList.remove(CIRCLE_CLASS)
-						cell.removeEventListener('click', handleClick)
-						cell.addEventListener('click', handleClick, { once: true })
-						span.value[cell.className[13]-1] = 0
-					})
-					setBoardHoverClass()
-					span.dispatchEvent(new CustomEvent('input'))
-				}
-		
-				function handleClick(e) {
-					const cell = e.target
-					const currentClass = circleTurn ? CIRCLE_CLASS : X_CLASS
-					const fillValue = circleTurn ? 2 : 1
-					console.log(currentClass)
-					placeMark(cell, currentClass)
-					swapTurns()
-					setBoardHoverClass()
-					const i = cell.className[13] - 1
-					span.value[i] = fillValue
-					span.dispatchEvent(new CustomEvent('input'))
-				}
-		
-				function placeMark(cell, currentClass) {
-					cell.classList.add(currentClass)
-				}
-		
-				function setBoardHoverClass() {
-					board.classList.remove(X_CLASS)
-					board.classList.remove(CIRCLE_CLASS)
-					if (circleTurn) {
-						board.classList.add(CIRCLE_CLASS)
-					} else {
-						board.classList.add(X_CLASS)
-					}
-							
-				}
-			
-				function swapTurns() {
-					circleTurn = !circleTurn
-				}
-				
-			</script>
-			"""
-	HTML(
-		"""
-		<span class = $name>
-			$html_board
-			$board_style
-			$js
-		</span>
-		"""
-	)
-end	
-
-# ╔═╡ 46ce0c68-19c4-4c84-bddf-5a19542aa26b
-@bind testboard TTTBoard("rjkerjekjkg")
-
-# ╔═╡ ae46c33d-0119-4d3c-8a6d-bf8c58835445
-get_board_status(testboard), get_reward(testboard), isvalid(testboard)
-
-# ╔═╡ 6c9a1063-29d7-45ab-84d0-475d806ccec7
-@bind xplayboard TTTBoard("xplayboard")
-
-# ╔═╡ f2fc13ac-6eff-43a0-bec9-f1d14f89cf91
-style_value_policy(x_step_vs_random_results.eval_board, xplayboard, "xplayboard")
-
-# ╔═╡ a9efdd1c-fb11-45f4-9ef1-da5a7298b504
-@bind oplayboard TTTBoard("oplayboard")
-
-# ╔═╡ d219a48b-a491-44cc-b746-6c5282537855
-style_value_policy(o_vs_x1_results.eval_board, oplayboard, "oplayboard")
-
-# ╔═╡ f2e33f78-d61c-4337-9430-f75ab01e2d36
-@bind xplayboard2 TTTBoard("xplayboard2")
-
-# ╔═╡ 30090262-67a1-430a-b1fc-74fb59432def
-style_value_policy(x_vs_o1_results.eval_board, xplayboard2, "xplayboard2")
-
-# ╔═╡ 2224d20f-c8dc-4ef6-af81-d1f832bee5ea
-@bind selfplayboard TTTBoard("selfplayboard")
-
-# ╔═╡ 063e0ba3-69b0-4c77-8ecd-e8b70c64f7ba
-style_value_policy(ttt_selfplay_results.eval_board, selfplayboard, "selfplayboard")
-
-# ╔═╡ f27dbf3c-df30-453c-8764-879df3b93694
+# ╔═╡ 1227cfdb-19ea-4df8-80ae-724ef403d5c9
 md"""
-#### Visualize Learned X-Player Policy Against Random  
-
-Higher probability moves appear more green.  Click on board to change state by adding moves.  The value estimate will be 1.0 for an expected win, -0.5 for a draw, and -1.0 for a loss.
-
-$(@bind base_board1 TTTBoard("base_board1"))
+## Tic Tac Toe Board Visualization
 """
 
-# ╔═╡ f316b777-b582-4af4-97ab-df0a929304e8
-show_value_policy(ttt_value_results, base_board1, "base_board1")
+# ╔═╡ 544ee0c2-6ebd-4878-b5fd-799f489e9171
+md"""
+### Style and JavaScript
+"""
 
-# ╔═╡ ad83dec9-0517-458a-9b6d-d086511cdc91
-value_policy_output(ttt_value_results, UInt8.(base_board1))
-
-# ╔═╡ 89bf9317-fadc-4c16-a540-f676da9c4e03
-#visualize a board with moves and action probabilities
-function heatmap_board(board, actions = zeros(9))
-	hash_str = hash((board, actions))
-	#push up non zero colors above linear range
-	mapcolor(x) = round(Int64, 255*(x .^(1/2)))
-	colors = [begin
-		c = mapcolor(x)
-		"rgb($(40), $(max(40, .9*c)), $(40))"
-	end
-	for x in actions]
-
-	function makecell(i)
-		"""
-		.grid-container$hash_str .gridcell.cell$i {
-			background-color: $(colors[i]);
-		}
-		"""
-	end
-
-	joinstr(a, b) =  """$a \n $b"""
-
-	function makehtmlcell(i, v)
-		str = if v == 1
-			" x"
-		elseif v == 2
-			" o"
-		else
-			""
-		end
-		"""<div class = "gridcell cell$i$str" data-cell$hash_str></div>"""
-	end
-
-	htmlcells = mapreduce(i -> makehtmlcell(i, board[i]), joinstr, eachindex(board))
-
-	cells = mapreduce(i -> makecell(i), joinstr, eachindex(actions))
-
-	gridstr = is_o_move(board) ? "o" : "x"
-	
-	HTML("""
-	<span>
-	<div class = "grid-container$hash_str $gridstr" id="grid-container$hash_str">
-		$htmlcells
-	</div>
-	<style>
-		body {
-			margin: 0;
-		}
-		.grid-container$hash_str {
-			width: 100vw
-			height: 100vh;
+# ╔═╡ fac4c6d1-44b2-408b-bea5-1f11baae2e82
+const base_cell_style = HTML("""
+		<style>
+		.grid-container {
+			margin: 10px;
 			display: grid;
 			justify-content: center;
 			align-content: center;
@@ -3099,56 +2711,56 @@ function heatmap_board(board, actions = zeros(9))
 			background-color: rgb(31, 31, 31);
 		}
 
-		.grid-container$hash_str .gridcell.x::before,
-		.grid-container$hash_str .gridcell.x::after,
-		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::before,
-		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::after {
+		.grid-container .gridcell.x::before,
+		.grid-container .gridcell.x::after,
+		.grid-container.x .gridcell:hover:not(.x):not(.o)::before,
+		.grid-container.x .gridcell:hover:not(.x):not(.o)::after {
 			content: '';
 			position: absolute;
-			width: 10px;
-			height: 90px;
 			background-color: black;
+			width: 10%;
+			height: 90%;
 		}
 
-		.grid-container$hash_str .gridcell.x::before,
-		.grid-container$hash_str.x .gridcell:hover::before {
+		.grid-container .gridcell.x::before,
+		.grid-container.x .gridcell:hover::before {
 			transform: rotate(45deg);
 		}
 
-		.grid-container$hash_str .gridcell.x::after,
-		.grid-container$hash_str.x .gridcell:hover::after {
+		.grid-container .gridcell.x::after,
+		.grid-container.x .gridcell:hover::after {
 			transform: rotate(-45deg);
 		}
 
-		.grid-container$hash_str .gridcell.o::before, 
-		.grid-container$hash_str.o .gridcell:hover:not(.x):not(.o)::before
+		.grid-container .gridcell.o::before, 
+		.grid-container.o .gridcell:hover:not(.x):not(.o)::before
 		{
 			content: '';
 			background-color: rgba(1, 1, 1, 0);
 			border: 10px solid black;
-			height: 70px;
-			width: 70px;
 			border-radius:50%;
+			width: 65%;
+			height: 65%;
 		}
 
-		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::before,
-		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::after {
+		.grid-container.x .gridcell:hover:not(.x):not(.o)::before,
+		.grid-container.x .gridcell:hover:not(.x):not(.o)::after {
 			background-color: gray;
 		}
 
-		.grid-container$hash_str.o .gridcell:hover:not(.x):not(.o)::before {
+		.grid-container.o .gridcell:hover:not(.x):not(.o)::before {
 			border-color: gray;
 		}
 		
 		.gridcell {
 			border: 1px solid black;
-			height: 100px;
-			width: 100px;
 			display: flex;
 			justify-content: center;
 			align-items: center;
 			position: relative;
 			cursor: pointer;
+			width: vw/10;
+			height: vw/10;
 		}
 
 		.gridcell.x, .gridcell.o {
@@ -3178,62 +2790,456 @@ function heatmap_board(board, actions = zeros(9))
 		.gridcell:nth-child(7) {
 			border-left: none;
 		}
-
-		$cells
 	</style>
-	</span>
+""")
+
+# ╔═╡ 26e388a2-b715-428b-96e2-64bd49b936de
+function make_board_script(name) 
+	"""
+<script>
+	const resetButton = document.querySelector(".$name .resetButton");
+	console.log("got button")
+	console.log(resetButton)
+	resetButton.addEventListener("click", resetClick);
+	resetButton.onclick = console.log("clicked");
+	
+	const X_CLASS = 'x'
+	const CIRCLE_CLASS = 'o'
+	const span = currentScript.parentElement
+	const board = document.querySelector('.grid-container.$name')
+	const cells = [...board.children];
+	
+	let circleTurn 
+
+	span.value = [$(zeros(Int64, 9)), '$name']
+	span.dispatchEvent(new CustomEvent('input'))
+
+	cells.forEach ((child) => {
+		child.addEventListener('click', handleClick, {once: true});    
+	})
+
+	function resetClick(e) {
+		console.log('button pushed')
+		restart()
+	}
+
+	function restart() {
+		circleTurn = false
+		cells.forEach((cell) => {
+			var index = cells.indexOf(cell);
+			cell.classList.remove(X_CLASS);
+			cell.classList.remove(CIRCLE_CLASS);
+			cell.removeEventListener('click', handleClick);
+			cell.addEventListener('click', handleClick, {once: true});
+			span.value[0][index] = 0;
+		})
+		setBoardHoverClass()
+		span.dispatchEvent(new CustomEvent('input'))
+	}
+
+	function handleClick(e) {
+		const cell = e.target;
+		const index = cells.indexOf(cell);
+		console.log('cell ', index, ' clicked');
+		const currentClass = circleTurn ? CIRCLE_CLASS : X_CLASS;
+		const fillValue = circleTurn ? 2 : 1;
+		placeMark(cell, currentClass);
+		swapTurns();
+		setBoardHoverClass();
+		span.value[0][index] = fillValue;
+		span.dispatchEvent(new CustomEvent('input'));
+	}
+
+	function placeMark(cell, currentClass) {
+		cell.classList.add(currentClass)
+	}
+
+	function setBoardHoverClass() {
+		board.classList.remove(X_CLASS)
+		board.classList.remove(CIRCLE_CLASS)
+		if (circleTurn) {
+			board.classList.add(CIRCLE_CLASS)
+		} else {
+			board.classList.add(X_CLASS)
+		}
+				
+	}
+
+	function swapTurns() {
+		circleTurn = !circleTurn
+	}
+	
+</script>
+"""
+end
+
+# ╔═╡ b45b9df1-c1ae-440f-829b-312178d55b94
+md"""
+### Board Display and Control
+"""
+
+# ╔═╡ 7558d7f1-d8a0-4e7c-b411-8801021f2a25
+md"""
+### Restyling Utilities
+"""
+
+# ╔═╡ c7b74124-c448-466f-905c-d78e44370590
+const no_color = "rgba(0, 0, 0, 0)"
+
+# ╔═╡ 3db231d5-dc5f-434a-ac83-d3fb5cd125ee
+joinelements(a, b) =  """$a \n $b"""
+
+# ╔═╡ 20e27028-cdd7-433f-ace3-a053b14e22f7
+make_elems(f, iter) = mapreduce(f, joinelements, iter)
+
+# ╔═╡ 49608c2c-b66f-4dbf-a99f-d589e0143f8a
+function colorcell(name, i, c)
+	"""
+	.grid-container.$name .gridcell:nth-child($i) {
+		background-color: $c;
+	}
+	"""
+end
+
+# ╔═╡ 284df137-a066-4fd1-a7ac-32b319f65e75
+function colorboard(name::AbstractString, colors::AbstractVector{T}) where T <: AbstractString
+	HTML("""
+	<style>
+	$(make_elems(i -> colorcell(name, i, colors[i]), 1:9))
+	</style>
 	""")
 end
 
-# ╔═╡ 6f951aff-4a61-4bee-9a70-ac11dfcf1be0
-heatmap_board(random_game[1][game_step])
+# ╔═╡ 2baab643-1b70-442b-96e8-1eb0ee0090ad
+#option to just make every cell the same color
+colorboard(name, color) = colorboard(name, fill(color, 9))
 
-# ╔═╡ f0a358b5-9733-4593-8174-fa44c87d93b7
-function eval_value_policy(board, results, name)
-	(newplayboard, inds) = state_symmetry_lookup[mapboard(board)]
-	invertinds = [findfirst(inds .== i) for i in 1:9]
-	!haskey(results[3], newplayboard) && return (value = "Not a valid state for first player", actions = heatmap_board(name, board, zeros(9))) 
-	πs = convertπs(results[3][newplayboard])
-	(value = results[1][end][newplayboard], actions = heatmap_board(name, board, [haskey(πs, UInt8(a)) ? πs[UInt8(a)] : 0.0 for a in 1:9][invertinds])) 
+# ╔═╡ a8520c73-60f6-4d9f-9949-9f75e7345c58
+#display boards in rows that wrap to the next line
+function displayboards(boards)
+	HTML("""
+	<span class=multiboard>
+	$(reduce(joinelements, boards))
+	</span>
+	<style>
+		.multiboard {
+			display: flex;
+			flex-wrap: wrap;
+		}
+	</style>
+""")
 end
 
-# ╔═╡ b4115def-5388-4c4b-b58e-fe035afa5620
-eval_value_policy(base_board, ttt_value_results, "value_vs_random")
+# ╔═╡ 905c92e5-9130-4353-8bc1-69d80b8f7735
+function resize_board(name, cellsize)
+	HTML("""
+	<style>
+	.grid-container.$name .gridcell {
+			width: $(cellsize)px;
+			height: $(cellsize)px;
+		}
+	.grid-container.$name .gridcell.o::before, 
+	.grid-container.$name.o .gridcell:hover:not(.x):not(.o)::before
+	{
+		border: $(cellsize/10)px solid black;
+	}
+	.grid-container.$name.o .gridcell:hover:not(.x):not(.o)::before {
+			border-color: gray;
+		}
+	.$name .resetButton {
+		font-size: $(min(20, cellsize/3))px;
+	}
+	.$name .board-value {
+		font-size: $(min(20, cellsize/4))px;
+	}
+	</style>
+""")
+end
 
-# ╔═╡ 55636bc9-0500-4327-894a-a6b2a67f4ef9
-eval_value_policy(board2, oplayer_value_results, "value_o_vs_x1")
+# ╔═╡ 081139f2-a2be-4a84-bb73-cb3a8c3f7974
+resize_boards(boardnames::Union{AbstractVector{T}, Base.Generator}, size) where T <: AbstractString = HTML(reduce(joinelements, (resize_board(b, size).content for b in boardnames)))
 
-# ╔═╡ f726ddb2-e33f-40e0-8c91-b3a2163e7db1
-eval_value_policy(board3, xplayer_value_results, "value_x_vs_o")
+# ╔═╡ 45c3e544-6cc9-4694-b0ff-c7d876fac5de
+function annotate_value(name, str)
+	"""
+	<style>
+	.$name .board-value::after {
+		content: '$str';
+		background-color: "rgba(0, 0, 0, 0)";
+		font-weight: normal;
+		color: rgb(180, 180, 180);
+		font-family: Arial;
+		text-shadow: 1px 2px 1px black;
+	}
+	</style>
+"""
+end
 
-# ╔═╡ 16c09b54-23cf-46bc-8dfe-77c78065e8cb
-eval_value_policy(board3, ttt_value_results, "value_x_vs_random")
+# ╔═╡ b3846537-df26-4e3d-b336-0990a544c2f9
+value_board(name, v) = annotate_value(name, "Value Est: $v")
 
-# ╔═╡ 9373e86e-2bdf-4d71-ab48-181be977f8ba
-@bind board4raw heatmap_board("fjehjkwio6786fe", zeros(9), ones(9))
+# ╔═╡ 9e9c655b-035e-4de7-bb67-7f8c5f8d76a3
+prb_to_color(p::AbstractFloat) = "rgb(40, $(max(40, .9*round(Int64, 255*(p .^(1/2))))), 40)"
 
-# ╔═╡ 64b56556-2c3e-4f6f-b874-50c48ac4b439
-board4 = UInt8.(board4raw)
+# ╔═╡ 55267cb3-1089-4146-9325-b8eb0ad38f4f
+makecolors(prbs::AbstractVector{T}) where T <: AbstractFloat = prb_to_color.(prbs)
 
-# ╔═╡ b19df237-4158-4168-9736-280f05c29a2e
-checkboard(state_symmetry_lookup[mapboard(board4)][1])
+# ╔═╡ 6b72f9a0-41ab-4245-a6a2-83b9d19154d1
+colorboard(name::AbstractString, prbs::AbstractVector{T}) where T <: AbstractFloat = colorboard(name, makecolors(prbs)) 
 
-# ╔═╡ da67b5bb-3b44-462a-86b5-3e536545b0fa
-eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
+# ╔═╡ abe86494-c43c-4999-9d0e-4d11f6e6292d
+#color a TTT board with action probabilities based on a policy function
+function style_value_policy(get_value_policy, board, boardname)
+	(prbs, v) = try get_value_policy(board) catch; (zeros(9), "Invalid State") end
+	c = colorboard(boardname, prbs).content
+	htmlstr = if isa(v, Real)
+		joinelements(c, value_board(boardname, round(v, sigdigits = 2)))
+	else
+		joinelements(c, value_board(boardname, v))
+	end
+	HTML(htmlstr)
+end
 
-# ╔═╡ 44d6a906-2966-4342-8b24-48682dfc4db7
-show_policy(board, f) = heatmap_board(hash(f), board, f(board))
+# ╔═╡ d3abee1c-21ec-4e24-be88-996324991d2e
+randomclassname(n = 20) = string(rand('a':'z'), String(rand(['a':'z'; '0':'9'; '_'; '-'], 20)))
 
-# ╔═╡ 9b1ec178-bebf-489b-8376-58b574d3c9dd
-show_policy(ttt_selfplay[2][end], board3, "self_play_actor_critic")
+# ╔═╡ 957d0392-d627-4d47-95bf-ef927129279a
+function make_ttt_board_raw(board; colors = ["rgba(0, 0, 0, 0)" for _ in 1:9], cellsize = 100, name = randomclassname(), boardtitle = "")
+	function makehtmlcell(v)
+		str = if v == 1
+			" x"
+		elseif v == 2
+			" o"
+		else
+			""
+		end
+		"""<div class = "gridcell$str"></div>"""
+	end
+	gridstr(board) = is_o_move(board) ? "o" : "x"
+	function makecontainer(board, name)
+		"""
+		<div class = "grid-container $name $(gridstr(board))">
+			$(makecells(board))
+		</div>
+		"""
+	end
+	
+	makecells(board) = make_elems(makehtmlcell, board)
 
-# ╔═╡ 262c8cad-ff83-42ea-a6fc-b763611d8688
-(value = minimaxvalues[state_symmetry_lookup[mapboard(board4)][1]], actions =  show_policy(board4, s -> apply_sym_π(minimax_policy, board4)))
+	board = """
+	<span class = $name>
+	<div>$boardtitle</div>
+	<div class = "board-value"></div>
+	$(makecontainer(board, name))
+	</span>
+	$(colorboard(name, colors).content)
+	$(resize_board(name, cellsize).content)
+	<style>
+		$name {
+			display: flex;
+			flex-direction: column;
+		}
+	</style>
+	"""
+	(board = board, id = name)
+end
+
+# ╔═╡ 4cd527c7-6e6e-47bf-971e-6256801005e8
+function displayexamplegame(xplayer::PolicyResultsTTT, oselect::Function; cellsize = 50)
+	game = run_ttt_game(b -> select_action(xplayer.eval_board(b)[1]), oselect)
+	gameboards = [(board, make_ttt_board_raw(board, cellsize = cellsize)) for board in game[1]]
+	style = mapreduce(joinelements, gameboards[1:end-1]) do board
+		if !is_o_move(board[1])
+			style_value_policy(xplayer.eval_board, board[1], board[2][2]).content
+		else
+			""""""
+		end
+	end
+	base = joinelements(displayboards(a[2][1] for a in gameboards).content, style)
+	outcomestr = game[2].status.x_win ? "X Wins" : game[2].status.o_win ? "O Wins" : "Draw"
+	joinelements(base, annotate_value(gameboards[end][2][2], outcomestr)) |> HTML
+end
+
+# ╔═╡ 2b8a3cf6-0eef-4fd8-9704-dcfd1bd858f9
+function displayexamplegame(xselect::Function, oplayer::PolicyResultsTTT; cellsize = 50)
+	game = run_ttt_game(xselect, b -> select_action(oplayer.eval_board(b)[1]))
+	gameboards = [(board, make_ttt_board_raw(board, cellsize = cellsize)) for board in game[1]]
+	style = mapreduce(joinelements, gameboards[1:end-1]) do board
+		if is_o_move(board[1])
+			style_value_policy(oplayer.eval_board, board[1], board[2][2]).content
+		else
+			""""""
+		end
+	end
+	base = joinelements(displayboards(a[2][1] for a in gameboards[2:end]).content, style)
+	outcomestr = game[2].status.x_win ? "X Wins" : game[2].status.o_win ? "O Wins" : "Draw"
+	joinelements(base, annotate_value(gameboards[end][2][2], outcomestr)) |> HTML
+end
+
+# ╔═╡ a70e9d2d-f964-4825-a66e-006d489c0538
+function displayexamplegame(xplayer::PolicyResultsTTT, oplayer::PolicyResultsTTT; cellsize = 50)
+	game = run_ttt_game(b -> select_action(xplayer.eval_board(b)[1]), b -> select_action(oplayer.eval_board(b)[1]))
+	gameboards = [(board, make_ttt_board_raw(board, cellsize = cellsize)) for board in game[1]]
+	style = mapreduce(joinelements, gameboards[1:end-1]) do board
+	result = if is_o_move(board[1])
+		oplayer
+	else
+		xplayer
+	end
+	style_value_policy(result.eval_board, board[1], board[2][2]).content
+	end
+	base = joinelements(displayboards(a[2][1] for a in gameboards).content, style)
+	outcomestr = game[2].status.x_win ? "X Wins" : game[2].status.o_win ? "O Wins" : "Draw"
+	joinelements(base, annotate_value(gameboards[end][2][2], outcomestr)) |> HTML
+end
+
+# ╔═╡ b8612417-77da-489c-bf66-fb99a3e0ab25
+displayexamplegame(x_step_vs_random_results, get_random_move)
+
+# ╔═╡ 0f18d16f-bfd3-4fb6-b8cf-34e76fe5ee0a
+displayexamplegame(x_step_vs_random_results, o_vs_x1_results)
+
+# ╔═╡ 09768139-1c6c-4c69-99a1-b40f35505302
+displayexamplegame(x_vs_o1_results, o_vs_x1_results)
+
+# ╔═╡ 2dd430db-1bfd-4f39-876b-0983b1c0fada
+displayexamplegame(get_random_move, o_vs_x1_results)
+
+# ╔═╡ e431002a-e31a-42ed-9f98-2e766d8e3fa8
+displayexamplegame(ttt_selfplay_results, o_vs_x1_results)
+
+# ╔═╡ 3153b4fc-1c2c-47d0-84ab-f40344df4794
+displayexamplegame(ttt_selfplay_results, ttt_selfplay_results)
+
+# ╔═╡ 9a7619e4-b6a6-4285-b7dc-0172b8fdafb1
+displayexamplegame(ttt_selfplay_results, get_random_move)
+
+# ╔═╡ 2ec09938-55c8-4259-adb7-0d35ef6a6b42
+#create interactive board that works with @bind
+function TTTBoard(;cellsize = 100, alignment = "flex-start")
+	(board, id) = make_ttt_board_raw(zeros(9); cellsize = cellsize) #make empty board
+	js = make_board_script(id)
+	HTML(
+		"""
+		<span class = $id>
+			<button class="resetButton">Reset Board</button>
+			$board
+			$js
+		</span>
+		<style>
+			.$id {
+				display: flex;
+				flex-direction: column;
+				align-items: $alignment;
+			}
+		</style>
+		"""
+	)
+end
+
+# ╔═╡ 46ce0c68-19c4-4c84-bddf-5a19542aa26b
+@bind testboard TTTBoard()
+
+# ╔═╡ ae46c33d-0119-4d3c-8a6d-bf8c58835445
+get_board_status(testboard[1]), get_reward(testboard[1]), isvalid(testboard[1])
+
+# ╔═╡ 6c9a1063-29d7-45ab-84d0-475d806ccec7
+@bind xplayboard TTTBoard()
+
+# ╔═╡ f2fc13ac-6eff-43a0-bec9-f1d14f89cf91
+style_value_policy(x_step_vs_random_results.eval_board, xplayboard...)
+
+# ╔═╡ a9efdd1c-fb11-45f4-9ef1-da5a7298b504
+@bind oplayboard TTTBoard()
+
+# ╔═╡ d219a48b-a491-44cc-b746-6c5282537855
+style_value_policy(o_vs_x1_results.eval_board, oplayboard...)
+
+# ╔═╡ f2e33f78-d61c-4337-9430-f75ab01e2d36
+@bind xplayboard2 TTTBoard()
+
+# ╔═╡ 30090262-67a1-430a-b1fc-74fb59432def
+style_value_policy(x_vs_o1_results.eval_board, xplayboard2...)
+
+# ╔═╡ 21a726ef-48f3-4e69-870c-549add227181
+@bind compboard1 TTTBoard(cellsize = 70)
+
+# ╔═╡ 28c068b4-53a7-4d35-93f8-d3a3da81d208
+#generate multiple boards with custom coloring
+comp1displayboards = [make_ttt_board_raw(compboard1[1], cellsize=70, boardtitle = title) for title in ["x vs random", "o vs x1", "x vs o1"]]
+
+# ╔═╡ 5ece8d19-ac1c-4414-920a-24d833d8c7fd
+displayboards([a[1] for a in comp1displayboards])
+
+# ╔═╡ 48e5056c-192b-433a-b0bf-5deba31db223
+#style each board with the appropriate policy
+reduce(joinelements, [style_value_policy(result.eval_board, compboard1[1], board[2]).content for (result, board) in zip([x_step_vs_random_results, o_vs_x1_results, x_vs_o1_results], comp1displayboards)]) |> HTML
+
+# ╔═╡ 2224d20f-c8dc-4ef6-af81-d1f832bee5ea
+@bind selfplayboard TTTBoard()
+
+# ╔═╡ 063e0ba3-69b0-4c77-8ecd-e8b70c64f7ba
+style_value_policy(ttt_selfplay_results.eval_board, selfplayboard...)
+
+# ╔═╡ f27dbf3c-df30-453c-8764-879df3b93694
+md"""
+#### Visualize Learned X-Player Policy Against Random  
+
+Higher probability moves appear more green.  Click on board to change state by adding moves.  The value estimate will be 1.0 for an expected win, -0.5 for a draw, and -1.0 for a loss.
+
+$(@bind base_board1 TTTBoard())
+"""
+
+# ╔═╡ a4261098-17d6-47e4-9649-42e09d21d1ad
+style_value_policy(b -> value_policy_output(ttt_value_results, b), base_board1...)
+
+# ╔═╡ 3efbbb22-1e34-4924-8a16-7289210437af
+@bind o_vs_random_value_board TTTBoard()
+
+# ╔═╡ c772ae36-3023-444f-a6f6-3b4c159541b8
+style_value_policy(b -> value_policy_output(o_vs_random_value_results, b), o_vs_random_value_board...)
+
+# ╔═╡ 3f305df4-8419-42a0-b4c8-3990248aa0ce
+@bind o_vs_x1_value_board TTTBoard()
+
+# ╔═╡ e7a2e7df-f7fd-49db-8339-95fe96376ab6
+style_value_policy(b -> value_policy_output(o_vs_x1_value_results, b), o_vs_x1_value_board...)
+
+# ╔═╡ 3b466d93-fb32-4081-87db-e69d8e580af4
+@bind selfplay_value_board TTTBoard()
+
+# ╔═╡ 3afd97de-fa10-4458-a272-ede2fea04118
+style_value_policy(b -> value_policy_output(selfplay_value_results, b), selfplay_value_board...)
 
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
 # Dependencies and Settings
 """
+
+# ╔═╡ 16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
+import HypertextLiteral.@htl
+
+# ╔═╡ 92b62688-2cff-4286-958f-9f4e32de52ee
+function makeboardselector() 
+	PlutoUI.combine() do Child
+		makechild() = @htl("""<div>$(Child(Select([0x00 => "", 0x01 => "X", 0x02 => "O", ])))</div>""")
+		makechildren() = mapreduce(a -> makechild(), (a, b) -> @htl("""$a \n $b"""), 1:9)
+		children = makechildren()
+		@htl("""
+		<div class = "button-grid">
+			$(children)
+		</div>
+		<style>
+			.button-grid {
+				display: grid;
+				grid-template-columns: repeat(3, auto);
+				width: 100px;
+				height: 100px;
+			}
+		</style>
+		""")
+	end
+end
 
 # ╔═╡ f59a5dcd-9f4a-4336-a391-e64af35ef799
 html"""
@@ -3282,7 +3288,7 @@ Transducers = "~0.4.75"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.0-rc3"
+julia_version = "1.9.0"
 manifest_format = "2.0"
 project_hash = "6263ef7cb0fcc213303fc01e0ce38eda42ef5f78"
 
@@ -4058,6 +4064,7 @@ version = "17.4.0+0"
 # ╠═7550213b-8174-4623-9abc-9dcbdc0351a8
 # ╠═0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
 # ╟─2b964c13-c961-4ed9-8b66-a6715ff7d0ef
+# ╟─078a1739-911c-4673-821b-488a878bab37
 # ╠═205fcf67-e79c-4f20-bb8b-ddb6b980ed9d
 # ╠═5f917c40-c1b2-4dd8-ac81-8e955d6af7af
 # ╠═7f4b6d93-53dd-466e-8401-24c1a59c32d9
@@ -4121,6 +4128,7 @@ version = "17.4.0+0"
 # ╠═23f8b2d3-7f76-4dd5-a301-95afe719ec30
 # ╠═c8885191-44a7-448c-a546-d5fb50254616
 # ╠═f29d1813-fa74-46ce-b3ac-3a06a5cd104e
+# ╟─3f927561-7b13-4f19-946a-67c310c60255
 # ╠═04d93927-6206-4d32-91fb-81b73568f1f7
 # ╠═2da0cccb-5e1a-43a7-b485-8b62a8d70d10
 # ╠═626940b4-eeb9-4ee6-9f27-b6446f014572
@@ -4140,11 +4148,20 @@ version = "17.4.0+0"
 # ╠═4a999b16-1427-4b30-a2be-1919b0ad2caf
 # ╠═aea8317c-fb5f-4817-b927-1c6d48072ea7
 # ╠═73693dd6-f07c-4625-9d84-f356c91f5735
-# ╠═f2e33f78-d61c-4337-9430-f75ab01e2d36
+# ╟─f2e33f78-d61c-4337-9430-f75ab01e2d36
 # ╠═30090262-67a1-430a-b1fc-74fb59432def
-# ╟─5c5fea30-b566-41d1-b8a8-da05ced1cfef
-# ╠═6f951aff-4a61-4bee-9a70-ac11dfcf1be0
-# ╠═cb3809f2-a600-4edd-b99f-9fe9d8752cf3
+# ╟─9e32d0d4-bdbb-46a7-ad3c-34184cea0b92
+# ╟─21a726ef-48f3-4e69-870c-549add227181
+# ╟─5ece8d19-ac1c-4414-920a-24d833d8c7fd
+# ╠═28c068b4-53a7-4d35-93f8-d3a3da81d208
+# ╠═48e5056c-192b-433a-b0bf-5deba31db223
+# ╠═4cd527c7-6e6e-47bf-971e-6256801005e8
+# ╠═2b8a3cf6-0eef-4fd8-9704-dcfd1bd858f9
+# ╠═a70e9d2d-f964-4825-a66e-006d489c0538
+# ╠═b8612417-77da-489c-bf66-fb99a3e0ab25
+# ╠═0f18d16f-bfd3-4fb6-b8cf-34e76fe5ee0a
+# ╠═09768139-1c6c-4c69-99a1-b40f35505302
+# ╠═2dd430db-1bfd-4f39-876b-0983b1c0fada
 # ╠═9e9d1b3a-d8a5-45f2-87b1-20f7edf56793
 # ╠═f271a2a6-1720-4cb1-99e0-9aff3fab171c
 # ╠═75f13e3d-90a5-461e-9f64-479a01465fab
@@ -4167,35 +4184,39 @@ version = "17.4.0+0"
 # ╠═2900dc4e-eed2-4a5c-a026-d1d1bdaf62b9
 # ╠═2ec47c25-ec71-4cd9-b1b7-14ae8ee3492a
 # ╠═8464adca-a780-4da1-bb1c-05db6277634c
-# ╠═2224d20f-c8dc-4ef6-af81-d1f832bee5ea
+# ╟─2224d20f-c8dc-4ef6-af81-d1f832bee5ea
 # ╠═063e0ba3-69b0-4c77-8ecd-e8b70c64f7ba
+# ╠═e431002a-e31a-42ed-9f98-2e766d8e3fa8
+# ╠═3153b4fc-1c2c-47d0-84ab-f40344df4794
 # ╠═46277863-5e64-4e23-87e3-7980110a8742
+# ╠═fe2d0874-ac60-421d-9632-9310af0b8d1f
+# ╠═9a7619e4-b6a6-4285-b7dc-0172b8fdafb1
 # ╠═cf7dd9c3-6c51-40c9-bbea-08ccf4d3a8b1
 # ╠═f17cc08e-e0e8-4bad-8f81-08eb1d03d827
 # ╠═f70dcbbd-e871-4f6d-9287-b468d511dc7b
 # ╠═c5502e6e-751a-4e24-851d-6cc1ed119c3f
+# ╠═b72f2485-e9a9-4b2c-a126-d7a42a3d6ba6
 # ╠═83ccd36d-96c8-4665-9148-bdf95eb8dda1
 # ╠═0d234b25-994f-4649-ac05-0df2dcf12264
 # ╠═506a7c77-0d48-47a1-b3fd-d203101b9106
 # ╠═60652571-4e4e-4d68-bec2-3b3fb6db0b1d
 # ╟─d7976b1a-41a7-4d3d-9b0d-7b5a7d87da54
 # ╠═f1d6e558-6e7c-4238-983a-b756d4ea9450
-# ╠═6b5dde96-31f5-4105-8756-86b5f5ac5919
-# ╠═50094f4f-31c5-4ec0-b4e5-c23e3b9df8cb
 # ╠═8568dd44-ad15-42a6-9aff-62c41d2ff739
 # ╠═9b726b74-0e54-4031-b48b-f99248363962
 # ╠═f4e8f556-b131-4c86-b245-0f7a09760353
 # ╠═8a9bbf5b-18f3-4cbe-ac15-d2d88b68f8bd
 # ╠═f0a358b5-9733-4593-8174-fa44c87d93b7
 # ╟─f27dbf3c-df30-453c-8764-879df3b93694
-# ╠═f316b777-b582-4af4-97ab-df0a929304e8
-# ╠═7427b126-32cb-4732-9789-ea2ae9fbb59a
-# ╠═69d2f3e9-53ae-4674-b6f0-3d2267e7a9ce
-# ╠═ad83dec9-0517-458a-9b6d-d086511cdc91
-# ╠═b4115def-5388-4c4b-b58e-fe035afa5620
-# ╠═05257909-7642-4a7e-b379-65757af72c10
-# ╠═0bbe79b8-b0f5-472f-a95a-2deff62e7688
+# ╠═a4261098-17d6-47e4-9649-42e09d21d1ad
+# ╠═47492b1f-2ff4-4f98-9489-68b2d8bc45ac
+# ╠═19fbb0b8-bc03-4203-a65d-0b1516b73174
+# ╟─3efbbb22-1e34-4924-8a16-7289210437af
+# ╠═c772ae36-3023-444f-a6f6-3b4c159541b8
 # ╠═f9063856-b2bf-4b01-90cf-2420d53405d2
+# ╠═540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
+# ╠═3f305df4-8419-42a0-b4c8-3990248aa0ce
+# ╠═e7a2e7df-f7fd-49db-8339-95fe96376ab6
 # ╠═bd9b454c-5038-469c-97af-595c6c91cf4b
 # ╠═73f0ca1b-b331-4682-9741-3399a0ac3d46
 # ╠═91bbd3df-8a06-4e16-b8b4-46887f8b7e8c
@@ -4210,12 +4231,24 @@ version = "17.4.0+0"
 # ╠═f726ddb2-e33f-40e0-8c91-b3a2163e7db1
 # ╠═16c09b54-23cf-46bc-8dfe-77c78065e8cb
 # ╠═9b1ec178-bebf-489b-8376-58b574d3c9dd
-# ╠═22d4e0bb-916e-4cb0-ac29-18b217457ee6
+# ╠═be0ab5f8-a89f-4127-96ee-3d9a52f6887a
+# ╠═28729f3c-2f68-4399-afe6-2c56a76cb3cc
+# ╠═1539ff60-3082-4e5c-ad52-dbb93299bac2
+# ╠═3b466d93-fb32-4081-87db-e69d8e580af4
+# ╠═3afd97de-fa10-4458-a272-ede2fea04118
+# ╠═93ca1d37-1f88-4c9d-958d-8ee30c9ee079
+# ╠═df2f8ceb-e231-4580-8faf-0e73209d8d4b
+# ╠═a7e03990-4cb3-4d1a-9cbe-a362ec8870cd
+# ╠═cb707369-245d-455d-a6b0-8b62b4f13635
+# ╠═88faed7e-9e0d-48a2-8992-72f20854157f
+# ╠═cdf467f0-1dec-46cb-a354-8fde5eb22e09
+# ╠═d2abed56-7b34-4885-96ed-9c295870d061
+# ╠═b771489e-7bd8-4977-bc26-f667bb036b82
+# ╠═49de73c3-dcbe-4012-a997-924e06e6f912
+# ╠═737d4566-a737-46d1-87f0-c691c7a12525
 # ╠═3b403f52-c12e-4477-9597-b1ba89096738
-# ╠═0c3c667b-263c-4afc-bc57-f23b4935643c
-# ╠═077f05d4-7338-4262-a8d2-bf75bc8234e6
-# ╟─9373e86e-2bdf-4d71-ab48-181be977f8ba
-# ╟─64b56556-2c3e-4f6f-b874-50c48ac4b439
+# ╠═9373e86e-2bdf-4d71-ab48-181be977f8ba
+# ╠═64b56556-2c3e-4f6f-b874-50c48ac4b439
 # ╠═b19df237-4158-4168-9736-280f05c29a2e
 # ╠═a21a92d2-cd52-47ad-9043-78f2e1f59ab3
 # ╠═da67b5bb-3b44-462a-86b5-3e536545b0fa
@@ -4232,17 +4265,33 @@ version = "17.4.0+0"
 # ╠═805b6220-0a14-4f2a-bbb1-7ba13ac1749b
 # ╟─3ea08816-705e-4be7-a175-dbd3f3e4c17d
 # ╠═5d50a5d0-8fe2-4c6e-b76c-d5614e4fd884
-# ╠═92b62688-2cff-4286-958f-9f4e32de52ee
-# ╠═16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
-# ╠═82081131-c099-4b14-af96-6ee616a79139
-# ╠═db790c47-5169-4d5a-a2ef-5e56dd55d7b6
-# ╠═f801ecfa-2bdd-4896-9c4a-3272a1792b0d
+# ╟─1227cfdb-19ea-4df8-80ae-724ef403d5c9
+# ╟─544ee0c2-6ebd-4878-b5fd-799f489e9171
+# ╠═fac4c6d1-44b2-408b-bea5-1f11baae2e82
+# ╠═26e388a2-b715-428b-96e2-64bd49b936de
+# ╟─b45b9df1-c1ae-440f-829b-312178d55b94
+# ╠═957d0392-d627-4d47-95bf-ef927129279a
+# ╠═2ec09938-55c8-4259-adb7-0d35ef6a6b42
+# ╟─7558d7f1-d8a0-4e7c-b411-8801021f2a25
+# ╠═c7b74124-c448-466f-905c-d78e44370590
 # ╠═3db231d5-dc5f-434a-ac83-d3fb5cd125ee
+# ╠═20e27028-cdd7-433f-ace3-a053b14e22f7
+# ╠═49608c2c-b66f-4dbf-a99f-d589e0143f8a
+# ╠═284df137-a066-4fd1-a7ac-32b319f65e75
+# ╠═2baab643-1b70-442b-96e8-1eb0ee0090ad
+# ╠═a8520c73-60f6-4d9f-9949-9f75e7345c58
+# ╠═905c92e5-9130-4353-8bc1-69d80b8f7735
+# ╠═081139f2-a2be-4a84-bb73-cb3a8c3f7974
 # ╠═b3846537-df26-4e3d-b336-0990a544c2f9
-# ╠═1f68a898-e828-4d2a-8b1d-7df425d8b96c
-# ╠═89bf9317-fadc-4c16-a540-f676da9c4e03
+# ╠═45c3e544-6cc9-4694-b0ff-c7d876fac5de
+# ╠═9e9c655b-035e-4de7-bb67-7f8c5f8d76a3
+# ╠═55267cb3-1089-4146-9325-b8eb0ad38f4f
+# ╠═6b72f9a0-41ab-4245-a6a2-83b9d19154d1
+# ╠═d3abee1c-21ec-4e24-be88-996324991d2e
+# ╠═92b62688-2cff-4286-958f-9f4e32de52ee
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
+# ╠═16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
 # ╠═f59a5dcd-9f4a-4336-a391-e64af35ef799
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
