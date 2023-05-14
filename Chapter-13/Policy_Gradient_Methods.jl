@@ -240,7 +240,15 @@ Because it uses all future returns after step t, REINFORCE is a Monte Carlo algo
 """
 
 # ╔═╡ b406577a-5478-42fd-8ed0-e36b5574cfc6
-select_action(vec) = wsample(eachindex(vec), vec)
+#select action from a vector of action probabilities where each index is supposed to be that action
+select_action(vec::AbstractVector) = wsample(eachindex(vec), vec)
+
+# ╔═╡ 385600b4-2bf2-43b9-88dd-18f2227bc8e3
+#select action from an action probability dictionary where each key is an action and the corresponding value is the probability of selection
+function select_action(prbs::Dict) 
+	actions = collect(keys(prbs))
+	wsample(actions, [prbs[a] for a in actions])
+end
 
 # ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
 """
@@ -1145,46 +1153,11 @@ function bellman_optimal_value!(V::Dict{S, Float64}, p::Dict{Tuple{S, Float64, S
 	return delt
 end
 
-# ╔═╡ 461e27bb-c38b-4dc6-aa68-d5d76ff79cbf
-function calculatepolicy(mdp::NamedTuple, γ::Float64, V::Dict; invert_state = s -> 1.0)
-	(p, sa_keys) = mdp
-	calcvalue(s′, r, s, a) = p[(s′,r,s,a)] * (r + γ*V[s′])
-	sumvalue(list, s, a) = sum(calcvalue(s′, r, s, a) for (s′, r) in list)
-	makenewdist(s, actions) = Dict(a => invert_state(s)*sumvalue(sa_keys[2][(s, a)], s, a) for a in actions)
-	function getpair(s)
-		actions = sa_keys[1][s]
-		newdist = makenewdist(s, actions)
-		return (s, newdist)
-	end
-	πraw = Dict(getpair(s) for s in keys(sa_keys[1]))
-	πstar = Dict(s => Dict(argmax(πraw[s]) => 1.0) for s in keys(πraw))
-	πstar, πraw
-end 
-
-# ╔═╡ 1683b216-d310-4c66-81ba-0329898d90dd
-function value_iteration_v(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real, valuelist::AbstractVector{T}; kwargs...) where T <: Dict
-	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		(πstar, πraw) = calculatepolicy(mdp, γ, V; kwargs...)
-		return (valuelist, πstar, πraw)
-	else 
-		newV = copy(V)
-		delt = bellman_optimal_value!(newV, p, sa_keys, γ; kwargs...)
-		newlist = [valuelist; [newV]]
-		value_iteration_v(θ, mdp, γ, newV, delt, nmax - 1, newlist; kwargs...)	
-	end
-end
-
-# ╔═╡ d538939d-df32-4766-b3c7-f9fc5af564df
-function value_iteration_v!(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real; kwargs...) where T <: Dict
-	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		(πstar, πraw) = calculatepolicy(mdp, γ, V; kwargs...)
-		return (V, πstar, πraw)
-	else 
-		delt = bellman_optimal_value!(V, p, sa_keys, γ; kwargs...)
-		value_iteration_v!(θ, mdp, γ, V, delt, nmax - 1; kwargs...)	
-	end
+# ╔═╡ 25dc6e02-dc77-4e7b-8639-ee39fee5d87e
+#struct to hold results of value iteration which consists of 1) the state value function either as a list for each iteration or a final value and 2) the optimal policy represented by a dictionary mapping states to action probability lookups
+struct ValueIterationResults{V, S}
+	state_values::V
+	πstar::Dict{S, Dict{Int64, Float64}}
 end
 
 # ╔═╡ ee23064b-499a-4061-bfed-242ccbcbf25e
@@ -1197,7 +1170,50 @@ function convertπs(πs::Dict)
 end
 
 # ╔═╡ 3825159e-a5db-45c8-b2bc-193b4494b53d
+#create a probability lookup policy from a dictionary of preferences
 convertπ(π::Dict) = Dict(s => convertπs(π[s]) for s in keys(π))
+
+# ╔═╡ 461e27bb-c38b-4dc6-aa68-d5d76ff79cbf
+function calculatepolicy(mdp::NamedTuple, γ::Float64, V::Dict; invert_state = s -> 1.0)
+	(p, sa_keys) = mdp
+	calcvalue(s′, r, s, a) = p[(s′,r,s,a)] * (r + γ*V[s′])
+	sumvalue(list, s, a) = sum(calcvalue(s′, r, s, a) for (s′, r) in list)
+	makenewdist(s, actions) = Dict(a => invert_state(s)*sumvalue(sa_keys[2][(s, a)], s, a) for a in actions)
+	function getpair(s)
+		actions = sa_keys[1][s]
+		newdist = makenewdist(s, actions)
+		return (s, newdist)
+	end
+	convertπ(Dict(getpair(s) for s in keys(sa_keys[1])))
+end 
+
+# ╔═╡ 1683b216-d310-4c66-81ba-0329898d90dd
+#perform value iteration accumulating the value function calculated at each step
+function value_iteration_v(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real, valuelist::AbstractVector{T}; kwargs...) where T <: Dict
+	(p, sa_keys) = mdp
+	if nmax <= 0 || delt <= θ
+		πstar = calculatepolicy(mdp, γ, V; kwargs...)
+		return ValueIterationResults(valuelist, πstar)
+	else 
+		newV = copy(V)
+		delt = bellman_optimal_value!(newV, p, sa_keys, γ; kwargs...)
+		newlist = [valuelist; [newV]]
+		value_iteration_v(θ, mdp, γ, newV, delt, nmax - 1, newlist; kwargs...)	
+	end
+end
+
+# ╔═╡ d538939d-df32-4766-b3c7-f9fc5af564df
+#perform value iteration updating a given value function in place
+function value_iteration_v!(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real; kwargs...) where T <: Dict
+	(p, sa_keys) = mdp
+	if nmax <= 0 || delt <= θ
+		πstar = calculatepolicy(mdp, γ, V; kwargs...)
+		return ValueIterationResults(V, πstar)
+	else 
+		delt = bellman_optimal_value!(V, p, sa_keys, γ; kwargs...)
+		value_iteration_v!(θ, mdp, γ, V, delt, nmax - 1; kwargs...)	
+	end
+end
 
 # ╔═╡ ed2785a8-0fed-4052-8371-0e34982e8800
 function begin_value_iteration_v(θ, γ, mdp, V, nmax; kwargs...)
@@ -1215,7 +1231,7 @@ function begin_value_iteration_v!(θ, γ, mdp, V, nmax; kwargs...)
 end
 
 # ╔═╡ a81d2380-b853-432e-9592-d5461daad7b2
-function begin_value_iteration_v(mdp::NamedTuple, γ; θ = eps(0.0), nmax=Inf, Vinit = 0.0, kwargs...)
+function begin_value_iteration_v(mdp::NamedTuple, γ; θ = eps(0.0), nmax=Inf, Vinit = 0.0, savelist = true, kwargs...)
 	#initialize value at a constant
 	V = Dict(s => Vinit for s in keys(mdp[2][1]))
 	f = if savelist
@@ -2122,55 +2138,11 @@ function setup_ttt_player(states::AbstractVector{T}) where T <: BoardTTT
 	ActorCriticTTTAgent(v̂, ∇v̂, π!, ∇lnπ!, θ, w, πoutput, ∇output)
 end	
 
-# ╔═╡ 626940b4-eeb9-4ee6-9f27-b6446f014572
-struct PolicyResultsTTT{T}
-	rewards::Vector{Float64} #rewards per episode of training
-	θ::Matrix{Float64} #parameters for policy function
-	w::Vector{Float64} #parameters for value function
-	eval_board::T #function to evaluate a board
-end
-
-# ╔═╡ 11d113f1-c1f0-4a58-a3b2-44c70b21cdac
-function execute_ttt_actor_critic(states, step, get_s0, αθ, αw; kwargs...)
-	agent = setup_ttt_player(states)
-	s0 = ttt_environment.init_board
-	sterm = ttt_environment.term_board
-	actions = ttt_moves
-
-	# reinforce_monte_carlo_control(π!, ∇lnπ!, length(θ), s0, αθ, step, sterm, actions; θ = θ, kwargs...)
-	(rewards, θout, wout) = actor_critic_eligibility(agent.π!, agent.∇lnπ!, agent.v̂, agent.∇v̂, length(agent.θ), length(agent.w), s0, αθ, αw, step, sterm, actions; θ = agent.θ, w = agent.w, get_s0=get_s0, kwargs...)
-	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
-
-	function eval_board(b)
-		(symboard, isym) = symmetric_board_lookup[b]
-		prbs = agent.π!(symboard, θout)[d4_inverted[isym]]
-		v = agent.v̂(symboard, wout)
-		(prbs, v)
-	end
-	PolicyResultsTTT(rewards, θout, wout, eval_board)
-end
-
 # ╔═╡ 959e4a18-fe6e-4c9c-b9bf-f752108fd2dd
 x_step_vs_random(board, move) = ttt_step(board, move, get_random_move)
 
-# ╔═╡ b6f3d5b6-74b7-4211-b236-203881a97c38
-x_step_vs_random_results = execute_ttt_actor_critic(active_x_boards, x_step_vs_random, () -> rand() < 0.1 ? ttt_environment.init_board : rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
-
 # ╔═╡ 8731821b-d82a-4697-be21-522583d7dbab
 @bind avgeps Slider(100:10000, show_value=true)
-
-# ╔═╡ 3728a916-a502-48ec-9c84-5b2e7e4df61c
-#train O-player vs the first X policy
-o_step_vs_x1(board, move) = ttt_step(board, move, b -> select_action(x_step_vs_random_results.eval_board(b)[1]))
-
-# ╔═╡ e6cd6459-6e50-4c5c-b6d3-a55706bbb257
-o_vs_x1_results = execute_ttt_actor_critic(active_o_boards, o_step_vs_x1, () -> rand(active_o_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
-
-# ╔═╡ 4a999b16-1427-4b30-a2be-1919b0ad2caf
-x_vs_o1(board, move) = ttt_step(board, move, b -> select_action(o_vs_x1_results.eval_board(b)[1]))
-
-# ╔═╡ aea8317c-fb5f-4817-b927-1c6d48072ea7
-x_vs_o1_results = execute_ttt_actor_critic(active_x_boards, x_vs_o1, () -> rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
 
 # ╔═╡ 9e32d0d4-bdbb-46a7-ad3c-34184cea0b92
 md"""
@@ -2202,52 +2174,16 @@ function run_ttt_game(πx::Function, πo::Function, board_history::Vector{BoardT
 end
 
 # ╔═╡ 75f13e3d-90a5-461e-9f64-479a01465fab
-function get_ttt_matchup_statistics(πx, πo; trials = 100_000)
+function get_ttt_matchup_statistics(πx::Function, πo::Function; trials = 100_000)
 	wld = 1:trials |> Map(n -> run_ttt_game(πx, πo)[2].status[(:x_win, :o_win, :is_draw)]) |> collect
 	NamedTuple(outcome => count(a[outcome] for a in wld)/trials for outcome in (:x_win, :o_win, :is_draw))
 end
 
-# ╔═╡ 938e33dd-c129-40d0-a72e-b7d1f3f770ff
-get_ttt_move(results::PolicyResultsTTT) = b -> select_action(results.eval_board(b) |> first)
-
-# ╔═╡ a278e854-e230-42aa-97a2-0f5b7d1815af
-function compare_ttt_policies(results1::PolicyResultsTTT, results2::PolicyResultsTTT; kwargs...)
-	p1 = get_ttt_move(results1)
-	p2 = get_ttt_move(results2)
-	get_ttt_matchup_statistics(p1, p2; kwargs...)
-end
-
-# ╔═╡ 702f39a7-f921-4f20-90d2-9b7ec493230e
-compare_ttt_policies(results::PolicyResultsTTT, p::Function; kwargs...) = get_ttt_matchup_statistics(get_ttt_move(results), p; kwargs...)
-
-# ╔═╡ 088c2166-17ab-4c22-b621-6421316ebd52
-compare_ttt_policies(p::Function, results::PolicyResultsTTT; kwargs...) = get_ttt_matchup_statistics(p, get_ttt_move(results); kwargs...)
-
-# ╔═╡ 75377f64-9b4b-47ec-b25e-b17d42407fad
-#modify this so that it uses the new functions and plots progress per round by showing the victory rate over the previous opponent
-function execute_actor_critic_selfplay(αθ, αw, rounds; kwargs...)
-	form_opponent(results) = (board, move) -> ttt_step(board, move, b -> select_action(results.eval_board(b)[1]))
-	train_player(active_boards, opponent) = execute_ttt_actor_critic(active_boards, opponent, () -> rand(active_boards), αθ, αw; kwargs...)
-
-	x_results = Vector{PolicyResultsTTT}(undef, rounds)
-	o_results = Vector{PolicyResultsTTT}(undef, rounds)
-
-	x_results[1] = train_player(active_x_boards, (board, move) -> ttt_step(board, move, get_random_move))
-	o_results[1] = train_player(active_o_boards, form_opponent(x_results[1]))
-	
-	@progress for i in 2:rounds
-		x_results[i] = train_player(active_x_boards, form_opponent(o_results[i-1]))
-		o_results[i] = train_player(active_o_boards, form_opponent(x_results[i]))
-	end
-	
-	return x_results, o_results
-end
+# ╔═╡ c577550f-0fff-4a95-85c8-d6ef2b685dde
+compare_ttt_policies(p1::Function, p2::Function; kwargs...) = get_ttt_matchup_statistics(p1, p2; kwargs...)
 
 # ╔═╡ 1d0fe433-0bca-4083-842b-dc209298af13
 nrounds = 10
-
-# ╔═╡ a0740d6d-d034-4037-b410-f31f76b207f5
-ttt_rounds_results = execute_actor_critic_selfplay(0.5, 0.5, nrounds; λθ = 0.5, λw = 0.5, max_episodes = 30_000)
 
 # ╔═╡ 124a38c0-dd7a-43b2-9f86-5a41261736e0
 md"""
@@ -2258,81 +2194,8 @@ Player:
 $(@bind playerselect Select([1 => "X", 2 => "O"]))
 """
 
-# ╔═╡ 3c6243f6-973c-4521-9881-c66f94de83a0
-function plot_ttt_rounds(round_results; trials = 1000)
-	xrounds = first(ttt_rounds_results) |> Map(x_results -> compare_ttt_policies(x_results, get_random_move, trials = trials)) |> tcollect
-	x_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in xrounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
-	p1 = Plot(x_traces, Layout(title = "X Player vs Random Policy", xaxis_title = "Rounds"))
-	orounds = last(ttt_rounds_results) |> Map(o_results -> compare_ttt_policies(get_random_move, o_results, trials = trials)) |> tcollect
-	o_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in orounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
-	p2 = Plot(o_traces, Layout(title = "O Player vs Random Policy", xaxis_title = "Rounds"))
-	plot([p1 p2])
-end
-
-# ╔═╡ 87fd6b09-fd43-454c-a589-38dab5ccf71a
-plot_ttt_rounds(ttt_rounds_results; trials = 10_000)
-
-# ╔═╡ a45949bc-878b-47fc-a239-cb8bb110046b
-compare_ttt_policies(x_step_vs_random_results, get_random_move)
-
-# ╔═╡ afb19bfb-0e0d-4d3b-8db5-c9f1a91b61ae
-compare_ttt_policies(get_random_move, o_vs_x1_results)
-
-# ╔═╡ 72025689-c50d-4f74-8ddb-5709b43b39ed
-compare_ttt_policies(x_vs_o1_results, get_random_move)
-
-# ╔═╡ 2616cfe3-c66a-4d00-8caa-1b92e8bcfa6d
-get_ttt_matchup_statistics(get_ttt_move(x_step_vs_random_results), get_ttt_move(o_vs_x1_results))
-
-# ╔═╡ eef60b59-8595-454c-89a3-f02729fbd1d5
-get_ttt_matchup_statistics(get_ttt_move(x_vs_o1_results), get_ttt_move(o_vs_x1_results))
-
 # ╔═╡ 2900dc4e-eed2-4a5c-a026-d1d1bdaf62b9
 get_ttt_matchup_statistics(get_random_move, get_random_move)
-
-# ╔═╡ 2ec47c25-ec71-4cd9-b1b7-14ae8ee3492a
-ttt_selfplay_results = execute_ttt_actor_critic(active_ttt_boards, ttt_step, () -> rand() < 0.75 ? ttt_environment.init_board : rand(active_ttt_boards), 0.5, 0.1; λθ = 0.5, λw = 0.5, γ = 0.9, max_episodes = 100_000, showprogress=true)
-
-# ╔═╡ 46277863-5e64-4e23-87e3-7980110a8742
-compare_ttt_policies(ttt_selfplay_results, o_vs_x1_results)
-
-# ╔═╡ fe2d0874-ac60-421d-9632-9310af0b8d1f
-compare_ttt_policies(ttt_selfplay_results, ttt_rounds_results[end][2])
-
-# ╔═╡ cf7dd9c3-6c51-40c9-bbea-08ccf4d3a8b1
-compare_ttt_policies(ttt_selfplay_results, get_random_move)
-
-# ╔═╡ f17cc08e-e0e8-4bad-8f81-08eb1d03d827
-compare_ttt_policies(x_vs_o1_results, o_vs_x1_results)
-
-# ╔═╡ f70dcbbd-e871-4f6d-9287-b468d511dc7b
-compare_ttt_policies(x_vs_o1_results, get_random_move)
-
-# ╔═╡ c5502e6e-751a-4e24-851d-6cc1ed119c3f
-compare_ttt_policies(x_step_vs_random_results, get_random_move)
-
-# ╔═╡ b72f2485-e9a9-4b2c-a126-d7a42a3d6ba6
-compare_ttt_policies(ttt_selfplay_results, ttt_selfplay_results)
-
-# ╔═╡ 83ccd36d-96c8-4665-9148-bdf95eb8dda1
-function plot_tttresults(ttt_results::PolicyResultsTTT, avgeps = 100)
-	plot([mean(ttt_results.rewards[i:avgeps+i-1]) for i in 1:lastindex(ttt_results.rewards)-avgeps])
-end
-
-# ╔═╡ 892df402-df32-4344-9201-0458b90fed26
-plot_tttresults(x_step_vs_random_results, avgeps)
-
-# ╔═╡ f88a0889-f3d5-4d75-a745-c734e4420802
-plot_tttresults(o_vs_x1_results, avgeps)
-
-# ╔═╡ 73693dd6-f07c-4625-9d84-f356c91f5735
-plot_tttresults(x_vs_o1_results, avgeps)
-
-# ╔═╡ 90385599-9db0-4463-8063-81a41266712f
-plot_tttresults(ttt_rounds_results[playerselect][roundcount], 100)
-
-# ╔═╡ 8464adca-a780-4da1-bb1c-05db6277634c
-plot_tttresults(ttt_selfplay_results, avgeps)
 
 # ╔═╡ 0d234b25-994f-4649-ac05-0df2dcf12264
 function optimize_λ(αθlist, αwlist, opt_setup; epavg = 100, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
@@ -2375,9 +2238,8 @@ For the previous two environments, value iteration was not feasible because defi
 function make_ttt_ptf(boards, π_opponent)
 	function get_opponent_transitions(board, s, a)
 		prbs = π_opponent(board)
-		inds = findall(!=(0), prbs)
 		#add up probabilities for each transition accumulating them if the ending state is equivalent
-		mapreduce(mergewith(+), inds) do i
+		mapreduce(mergewith(+), keys(prbs)) do i
 			(s′, r, active) = ttt_step(board, i)
 			Dict((s′, r, s, a) => prbs[i])
 		end
@@ -2404,75 +2266,217 @@ function make_ttt_ptf(boards, π_opponent)
 	return (ptr = ptf, sa_keys = sa_keys)
 end
 
-# ╔═╡ f4e8f556-b131-4c86-b245-0f7a09760353
-#takes a policy that only is defined for the unique symmetrical boards and applies it to any board
-function apply_sym_π(π, board)
-	(newplayboard, inds) = state_symmetry_lookup[mapboard(board)]
-	invinds = [findfirst(inds .== i) for i in 1:9]
-	π[newplayboard][invinds]
+# ╔═╡ c5514f37-9987-4633-818c-adc480136683
+function π_random_ttt(b)
+	inds = findall(==(0), b)
+	v = 1/length(inds)
+	Dict(i => v for i in inds)
 end
 
 # ╔═╡ 8a9bbf5b-18f3-4cbe-ac15-d2d88b68f8bd
-function value_policy_output(value_policy, board)
+#compute the action probability distribution and value for a given board state from a value iteration result output
+function value_policy_output(value_policy::ValueIterationResults{T, S}, board) where {T <: Dict, S} 
 	(newplayboard, isym) = symmetric_board_lookup[board]
-	!haskey(value_policy[3], newplayboard) && return (zeros(9), "Invalid State")
-	πs = convertπs(value_policy[3][newplayboard])
-	board_value = (value_policy |> first |> last)[newplayboard]
+	!haskey(value_policy.πstar, newplayboard) && return (zeros(9), "Invalid State")
+	board_value = value_policy.state_values[newplayboard]
+	πs = value_policy.πstar[newplayboard]
 	prbs = [haskey(πs, a) ? πs[a] : 0.0 for a in UInt8.(1:9)][d4_inverted[isym]]
 	return (prbs, board_value)
 end
 
-# ╔═╡ f0a358b5-9733-4593-8174-fa44c87d93b7
-function eval_value_policy(board, results, name)
-	(newplayboard, inds) = state_symmetry_lookup[mapboard(board)]
-	invertinds = [findfirst(inds .== i) for i in 1:9]
-	!haskey(results[3], newplayboard) && return (value = "Not a valid state for first player", actions = heatmap_board(name, board, zeros(9))) 
-	πs = convertπs(results[3][newplayboard])
-	(value = results[1][end][newplayboard], actions = heatmap_board(name, board, [haskey(πs, UInt8(a)) ? πs[UInt8(a)] : 0.0 for a in 1:9][invertinds])) 
+# ╔═╡ e62f195d-7b25-45e5-bdd0-7071b9323dab
+abstract type ResultsTTT end
+
+# ╔═╡ 626940b4-eeb9-4ee6-9f27-b6446f014572
+struct PolicyResultsTTT{T} <: ResultsTTT
+	rewards::Vector{Float64} #rewards per episode of training
+	θ::Matrix{Float64} #parameters for policy function
+	w::Vector{Float64} #parameters for value function
+	eval_board::T #function to evaluate a board
 end
 
-# ╔═╡ 73f0ca1b-b331-4682-9741-3399a0ac3d46
-oplayer_value_results = begin_value_iteration_v(ttt_mdp_oplayer, term_board, 1.0; θ = 0.0)
+# ╔═╡ 11d113f1-c1f0-4a58-a3b2-44c70b21cdac
+function execute_ttt_actor_critic(states, step, get_s0, αθ, αw; kwargs...)
+	agent = setup_ttt_player(states)
+	s0 = ttt_environment.init_board
+	sterm = ttt_environment.term_board
+	actions = ttt_moves
+
+	# reinforce_monte_carlo_control(π!, ∇lnπ!, length(θ), s0, αθ, step, sterm, actions; θ = θ, kwargs...)
+	(rewards, θout, wout) = actor_critic_eligibility(agent.π!, agent.∇lnπ!, agent.v̂, agent.∇v̂, length(agent.θ), length(agent.w), s0, αθ, αw, step, sterm, actions; θ = agent.θ, w = agent.w, get_s0=get_s0, kwargs...)
+	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
+
+	function eval_board(b)
+		(symboard, isym) = symmetric_board_lookup[b]
+		prbs = agent.π!(symboard, θout)[d4_inverted[isym]]
+		v = agent.v̂(symboard, wout)
+		(prbs, v)
+	end
+	PolicyResultsTTT(rewards, θout, wout, eval_board)
+end
+
+# ╔═╡ b6f3d5b6-74b7-4211-b236-203881a97c38
+x_step_vs_random_results = execute_ttt_actor_critic(active_x_boards, x_step_vs_random, () -> rand() < 0.1 ? ttt_environment.init_board : rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
+
+# ╔═╡ 3728a916-a502-48ec-9c84-5b2e7e4df61c
+#train O-player vs the first X policy
+o_step_vs_x1(board, move) = ttt_step(board, move, b -> select_action(x_step_vs_random_results.eval_board(b)[1]))
+
+# ╔═╡ e6cd6459-6e50-4c5c-b6d3-a55706bbb257
+o_vs_x1_results = execute_ttt_actor_critic(active_o_boards, o_step_vs_x1, () -> rand(active_o_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
+
+# ╔═╡ 4a999b16-1427-4b30-a2be-1919b0ad2caf
+x_vs_o1(board, move) = ttt_step(board, move, b -> select_action(o_vs_x1_results.eval_board(b)[1]))
+
+# ╔═╡ aea8317c-fb5f-4817-b927-1c6d48072ea7
+x_vs_o1_results = execute_ttt_actor_critic(active_x_boards, x_vs_o1, () -> rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
+
+# ╔═╡ 2ec47c25-ec71-4cd9-b1b7-14ae8ee3492a
+ttt_selfplay_results = execute_ttt_actor_critic(active_ttt_boards, ttt_step, () -> rand() < 0.75 ? ttt_environment.init_board : rand(active_ttt_boards), 0.5, 0.1; λθ = 0.5, λw = 0.5, γ = 0.9, max_episodes = 100_000, showprogress=true)
+
+# ╔═╡ 75377f64-9b4b-47ec-b25e-b17d42407fad
+#modify this so that it uses the new functions and plots progress per round by showing the victory rate over the previous opponent
+function execute_actor_critic_selfplay(αθ, αw, rounds; kwargs...)
+	form_opponent(results) = (board, move) -> ttt_step(board, move, b -> select_action(results.eval_board(b)[1]))
+	train_player(active_boards, opponent) = execute_ttt_actor_critic(active_boards, opponent, () -> rand(active_boards), αθ, αw; kwargs...)
+
+	x_results = Vector{PolicyResultsTTT}(undef, rounds)
+	o_results = Vector{PolicyResultsTTT}(undef, rounds)
+
+	x_results[1] = train_player(active_x_boards, (board, move) -> ttt_step(board, move, get_random_move))
+	o_results[1] = train_player(active_o_boards, form_opponent(x_results[1]))
+	
+	@progress for i in 2:rounds
+		x_results[i] = train_player(active_x_boards, form_opponent(o_results[i-1]))
+		o_results[i] = train_player(active_o_boards, form_opponent(x_results[i]))
+	end
+	
+	return x_results, o_results
+end
+
+# ╔═╡ a0740d6d-d034-4037-b410-f31f76b207f5
+ttt_rounds_results = execute_actor_critic_selfplay(0.5, 0.5, nrounds; λθ = 0.5, λw = 0.5, max_episodes = 30_000)
+
+# ╔═╡ 83ccd36d-96c8-4665-9148-bdf95eb8dda1
+function plot_tttresults(ttt_results::PolicyResultsTTT, avgeps = 100)
+	plot([mean(ttt_results.rewards[i:avgeps+i-1]) for i in 1:lastindex(ttt_results.rewards)-avgeps])
+end
+
+# ╔═╡ 892df402-df32-4344-9201-0458b90fed26
+plot_tttresults(x_step_vs_random_results, avgeps)
+
+# ╔═╡ f88a0889-f3d5-4d75-a745-c734e4420802
+plot_tttresults(o_vs_x1_results, avgeps)
+
+# ╔═╡ 73693dd6-f07c-4625-9d84-f356c91f5735
+plot_tttresults(x_vs_o1_results, avgeps)
+
+# ╔═╡ 90385599-9db0-4463-8063-81a41266712f
+plot_tttresults(ttt_rounds_results[playerselect][roundcount], 100)
+
+# ╔═╡ 8464adca-a780-4da1-bb1c-05db6277634c
+plot_tttresults(ttt_selfplay_results, avgeps)
+
+# ╔═╡ 938e33dd-c129-40d0-a72e-b7d1f3f770ff
+get_ttt_move(results::ResultsTTT) = b -> select_action(results.eval_board(b) |> first)
+
+# ╔═╡ 2616cfe3-c66a-4d00-8caa-1b92e8bcfa6d
+get_ttt_matchup_statistics(get_ttt_move(x_step_vs_random_results), get_ttt_move(o_vs_x1_results))
+
+# ╔═╡ eef60b59-8595-454c-89a3-f02729fbd1d5
+get_ttt_matchup_statistics(get_ttt_move(x_vs_o1_results), get_ttt_move(o_vs_x1_results))
+
+# ╔═╡ a278e854-e230-42aa-97a2-0f5b7d1815af
+function compare_ttt_policies(results1::ResultsTTT, results2::ResultsTTT; kwargs...)
+	p1 = get_ttt_move(results1)
+	p2 = get_ttt_move(results2)
+	get_ttt_matchup_statistics(p1, p2; kwargs...)
+end
+
+# ╔═╡ 702f39a7-f921-4f20-90d2-9b7ec493230e
+compare_ttt_policies(results::ResultsTTT, p::Function; kwargs...) = get_ttt_matchup_statistics(get_ttt_move(results), p; kwargs...)
+
+# ╔═╡ 088c2166-17ab-4c22-b621-6421316ebd52
+compare_ttt_policies(p::Function, results::ResultsTTT; kwargs...) = get_ttt_matchup_statistics(p, get_ttt_move(results); kwargs...)
+
+# ╔═╡ 3c6243f6-973c-4521-9881-c66f94de83a0
+function plot_ttt_rounds(round_results; trials = 1000)
+	xrounds = first(ttt_rounds_results) |> Map(x_results -> compare_ttt_policies(x_results, get_random_move, trials = trials)) |> tcollect
+	x_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in xrounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
+	p1 = Plot(x_traces, Layout(title = "X Player vs Random Policy", xaxis_title = "Rounds"))
+	orounds = last(ttt_rounds_results) |> Map(o_results -> compare_ttt_policies(get_random_move, o_results, trials = trials)) |> tcollect
+	o_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in orounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
+	p2 = Plot(o_traces, Layout(title = "O Player vs Random Policy", xaxis_title = "Rounds"))
+	plot([p1 p2])
+end
+
+# ╔═╡ 87fd6b09-fd43-454c-a589-38dab5ccf71a
+plot_ttt_rounds(ttt_rounds_results; trials = 10_000)
+
+# ╔═╡ a45949bc-878b-47fc-a239-cb8bb110046b
+compare_ttt_policies(x_step_vs_random_results, get_random_move)
+
+# ╔═╡ afb19bfb-0e0d-4d3b-8db5-c9f1a91b61ae
+compare_ttt_policies(get_random_move, o_vs_x1_results)
+
+# ╔═╡ 72025689-c50d-4f74-8ddb-5709b43b39ed
+compare_ttt_policies(x_vs_o1_results, get_random_move)
+
+# ╔═╡ 46277863-5e64-4e23-87e3-7980110a8742
+compare_ttt_policies(ttt_selfplay_results, o_vs_x1_results)
+
+# ╔═╡ fe2d0874-ac60-421d-9632-9310af0b8d1f
+compare_ttt_policies(ttt_selfplay_results, ttt_rounds_results[end][2])
+
+# ╔═╡ cf7dd9c3-6c51-40c9-bbea-08ccf4d3a8b1
+compare_ttt_policies(ttt_selfplay_results, get_random_move)
+
+# ╔═╡ f17cc08e-e0e8-4bad-8f81-08eb1d03d827
+compare_ttt_policies(x_vs_o1_results, o_vs_x1_results)
+
+# ╔═╡ f70dcbbd-e871-4f6d-9287-b468d511dc7b
+compare_ttt_policies(x_vs_o1_results, get_random_move)
+
+# ╔═╡ c5502e6e-751a-4e24-851d-6cc1ed119c3f
+compare_ttt_policies(x_step_vs_random_results, get_random_move)
+
+# ╔═╡ b72f2485-e9a9-4b2c-a126-d7a42a3d6ba6
+compare_ttt_policies(ttt_selfplay_results, ttt_selfplay_results)
+
+# ╔═╡ d4058d19-3c4d-48b9-9f65-f408fe79ce94
+struct ValueResultsTTT{V, S, T} <: ResultsTTT
+	state_values::V
+	πstar::Dict{S, Dict{Int64, Float64}}
+	eval_board::T
+end
+
+# ╔═╡ 2c2275fc-7b61-4734-859e-3e01b1dfc0ca
+function run_ttt_value_iteration(ptf; γ=1.0, savelist = false, kwargs...) 
+	results = begin_value_iteration_v(ptf, ttt_environment.term_board, γ; θ = 0.0, nmax=Inf, Vinit=0.0, savelist=savelist, kwargs...)
+	eval_board(b) = value_policy_output(results, b)
+	ValueResultsTTT(results.state_values, results.πstar, eval_board)
+end
+
+# ╔═╡ b81f3149-8cff-4639-9ba7-d96b062decc4
+md"""
+#### Visualize O Player Policy Against Random Opponent
+"""
+
+# ╔═╡ 985cc4f8-80b9-4562-91c7-c962accdeb4d
+#add a function to show boards where the policies differ
+
+# ╔═╡ 5ac09667-ad41-4b8e-ab7a-857643a69511
+#identify states where two policies differ 
+function compare_actions(π1, π2, states)
+	compactions = [s => (π1[s], π2[s]) for s in states]
+	Dict(filter(a -> a[2][1] != a[2][2], compactions))
+end
 
 # ╔═╡ 3bea1145-2387-4674-9ac4-cad212694e72
 #can alternate this as well until each player's policy is identical for every state similar to how the value iteration stops running
 
-# ╔═╡ 07e29c7d-ec52-4abd-9d60-46bdfc51ba15
-# ╠═╡ disabled = true
-#=╠═╡
-board2 = UInt8.([1, 0, 0, 1, 2, 0, 0, 0, 0])
-  ╠═╡ =#
-
-# ╔═╡ 55636bc9-0500-4327-894a-a6b2a67f4ef9
-#=╠═╡
-eval_value_policy(board2, oplayer_value_results, "value_o_vs_x1")
-  ╠═╡ =#
-
-# ╔═╡ 514e48df-9fdd-41d8-bf7b-d3562531c91c
-ttt_mdp_xplayer = make_ttt_mdp_xplayer(convertπ(oplayer_value_results[3]))
-
-# ╔═╡ 19fbbb78-7e8d-4f04-b0fb-dd940dc316b7
-xplayer_value_results = begin_value_iteration_v(ttt_mdp_xplayer, term_board, 1.0; θ = 0.0)
-
-# ╔═╡ bd9b454c-5038-469c-97af-595c6c91cf4b
-ttt_mdp_oplayer2 = make_ttt_mdp_oplayer(convertπ(xplayer_value_results[3]))
-
-# ╔═╡ 91bbd3df-8a06-4e16-b8b4-46887f8b7e8c
-oplayer_value_results2 = begin_value_iteration_v(ttt_mdp_oplayer2, term_board, 1.0; θ = 0.0)
-
-# ╔═╡ 72b5a805-a908-4f16-ba29-212f5c464baf
-compactions = [k => (oplayer_value_results[3][k], oplayer_value_results2[3][k]) for k in keys(oplayer_value_results[3])]
-
-# ╔═╡ 148360dc-b9eb-484b-a8c0-6cec9edaca24
-filter(a -> a[2][1] != a[2][2], compactions)
-
-# ╔═╡ a7d3ac39-4317-428b-8a66-6a353a8a1ca5
-board3 = UInt8.([0, 0, 0, 0, 0, 0, 0, 0, 0])
-
-# ╔═╡ f726ddb2-e33f-40e0-8c91-b3a2163e7db1
-eval_value_policy(board3, xplayer_value_results, "value_x_vs_o")
-
 # ╔═╡ be0ab5f8-a89f-4127-96ee-3d9a52f6887a
+#make probability transition function for a selfplay game of tic tac toe over all active states
 function make_ttt_ptf()
 	function get_transitions(board::S) where S
 		moves = findall(==(0), board)
@@ -2491,61 +2495,143 @@ function make_ttt_ptf()
 end
 
 # ╔═╡ 8568dd44-ad15-42a6-9aff-62c41d2ff739
-const x_vs_random_ptf = make_ttt_ptf(active_x_boards, b -> (b .== 0) ./ count(==(0), b))
+const x_vs_random_ptf = make_ttt_ptf(active_x_boards, π_random_ttt)
 
 # ╔═╡ 9b726b74-0e54-4031-b48b-f99248363962
-ttt_value_results = begin_value_iteration_v(x_vs_random_ptf, ttt_environment.term_board, 0.9; θ = 0.0, nmax=Inf, Vinit = 0.0)
-
-# ╔═╡ 16c09b54-23cf-46bc-8dfe-77c78065e8cb
-eval_value_policy(board3, ttt_value_results, "value_x_vs_random")
+x_vs_random_value_results = run_ttt_value_iteration(x_vs_random_ptf; γ = 0.9)
 
 # ╔═╡ 47492b1f-2ff4-4f98-9489-68b2d8bc45ac
-const o_vs_random_ptf = make_ttt_ptf(active_o_boards, b -> (b .== 0) ./ count(==(0), b))
+const o_vs_random_ptf = make_ttt_ptf(active_o_boards, π_random_ttt)
 
 # ╔═╡ 19fbb0b8-bc03-4203-a65d-0b1516b73174
-o_vs_random_value_results = begin_value_iteration_v(o_vs_random_ptf, ttt_environment.term_board, 1.0; θ = 0.0, nmax=Inf, Vinit = 0.0, invert_state = s -> -1.0)
+o_vs_random_value_results = run_ttt_value_iteration(o_vs_random_ptf; invert_state = s -> -1.0)
 
 # ╔═╡ f9063856-b2bf-4b01-90cf-2420d53405d2
-o_vs_x1_ptf = make_ttt_ptf(active_o_boards, b -> convertπ(ttt_value_results[3])[b])
+o_vs_x1_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_random_value_results.πstar[b])
 
 # ╔═╡ 540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
-o_vs_x1_value_results = begin_value_iteration_v(o_vs_x1_ptf, ttt_environment.term_board, 1.0; θ = 0.0, nmax=Inf, Vinit = 0.0, invert_state = s -> -1.0)
+o_vs_x1_value_results = run_ttt_value_iteration(o_vs_x1_ptf, invert_state = s -> -1.0)
+
+# ╔═╡ a25e11f3-7e97-42ed-b1b5-fec72663001b
+compare_actions(o_vs_random_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards) |> length #this is how many states that have a different policy
+
+# ╔═╡ f6bb82e1-9274-425c-901a-35ced8c32f87
+x_vs_o_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x1_value_results.πstar[b])
+
+# ╔═╡ c325fcc9-28a5-45ab-9517-b1f48b169664
+x_vs_o_value_results = run_ttt_value_iteration(x_vs_o_ptf)
+
+# ╔═╡ eaa953a0-6281-4dc8-9a93-fc8da3779fb6
+o_vs_x2_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_o_value_results.πstar[b])
+
+# ╔═╡ a9c7a7e4-093b-4bc3-bf81-7ab8343994cc
+o_vs_x2_value_results = run_ttt_value_iteration(o_vs_x2_ptf, invert_state = s -> -1.0)
+
+# ╔═╡ b1db9fd1-b276-4b12-a0d6-a20361265b2f
+o_policy_comp = compare_actions(o_vs_x2_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards)
+
+# ╔═╡ 47f54710-10e9-4f25-b122-595f33b9b37f
+x_vs_o2_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x2_value_results.πstar[b])
+
+# ╔═╡ 4c44dcde-c390-4bdf-9d31-7f4e376112d3
+x_vs_o2_value_results = run_ttt_value_iteration(x_vs_o2_ptf)
+
+# ╔═╡ 839ba147-f695-4ba6-922e-c700db120ab3
+#so these two policies are equivalent
+x_vs_o_value_results.πstar == x_vs_o2_value_results.πstar
 
 # ╔═╡ 28729f3c-2f68-4399-afe6-2c56a76cb3cc
 const selfplay_ptf = make_ttt_ptf()
 
 # ╔═╡ 1539ff60-3082-4e5c-ad52-dbb93299bac2
-selfplay_value_results = begin_value_iteration_v(selfplay_ptf, ttt_environment.term_board, 1.0; θ = 0.0, nmax=Inf, Vinit = 0.0, invert_state = s -> is_o_move(s) ? -1.0 : 1.0)
+selfplay_value_results = run_ttt_value_iteration(selfplay_ptf, invert_state = s -> is_o_move(s) ? -1.0 : 1.0)
 
-# ╔═╡ 93ca1d37-1f88-4c9d-958d-8ee30c9ee079
-selfplay_value_π(b) = select_action(value_policy_output(selfplay_value_results, b)[1])
+# ╔═╡ 9f1d9b18-d5cc-4c91-85ae-b60f617e8d09
+md"""
+### Compare Learned Policies
+"""
 
-# ╔═╡ df2f8ceb-e231-4580-8faf-0e73209d8d4b
-x_vs_random_value_π(b) = select_action(value_policy_output(ttt_value_results, b)[1])
+# ╔═╡ 35761e33-0319-4d8c-aeea-263ddc752626
+function makepolicycomptable(xplayers, oplayers)
+	tablenames = [:x_win, :o_win, :is_draw]
+	tables = Dict(name => zeros(length(xplayers), length(oplayers)) for name in tablenames)
+	for (i, x) in enumerate(xplayers) for (j, o) in enumerate(oplayers)
+		results = compare_ttt_policies(x, o)
+		for name in tablenames
+			tables[name][i, j] = results[name]
+		end
+	end end
+	return NamedTuple(tables)
+end
 
-# ╔═╡ a7e03990-4cb3-4d1a-9cbe-a362ec8870cd
-o_vs_random_value_π(b) = select_action(value_policy_output(o_vs_random_value_results, b)[1])
+# ╔═╡ 1d1269e2-a175-4fee-b43b-999dd9d6e061
+matchup_tables = makepolicycomptable([selfplay_value_results, x_vs_random_value_results, x_vs_o_value_results, get_random_move], [selfplay_value_results, o_vs_random_value_results, o_vs_x1_value_results, get_random_move])
 
-# ╔═╡ cb707369-245d-455d-a6b0-8b62b4f13635
-get_ttt_matchup_statistics(selfplay_value_π, b -> select_action(o_vs_x1_results.eval_board(b)[1]))
+# ╔═╡ 5636cc70-c885-4b57-9f9a-d1848d285735
+joinrow(a, b) = "$a|$b"
+
+# ╔═╡ 74b7c99b-e268-4b80-ba17-97c0d5fc639d
+joinmdrows(r1, r2) = "$r1\n$r2"
+
+# ╔═╡ 5aee3064-0ff1-4162-8204-dda6f1dc2c78
+function make_md_row(v::AbstractVector)
+	"""|$(reduce(joinrow, v))|"""
+end
+
+# ╔═╡ 0cdc2c60-5532-436c-a6d1-e8e465cc380c
+function matrix_to_mdtable(M, header, rownames)
+	body = mapreduce(joinmdrows, eachrow(hcat(rownames, M))) do row
+		make_md_row(row)
+	end
+	h = make_md_row(header)
+	n = make_md_row(["---" for _ in eachindex(header)])
+	reduce(joinmdrows, [h, n, body])
+end
+
+# ╔═╡ 59f08a12-0208-48bb-a461-63b78c558536
+function display_matchup_comps(tables, xnames, onames; title = "Outcome Probabilities Per Matchup")
+	out = 
+	"""	
+	##### $title
+
+	Draw
+	
+	$(matrix_to_mdtable(tables.is_draw, [""; onames], xnames))
+
+	X Win
+	
+	$(matrix_to_mdtable(tables.x_win, [""; onames], xnames))
+
+	O Win
+	
+	$(matrix_to_mdtable(tables.o_win, [""; onames], xnames))
+	"""
+	Markdown.parse(out)
+end
+
+# ╔═╡ 6f4db010-7738-435d-8338-1353e8e40f39
+display_matchup_comps(matchup_tables, ["selfplay value", "x vs random", "x vs o1 value", "random"], ["selfplay value", "o vs random", "o vs x1 value", "random"]; title = "Value Iteration Outcome Probabilities")
+
+# ╔═╡ bebc22d1-ccdb-4a60-90e2-7574aa6fc74b
+compare_ttt_policies(selfplay_value_results, o_vs_x1_results)
 
 # ╔═╡ 88faed7e-9e0d-48a2-8992-72f20854157f
-get_ttt_matchup_statistics(selfplay_value_π, get_random_move)
+compare_ttt_policies(selfplay_value_results, get_random_move)
 
 # ╔═╡ cdf467f0-1dec-46cb-a354-8fde5eb22e09
-get_ttt_matchup_statistics(x_vs_random_value_π, get_random_move)
+compare_ttt_policies(x_vs_random_value_results, get_random_move)
 
 # ╔═╡ d2abed56-7b34-4885-96ed-9c295870d061
-get_ttt_matchup_statistics(x_vs_random_value_π, selfplay_value_π)
+compare_ttt_policies(x_vs_random_value_results, selfplay_value_results)
 
 # ╔═╡ b771489e-7bd8-4977-bc26-f667bb036b82
-get_ttt_matchup_statistics(selfplay_value_π, selfplay_value_π)
+compare_ttt_policies(selfplay_value_results, selfplay_value_results)
 
 # ╔═╡ 49de73c3-dcbe-4012-a997-924e06e6f912
-get_ttt_matchup_statistics(get_random_move, selfplay_value_π)
+compare_ttt_policies(get_random_move, selfplay_value_results)
 
 # ╔═╡ 737d4566-a737-46d1-87f0-c691c7a12525
-get_ttt_matchup_statistics(get_random_move, o_vs_random_value_π)
+compare_ttt_policies(get_random_move, o_vs_random_value_results)
 
 # ╔═╡ 3b403f52-c12e-4477-9597-b1ba89096738
 const boardnodes = Dict(begin
@@ -2594,9 +2680,6 @@ eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
 
 # ╔═╡ 44d6a906-2966-4342-8b24-48682dfc4db7
 show_policy(board, f) = heatmap_board(hash(f), board, f(board))
-
-# ╔═╡ 9b1ec178-bebf-489b-8376-58b574d3c9dd
-show_policy(ttt_selfplay[2][end], board3, "self_play_actor_critic")
 
 # ╔═╡ de982a01-2d17-40fc-a005-a1d500ae38bf
 function get_minimax_policy(minimaxvalues, board)
@@ -2975,6 +3058,9 @@ function annotate_value(name, str)
 """
 end
 
+# ╔═╡ b3b6b689-e0c0-4b77-bcb8-8e6cb5f738c9
+value_board(name, v::AbstractFloat) = annotate_value(name, "Value Est: $(round(v, sigdigits = 2))")
+
 # ╔═╡ b3846537-df26-4e3d-b336-0990a544c2f9
 value_board(name, v) = annotate_value(name, "Value Est: $v")
 
@@ -3004,7 +3090,7 @@ end
 randomclassname(n = 20) = string(rand('a':'z'), String(rand(['a':'z'; '0':'9'; '_'; '-'], 20)))
 
 # ╔═╡ 957d0392-d627-4d47-95bf-ef927129279a
-function make_ttt_board_raw(board; colors = ["rgba(0, 0, 0, 0)" for _ in 1:9], cellsize = 100, name = randomclassname(), boardtitle = "")
+function make_ttt_board_raw(board; colors = ["rgba(0, 0, 0, 0)" for _ in 1:9], cellsize = 100, name = randomclassname(), boardtitle = "", value = nothing)
 	function makehtmlcell(v)
 		str = if v == 1
 			" x"
@@ -3026,6 +3112,10 @@ function make_ttt_board_raw(board; colors = ["rgba(0, 0, 0, 0)" for _ in 1:9], c
 	
 	makecells(board) = make_elems(makehtmlcell, board)
 
+	addvalue(v::AbstractFloat) = value_board(name, v)
+	addvalue(v::AbstractString) = annotate_value(name, v)
+	addvalue(::Nothing) = """"""
+
 	board = """
 	<span class = $name>
 	<div>$boardtitle</div>
@@ -3040,8 +3130,19 @@ function make_ttt_board_raw(board; colors = ["rgba(0, 0, 0, 0)" for _ in 1:9], c
 			flex-direction: column;
 		}
 	</style>
+	$(addvalue(value))
 	"""
 	(board = board, id = name)
+end
+
+# ╔═╡ 2172b39a-bf36-4e58-b40c-d8af22ab518f
+function makecompboard_display(board, policies::AbstractVector{T}, titles; kwargs...) where T <: ResultsTTT
+	@assert length(policies) == length(titles)
+	policyoutputs = [try policy.eval_board(board) catch; (zeros(9), "Invalid State") end for policy in policies]
+	rawboards = [make_ttt_board_raw(board; boardtitle = title, colors = policyoutputs[i][1], value = policyoutputs[i][2], kwargs...) for (i, title) in enumerate(titles)]
+	displayboards = [a[1] for a in rawboards]
+	boardids = [a[2] for a in rawboards]
+	(htmlboards = displayboards, boardids = boardids)
 end
 
 # ╔═╡ 4cd527c7-6e6e-47bf-971e-6256801005e8
@@ -3164,16 +3265,11 @@ style_value_policy(x_vs_o1_results.eval_board, xplayboard2...)
 # ╔═╡ 21a726ef-48f3-4e69-870c-549add227181
 @bind compboard1 TTTBoard(cellsize = 70)
 
-# ╔═╡ 28c068b4-53a7-4d35-93f8-d3a3da81d208
-#generate multiple boards with custom coloring
-comp1displayboards = [make_ttt_board_raw(compboard1[1], cellsize=70, boardtitle = title) for title in ["x vs random", "o vs x1", "x vs o1"]]
+# ╔═╡ ec60c197-e940-465d-ae13-20f1fa6f449b
+compdisplayboards1 = makecompboard_display(compboard1[1], [x_step_vs_random_results, o_vs_x1_results, x_vs_o1_results], ["x vs random", "o vs x1", "x vs o1"]; cellsize = 70)
 
-# ╔═╡ 5ece8d19-ac1c-4414-920a-24d833d8c7fd
-displayboards([a[1] for a in comp1displayboards])
-
-# ╔═╡ 48e5056c-192b-433a-b0bf-5deba31db223
-#style each board with the appropriate policy
-reduce(joinelements, [style_value_policy(result.eval_board, compboard1[1], board[2]).content for (result, board) in zip([x_step_vs_random_results, o_vs_x1_results, x_vs_o1_results], comp1displayboards)]) |> HTML
+# ╔═╡ 31112289-6978-49a9-a0ec-acba4289b0c8
+displayboards(compdisplayboards1.htmlboards)
 
 # ╔═╡ 2224d20f-c8dc-4ef6-af81-d1f832bee5ea
 @bind selfplayboard TTTBoard()
@@ -3191,25 +3287,52 @@ $(@bind base_board1 TTTBoard())
 """
 
 # ╔═╡ a4261098-17d6-47e4-9649-42e09d21d1ad
-style_value_policy(b -> value_policy_output(ttt_value_results, b), base_board1...)
+style_value_policy(x_vs_random_value_results.eval_board, base_board1...)
 
 # ╔═╡ 3efbbb22-1e34-4924-8a16-7289210437af
 @bind o_vs_random_value_board TTTBoard()
 
 # ╔═╡ c772ae36-3023-444f-a6f6-3b4c159541b8
-style_value_policy(b -> value_policy_output(o_vs_random_value_results, b), o_vs_random_value_board...)
+style_value_policy(o_vs_random_value_results.eval_board, o_vs_random_value_board...)
 
 # ╔═╡ 3f305df4-8419-42a0-b4c8-3990248aa0ce
 @bind o_vs_x1_value_board TTTBoard()
 
 # ╔═╡ e7a2e7df-f7fd-49db-8339-95fe96376ab6
-style_value_policy(b -> value_policy_output(o_vs_x1_value_results, b), o_vs_x1_value_board...)
+style_value_policy(o_vs_x1_value_results.eval_board, o_vs_x1_value_board...)
+
+# ╔═╡ dd17568a-4529-4fed-a84a-19b7207719e6
+@bind x_vs_o_value_board TTTBoard()
+
+# ╔═╡ 19163ab8-e3b8-4978-8968-48dd1aea6eed
+style_value_policy(x_vs_o_value_results.eval_board, x_vs_o_value_board...)
+
+# ╔═╡ 632fe679-d8e3-4555-9664-e655363b960a
+@bind o_vs_x2_value_board TTTBoard()
+
+# ╔═╡ eecf7438-5e47-489d-bbb8-7b9dd524c540
+style_value_policy(o_vs_x2_value_results.eval_board, o_vs_x2_value_board...)
+
+# ╔═╡ 03aabd5b-ada4-4a3a-96f1-e9cfc76e37a9
+@bind x_vs_o2_value_board TTTBoard()
+
+# ╔═╡ 1ad20faa-caea-4de9-9897-9425f10d4b4b
+style_value_policy(x_vs_o2_value_results.eval_board, x_vs_o2_value_board...)
 
 # ╔═╡ 3b466d93-fb32-4081-87db-e69d8e580af4
 @bind selfplay_value_board TTTBoard()
 
 # ╔═╡ 3afd97de-fa10-4458-a272-ede2fea04118
-style_value_policy(b -> value_policy_output(selfplay_value_results, b), selfplay_value_board...)
+style_value_policy(selfplay_value_results.eval_board, selfplay_value_board...)
+
+# ╔═╡ 15db7b51-0e5a-4356-9eff-8807b0666132
+@bind policycompboard TTTBoard(cellsize = 80)
+
+# ╔═╡ 034cf1e9-7408-4360-9338-d5aa00c25eec
+comp1displayboards = makecompboard_display(policycompboard[1], [selfplay_value_results, ttt_selfplay_results, x_vs_random_value_results, x_step_vs_random_results, o_vs_random_value_results, o_vs_x1_value_results, x_vs_o_value_results], ["value iteration selfplay", "actor/critic selfplay", "value iteration x vs random", "actor critic vs random", "value iteration o vs random", "value iteration o vs x1", "value iteration x vs o1"]; cellsize = 70)
+
+# ╔═╡ d8a17ed4-ce58-4495-8bb6-a84974d78977
+displayboards(comp1displayboards.htmlboards)
 
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
@@ -3978,6 +4101,7 @@ version = "17.4.0+0"
 # ╟─aa450da4-fe84-4eea-b6c4-9820b7982437
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
 # ╠═b406577a-5478-42fd-8ed0-e36b5574cfc6
+# ╠═385600b4-2bf2-43b9-88dd-18f2227bc8e3
 # ╠═2b11ef08-288f-4110-b741-ba580782b6a7
 # ╠═71973c41-5fbb-40bf-8cc9-e063c7372a1c
 # ╠═cb83e57f-3b3b-44ae-8c75-69b9b12ec6f5
@@ -4015,6 +4139,7 @@ version = "17.4.0+0"
 # ╟─273e7735-91a6-45cd-81ad-49d0da665143
 # ╠═8a4e2b43-15fe-49c4-a487-497875246f82
 # ╠═ac43b613-5c74-45bd-a49e-5b30bb19f52d
+# ╠═25dc6e02-dc77-4e7b-8639-ee39fee5d87e
 # ╠═1683b216-d310-4c66-81ba-0329898d90dd
 # ╠═d538939d-df32-4766-b3c7-f9fc5af564df
 # ╠═461e27bb-c38b-4dc6-aa68-d5d76ff79cbf
@@ -4152,9 +4277,9 @@ version = "17.4.0+0"
 # ╠═30090262-67a1-430a-b1fc-74fb59432def
 # ╟─9e32d0d4-bdbb-46a7-ad3c-34184cea0b92
 # ╟─21a726ef-48f3-4e69-870c-549add227181
-# ╟─5ece8d19-ac1c-4414-920a-24d833d8c7fd
-# ╠═28c068b4-53a7-4d35-93f8-d3a3da81d208
-# ╠═48e5056c-192b-433a-b0bf-5deba31db223
+# ╠═31112289-6978-49a9-a0ec-acba4289b0c8
+# ╠═ec60c197-e940-465d-ae13-20f1fa6f449b
+# ╠═2172b39a-bf36-4e58-b40c-d8af22ab518f
 # ╠═4cd527c7-6e6e-47bf-971e-6256801005e8
 # ╠═2b8a3cf6-0eef-4fd8-9704-dcfd1bd858f9
 # ╠═a70e9d2d-f964-4825-a66e-006d489c0538
@@ -4169,6 +4294,7 @@ version = "17.4.0+0"
 # ╠═a278e854-e230-42aa-97a2-0f5b7d1815af
 # ╠═702f39a7-f921-4f20-90d2-9b7ec493230e
 # ╠═088c2166-17ab-4c22-b621-6421316ebd52
+# ╠═c577550f-0fff-4a95-85c8-d6ef2b685dde
 # ╠═75377f64-9b4b-47ec-b25e-b17d42407fad
 # ╠═1d0fe433-0bca-4083-842b-dc209298af13
 # ╠═a0740d6d-d034-4037-b410-f31f76b207f5
@@ -4203,43 +4329,59 @@ version = "17.4.0+0"
 # ╟─d7976b1a-41a7-4d3d-9b0d-7b5a7d87da54
 # ╠═f1d6e558-6e7c-4238-983a-b756d4ea9450
 # ╠═8568dd44-ad15-42a6-9aff-62c41d2ff739
-# ╠═9b726b74-0e54-4031-b48b-f99248363962
-# ╠═f4e8f556-b131-4c86-b245-0f7a09760353
+# ╠═c5514f37-9987-4633-818c-adc480136683
 # ╠═8a9bbf5b-18f3-4cbe-ac15-d2d88b68f8bd
-# ╠═f0a358b5-9733-4593-8174-fa44c87d93b7
+# ╠═d4058d19-3c4d-48b9-9f65-f408fe79ce94
+# ╠═e62f195d-7b25-45e5-bdd0-7071b9323dab
+# ╠═2c2275fc-7b61-4734-859e-3e01b1dfc0ca
+# ╠═9b726b74-0e54-4031-b48b-f99248363962
 # ╟─f27dbf3c-df30-453c-8764-879df3b93694
 # ╠═a4261098-17d6-47e4-9649-42e09d21d1ad
 # ╠═47492b1f-2ff4-4f98-9489-68b2d8bc45ac
 # ╠═19fbb0b8-bc03-4203-a65d-0b1516b73174
+# ╟─b81f3149-8cff-4639-9ba7-d96b062decc4
 # ╟─3efbbb22-1e34-4924-8a16-7289210437af
 # ╠═c772ae36-3023-444f-a6f6-3b4c159541b8
 # ╠═f9063856-b2bf-4b01-90cf-2420d53405d2
 # ╠═540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
 # ╠═3f305df4-8419-42a0-b4c8-3990248aa0ce
 # ╠═e7a2e7df-f7fd-49db-8339-95fe96376ab6
-# ╠═bd9b454c-5038-469c-97af-595c6c91cf4b
-# ╠═73f0ca1b-b331-4682-9741-3399a0ac3d46
-# ╠═91bbd3df-8a06-4e16-b8b4-46887f8b7e8c
-# ╠═72b5a805-a908-4f16-ba29-212f5c464baf
+# ╠═f6bb82e1-9274-425c-901a-35ced8c32f87
+# ╠═c325fcc9-28a5-45ab-9517-b1f48b169664
+# ╠═dd17568a-4529-4fed-a84a-19b7207719e6
+# ╠═19163ab8-e3b8-4978-8968-48dd1aea6eed
+# ╠═eaa953a0-6281-4dc8-9a93-fc8da3779fb6
+# ╠═a9c7a7e4-093b-4bc3-bf81-7ab8343994cc
+# ╠═632fe679-d8e3-4555-9664-e655363b960a
+# ╠═eecf7438-5e47-489d-bbb8-7b9dd524c540
+# ╠═47f54710-10e9-4f25-b122-595f33b9b37f
+# ╠═4c44dcde-c390-4bdf-9d31-7f4e376112d3
+# ╠═03aabd5b-ada4-4a3a-96f1-e9cfc76e37a9
+# ╠═1ad20faa-caea-4de9-9897-9425f10d4b4b
+# ╠═839ba147-f695-4ba6-922e-c700db120ab3
+# ╠═b1db9fd1-b276-4b12-a0d6-a20361265b2f
+# ╠═a25e11f3-7e97-42ed-b1b5-fec72663001b
+# ╠═985cc4f8-80b9-4562-91c7-c962accdeb4d
+# ╠═5ac09667-ad41-4b8e-ab7a-857643a69511
 # ╠═3bea1145-2387-4674-9ac4-cad212694e72
-# ╠═148360dc-b9eb-484b-a8c0-6cec9edaca24
-# ╠═07e29c7d-ec52-4abd-9d60-46bdfc51ba15
-# ╠═55636bc9-0500-4327-894a-a6b2a67f4ef9
-# ╠═514e48df-9fdd-41d8-bf7b-d3562531c91c
-# ╠═19fbbb78-7e8d-4f04-b0fb-dd940dc316b7
-# ╠═a7d3ac39-4317-428b-8a66-6a353a8a1ca5
-# ╠═f726ddb2-e33f-40e0-8c91-b3a2163e7db1
-# ╠═16c09b54-23cf-46bc-8dfe-77c78065e8cb
-# ╠═9b1ec178-bebf-489b-8376-58b574d3c9dd
 # ╠═be0ab5f8-a89f-4127-96ee-3d9a52f6887a
 # ╠═28729f3c-2f68-4399-afe6-2c56a76cb3cc
 # ╠═1539ff60-3082-4e5c-ad52-dbb93299bac2
 # ╠═3b466d93-fb32-4081-87db-e69d8e580af4
 # ╠═3afd97de-fa10-4458-a272-ede2fea04118
-# ╠═93ca1d37-1f88-4c9d-958d-8ee30c9ee079
-# ╠═df2f8ceb-e231-4580-8faf-0e73209d8d4b
-# ╠═a7e03990-4cb3-4d1a-9cbe-a362ec8870cd
-# ╠═cb707369-245d-455d-a6b0-8b62b4f13635
+# ╟─9f1d9b18-d5cc-4c91-85ae-b60f617e8d09
+# ╟─15db7b51-0e5a-4356-9eff-8807b0666132
+# ╟─d8a17ed4-ce58-4495-8bb6-a84974d78977
+# ╠═034cf1e9-7408-4360-9338-d5aa00c25eec
+# ╠═35761e33-0319-4d8c-aeea-263ddc752626
+# ╠═1d1269e2-a175-4fee-b43b-999dd9d6e061
+# ╠═6f4db010-7738-435d-8338-1353e8e40f39
+# ╠═59f08a12-0208-48bb-a461-63b78c558536
+# ╠═5636cc70-c885-4b57-9f9a-d1848d285735
+# ╠═74b7c99b-e268-4b80-ba17-97c0d5fc639d
+# ╠═5aee3064-0ff1-4162-8204-dda6f1dc2c78
+# ╠═0cdc2c60-5532-436c-a6d1-e8e465cc380c
+# ╠═bebc22d1-ccdb-4a60-90e2-7574aa6fc74b
 # ╠═88faed7e-9e0d-48a2-8992-72f20854157f
 # ╠═cdf467f0-1dec-46cb-a354-8fde5eb22e09
 # ╠═d2abed56-7b34-4885-96ed-9c295870d061
@@ -4282,6 +4424,7 @@ version = "17.4.0+0"
 # ╠═a8520c73-60f6-4d9f-9949-9f75e7345c58
 # ╠═905c92e5-9130-4353-8bc1-69d80b8f7735
 # ╠═081139f2-a2be-4a84-bb73-cb3a8c3f7974
+# ╠═b3b6b689-e0c0-4b77-bcb8-8e6cb5f738c9
 # ╠═b3846537-df26-4e3d-b336-0990a544c2f9
 # ╠═45c3e544-6cc9-4694-b0ff-c7d876fac5de
 # ╠═9e9c655b-035e-4de7-bb67-7f8c5f8d76a3
