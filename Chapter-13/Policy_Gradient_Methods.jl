@@ -14,6 +14,9 @@ macro bind(def, element)
     end
 end
 
+# ╔═╡ 28c8ac96-a114-42b7-b864-b4a2577f15c0
+using HTTP
+
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 begin
 	using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase, LinearAlgebra, LaTeXStrings, Base.Threads, ProfileCanvas, HypertextLiteral, ProgressLogging, BenchmarkTools, Transducers, StaticArrays
@@ -2732,6 +2735,164 @@ end
 # ╔═╡ 811fcaed-fcbb-4109-bf79-05cf1bfec645
 (baseval, minimaxvalues, minimax_policy) = run_minimax(ttt_environment.init_board)
 
+# ╔═╡ 915f17a0-dfb7-46fe-8a01-73a1a739210d
+md"""
+## Wordle Environment
+
+Unlike the previous examples, this game has a state space which is too large to enumerate.  There are ~13k possible words that could be guessed.  For each 5 letter word we receive feedback in the form of a list of 5 values indicated by green, yellow, or gray.  So for any guess would could receive one of $3^5=243$ different sets of feedback.  Assuming it is possible to receive any form of feedback for a given guess, we can get an upper bound on the number of possible guess/feedback states: $243 \times 13000\approx 3.16\times 10^6$.  That alone isn't intractable, but we can make up to six guesses in a game.  To solve the game, the state needs to include the previous guesses and the feedback received, meaning we would need potentially over $10^38$ states.  What isn't intractable is enumerating the feedback for every possible guess/answer pair.  If we represent feedback as an 8 bit Unsigned Integer rather than a vector of colors, that would be a matrix of 170 million values.  Once we construct this matrix we can very quickly look up the feedback for a guess without having to calculate anything.
+
+To avoid variable lengths of state representations, we can notice that after a guess and the received feedback, we know for certain which words could be the answer and which cannot.  In particular, the row of the feedback matrix associated with a particular guess will have one or more indices that match a feedback value.  In the best case, only one index in the row will match, and the word associated with that index is the unique answer.  In general there will be a set of indices that match, and those are the remaining possible answers.  After a number of guesses, this list shrinks and can always be represented by a bit array whose length equals the number of possible guesses where each word is marked either 1 or 0 depending on if it is a possible answer.  So our state feature vectors are just binary vectors and the action space is the same length as any one of the possible words could be chosen for a guess.  One additional complication is that we need to keep track of how many guesses remain from 6 down to 0.  This can be achieved by appending a 6 length onehot vector to the end that indicates which guess we are on.  We will need to use these feature vectors with parametrized approximation functions.  
+"""
+
+# ╔═╡ 744c064a-fb12-4a44-8e2f-8b666260c35d
+word_data = String(HTTP.get("https://raw.githubusercontent.com/3b1b/videos/master/_2022/wordle/data/allowed_words.txt").body)
+
+# ╔═╡ f14aea94-3e1c-4cb5-b045-73cfb3afca8a
+wordlist = split(word_data, "\n") |> Filter(!isempty) |> Map(String) |> collect
+
+# ╔═╡ 7863fa1c-1dad-4f4c-8927-5be4c6535820
+const letters = collect('a':'z')
+
+# ╔═╡ 8783f033-895c-4442-b054-1bcb92e36df9
+const letter_lookup = Dict(zip(letters, UInt8.(eachindex(letters))))
+
+# ╔═╡ 95c290c2-c622-431a-bb91-570183cb1385
+const MISSING = 0x00
+
+# ╔═╡ 3c505317-95b2-4216-a3fe-6f7e2a858e80
+const EXACT = 0x02
+
+# ╔═╡ 79283854-9816-489e-88fb-d4d1adf2b208
+const MISPLACED = 0x01
+
+# ╔═╡ 0aaaaffb-86a5-4bc6-9858-61fa3e3ff140
+const WORDLEWIN = UInt8(242)
+
+# ╔═╡ 2c76b158-6678-4459-b76e-10af97555772
+const WORDLETERM = BitVector(zeros(length(wordlist)))
+
+# ╔═╡ bd5e1f4e-6c9b-4abc-a0c1-89a3993d8210
+word2num(word) = SVector{5, UInt8}(letter_lookup[c] for c in word)
+
+# ╔═╡ ea44fb9c-2faa-4c0b-888b-7eac95b9e19c
+num2word(vec) = String([letters[i] for i in vec])
+
+# ╔═╡ 39bb639c-6719-4da7-8726-c3c8621e5fb4
+const word_index = Dict(zip(wordlist, UInt16.(eachindex(wordlist))))
+
+# ╔═╡ 998d4920-d7ec-478f-908c-9e3bdb3d6399
+const word_arrays = [word2num(w) for w in wordlist]
+
+# ╔═╡ fd0c6dda-90b5-43ec-bdc0-df875212d9f1
+const feedback_index = SVector{243}(SVector{5, UInt8}(digits(n; base=3, pad=5)) for n in 0:242)
+
+# ╔═╡ 4307c04c-9440-4991-9455-7b7d959ac656
+get_feedback(n::Integer) = feedback_index[n+1]
+
+# ╔═╡ edc5a1e2-a1e0-495a-8153-0398df9cf2b5
+convert_bytes(v) = eachindex(v) |> Map(i -> v[i] * (3 ^ (i-1))) |> sum |> UInt8
+
+# ╔═╡ c96dd818-96aa-4493-b8fb-77c51a72194f
+const char_counts = MVector{26}(zeros(UInt8, 26))
+
+# ╔═╡ c6f31993-0cf0-4da4-82e1-3a2b28874f77
+const checkinds = BitVector(zeros(5))
+
+# ╔═╡ a8e77437-596f-45db-9773-14f9fe953259
+function get_feedback(guess::SVector{5, UInt8}, answer::SVector{5, UInt8}, counts::MVector{26, UInt8} = MVector{26, UInt8}(zeros(26)), checkinds = checkinds)
+	output::UInt8 = 0x00
+	counts .= 0x00
+
+	#green pass
+	for (i, c) in enumerate(answer)
+		#mark characters that need to be covered by yellow pass
+		counts[c] += 0x01
+		if guess[i] == c
+			output += (EXACT * (0x03^(i-0x01)))
+			#remove one count of letter from yellow pass
+			counts[c] -= 0x01
+			#remove index from yellow pass
+			checkinds[i] = 0
+		else
+			#check this index on yellow pass
+			checkinds[i] = 1
+		end
+	end
+
+	#yellow pass
+	for (i, c) in enumerate(guess)
+		if checkinds[i] && (counts[c] > 0)
+			output += (MISPLACED * (0x03^(i-0x01)))
+			counts[c] -= 0x01
+		end
+	end
+	return output
+end
+
+# ╔═╡ a4d820f6-f6a9-4988-8c0e-d18967d305e3
+function get_feedback(guess::AbstractString, answer::AbstractString)
+	g = word_arrays[word_index[guess]]
+	a = word_arrays[word_index[answer]]
+	get_feedback(g, a) |> get_feedback
+end
+
+# ╔═╡ 9509cc0d-268e-4712-a378-2595a56313d5
+get_feedback(n1::Integer, n2::Integer) = get_feedback(word_arrays[n1], word_arrays[n2]) |> get_feedback
+
+# ╔═╡ c110651c-fc99-44b9-bfad-2650f8553026
+function make_feedback_matrix(list1::AbstractVector{T}, list2::AbstractVector{T}) where T <: SVector{5, UInt8}
+	feedback_matrix = zeros(UInt8, length(list1), length(list2))
+	for i in eachindex(list1) for j in eachindex(list2)
+		feedback_matrix[i, j] = get_feedback(list1[i], list2[j], char_counts)
+	end end
+	return feedback_matrix
+end
+
+# ╔═╡ 14b3d98c-8c5b-4d8e-8a74-98ac90f75da3
+const feedback_matrix = make_feedback_matrix(word_arrays, word_arrays)
+
+# ╔═╡ d8bd669e-8765-493b-9513-e5db805df315
+lookup_feedback(guess::AbstractString, answer::AbstractString) = feedback_matrix[word_index[guess], word_index[answer]]
+
+# ╔═╡ cb854d5b-058b-40f1-8213-6047530910b2
+lookup_feedback(n1::Integer, n2::Integer) = feedback_matrix[n1, n2]
+
+# ╔═╡ a4d1186d-6f43-4c0a-b818-3138a7237484
+#given a guess and answer, produce the feedback and determine the number of possible words that could be the answer
+get_possible_words(guess, answer) = get_possible_words(guess, lookup_feedback(guess, answer))
+
+# ╔═╡ 45f173d9-0d13-4771-be51-54f5770ec6d0
+get_possible_words(guess::AbstractString, feedback::Integer) = get_possible_words(word_index[guess], feedback)
+
+# ╔═╡ adffcbd9-48bd-4d31-9a63-7b9e7c9c1f85
+get_possible_words(g_index::Integer, feedback::Integer) = view(feedback_matrix, g_index, :) .== feedback
+
+# ╔═╡ 25f11075-832f-4840-bfa3-32ef170e2041
+get_possible_feedback(g_index::Integer) = view(feedback_matrix, g_index, :)
+
+# ╔═╡ ca80286d-db1d-4d44-bbd0-0c3baa4bcb5f
+function wordle_step(answer, n, guess)
+	feedback = lookup_feedback(guess, answer)
+	feedback == WORDLEWIN && return (WORDLETERM, 1.0) 
+	n == 6 && return (WORDLETERM, -1.0)
+	(get_possible_words(guess, feedback), 0.0)
+end
+
+# ╔═╡ aab25a03-fed0-4803-9527-d168363d9576
+f1 = get_possible_words("apple", "crane")
+
+# ╔═╡ e05671b1-8b90-4d5f-a0f1-16aa499f46ce
+f2 = get_possible_words("blobs", "crane")
+
+# ╔═╡ 12d26759-74c3-47c6-b88e-d86bb422f0a6
+sum(f1 .&& f2)
+
+# ╔═╡ 33bff271-3c12-47b9-a31e-53cbdea00d36
+apple_possible = [sum(get_possible_words("apple", w)) for w in wordlist]
+
+# ╔═╡ e4266c59-d3ce-40cb-9f64-def0ba6b1d66
+wordlist[sortperm(apple_possible)]
+
 # ╔═╡ f7ede764-5ad8-426b-a805-cc21b622d977
 md"""
 # Results Caching
@@ -3381,6 +3542,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -3396,6 +3558,7 @@ Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 [compat]
 BenchmarkTools = "~1.3.2"
 Distributions = "~0.25.87"
+HTTP = "~1.9.4"
 HypertextLiteral = "~0.9.4"
 LaTeXStrings = "~1.3.0"
 PlutoPlotly = "~0.3.6"
@@ -3413,7 +3576,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.0"
 manifest_format = "2.0"
-project_hash = "6263ef7cb0fcc213303fc01e0ce38eda42ef5f78"
+project_hash = "5e66dda1c073f4a7725f89e2d0373276bce180a3"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -3463,6 +3626,11 @@ git-tree-sha1 = "d9a9701b899b30332bbcb3e1679c41cce81fb0e8"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.3.2"
 
+[[deps.BitFlags]]
+git-tree-sha1 = "43b1a4a8f797c1cddadf60499a8a077d4af2cd2d"
+uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
+version = "0.1.7"
+
 [[deps.Calculus]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "f641eb0a4f00c343bbc32346e1217b86f3ce9dad"
@@ -3474,6 +3642,12 @@ deps = ["Compat", "LinearAlgebra", "SparseArrays"]
 git-tree-sha1 = "c6d890a52d2c4d55d326439580c3b8d0875a77d9"
 uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 version = "1.15.7"
+
+[[deps.CodecZlib]]
+deps = ["TranscodingStreams", "Zlib_jll"]
+git-tree-sha1 = "9c209fb7536406834aa938fb149964b985de6c83"
+uuid = "944b1d66-785c-5afd-91f1-9de20f533193"
+version = "0.7.1"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "Random", "SnoopPrecompile"]
@@ -3518,6 +3692,12 @@ version = "1.0.2+0"
 git-tree-sha1 = "455419f7e328a1a2493cabc6428d79e951349769"
 uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
 version = "0.1.1"
+
+[[deps.ConcurrentUtilities]]
+deps = ["Serialization", "Sockets"]
+git-tree-sha1 = "96d823b94ba8d187a6d8f0826e731195a74b90e9"
+uuid = "f0e56b4a-5159-44fe-b623-3e5288b988bb"
+version = "2.2.0"
 
 [[deps.ConstructionBase]]
 deps = ["LinearAlgebra"]
@@ -3617,6 +3797,12 @@ version = "0.8.4"
 [[deps.Future]]
 deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
+
+[[deps.HTTP]]
+deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
+git-tree-sha1 = "41f7dfb2b20e7e8bf64f6b6fae98f4d2df027b06"
+uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+version = "1.9.4"
 
 [[deps.HypergeometricFunctions]]
 deps = ["DualNumbers", "LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
@@ -3723,6 +3909,12 @@ version = "0.3.23"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
+[[deps.LoggingExtras]]
+deps = ["Dates", "Logging"]
+git-tree-sha1 = "cedb76b37bc5a6c702ade66be44f831fa23c681e"
+uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
+version = "1.0.0"
+
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
@@ -3737,6 +3929,12 @@ version = "0.5.10"
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+
+[[deps.MbedTLS]]
+deps = ["Dates", "MbedTLS_jll", "MozillaCACerts_jll", "Random", "Sockets"]
+git-tree-sha1 = "03a9b9718f5682ecb107ac9f7308991db4ce395b"
+uuid = "739be429-bea8-5141-9913-cc70e7f3736d"
+version = "1.1.7"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -3781,6 +3979,18 @@ version = "0.3.21+4"
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
 version = "0.8.1+0"
+
+[[deps.OpenSSL]]
+deps = ["BitFlags", "Dates", "MozillaCACerts_jll", "OpenSSL_jll", "Sockets"]
+git-tree-sha1 = "51901a49222b09e3743c65b8847687ae5fc78eb2"
+uuid = "4d8831e6-92b7-49fb-bdf8-b643e874388c"
+version = "1.4.1"
+
+[[deps.OpenSSL_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "6cc6366a14dbe47e5fc8f3cbe2816b1185ef5fc4"
+uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
+version = "3.0.8+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
@@ -3910,6 +4120,11 @@ git-tree-sha1 = "e2cc6d8c88613c05e1defb55170bf5ff211fbeac"
 uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
 version = "1.1.1"
 
+[[deps.SimpleBufferStream]]
+git-tree-sha1 = "874e8867b33a00e784c8a7e4b60afe9e037b74e1"
+uuid = "777ac1f9-54b0-4bf8-805c-2214025038e7"
+version = "1.1.0"
+
 [[deps.SnoopPrecompile]]
 deps = ["Preferences"]
 git-tree-sha1 = "e760a70afdcd461cf01a575947738d359234665c"
@@ -4027,6 +4242,12 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[[deps.TranscodingStreams]]
+deps = ["Random", "Test"]
+git-tree-sha1 = "9a6ae7ed916312b41236fcef7e0af564ef934769"
+uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
+version = "0.9.13"
 
 [[deps.Transducers]]
 deps = ["Adapt", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "Setfield", "SplittablesBase", "Tables"]
@@ -4401,6 +4622,43 @@ version = "17.4.0+0"
 # ╠═de982a01-2d17-40fc-a005-a1d500ae38bf
 # ╠═40500856-73f6-47ab-97d2-afd69eaf6d95
 # ╠═fac24b16-ca02-4255-bd5f-ac8995e2b52f
+# ╟─915f17a0-dfb7-46fe-8a01-73a1a739210d
+# ╠═28c8ac96-a114-42b7-b864-b4a2577f15c0
+# ╠═744c064a-fb12-4a44-8e2f-8b666260c35d
+# ╠═f14aea94-3e1c-4cb5-b045-73cfb3afca8a
+# ╠═7863fa1c-1dad-4f4c-8927-5be4c6535820
+# ╠═8783f033-895c-4442-b054-1bcb92e36df9
+# ╠═95c290c2-c622-431a-bb91-570183cb1385
+# ╠═3c505317-95b2-4216-a3fe-6f7e2a858e80
+# ╠═79283854-9816-489e-88fb-d4d1adf2b208
+# ╠═0aaaaffb-86a5-4bc6-9858-61fa3e3ff140
+# ╠═2c76b158-6678-4459-b76e-10af97555772
+# ╠═bd5e1f4e-6c9b-4abc-a0c1-89a3993d8210
+# ╠═ea44fb9c-2faa-4c0b-888b-7eac95b9e19c
+# ╠═39bb639c-6719-4da7-8726-c3c8621e5fb4
+# ╠═998d4920-d7ec-478f-908c-9e3bdb3d6399
+# ╠═fd0c6dda-90b5-43ec-bdc0-df875212d9f1
+# ╠═4307c04c-9440-4991-9455-7b7d959ac656
+# ╠═edc5a1e2-a1e0-495a-8153-0398df9cf2b5
+# ╠═c96dd818-96aa-4493-b8fb-77c51a72194f
+# ╠═c6f31993-0cf0-4da4-82e1-3a2b28874f77
+# ╠═a8e77437-596f-45db-9773-14f9fe953259
+# ╠═a4d820f6-f6a9-4988-8c0e-d18967d305e3
+# ╠═9509cc0d-268e-4712-a378-2595a56313d5
+# ╠═c110651c-fc99-44b9-bfad-2650f8553026
+# ╠═14b3d98c-8c5b-4d8e-8a74-98ac90f75da3
+# ╠═d8bd669e-8765-493b-9513-e5db805df315
+# ╠═cb854d5b-058b-40f1-8213-6047530910b2
+# ╠═a4d1186d-6f43-4c0a-b818-3138a7237484
+# ╠═45f173d9-0d13-4771-be51-54f5770ec6d0
+# ╠═adffcbd9-48bd-4d31-9a63-7b9e7c9c1f85
+# ╠═25f11075-832f-4840-bfa3-32ef170e2041
+# ╠═ca80286d-db1d-4d44-bbd0-0c3baa4bcb5f
+# ╠═aab25a03-fed0-4803-9527-d168363d9576
+# ╠═e05671b1-8b90-4d5f-a0f1-16aa499f46ce
+# ╠═12d26759-74c3-47c6-b88e-d86bb422f0a6
+# ╠═33bff271-3c12-47b9-a31e-53cbdea00d36
+# ╠═e4266c59-d3ce-40cb-9f64-def0ba6b1d66
 # ╟─f7ede764-5ad8-426b-a805-cc21b622d977
 # ╠═2e2435bc-ca24-4b1f-87bb-4d20e7a346d8
 # ╠═8afb8301-d2b9-4719-9337-3e6de5e2a535
