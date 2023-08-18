@@ -110,34 +110,50 @@ function sample_bandit(a::Integer, qs::Vector{T}) where T<:AbstractFloat
 end
 
 # ╔═╡ 3a798da5-c309-48f2-aab1-6602ded8a650
-function simple_algorithm(qs::Vector{Float64}, k::Integer, ϵ::AbstractFloat; steps = 1000, Qinit = 0.0, α = 0.0, c = 0.0)
+function simple_algorithm(qs::Vector{Float64}, k::Integer, ϵ::AbstractFloat; 
+	steps = 1000, 
+	Qinit = 0.0, 
+	α = 0.0, 
+	c = 0.0, 
+	#pre-allocated result vectors, can be provided to function to reduce allocations
+	cum_reward_ideal = zeros(steps),
+	step_reward_ideal = zeros(steps),
+	cum_reward = zeros(steps),
+    step_reward = zeros(steps),
+	optimalstep = fill(false, steps),
+	optimalaction_pct = zeros(steps))
+
+	#define bandit sampling function and initialize action value estimates
     bandit(a) = sample_bandit(a, qs)
     N = zeros(k)
     Q = ones(k) .* Qinit
     accum_reward_ideal = 0.0
     accum_reward = 0.0
-    cum_reward_ideal = zeros(steps)
-    step_reward_ideal = zeros(steps)
-    cum_reward = zeros(steps)
-    step_reward = zeros(steps)
+   
     bestaction = argmax(qs)
-    optimalstep = fill(false, steps)
+   
     optimalcount = 0
-    optimalaction_pct = zeros(steps)
+   
     actions = collect(1:k)
     for i = 1:steps
         shuffle!(actions) #so that ties are broken randomly with argmax
         a = if rand() < ϵ
             rand(actions)
 		elseif c == 0.0
-			actions[argmax(view(Q, actions))]
+			#plain ϵ-greedy action selection
+			actions[argmax(view(Q, actions))]	
 		else
+			#UCB action selection
            	actions[argmax(view(Q, actions) .+ (c .* sqrt.(log(i) ./ view(N, actions))))]
 		end
         if a == bestaction
             optimalstep[i] = true
             optimalcount += 1
-        end
+		else
+			optimalstep[i] = false
+		end
+
+		#sample reward and 
         step_reward[i] = bandit(a) 
         step_reward_ideal[i] = bandit(bestaction)
         accum_reward_ideal += step_reward_ideal[i] 
@@ -147,8 +163,10 @@ function simple_algorithm(qs::Vector{Float64}, k::Integer, ϵ::AbstractFloat; st
         optimalaction_pct[i] = optimalcount / i
         N[a] += 1.0
         if α == 0.0
+			#sample-average
             Q[a] += (1.0/N[a])*(step_reward[i] - Q[a])
         else 
+			#exponential recency-weighted average
             Q[a] += α*(step_reward[i] - Q[a])
         end
     end
@@ -157,12 +175,35 @@ end
 
 # ╔═╡ 33009d31-6d66-4aba-b44c-edd911c2f392
 function average_simple_runs(k, ϵ; steps = 1000, n = 2000, Qinit = 0.0, α=0.0, c = 0.0)
-    runs = Vector{NamedTuple}(undef, n)
-    @threads for i in 1:n
+    runs = Vector{Vector{Vector{Float32}}}(undef, n)
+	outnames = (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct)
+	qs = create_bandit(k)
+	run1 = simple_algorithm(qs, k, ϵ, steps = steps, Qinit = Qinit, α = α, c = c)
+	out = [Float32.(run1[name]) for name in outnames]
+	runs[1] = out
+    @threads for i in 2:n
+		runs[i] = deepcopy(out)
         qs = create_bandit(k)
-        runs[i] = simple_algorithm(qs, k, ϵ, steps = steps, Qinit = Qinit, α = α, c = c) 
-    end
-    map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
+        run = simple_algorithm(qs, k, ϵ; 
+			steps = steps, Qinit = Qinit, α = α, c = c) 
+			# cum_reward_ideal = run1.cum_reward_ideal, 
+			# step_reward_ideal = run1.step_reward_ideal, 
+			# cum_reward = run1.cum_reward, 
+			# step_reward = run1.step_reward, 
+			# optimalstep = run1.optimalstep, optimalaction_pct = run1.optimalaction_pct) 
+    	for j in eachindex(outnames)
+			# out[i] .+= Float32.(run[outnames[i]])
+			runs[i][j] .= Float32.(run[outnames[j]])
+		end
+	end
+	for i in eachindex(out)
+		for j in 2:n
+			out[i] .+= runs[j][i]
+		end
+		out[i] ./= n
+	end
+    # map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
+	return out
 end
 
 # ╔═╡ c12dab6a-92f0-41b1-a6b7-c404c74d9a83
@@ -206,16 +247,16 @@ action_value_testbed_plot(;ϵ_action_value_params...)
 md"""
 >*Exercise 2.2:* *Bandit example* Consider a k-armed bandit problem with k = 4 actions, denoted 1, 2, 3, and 4. Consider applying to this problem a bandit algorithm using $\epsilon$-greedy action selection, sample-average action-value estimates, and initial estimates of $Q_1(a) = 0$, for all a. Suppose the initial sequence of actions and rewards is $A_1 = 1$, $R_1 = −1$, $A_2 = 2$, $R_2 = 1$, $A_3 = 2$, $R_3 = −2$, $A_4 = 2$, $R_4 = 2$, $A_5 = 3$, $R_5 = 0$. On some of these time steps the $\epsilon$ case may have occurred, causing an action to be selected at random. On which time steps did this definitely occur? On which time steps could this possibly have occurred?
 
-The table below summarizes the actions taken leading into every step and the Q estimate for each action at the end of each step.  So step 0 shows the initial Q estimates of 0 for every action and the selected action 1 that generates the reward on step 1.  For the row in step 1 it shows the Q estimates after receiving the reward on step 1 and thus what actions are demanded by a greedy choice leading into the next step.  If the action selected is not equal to or in the set of greedy actions, then a random action **must** have occured.  Since a random action choice can also select one of the greedy actions, such a random choice is possible at every step.  Note that the answer in row 0 corresponds to action $A_1$, row 1 -> $A_2$ etc...
+The table below summarizes the actions taken leading into every step and the Q estimate for each action at the end of each step.  So step 0 shows the initial Q estimates of 0 for every action and the selected action 1 that generates the reward on step 1.  For the row in step 1 it shows the Q estimates after receiving the reward on step 1 and thus what actions are demanded by a greedy choice leading into the next step.  If the action selected is not in the set of greedy actions, then a random action **must** have occured.  Since a random action choice can also select one of the greedy actions, such a random choice is possible at every step.  Note that the answer in row 0 corresponds to action $A_1$, row 1 -> $A_2$ etc...
 
 |Step|$Q(1)$|$Q(2)$|$Q(3)$ | Action Selected | Reward 	| Greedy Action | $\epsilon$ Case |
 |----|---- |---- | ---- | ---- 			  | --- 	|  ----         | ----          |
 |  0 |  0  |  0  | 0    | 1               | -1 		| 	1-3         | possibly 		    |
 |  1 |  -1 |  0  | 0    | 2               | 1 | 2-3           | possibly            |
 |  2 |  -1 |  1  | 0 	| 2 | -2 | 2 | possibly |
-| 3  |  -1 | -.5 | 0  	| 2 | 2 |  3 | definitely |
-| 4  | -1  | 0.5 | 0 	| 3 | 0 | 2 | definitely |
-| 5  | -1  |  0.5 |  0 | n/a | n/a |  n/a | n/a |
+| 3  |  -1 | $-\frac{1}{2}$ | 0  	| 2 | 2 |  3 | definitely |
+| 4  | -1  | $\frac{1}{3}$ | 0 	| 3 | 0 | 2 | definitely |
+| 5  | -1  |  $\frac{1}{3}$ |  0 | n/a | n/a |  2 | n/a |
 """
 
 # ╔═╡ 464d43c0-cd59-49e6-88f6-12a767677418
@@ -262,11 +303,42 @@ visualize_bandit_dist(n = n_arms_vis)
 # ╔═╡ e07a27c5-0c9a-4893-a1cf-cf565ab78761
 md"""
 ## 2.4 Incremental Implementation
+The sample-average for the action-value estimate is defined as $Q_n \dot = \frac{R_1+R_2+\cdots+R_{n-1}}{n-1}$.  To compute this we can maintain a record of every reward and every time we accumulate a new reward recompute the entire average.  However that is inefficient in terms of computational and memory resources.  It is possible to instead maintain a single value for the estimate at step n (and n itself) and update it incrementally every time we obtain a new reward.
+
+The update formula for $Q_{n+1}$ when we obtain a new reward sample is derived below:
+
+$\begin{flalign}
+Q_{n+1} &= \frac{1}{n} \sum_{i=1}^n R_i \\
+&= \frac{1}{n} \left ( R_n + \sum_{i=1}^{n-1} R_i \right ) \\
+&= \frac{1}{n} \left ( R_n + (n-1) \frac{1}{n-1} \sum_{i=1}^{n-1} R_i \right ) \\
+&= \frac{1}{n} \left ( R_n + (n-1) Q_n \right ) \tag{definition of Q} \\
+&= \frac{1}{n} \left ( R_n + n Q_n - Q_n \right ) \\
+&= Q_n + \frac{1}{n} \left [ R_n + Q_n \right ] \tag{2.3}
+\end{flalign}$
+
+The update rule (2.3) is of a form that occurs frequently whose general form is
+
+$NewEstimate \leftarrow OldEstimate + StepSize \left [ Target - OldEstimate \right ] \tag{2.4}$
+
+Notice that the step size parameter in this case is $\frac{1}{n}$ but in general it can be constant or depend on the step count and the action itself.  In this case it is denoted $\alpha_t (a)$.  The simple bandit algorithm that uses this incremental update rule is implemented above in section **2.3**. 
 """
 
 # ╔═╡ 86350532-13f8-4035-bad8-f25f41c93163
 md"""
 ## 2.5 Tracking a Nonstationary Problem
+"""
+
+# ╔═╡ a84f5393-bd7e-433e-b3d9-e9e7cfa1a329
+md"""
+In the case of a non-stationary problem, the sample-average method is not ideal because it weights samples from the past equally to the present.  We can change the incremental implementation of the average to weight more recent rewards higher than past ones.  A constant step-size parameter is one way of doing this.  In this case we will change the update rule (2.3) to:
+
+$Q_{n+1} \dot = Q_n + \alpha [R_n - Q_n] \tag{2.5}$
+
+By writing this as an explicite sum over all rewards, one can observe that this update rule computes a weights average whose weights exponentially decay into the past.  See a similar derivation in exercise 2.4.  In order to guarantee that Q converges to the true expected value, the step size parameter must obey the following relationships:
+
+$\sum_{n=1}^\infty = \infty \quad \quad \text{and} \quad \quad \sum_{n=1}^\infty \alpha_n^2(a) < \infty \tag{2.7}$
+
+The first condition insures steps are large enough to overcome initial conditions and the second condition insures steps are small enough to converge.  These are both met by the sample average step size of $\frac{1}{n}$ for not by the constant step size.  That is desireable in a non-stationary environment where there is no stable value to converge to in the first place.  
 """
 
 # ╔═╡ 78c45162-dc8e-4faf-b1a9-8c71be86dcee
@@ -278,7 +350,7 @@ From (2.6):  $Q_{n+1} = Q_n + \alpha[R_n - Q_n]$ so here we consider the case wh
 $\begin{flalign}
 Q_{n+1}&=Q_n + \alpha_n[R_n - Q_n]\\
 &=\alpha_nR_n+(1-\alpha_n)Q_n\\
-&=\alpha_nR_n+(1-\alpha_n)[\alpha_{n-1}R_{n-1}+(1-\alpha_{n-1})Q_{n-1}]\\
+&=\alpha_nR_n+(1-\alpha_n)[\alpha_{n-1}R_{n-1}+(1-\alpha_{n-1})Q_{n-1}] \tag{using recursive formula from first step}\\
 &=\alpha_nR_n+(1-\alpha_n)\alpha_{n-1}R_{n-1}+(1-\alpha_n)(1-\alpha_{n-1})Q_{n-1}\\
 &=\alpha_nR_n+(1-\alpha_n)\alpha_{n-1}R_{n-1}+(1-\alpha_n)(1-\alpha_{n-1})[\alpha_{n-2}R_{n-2}+(1-\alpha_{n-2})Q_{n-2}]\\
 &=\alpha_nR_n+(1-\alpha_n)\alpha_{n-1}R_{n-1}+(1-\alpha_n)(1-\alpha_{n-1})\alpha_{n-2}R_{n-2}+...\\
@@ -294,20 +366,20 @@ Q_{n+1} &= \sum_{i=1}^{n} \left[ \frac{R_i}{i}\prod_{j=i+1}^n\frac{j-1}{j} \righ
 \end{flalign}$
 
 	
-from the expanded product we can see that all of the numerators and denominators cancel out leaving only $\frac{R_i}{n}$ which we expect for tihs form of $\alpha$ which was derived earlier for a simple running average.
+from the expanded product we can see that all of the numerators and denominators cancel out leaving only $\frac{R_i}{n}$ which matches the sample-average as expected for this step-size.
 """
 
 # ╔═╡ eed2a4f2-48b2-4684-846e-aa99bb6dafd9
 md"""
-> Exercise 2.5 (programming) Design and conduct an experiment to demonstrate the difficulties that sample-average methods have for nonstationary problems. Use a modified version of the 10-armed testbed in which all the q⇤(a) start out equal and then take independent random walks (say by adding a normally distributed increment with mean 0 and standard deviation 0.01 to all the q⇤(a) on each step). Prepare plots like Figure 2.2 for an action-value method using sample averages, incrementally computed, and another action-value method using a constant step-size parameter, ↵ = 0.1. Use " = 0.1 and longer runs, say of 10,000 steps. 
+> Exercise 2.5 (programming) Design and conduct an experiment to demonstrate the difficulties that sample-average methods have for nonstationary problems. Use a modified version of the 10-armed testbed in which all the $q_*(a)$ start out equal and then take independent random walks (say by adding a normally distributed increment with mean 0 and standard deviation 0.01 to all the $q_*(a)$ on each step). Prepare plots like Figure 2.2 for an action-value method using sample averages, incrementally computed, and another action-value method using a constant step-size parameter, $\alpha = 0.1$. Use $\epsilon = 0.1$ and longer runs, say of 10,000 steps. 
 
 See code and figures below for answer
 """
 
 # ╔═╡ fbe3dc15-9171-4a7e-8eea-b8cc052c9ba5
-function nonstationary_algorithm(k::Integer, ϵ::AbstractFloat; steps = 10000, σ = 0.01, α = 0.0)
-    qs = zeros(k)
-    Q = zeros(k)
+function nonstationary_algorithm(k::Integer, ϵ::AbstractFloat; steps = 10000, σ = 0.01, α = 0.0, initR = 0.0)
+    qs = initR .* ones(k)
+    Q = initR .* ones(k)
     N = zeros(k)
     accum_reward = 0.0
     step_reward = zeros(steps)
@@ -351,18 +423,55 @@ function nonstationary_algorithm(k::Integer, ϵ::AbstractFloat; steps = 10000, �
 end
 
 # ╔═╡ 647ab36b-641e-4024-ad2d-40ff33be28f4
-function average_nonstationary_runs(k, ϵ, α; n = 2000)
-    runs = Vector{NamedTuple}(undef, n)
-    @threads for i in 1:n
-        runs[i] = nonstationary_algorithm(k, ϵ, α = α) 
+function average_nonstationary_runs(k, ϵ, α; n = 2000, kwargs...)
+    names = (:step_reward, :optimalstep, :step_reward_ideal, :cum_reward, :cum_reward_ideal, :optimalaction_pct)
+	run1 = nonstationary_algorithm(k, ϵ; α = α, kwargs...)
+	runs = Vector{Vector{Vector{Float32}}}(undef, n)
+	runs[1] = [Float32.(run1[a]) for a in names]
+	for i in 2:n
+		runs[i] = deepcopy(runs[1])
+	end
+    @threads for i in 2:n
+        run = nonstationary_algorithm(k, ϵ; α = α, kwargs...) 
+		for (j, a) in enumerate(names)
+			runs[i][j] .= Float32.(run[a])
+		end
     end
-    map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :optimalstep, :step_reward_ideal, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
+
+	for j in eachindex(names)
+		for i in 2:n
+			runs[1][j] .+= runs[i][j]
+		end
+		runs[1][j] ./= n
+	end
+
+	return runs[1]
+    # map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, eachindex(names))
 end
+
+# ╔═╡ 276779a3-9332-46bd-b511-a33a2fea4b5f
+@bind nonstationaryparams confirm(PlutoUI.combine() do Child
+	md"""
+	### Figure Parameters for Exercise 2.5
+	Action Count: $(Child(:n, NumberField(1:100, default = 10)))
+	
+	Exploration Parameter ϵ: $(Child(:ϵ, NumberField(0.01:0.01:0.1, default = 0.1)))
+	
+	Constant Step-Size Parameter α: $(Child(:α, NumberField(0.01:0.01:0.1, default = 0.1)))
+	
+	Initial Reward Value: $(Child(:initR, NumberField(-10.0:0.1:10.0, default = 0.0)))
+
+	Reward Drift Standard Deviation: $(Child(:σ, NumberField(0.001:0.001:0.1, default = 0.01)))
+	"""
+end)
 
 # ╔═╡ 32bff269-e893-4907-b589-7ba2ae1314bd
 md"""
-2.6 Optmisitic Initial Values
+## 2.6 Optmisitic Initial Values
 """
+
+# ╔═╡ 8dfcfbc3-3090-4781-b328-0faf51d2941a
+k = 10
 
 # ╔═╡ c37922b9-6c23-4701-8499-9bb73ccc3684
 optimistic_greedy_runs = average_simple_runs(k, 0.0, Qinit = 5.0, α = 0.1)
@@ -1046,17 +1155,20 @@ function average_nonstationary_runs(k, algorithm; steps = 10000, n = 2000, qinit
     map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
 end
 
-# ╔═╡ 24713318-8d43-4d92-a2e6-586414fc29e2
-sample_average_run = average_nonstationary_runs(10, 0.1, 0.0)
+# ╔═╡ 34f65898-cbcc-4832-afac-0f7a284e7f0b
+function exercise2_5(; n=10, ϵ=0.1, α=0.1, kwargs...)
+	sample_average_run = average_nonstationary_runs(n, ϵ, 0.0; kwargs...)
+	constant_step_update_run = average_nonstationary_runs(n, ϵ, α; kwargs...)
+	p1 = plot([scatter(y = sample_average_run[1], name = "Sample Average"), scatter(y = constant_step_update_run[1], name = latexify("alpha = 0.1"), hovertemplate = "%{y}<extra>α=0.1</extra>"), scatter(y=sample_average_run[3], name  = "Theoretical Limit")], Layout(yaxis_title = "Reward Averaged Over Runs", xaxis_title = "Step", width = 700, height = 400, legend_orientation = "h", legend_y = 1.1, hovermode = "x unified"))
+	p2 = plot([scatter(y = sample_average_run[2], name = "Sample Average"), scatter(y = constant_step_update_run[2], name  = L"\alpha = 0.1", hovertemplate="%{y}<extra>α=0.1</extra>")], Layout(hovermode = "x", yaxis_title = "% Runs Taking Optimal Action", xaxis_title = "Step", width = 700, height = 400, legend_orientation = "h", legend_y = 1.1))
+	md"""
+	$p1
+	$p2
+	"""
+end
 
-# ╔═╡ a92f05b7-311f-4267-9943-2b0af0dc895b
-constant_step_update_run = average_nonstationary_runs(10, 0.1, 0.1)
-
-# ╔═╡ 59fcfd80-54b9-4e83-a1ed-7c7a5e7fac9a
-plot([sample_average_run[1] constant_step_update_run[1] sample_average_run[3]], lab  = ["Sample Average" "α = 0.1" "Theoretical Limit"], ylabel = "Reward Averaged Over Runs", xlabel = "Step", size = (700, 400))
-
-# ╔═╡ c8954a17-a94e-4c4a-86d0-217e322b4c30
-plot([sample_average_run[2] constant_step_update_run[2]], lab  = ["Sample Average" "α = 0.1"], ylabel = "% Runs Taking Optimal Action", xlabel = "Step", size = (700, 400))
+# ╔═╡ d24bd737-9e09-441a-aa94-9279c80f566d
+exercise2_5(;nonstationaryparams...)
 
 # ╔═╡ 041e54ab-c7ee-4fe8-96ec-1189a3b18380
 function average_nonstationary_runs_cum_reward(k, algorithm; steps = 10000, n = 2000, qinit::T = 0.0) where T<:AbstractFloat
@@ -1073,21 +1185,33 @@ function average_nonstationary_runs_cum_reward(k, algorithm; steps = 10000, n = 
 end
 
 # ╔═╡ 68b09fc5-e0d2-4c58-a382-83fe2a058501
+# ╠═╡ disabled = true
+#=╠═╡
 with_terminal() do 
 	@benchmark average_stationary_runs_cum_reward(k, k -> ActionValue(k))
 end
+  ╠═╡ =#
 
 # ╔═╡ 95bfaee5-05da-4c4c-81d2-5f8aac98fb3b
+# ╠═╡ disabled = true
+#=╠═╡
 with_terminal() do
 #repeat benchmark with Float32 to see how much faster it is
 	@benchmark average_stationary_runs_cum_reward(k, k -> ActionValue(k, Qinit = 0.0f0), offset = 0.0f0)
 end
+  ╠═╡ =#
 
 # ╔═╡ b6e3eca8-f174-4889-b801-2f69c801f8d1
+# ╠═╡ disabled = true
+#=╠═╡
 nonstationaryruns = average_nonstationary_runs(k, k -> ActionValue(k, explorer = ϵ_Greedy(1/128), q_avg = ConstantStep()), steps = 100000)
+  ╠═╡ =#
 
 # ╔═╡ 72e77d4f-229a-4ac1-a023-38059e34740a
+# ╠═╡ disabled = true
+#=╠═╡
 plot(nonstationaryruns[1], legend = false)
+  ╠═╡ =#
 
 # ╔═╡ c348c234-db5d-4f72-b41f-2e0969b69594
 gradient_est = GradientReward(k)
@@ -1829,7 +1953,7 @@ version = "17.4.0+2"
 # ╠═97c94391-397d-4cf2-88b1-3bea3af56ed3
 # ╠═7950e06b-e8ce-4bd7-9681-ab7b66dfec69
 # ╟─3e5a226e-ecdb-43fb-a40a-a262da0ae542
-# ╟─0b951e6e-4b97-4bb5-87d0-6be7f0fd4802
+# ╠═0b951e6e-4b97-4bb5-87d0-6be7f0fd4802
 # ╟─2e46853d-f384-49fb-bccd-2fb320444080
 # ╟─14bd0549-747f-4513-809f-8bdb78027807
 # ╠═55f89ca1-cd57-44e0-95e5-63a4be31418f
@@ -1846,18 +1970,19 @@ version = "17.4.0+2"
 # ╟─4be9e81b-c3de-4c79-97b5-b41c03e0f187
 # ╟─e07a27c5-0c9a-4893-a1cf-cf565ab78761
 # ╟─86350532-13f8-4035-bad8-f25f41c93163
+# ╟─a84f5393-bd7e-433e-b3d9-e9e7cfa1a329
 # ╟─78c45162-dc8e-4faf-b1a9-8c71be86dcee
 # ╟─eed2a4f2-48b2-4684-846e-aa99bb6dafd9
 # ╠═fbe3dc15-9171-4a7e-8eea-b8cc052c9ba5
-# ╟─647ab36b-641e-4024-ad2d-40ff33be28f4
-# ╠═24713318-8d43-4d92-a2e6-586414fc29e2
-# ╠═a92f05b7-311f-4267-9943-2b0af0dc895b
-# ╟─59fcfd80-54b9-4e83-a1ed-7c7a5e7fac9a
-# ╟─c8954a17-a94e-4c4a-86d0-217e322b4c30
+# ╠═647ab36b-641e-4024-ad2d-40ff33be28f4
+# ╠═34f65898-cbcc-4832-afac-0f7a284e7f0b
+# ╟─276779a3-9332-46bd-b511-a33a2fea4b5f
+# ╟─d24bd737-9e09-441a-aa94-9279c80f566d
 # ╟─32bff269-e893-4907-b589-7ba2ae1314bd
+# ╠═8dfcfbc3-3090-4781-b328-0faf51d2941a
 # ╠═c37922b9-6c23-4701-8499-9bb73ccc3684
 # ╠═7208da59-282b-4c27-8b0b-460540afb5af
-# ╟─0b39196d-a9c4-4d17-a7ab-b0d7264b07fa
+# ╠═0b39196d-a9c4-4d17-a7ab-b0d7264b07fa
 # ╟─d4ce45ae-613e-41ee-b626-69b0dbcf6452
 # ╟─cb93c588-3dfa-45f4-9d83-f2de26cb1cea
 # ╟─23b99305-c8d9-4129-85fb-a5e4aabc4a31
