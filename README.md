@@ -9,3 +9,6 @@ To run any notebook files locally:
 1. Download the notebook
 2. Run Pluto (see instructions on installing julia and pluto noting that a newer version of julia might currently be available: https://computationalthinking.mit.edu/Spring21/installation/)
 3. Open the notebook file by typing the saved filename in the open box in the web browser.
+
+## View static exports of notebooks at https://jekyllstein.github.io/Reinforcement-Learning-Sutton-Barto-Exercise-Solutions/
+Note: Not all notebooks are available here.  I am editing them to allow proper export and will be adding chapters one at a time.
