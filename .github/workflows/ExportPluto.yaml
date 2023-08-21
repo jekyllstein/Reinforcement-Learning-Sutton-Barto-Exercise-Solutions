@@ -57,6 +57,7 @@ jobs:
                     Export_cache_dir="pluto_state_cache",
                     Export_baked_notebookfile=false,
                     Export_baked_state=false,
+                    exclude = ["Chapter-13"]
                     # more parameters can go here
                   )'
 
