@@ -14,13 +14,9 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 9071a52c-a0a3-4262-93e7-bb8ff93bf44f
-#necessary for doing weighted sampling
-using StatsBase
-
 # ╔═╡ 1fb1a518-e5ec-4777-80bc-bb55e8172100
 begin
-	using Random, Base.Threads, PlutoPlotly, BenchmarkTools, PlutoUI, PlutoProfile, JLD2, Latexify, LaTeXStrings
+	using Random, Base.Threads, PlutoPlotly, BenchmarkTools, PlutoUI, PlutoProfile, JLD2, Latexify, LaTeXStrings, SpecialFunctions, Distributions, Statistics, StatsBase
 	TableOfContents()
 end
 
@@ -281,7 +277,7 @@ For each case the long run cumulative reward is just this long term expected rew
 """
 
 # ╔═╡ 8b8a9449-04b7-4901-9a2c-fbbdc33dfdfa
-function visualize_bandit_dist(;n = 10, samples = 10_000)
+function visualize_bandit_dist(;n = 10, samples = 100_000)
 	maxdist = [maximum(randn(n)) for _ in 1:samples]
 	rankdist = mapreduce(a -> sort(randn(n)), +, 1:samples) ./ samples
 	p1 = histogram(x = maxdist) |> plot
@@ -295,13 +291,18 @@ function visualize_bandit_dist(;n = 10, samples = 10_000)
 	"""
 end
 
+# ╔═╡ 21e56374-35e6-4488-b8da-15e383017c77
+md"""
+### Bandit Arm Reward Distributions
+"""
+
 # ╔═╡ 2bce1b80-2133-40a0-9367-fc2d491f6245
 md"""
 Visualize $(@bind n_arms_vis NumberField(1:100, default = 10)) Armed Bandit
 """
 
 # ╔═╡ 4be9e81b-c3de-4c79-97b5-b41c03e0f187
-visualize_bandit_dist(n = n_arms_vis)
+visualize_bandit_dist(n = n_arms_vis, samples = 100_000)
 
 # ╔═╡ e07a27c5-0c9a-4893-a1cf-cf565ab78761
 md"""
@@ -495,6 +496,7 @@ end
 	
 	Number of Actions: $(Child(:k, NumberField(1:100, default = 10)))
 	Initial Optimistic Estimate: $(Child(:Qinit, NumberField(0.0:0.1:10.0, default = 5.0)))
+	
 	Exploration Parameter ϵ: $(Child(:ϵ, NumberField(0.01:0.01:1.0, default = 0.1)))
 	Constant Step Size α: $(Child(:α, NumberField(0.01:0.01:1.0, default = 0.1)))
 	"""
@@ -508,7 +510,9 @@ md"""
 > ### *Exercise 2.6: Mysterious Spikes* 
 > The results shown in Figure 2.3 should be quite reliable because they are averages over 2000 individual, randomly chosen 10-armed bandit tasks.  Why, then, are there oscillations and spikes in the early part of the curve for the optimistic method? In other words, what might make this method perform particularly better or worse, on average, on particular early steps?
 
-The spike occurs on step 11.  Due to the initial Q values it is almost 100% likely that a given run with sample each of the 10 possible actions once before repeating any.  That would mean that at any given step only 10% of the runs would select the optimal action and indeed for the first 10 steps about 10% of the runs are selecting the optimal action as we'd expect from random chance.  On the 11th step, the Q value estimate for each action is $(0.9 \times 5) + (0.1 \times action\_reward)$.  The optimal action for each bandit has the highest mean reward, but there is some chance that one of the other 10 actions produced a higher reward the step it was sampled.  However, on the 11th step, the number of runs that select the optimal action will be equal to the probability that the optimal action produced the highest reward when it was sampled which empirally is ~44%.  Due to the Q value initialization though, the reward on step 11 for those cases that selected the optimal action will almost certainly lower the Q value estimate for that action below the others resulting in the sudden drop of the optimal action selection on step 12.  
+The spike occurs on step 11.  Due to the initial Q values it is almost 100% likely that a given run will sample each of the 10 possible actions once before repeating any.  For this not to be the case, one of the samples would have to exceed the initial value of 5.0 which has a probability near zero since the expected q value for the best arm is around 1.55 which unit variance.  That would mean that at any given step only 10% of the runs would select the optimal action and indeed for the first 10 steps about 10% of the runs are selecting the optimal action as we'd expect from random chance.  
+
+On the 11th step, the Q value estimate for each action is $(0.9 \times 5) + (0.1 \times action\_reward)$.  The optimal action will be selected on this step as long as the reward produced by the best action exceeded all the others.  Empirically, that probability is ~44% which is similar to the probability calculated for the expected value of the best action of ~1.55 exceeding the rewards from the other 9 arms.  For those 44% of the runs that do select the optimal action, they will obtain a reward with expected value 1.55.  If they received that reward during both samples, then the Q value estimate will be $0.9 \times ((0.9 \times 5) + (0.1 \times 1.55)) + (0.1 \times 1.55) \approx 4.34$.  Let's consider the second best arm which has an expected q value of ~1.  The updated estimate for that arm after receiving a reward equal to the expected value is $0.9 \times 0.5 + 0.1 \times 1 \approx 4.6$.  Following the same reasoning for the third best arm, the value is about 4.57.  In fact even a reward of zero will produce an estimate of $0.9 \times 5 = 4.5$ which still exceeds the estimate for the optimal action in our scenario.  That explains why the percentage of optimal actions drops in the 12th step because it is expected that the estimate of the action selected on step 11 will drop below at least one of the other arms, thus changing the maximizing action selection to a worse one.
 """
 
 # ╔═╡ cb93c588-3dfa-45f4-9d83-f2de26cb1cea
@@ -622,12 +626,18 @@ md"""
 > ### *Exercise 2.8: UCB Spikes* 
 > In Figure 2.4 the UCB algorithm shows a distinct spike in performance on the 11th step.  Why is this?  Note that for your answer to be fully satisfactory it must explain both why the reward increases on the 11th step and why it decreases on the subsequent steps.  Hint: If $c=1$, then the spike is less prominent.
 
-Due to the UCB calculation, any state that has not been visited will have an infinite Q value, thus for the first 10 steps similar to the optimistic Q initialization each run will sample each of the 10 possible actions.  One the 11th step, the exploration incentive for each action will be equal, so the most likely action to be selected is the optimal action since it is the most likely to have produced a reward higher than any other action.  If c is very large, then on step 12 no matter how good of a reward we received for the optimal action, that action will be penalized compared to the others because it will have double the visit count.  In particular for c = 2.0, the exploration bonus for the optimal action if selected on step 11 will be 2.2293 vs 3.31527 for all other actions.  Since the q's are normally distributed it is unlikely that the reward average for the optimal action is >1 than the next best action.  The larger c is the more of a relative bonus the other actions have and the probability of selecting the optimal action twice in a row drops to zero.  As c changes the improved reward on step 11 remains similar but the dropoff on step 12 becomes more severe the larger c is.
+By definition, actions with zero visits are always considered maximizing.  Therefore, for the first 10 steps, all 10 unique actions will be sampled once with each Q estimate updating from a single sample.  On the 11th step, the exploration incentive for each action will be equal, so the action with the highest Q estimate will be selected.  This is most likely to be the action with the highest $q^*$ value but there is a substantial probability it is the second best action and diminishing probabilities for the remaining actions ranked by true $q^*$.  It is on this step though that we expect the selection to be substantially better than random chance although it is only using a single sample to validate the estimates.  On step 12, that improved action will now have a visit count of 2 instead of 1 for every other action.  In the calculation, the exploration bonus for that action will be $$$c\sqrt{\frac{\ln{12}}{2}}\approx 1.11465 \times c$$$.  Every other action will have an exploration bonus of $$$\approx 1.576 \times c$$$.  In order for the 2 visit action to be considered maximizing after this it must have a Q estimate that is $$$\approx 0.4617 \times c$$$ greater than any other action value estimate. In particular for $$$c = 2.0$$$, the estimate must be $$$\approx 0.9234$$$ greater than the others.  Since the q's are normally distributed, the difference in expected value between the best and second best action is only about 0.55.  As a rough heuristic for the probability of the action selection remaining unchanged, we can consider the probability that the 2 sample best action estimate exceeds the single sample second best action estimate by 0.9234 with the following calculation: $$$1 - \operatorname*{cdf}(\operatorname*{Normal}(\mu = 1.54 - 1, \sigma = \sqrt(3/2)), x = 0.9234) \approx 0.377$$$.  Therefore, on step 12, the average run will change the action selection to something less optimal.  The larger the value of c, the more likely the selection is to change due to the larger weight placed on exploration.  Empirically, as c approaches $$$\infty$$$ the expected reward on step 12 approaches 0.744 vs 1.145 on step 11.  That compares to the expected q value for the top 3 actions of approximately 0.656, 1, and 1.54.  
 """
 
 # ╔═╡ b24a92fc-f6c6-44e4-9afc-fa4249e4ab83
 md"""
 ## 2.8 Gradient Bandit Algorithms
+
+As an alternative to estimating action values, we can attempt to learn a numerical *preference* for each action $a$ which we will denote $H_t(a) \in \mathbf{R}$.  This vector of preferences will be converted in a probability distribution using the *soft-max distribution*.
+
+$\Pr\{A_t = a\} \dot = \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \dot = \pi_t(a) \tag{2.11}$
+
+ $\pi_t(a)$ is the probability for this agent to select action $a$ at time $t$.  All action preferences are initialized at the same value.
 """
 
 # ╔═╡ 9d7782f5-b530-40d5-9f75-280d3a762216
@@ -640,6 +650,18 @@ The sigmoid function is defined as: $S(x) = \frac{1}{1 + e^{-x}}$.  For two acti
 $\pi(a_1) = \frac{e^{H_t(a_1)}}{e^{H_t(a_1)} + e^{H_t(a_2)}}=\frac{1}{1+e^{-(H_t(a_1) - H_t(a_2))}}$
 
 This expression for $\pi(a_1)$ is equivalent to $S(x)$ with $x = H_t(a_1) - H_t(a_2)$ which is the degree of preference for action 1 over action 2.  As expected, if the preferences are equal then it is equavalent to $x=0$ with a probability of 50%.  The same analysis applies to action 2 with the actions reversed from this case.
+"""
+
+# ╔═╡ 0f244fa0-7591-4478-b172-d9c1de51f6e1
+md"""
+One natural update rule for the action preferences is to use stochastic gradient ascent.  Using this technique we perform the following update on step $t+1$ after selecting action $A_t$ and receiving reward $R_t$ on step $t$.
+
+$\begin{flalign}
+H_{t+1}(A_t) &\dot = H_t(A_t) + \alpha (R_t - \overline R_t)(1-\pi_t (A_t)) \\
+H_{t+1}(a) & \dot = H_t(a) - \alpha(R_t - \overline R_t)\pi_t(a) \forall a \neq A_t
+\end{flalign} \tag{2.12}$
+
+where $\alpha > 0$ is a step-size parameter and $\overline R_t \in \mathbf{R}$ is the average rewards up to but not including time $t$.  This average can be computed by any of the techniques mentioned earlier.
 """
 
 # ╔═╡ 54deaa09-8f87-4caf-b2a0-f15bcd5b40a5
@@ -659,18 +681,44 @@ end
 # ╔═╡ 51349e41-4696-4bd5-9bc1-cefbb82bea08
 sample_action(actions, π_vec) = sample(actions, pweights(π_vec))
 
-# ╔═╡ 04e5a0db-f47b-46a0-bf98-eeafce87a44b
-α_list = [0.025, 0.05, 0.1, 0.2, 0.4]
+# ╔═╡ b5a2df21-4525-4320-b8dd-aea5ecdab832
+@bind params_2_5 confirm(PlutoUI.combine() do Child
+	md"""
+	### Figure 2.5 Parameters
+	Number of Actions: $(Child(:k, NumberField(1:100, default = 10)))
+	Reward Offset: $(Child(:offset, NumberField(0.0:1.0:10.0, default = 4.0)))
+	"""
+end)
 
-# ╔═╡ c30715fe-8650-46ad-ba8d-30d34ead569a
+# ╔═╡ 649e3d20-e276-4f4b-aeb0-89150f180ef5
 md"""
-For the plots below the bandit parameters were created with an offset of 4.0 so the expected reward value for any action is centered at 4.0 instead of 0.  For the gradient bandit with a baseline, it doesn't affect the curves at all, but if the baseline is removed then the results are worse as seen in the second plot.  However, if α is made smaller it seems like it will also converge to a similar success rate just over a longer time.  The optimal value of α is much lower than when the baseline is removed"
+## 2.9 Associate Search (Contextual Bandits)
+"""
+
+# ╔═╡ 1f9a98fd-ea29-415c-9f35-add34b513a34
+md"""
+> ### *Exercise 2.10* 
+> Suppose you face a 2-armed bandit task whose true action values change randomly from time step to time step. Specifically, suppose that, for any time step, the true values of actions 1 and 2 are respectively 10 and 20 with probability 0.5 (case A), and 90 and 80 with probability 0.5 (case B). If you are not able to tell which case you face at any step, what is the best expected reward you can achieve and how should you behave to achieve it? Now suppose that on each step you are told whether you are facing case A or case B (although you still don’t know the true action values). This is an associative search task. What is the best expected reward you can achieve in this task, and how should you behave to achieve it?
+
+When we do not know which case we are facing, we can calculate the expected reward for each action across all cases.
+
+$E[R_1] = 0.5 \times 10 + 0.5 \times 90 = 50$
+
+$E[R_2] = 0.5 \times 20 + 0.5 \times 80 = 50$
+
+Since the expected reward of each action is equal, the best we can do is pick randomly which will have an expected reward of 50.
+
+For the case in which we know if we are in case A or case B, we now can select the best action for each case which has a value of 20 (action 2) for case A and 90 (action 1) for case B.  However, we have a 50% probability of facing each case so the best achievable expected reward is.
+
+$E[R] = 20 \times 0.5 + 90 \times 0.5 = 55$
+
+To acheive this reward we could apply the action value estimate approach but separate our samples for case A and B.  That way we would have 4 estimates representing the expected reward of each action in each case.  We could perform any of the exploration strategies mentioned earlier such as ϵ-greedy action selection but being careful to update the estimate for that case only.
 """
 
 # ╔═╡ 1c9b54cd-08dd-401e-9705-818741844e8d
 md"""
-# Code Refactoring
-Due to the variety of algorithms and parameters for the bandit, I have rewritten the test environment with types that represent the different algorithms.  The run simulator will dispatch on the types to correctly simulate that method with its parameters.  Some of the previous simluations are plots are generated again.  Because of the style used, only one simulation function is needed with the flexibility to select any combination of techniques in the chapter.
+## Code Refactoring
+Due to the variety of algorithms and parameters for the bandit, I have rewritten the test environment with types that represent the different algorithms.  The run simulator will dispatch on the types to correctly simulate that method with its parameters.  Some of the previous simluations and plots are generated again.  Because of the style used, only one simulation function is needed with the flexibility to select any combination of techniques in the chapter.
 	"""
 
 # ╔═╡ c2347999-5ade-420b-903f-30523b38eb0f
@@ -972,9 +1020,6 @@ function gradient_stationary_bandit_algorithm(qs::Vector{Float64}, k::Integer; s
     return (;step_reward, step_reward_ideal, cum_reward, cum_reward_ideal, optimalstep, optimalaction_pct)
 end
 
-# ╔═╡ 1f883942-89af-4a05-9455-828d43b860d4
-gradient_stationary_bandit_algorithm(create_bandit(k), k)
-
 # ╔═╡ 50fbdc85-82f1-4c52-936b-84eb14951d71
 function average_gradient_stationary_runs(k; steps = 1000, n = 2000, α=0.1, offset = 0.0, baseline = true)
     runs = Vector{NamedTuple}(undef, n)
@@ -985,17 +1030,26 @@ function average_gradient_stationary_runs(k; steps = 1000, n = 2000, α=0.1, off
     map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
 end
 
-# ╔═╡ d75f4005-e905-4546-9839-75aed9d505e3
-begin
-	stationary_gradient_results = [average_gradient_stationary_runs(10, α=α, offset = 4.0) for α in α_list]
-	plot(mapreduce(a -> a[3], hcat, stationary_gradient_results), lab = mapreduce(a -> "α = $a", hcat, α_list), ylabel = "% Runs Taking Optimal Action", xlabel = "Step", size = (700, 450), title = "Gradient Bandit With Baseline")
+# ╔═╡ 8a6f3f85-64e4-4c31-9e69-43f50f42bbc9
+function figure_2_5(;k = 10, offset = 4.0, α_list = [0.025, 0.05, 0.1, 0.2, 0.4])
+	ylabel =  "% Runs Taking Optimal Action"
+	steps = 1:1000
+
+	function make_plot(baseline::Bool)
+		results = [average_gradient_stationary_runs(k, α=α, offset = 4.0, baseline = baseline) for α in α_list]
+		traces = [scatter(x = steps, y = a[3], name = "α = $(α_list[i])") for (i, a) in enumerate(results)]
+		plot(traces, Layout(xaxis_title = "Step", yaxis_title = ylabel, hovermode = "x unified", title = "Gradient Bandit $(baseline ? "With" : "Without") Baseline"))
+	end
+
+	md"""
+	$(make_plot(true))
+	$(make_plot(false))
+	Average performance of the gradient bandit algorithm with and without a reward baseline on the $k-armed bandit testbed when the $$$q_*(a)$$$ are chosen to be near $offset rather than near 0.   For the gradient bandit with a baseline, the offset doesn't affect the curves at all, but if the baseline is removed then the results are worse as seen in the second plot. However, if $$$\alpha$$$ is made smaller it seems like it will also converge to a similar success rate just over a longer time. The optimal value of $$$\alpha$$$ is much lower than when the baseline is removed which is consistent with slower convergence properties.
+	"""
 end
 
-# ╔═╡ f3672a55-1de2-4925-9aa7-1865e6a5c64a
-begin
-	stationary_gradient_results2 = [average_gradient_stationary_runs(10, α=α, offset = 4.0, baseline = false) for α in α_list]
-	plot(mapreduce(a -> a[3], hcat, stationary_gradient_results2), lab = mapreduce(a -> "α = $a", hcat, α_list), ylabel = "% Runs Taking Optimal Action", xlabel = "Step", size = (700, 450), title = "Gradient Bandit Without Baseline")
-end
+# ╔═╡ 691aa77a-d6da-4fde-9024-c4195057179d
+figure_2_5(;params_2_5...)
 
 # ╔═╡ 555860b6-4ae6-411f-94d7-5c30efc5c339
 # ╠═╡ disabled = true
@@ -1318,27 +1372,9 @@ plot(mapreduce(a -> a[3], hcat, gradientruns_baseline), lab = mapreduce(a -> "α
 plot(mapreduce(a -> a[3], hcat, gradientruns_nobaseline), lab = mapreduce(a -> "α=$a", hcat, αlist), xaxis = "Step", yaxis = "% Runs Taking Optimal Action", title="Gradient Algorithm with No Baseline and 4.0 Mean Reward", size = (700, 500))
   ╠═╡ =#
 
-# ╔═╡ 1f9a98fd-ea29-415c-9f35-add34b513a34
-md"""
-> ### *Exercise 2.10* 
-> Suppose you face a 2-armed bandit task whose true action values change randomly from time step to time step. Specifically, suppose that, for any time step, the true values of actions 1 and 2 are respectively 10 and 20 with probability 0.5 (case A), and 90 and 80 with probability 0.5 (case B). If you are not able to tell which case you face at any step, what is the best expected reward you can achieve and how should you behave to achieve it? Now suppose that on each step you are told whether you are facing case A or case B (although you still don’t know the true action values). This is an associative search task. What is the best expected reward you can achieve in this task, and how should you behave to achieve it?
-
-For the case in which we do not know which case we are facing, we can calculate the expected reward for each action across all cases.
-
-$E[R_1] = 0.5 \times 10 + 0.5 \times 90 = 50$
-
-$E[R_2] = 0.5 \times 20 + 0.5 \times 80 = 50$
-
-Since the expected reward of each action is equal, the best we can do is pick randomly which will have an expected reward of 50.
-
-For the case in which we know if we are in case A or case B, we now can select the best action for each case which has a value of 20 (action 2) for case A and 90 (action 1) for case B.  However, we have a 50% probability of facing each case so our overall expected reward is.
-
-$E[R] = 20 \times 0.5 + 90 \times 0.5 = 55$
-"""
-
 # ╔═╡ 46ce2b1f-02cf-4dae-bf02-f67543f38b91
 md"""
-# Parameter Studies
+## Parameter Studies
 """
 
 # ╔═╡ c61630b0-29c1-4183-90d9-57c999187b53
@@ -1543,6 +1579,7 @@ md"""
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
@@ -1550,16 +1587,20 @@ PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 BenchmarkTools = "~1.3.2"
+Distributions = "~0.25.100"
 JLD2 = "~0.4.33"
 LaTeXStrings = "~1.3.0"
 Latexify = "~0.16.1"
 PlutoPlotly = "~0.3.9"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.52"
+SpecialFunctions = "~2.3.1"
 StatsBase = "~0.34.0"
 """
 
@@ -1569,7 +1610,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0-beta2"
 manifest_format = "2.0"
-project_hash = "fe3fe2cfba07872a4bd9a0a8b71bc7356f2b990f"
+project_hash = "a88e40bae38cdbc72bb7c5547506b09bb91c7fd3"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1598,6 +1639,12 @@ git-tree-sha1 = "d9a9701b899b30332bbcb3e1679c41cce81fb0e8"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.3.2"
 
+[[deps.Calculus]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "f641eb0a4f00c343bbc32346e1217b86f3ce9dad"
+uuid = "49dc2e85-a5d0-5ad3-a950-438e2897f1b9"
+version = "0.5.1"
+
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
 git-tree-sha1 = "d9a8f86737b665e15a9641ecbac64deef9ce6724"
@@ -1615,12 +1662,10 @@ deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statist
 git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
 version = "0.10.0"
+weakdeps = ["SpecialFunctions"]
 
     [deps.ColorVectorSpace.extensions]
     SpecialFunctionsExt = "SpecialFunctions"
-
-    [deps.ColorVectorSpace.weakdeps]
-    SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
@@ -1664,6 +1709,20 @@ git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
+[[deps.Distributions]]
+deps = ["FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SpecialFunctions", "Statistics", "StatsAPI", "StatsBase", "StatsFuns", "Test"]
+git-tree-sha1 = "938fe2981db009f531b6332e31c58e9584a2f9bd"
+uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
+version = "0.25.100"
+
+    [deps.Distributions.extensions]
+    DistributionsChainRulesCoreExt = "ChainRulesCore"
+    DistributionsDensityInterfaceExt = "DensityInterface"
+
+    [deps.Distributions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
+
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
 git-tree-sha1 = "2fb1e02f2b635d0845df5d7c167fec4dd739b00d"
@@ -1675,6 +1734,12 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
+[[deps.DualNumbers]]
+deps = ["Calculus", "NaNMath", "SpecialFunctions"]
+git-tree-sha1 = "5837a837389fccf076445fce071c8ddaea35a566"
+uuid = "fa6b7ba4-c1ee-5f82-b5fc-ecf0adba8f74"
+version = "0.6.8"
+
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
 git-tree-sha1 = "299dc33549f68299137e51e6d49a13b5b1da9673"
@@ -1683,6 +1748,12 @@ version = "1.16.1"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+
+[[deps.FillArrays]]
+deps = ["LinearAlgebra", "Random", "SparseArrays", "Statistics"]
+git-tree-sha1 = "f372472e8672b1d993e93dada09e23139b509f9e"
+uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
+version = "1.5.0"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -1701,6 +1772,12 @@ deps = ["Printf"]
 git-tree-sha1 = "8339d61043228fdd3eb658d86c926cb282ae72a8"
 uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
 version = "0.4.2"
+
+[[deps.HypergeometricFunctions]]
+deps = ["DualNumbers", "LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
+git-tree-sha1 = "f218fe3736ddf977e0e772bc9a586b2383da2685"
+uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
+version = "0.3.23"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -1739,6 +1816,12 @@ deps = ["FileIO", "MacroTools", "Mmap", "OrderedCollections", "Pkg", "Printf", "
 git-tree-sha1 = "aa6ffef1fd85657f4999030c52eaeec22a279738"
 uuid = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 version = "0.4.33"
+
+[[deps.JLLWrappers]]
+deps = ["Artifacts", "Preferences"]
+git-tree-sha1 = "7e5d6779a1e09a36db2a7b6cff50942a0a7d0fca"
+uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
+version = "1.5.0"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
@@ -1849,6 +1932,12 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2023.1.10"
 
+[[deps.NaNMath]]
+deps = ["OpenLibm_jll"]
+git-tree-sha1 = "0877504529a3e5c3343c6f8b4c0381e57e4387e4"
+uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
+version = "1.0.2"
+
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.2.0"
@@ -1858,10 +1947,27 @@ deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
 version = "0.3.23+2"
 
+[[deps.OpenLibm_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
+version = "0.8.1+2"
+
+[[deps.OpenSpecFun_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "13652491f6856acfd2db29360e1bbcd4565d04f1"
+uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
+version = "0.5.5+0"
+
 [[deps.OrderedCollections]]
 git-tree-sha1 = "2e73fe17cac3c62ad1aebe70d44c963c3cfdc3e3"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 version = "1.6.2"
+
+[[deps.PDMats]]
+deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
+git-tree-sha1 = "67eae2738d63117a196f497d7db789821bce61d1"
+uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
+version = "0.11.17"
 
 [[deps.PackageExtensionCompat]]
 git-tree-sha1 = "f9b1e033c2b1205cf30fd119f4e50881316c1923"
@@ -1942,6 +2048,12 @@ git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 version = "0.1.0"
 
+[[deps.QuadGK]]
+deps = ["DataStructures", "LinearAlgebra"]
+git-tree-sha1 = "6ec7ac8412e83d57e313393220879ede1740f9ee"
+uuid = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
+version = "2.8.2"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -1960,6 +2072,18 @@ deps = ["UUIDs"]
 git-tree-sha1 = "838a3a4188e2ded87a4f9f184b4b0d78a1e91cb7"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.0"
+
+[[deps.Rmath]]
+deps = ["Random", "Rmath_jll"]
+git-tree-sha1 = "f65dcb5fa46aee0cf9ed6274ccbd597adc49aa7b"
+uuid = "79098fc4-a85e-5d69-aa6a-4863f24498fa"
+version = "0.7.1"
+
+[[deps.Rmath_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "6ed52fdd3382cf21947b15e8870ac0ddbff736da"
+uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
+version = "0.4.0+0"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -1982,6 +2106,18 @@ deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 version = "1.10.0"
 
+[[deps.SpecialFunctions]]
+deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
+git-tree-sha1 = "e2cfc4012a19088254b3950b85c3c1d8882d864d"
+uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
+version = "2.3.1"
+
+    [deps.SpecialFunctions.extensions]
+    SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
+
+    [deps.SpecialFunctions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
@@ -1998,6 +2134,24 @@ deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missin
 git-tree-sha1 = "75ebe04c5bed70b91614d684259b661c9e6274a4"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.34.0"
+
+[[deps.StatsFuns]]
+deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
+git-tree-sha1 = "f625d686d5a88bcd2b15cd81f18f98186fdc0c9a"
+uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
+version = "1.3.0"
+
+    [deps.StatsFuns.extensions]
+    StatsFunsChainRulesCoreExt = "ChainRulesCore"
+    StatsFunsInverseFunctionsExt = "InverseFunctions"
+
+    [deps.StatsFuns.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
+
+[[deps.SuiteSparse]]
+deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
+uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
@@ -2094,6 +2248,7 @@ version = "17.4.0+2"
 # ╟─965da91b-6a3f-456c-89ce-461c31e0fb7e
 # ╟─464d43c0-cd59-49e6-88f6-12a767677418
 # ╠═8b8a9449-04b7-4901-9a2c-fbbdc33dfdfa
+# ╟─21e56374-35e6-4488-b8da-15e383017c77
 # ╟─2bce1b80-2133-40a0-9367-fc2d491f6245
 # ╟─4be9e81b-c3de-4c79-97b5-b41c03e0f187
 # ╟─e07a27c5-0c9a-4893-a1cf-cf565ab78761
@@ -2120,17 +2275,17 @@ version = "17.4.0+2"
 # ╟─f88029d6-3fc2-4552-8441-5ef37ac42638
 # ╟─b24a92fc-f6c6-44e4-9afc-fa4249e4ab83
 # ╟─9d7782f5-b530-40d5-9f75-280d3a762216
+# ╟─0f244fa0-7591-4478-b172-d9c1de51f6e1
 # ╠═54deaa09-8f87-4caf-b2a0-f15bcd5b40a5
 # ╠═ea6d7cad-47ad-4472-a9e9-1ee33c81058d
-# ╠═9071a52c-a0a3-4262-93e7-bb8ff93bf44f
 # ╠═51349e41-4696-4bd5-9bc1-cefbb82bea08
 # ╠═f7519adc-7dfb-4030-86f0-7445699dd3db
-# ╠═1f883942-89af-4a05-9455-828d43b860d4
 # ╠═50fbdc85-82f1-4c52-936b-84eb14951d71
-# ╠═04e5a0db-f47b-46a0-bf98-eeafce87a44b
-# ╟─c30715fe-8650-46ad-ba8d-30d34ead569a
-# ╟─d75f4005-e905-4546-9839-75aed9d505e3
-# ╟─f3672a55-1de2-4925-9aa7-1865e6a5c64a
+# ╠═8a6f3f85-64e4-4c31-9e69-43f50f42bbc9
+# ╟─b5a2df21-4525-4320-b8dd-aea5ecdab832
+# ╟─691aa77a-d6da-4fde-9024-c4195057179d
+# ╟─649e3d20-e276-4f4b-aeb0-89150f180ef5
+# ╟─1f9a98fd-ea29-415c-9f35-add34b513a34
 # ╟─1c9b54cd-08dd-401e-9705-818741844e8d
 # ╠═1004eb4b-1fed-4328-a08b-6f5d9dd5080b
 # ╠═5915e7b4-bb03-4e29-a5bc-5cf2a6cb9f3d
@@ -2221,7 +2376,6 @@ version = "17.4.0+2"
 # ╠═99d7fc46-67bf-4b85-b3ee-62a6be79d5d3
 # ╟─eb71f799-e192-4c20-b60c-8c523825261c
 # ╟─9271bbe3-f8f0-4223-ba3a-35575f5d9725
-# ╟─1f9a98fd-ea29-415c-9f35-add34b513a34
 # ╟─46ce2b1f-02cf-4dae-bf02-f67543f38b91
 # ╠═c61630b0-29c1-4183-90d9-57c999187b53
 # ╠═c72d35fc-c8fd-450e-9b95-d12ece5c2291
