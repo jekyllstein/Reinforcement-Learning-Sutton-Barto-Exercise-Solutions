@@ -687,6 +687,10 @@ sample_action(actions, π_vec) = sample(actions, pweights(π_vec))
 	### Figure 2.5 Parameters
 	Number of Actions: $(Child(:k, NumberField(1:100, default = 10)))
 	Reward Offset: $(Child(:offset, NumberField(0.0:1.0:10.0, default = 4.0)))
+
+	Step-Size Minimum With Baseline: $(Child(:αmin1, NumberField(0.001:0.001:0.1, default = 0.025)))
+	
+	Step-Size Minimum Without Baseline: $(Child(:αmin2, NumberField(0.001:0.0001:0.1, default = 0.0125)))
 	"""
 end)
 
@@ -1031,19 +1035,24 @@ function average_gradient_stationary_runs(k; steps = 1000, n = 2000, α=0.1, off
 end
 
 # ╔═╡ 8a6f3f85-64e4-4c31-9e69-43f50f42bbc9
-function figure_2_5(;k = 10, offset = 4.0, α_list = [0.025, 0.05, 0.1, 0.2, 0.4])
+function figure_2_5(;k = 10, offset = 4.0, αmin1 = 0.025, αmin2 = 0.025, α_list = [0.025, 0.05, 0.1, 0.2, 0.4])
 	ylabel =  "% Runs Taking Optimal Action"
 	steps = 1:1000
 
-	function make_plot(baseline::Bool)
+	function make_αlist(α::T, list = Vector{T}()) where T <: AbstractFloat 
+		α > 0.4 && return list 
+		make_αlist(2*α, push!(list, α))
+	end
+	
+	function make_plot(baseline::Bool, α_list)
 		results = [average_gradient_stationary_runs(k, α=α, offset = 4.0, baseline = baseline) for α in α_list]
 		traces = [scatter(x = steps, y = a[3], name = "α = $(α_list[i])") for (i, a) in enumerate(results)]
 		plot(traces, Layout(xaxis_title = "Step", yaxis_title = ylabel, hovermode = "x unified", title = "Gradient Bandit $(baseline ? "With" : "Without") Baseline"))
 	end
 
 	md"""
-	$(make_plot(true))
-	$(make_plot(false))
+	$(make_plot(true, make_αlist(αmin1)))
+	$(make_plot(false, make_αlist(αmin2)))
 	Average performance of the gradient bandit algorithm with and without a reward baseline on the $k-armed bandit testbed when the $$$q_*(a)$$$ are chosen to be near $offset rather than near 0.   For the gradient bandit with a baseline, the offset doesn't affect the curves at all, but if the baseline is removed then the results are worse as seen in the second plot. However, if $$$\alpha$$$ is made smaller it seems like it will also converge to a similar success rate just over a longer time. The optimal value of $$$\alpha$$$ is much lower than when the baseline is removed which is consistent with slower convergence properties.
 	"""
 end
