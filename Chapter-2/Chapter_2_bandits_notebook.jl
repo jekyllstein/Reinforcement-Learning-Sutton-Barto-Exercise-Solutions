@@ -471,6 +471,44 @@ end
 	"""
 end)
 
+# ╔═╡ 7748ab8a-d186-49a4-b6ab-d1bd9ea34990
+md"""
+### Bandit Arm Reward Distributions
+"""
+
+# ╔═╡ bb16115a-a2d9-4b8d-9937-96ab1cdd1ce2
+function nonstationary_bandit_statistics(k::Integer; steps = 2_000, σ = 0.01, initR = 0.0, nruns = 1000)
+    function run()
+		qs = initR .* ones(k)
+	    q_history = [[q] for q in qs]
+	    for i = 1:steps
+	        qs .+= randn(k) .*σ #update q values with random walk
+			sort!(qs, rev = true)
+			for i in eachindex(qs) push!(q_history[i], qs[i]) end
+	    end
+		return q_history
+	end
+
+	runs = [run() for _ in 1:nruns]
+	q_avg = [sum(run[i] for run in runs) ./ nruns for i in 1:k]
+    traces = [scatter(x = 1:steps, y = q_avg[i], name = "Arm Rank $i", showlegend = false) for i in 1:k]
+	benchtrace = scatter(x = 1:steps, y = σ .* sqrt.(1:steps), name = "Expected Reward STD", line = attr(dash = "dot", width = 5, color = "rgba(100, 100, 100, 0.9)"))
+	plot([traces; benchtrace], Layout(xaxis_title = "Step", yaxis_title = "Mean Reward", legend = attr(orientation = "h", y = 1.), title = "Expected Value for Arm Mean Rewards Ranked from 1 to $k", height = 500))
+end
+
+# ╔═╡ 9b625fc0-89bd-4064-a379-225e6a940af7
+md"""
+Number of Arms: $(@bind ktest_nonstationary NumberField(2:100, default = 10))
+"""
+
+# ╔═╡ 8584ece7-badc-486a-9a57-b60e77f92673
+nonstationary_bandit_statistics(ktest_nonstationary)
+
+# ╔═╡ f9e60b35-84d2-4b4b-8832-6b0f08152396
+md"""
+Shows the reward mean for the arms at each ranking from 1 to $ktest_nonstationary.  Each arm starts at 0 mean reward and is perturbed by a normal random variable with σ = 0.01 at each step.  The rewards for an arm at a particular ranking seem to track the standard deviation of the overall distribution for the drift process.  The functional form of this is $$$\sqrt{n}$$$ where $$$n$$$ is the number of steps so far.  Depending on the number of arms, the multiplicative factor on the curve changes but for the 10 armed case, the second best arm seems to match the value for 1 standard deviation above the mean of 0.
+"""
+
 # ╔═╡ 32bff269-e893-4907-b589-7ba2ae1314bd
 md"""
 ## 2.6 Optmisitic Initial Values
@@ -664,18 +702,34 @@ H_{t+1}(a) & \dot = H_t(a) - \alpha(R_t - \overline R_t)\pi_t(a) \forall a \neq 
 where $\alpha > 0$ is a step-size parameter and $\overline R_t \in \mathbf{R}$ is the average rewards up to but not including time $t$.  This average can be computed by any of the techniques mentioned earlier.
 """
 
+# ╔═╡ 99945570-0b2a-432a-ae83-3a7abc39cac8
+function normalize_πvec!(πvec::Vector{T}) where T <: AbstractFloat
+	s = sum(πvec)
+	if (isinf(s) || isnan(s) || (s == 0))
+		πvec .= one(T) / length(πvec)
+	else
+		πvec ./= s
+	end
+end
+
 # ╔═╡ 54deaa09-8f87-4caf-b2a0-f15bcd5b40a5
 #calculates a vector of probabilities for selecting each action given exponentiated "perferences" given in expH using the softmax distribution
-function calc_πvec(expH::AbstractVector)
-	s = sum(expH)
-	expH ./ s
+function update_πvec!(πvec, H::AbstractVector)
+	πvec .= exp.(H)
+	normalize_πvec!(πvec)
+end
+
+# ╔═╡ 24759e26-e670-4330-b6e4-b313620660f1
+function calculate_πvec(H::AbstractVector)
+	πvec = exp.(H)
+	normalize_πvec!(πvec)
 end
 
 # ╔═╡ ea6d7cad-47ad-4472-a9e9-1ee33c81058d
 function update_H!(a::Integer, H::AbstractVector, π_vec::AbstractVector, α, R, R̄)
-	for i in eachindex(H)
-		H[i] = H[i] + α*(R - R̄)*(i == a ? (1.0 - π_vec[i]) : -π_vec[i])	
-	end	
+	v = α*(R - R̄)
+	H .-= v .* π_vec
+	H[a] += v
 end
 
 # ╔═╡ 51349e41-4696-4bd5-9bc1-cefbb82bea08
@@ -738,7 +792,7 @@ end
 (::Type{ϵ_Greedy})() = ϵ_Greedy(0.1)
 
 # ╔═╡ 44b9ff95-ea3d-41f5-8098-445a263738a9
-#extrends default value to other types
+#extends default value to other types
 (::Type{ϵ_Greedy{T}})() where T<:AbstractFloat = ϵ_Greedy(T(0.1))
 
 # ╔═╡ ca726a9d-364d-48e2-8882-20ddbc85b664
@@ -747,30 +801,6 @@ end
 # ╔═╡ 9d36934a-78cb-446b-b3db-1bbd88cf272d
 #how to convert type of explorer when it is already the same
 (::Type{T})(e::T) where T <: ϵ_Greedy = e
-
-# ╔═╡ 926b95b1-c188-4cfb-8272-10c3a3b9f8e5
-#already knows how to convert if the argument passed is wrong
-ϵ_Greedy{BigFloat}(1.0f0)
-
-# ╔═╡ 53fca00d-69b8-42aa-aeec-41de02f553a3
-ϵ_Greedy()
-
-# ╔═╡ fba8da74-4a34-49ad-a60e-e1849d138cc8
-ϵ_Greedy{Float32}()
-
-# ╔═╡ bae0b1b4-149e-416c-9b92-1cf8ebde07a3
-explorer = ϵ_Greedy(0.1)
-
-# ╔═╡ cabfd2b9-307e-4026-a3ac-91d2674c58af
-ϵ_Greedy{Float32}(explorer)
-
-# ╔═╡ 68f7540b-a6d0-49f2-8d34-8b96888e3109
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do 
-	@code_lowered ϵ_Greedy{Float64}(explorer)
-end
-  ╠═╡ =#
 
 # ╔═╡ 60b2079e-0efa-427e-93cf-7f4646fe202e
 struct UCB{T <: AbstractFloat} <: Explorer{T}
@@ -789,25 +819,11 @@ end
 # ╔═╡ 47be3ae6-20f7-47d0-aae3-b67154afc1a8
 (::Type{UCB{T}})(e::UCB) where {T<:AbstractFloat} = UCB(T(e.c))
 
-# ╔═╡ 82108d8f-96ab-4647-bd9e-cc7a9d0217e3
-k = 10
+# ╔═╡ 4c6ccbfe-a3ce-4f2d-bcb1-7f1a4b735c65
+struct GradientSample{T <: AbstractFloat} <: Explorer{T} end
 
-# ╔═╡ 3c4462d4-c1ab-4231-8c9e-75ab33734061
-ex2 = UCB(1.0)
-
-# ╔═╡ 2a70e0cb-311f-4ad4-b55d-77d299030d9c
-UCB{Float32}(ex2)
-
-# ╔═╡ 5dac18d3-dcaa-47ce-b050-09357dc41502
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do 
-	@code_lowered UCB{Float32}(ex2)
-end
-  ╠═╡ =#
-
-# ╔═╡ 33930d1a-ad7b-4359-b46d-fe84d47b16dc
-ϵ_Greedy{Float64} <: Explorer{Float64}
+# ╔═╡ e50596ab-91db-42f0-a62c-77629a4e79c7
+(::Type{T})(e::T) where T <: GradientSample = e
 
 # ╔═╡ 839861db-676f-4544-a802-0abb5d0049e1
 abstract type AverageMethod{T<:AbstractFloat} end
@@ -845,21 +861,8 @@ end
 # ╔═╡ 5712b303-0aa3-4501-b1b5-020136d6e655
 (::Type{U})(a::U) where U<:UnbiasedConstantStep = a
 
-# ╔═╡ f44d8016-984f-43c1-8541-0bcc74adf735
-UnbiasedConstantStep()
-
-# ╔═╡ 4d105237-947f-429a-be12-ea73e0ce362c
-q_avg = ConstantStep()
-
-# ╔═╡ c9c9c147-be36-4014-be1e-4e72e325f611
-ConstantStep{BigFloat}()
-
-# ╔═╡ 01929fe4-0ab7-4e5f-89cf-ade442c4f1a3
-ConstantStep{Float32}(q_avg)
-
 # ╔═╡ f561b0a8-a086-4e1a-bc87-82c4205e89c9
-struct SampleAverage{T<:AbstractFloat} <: AverageMethod{T}
-end
+struct SampleAverage{T<:AbstractFloat} <: AverageMethod{T} end
 
 # ╔═╡ 30aa1e1b-0b51-40c4-a093-ef92c3ad519a
 (::Type{SampleAverage})() = SampleAverage{Float64}()
@@ -869,15 +872,6 @@ end
 
 # ╔═╡ 4ebd4a5a-3bd1-48e2-b03e-a5a3b2ec18a1
 (::Type{U})(a::SampleAverage) where U <: SampleAverage = U() 
-
-# ╔═╡ 3f8d5fc9-a153-4832-bd48-387679757a45
-q_avg2 = SampleAverage()
-
-# ╔═╡ 6d3076e4-8644-4436-9c95-480093689dc9
-SampleAverage{BigFloat}(q_avg2)
-
-# ╔═╡ 1e1f6d10-1b31-4e0a-96f7-23207e913154
-abstract type BanditAlgorithm{T} end
 
 # ╔═╡ 73e5b719-8b91-41d2-b83d-471d981b027f
 (::Type{Explorer{T}})(e::ϵ_Greedy) where T<:AbstractFloat = ϵ_Greedy{T}(e)
@@ -891,6 +885,9 @@ abstract type BanditAlgorithm{T} end
 # ╔═╡ a04da367-3f8d-422d-a443-4e3e666e30ef
 (::Type{Explorer{T}})(e::UCB) where T<:AbstractFloat = UCB{T}(e)
 
+# ╔═╡ 68470b1d-3cc2-4cb1-8dc2-53227e6300e7
+(::Type{Explorer{T}})(e::GradientSample) where T<:AbstractFloat = GradientSample{T}()
+
 # ╔═╡ fb3381b5-10e3-4307-b76d-672245fac9e7
 (::Type{AverageMethod{T}})(a::SampleAverage) where T<:AbstractFloat = SampleAverage{T}()
 
@@ -900,60 +897,57 @@ abstract type BanditAlgorithm{T} end
 # ╔═╡ d2ebd908-387d-4e40-bc00-61ce5f45ebdd
 (::Type{AverageMethod{T}})(a::UnbiasedConstantStep) where T<:AbstractFloat = UnbiasedConstantStep{T}(a)
 
+# ╔═╡ 1e1f6d10-1b31-4e0a-96f7-23207e913154
+abstract type BanditAlgorithm{T, E, A} end
+
 # ╔═╡ 13f0adab-7660-49df-b26d-5f89cd73192b
-struct ActionValue{T<:AbstractFloat} <: BanditAlgorithm{T}
+struct ActionValue{T<:AbstractFloat, E <: Explorer{T}, A <: AverageMethod{T}} <: BanditAlgorithm{T, E, A}
 	N::Vector{T}
 	Q::Vector{T}
-	explorer::Explorer{T}
-	q_avg::AverageMethod{T}
-	#use the type of Qinit to initialize vectors and convert the other types if necessary
-	function ActionValue(k::Integer, Qinit::T, explorer::Explorer, q_avg::AverageMethod) where {T<:AbstractFloat}
-		N = zeros(T, k)
-		Q = ones(T, k) .* Qinit
-		new_e = Explorer{T}(explorer)
-		new_avg = AverageMethod{T}(q_avg)
-		new{T}(N, Q, new_e, new_avg)
-	end
+	explorer::E
+	update_average::A
 end
 
-# ╔═╡ 4ce233ba-383e-48c5-a8af-b447b7f46f5f
-est1 = ActionValue(10, 1.0f0, ϵ_Greedy(), SampleAverage())
+# ╔═╡ 45cc0a58-3534-4c67-bfd4-1c2b48d59a2e
+function (::Type{ActionValue})(k::Integer, Qinit::T, explorer::Explorer, q_avg::AverageMethod) where T <: AbstractFloat 
+	#use the type of Qinit to initialize vectors and convert the other types if necessary
+	N = zeros(T, k)
+	Q = ones(T, k) .* Qinit
+	new_e = Explorer{T}(explorer)
+	new_avg = AverageMethod{T}(q_avg)
+	ActionValue(N, Q, new_e, new_avg)
+end
 
 # ╔═╡ 0fbbe455-79ce-44d6-b010-da0bb56adbb4
-(::Type{ActionValue})(k::Integer; Qinit = 0.0, explorer::Explorer = ϵ_Greedy(), q_avg::AverageMethod = SampleAverage()) = ActionValue(k, Qinit, explorer, q_avg)
+(::Type{ActionValue})(k::Integer; Qinit::T = 0.0, explorer::Explorer = ϵ_Greedy(), update_average::AverageMethod = SampleAverage()) where T <: AbstractFloat = ActionValue(k, Qinit, Explorer{T}(explorer), AverageMethod{T}(update_average))
 
-# ╔═╡ a03e2617-048e-44f8-8cf6-a2416190d768
-ActionValue(10, Qinit = 0.0f0)
-
-# ╔═╡ 0368db15-f875-45d1-8598-fe53732c58cc
-est2 = ActionValue(10, Qinit = BigFloat(1.0), explorer = UCB(1.0f0), q_avg = ConstantStep())
+# ╔═╡ c66f1676-aec1-489d-96ff-99d748dac0fe
+(::Type{ActionValue})(;kwargs...) = k -> ActionValue(k; kwargs...)
 
 # ╔═╡ 8a04adab-e97e-4ac4-a85e-5eae93b1c37b
-mutable struct GradientReward{T<:AbstractFloat} <: BanditAlgorithm{T}
+mutable struct GradientReward{T<:AbstractFloat, E <: GradientSample{T}, A <: AverageMethod{T}} <: BanditAlgorithm{T, E, A}
 	H::Vector{T} 
-	expH::Vector{T}
 	πvec::Vector{T}
 	α::T
 	R̄::T
-	update::AverageMethod{T}
-	function GradientReward(k::Integer, α::T, update::AverageMethod) where T<:AbstractFloat
-		H = zeros(T, k)
-		expH = exp.(H)
-		πvec = ones(T, k) ./ k
-		R̄ = zero(T)
-		new_update = AverageMethod{T}(update)
-		new{T}(H, expH, πvec, α, R̄, new_update)
+	update_average::A
+
+	function GradientReward(H, πvec, α::T, R̄, update_average::A) where {T <: AbstractFloat, A <: AverageMethod{T}}
+		new{T, GradientSample{T}, A}(H, πvec, α, R̄, update_average)
 	end
 end
 
 # ╔═╡ 69b560c1-98ad-4cbf-89d2-e0516299bc69
-(::Type{GradientReward})(k::Integer; α::T=0.1, update::AverageMethod = SampleAverage()) where T<:AbstractFloat = GradientReward(k, α, update)
+function (::Type{GradientReward})(k::Integer; α::T=0.1, update_average::AverageMethod = SampleAverage()) where T <: AbstractFloat 
+	H = zeros(T, k)
+	πvec = ones(T, k) ./ k
+	R̄ = zero(T)
+	new_update = AverageMethod{T}(update_average)
+	GradientReward(H, πvec, α, R̄, new_update)
+end
 
-# ╔═╡ 0785c5d2-e2eb-4176-9b04-7386dc3de82f
-grad_est1 = GradientReward(10)
-
-# ╔═╡ 003a6b9d-8e89-4063-8c56-4a15d1da2110
-grad_est2 = GradientReward(10, update = ConstantStep(0.0f0))
+# ╔═╡ d9265b98-cc3e-4a60-b16e-f54d9f78c9d3
+(::Type{GradientReward})(;kwargs...) = k -> GradientReward(k; kwargs...)
 
 # ╔═╡ 4982b489-ca15-4188-90e5-565c45f02e01
 sample_action(est::GradientReward, i::Integer, actions) = sample(actions, weights(est.πvec))
@@ -983,8 +977,7 @@ end
 function gradient_stationary_bandit_algorithm(qs::Vector{Float64}, k::Integer; steps = 1000, α = 0.1, baseline = true)
     bandit(a) = sample_bandit(a, qs)
     H = zeros(k)
-	expH = exp.(H)
-	π_vec = calc_πvec(expH)
+	πvec = calculate_πvec(H)
 	R̄ = 0.0
     accum_reward_ideal = 0.0
     accum_reward = 0.0
@@ -998,7 +991,7 @@ function gradient_stationary_bandit_algorithm(qs::Vector{Float64}, k::Integer; s
     optimalaction_pct = zeros(steps)
     actions = collect(1:k)
     for i = 1:steps
-        a = sample_action(actions, π_vec)
+        a = sample_action(actions, πvec)
         if a == bestaction
             optimalstep[i] = true
             optimalcount += 1
@@ -1010,28 +1003,39 @@ function gradient_stationary_bandit_algorithm(qs::Vector{Float64}, k::Integer; s
         accum_reward += step_reward[i] 
         cum_reward[i] = accum_reward
         optimalaction_pct[i] = optimalcount / i
-		update_H!(a, H, π_vec, α, step_reward[i], R̄)
+		update_H!(a, H, πvec, α, step_reward[i], R̄)
 
 		#update R̄ with running average if baseline is true
 		if baseline
 			R̄ += (1.0/i)*(step_reward[i] - R̄)
 		end
 
-		#update expH and π_vec
-		expH .= exp.(H)
-		π_vec .= calc_πvec(expH)
+		#update π_vec
+		update_πvec!(πvec, H)
     end
     return (;step_reward, step_reward_ideal, cum_reward, cum_reward_ideal, optimalstep, optimalaction_pct)
 end
 
 # ╔═╡ 50fbdc85-82f1-4c52-936b-84eb14951d71
 function average_gradient_stationary_runs(k; steps = 1000, n = 2000, α=0.1, offset = 0.0, baseline = true)
-    runs = Vector{NamedTuple}(undef, n)
-    @threads for i in 1:n
+	names = (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct)
+    runs = Vector{Vector{Vector{Float32}}}(undef, n)
+	qs = create_bandit(k, offset = offset)
+	run1 = gradient_stationary_bandit_algorithm(qs, k, steps = steps, α = α, baseline = baseline)
+	runs[1] = [Float32.(run1[name]) for name in names]
+    @threads for i in 2:n
         qs = create_bandit(k, offset = offset)
-        runs[i] = gradient_stationary_bandit_algorithm(qs, k, steps = steps, α = α, baseline = baseline) 
+        run = gradient_stationary_bandit_algorithm(qs, k, steps = steps, α = α, baseline = baseline)
+		runs[i] = [Float32.(run[name]) for name in names]
     end
-    map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
+
+	for i in eachindex(names)
+		for j in 2:n
+			runs[1][i] .+= runs[j][i]
+		end
+		runs[1][i] ./= n
+	end
+    return runs[1]
 end
 
 # ╔═╡ 8a6f3f85-64e4-4c31-9e69-43f50f42bbc9
@@ -1060,77 +1064,41 @@ end
 # ╔═╡ 691aa77a-d6da-4fde-9024-c4195057179d
 figure_2_5(;params_2_5...)
 
-# ╔═╡ 555860b6-4ae6-411f-94d7-5c30efc5c339
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do
-	actions = collect(1:10)
-	est = ActionValue(10)
-	# @code_warntype sample_action(est, 10, actions)
-	@benchmark sample_action($est, 10, $actions)
+# ╔═╡ 62eb0650-96bc-4fd6-bfe0-bf05a4137a03
+updatecoef(est::ActionValue{T, E, SampleAverage{T}}, a::Integer, step::Integer) where {T <: AbstractFloat, E <: Explorer{T}} = one(T) / est.N[a]
+
+# ╔═╡ 30f05bd9-e939-4810-b710-edc7f5975921
+updatecoef(est::GradientReward{T, GradientSample{T}, SampleAverage{T}}, a::Integer, step::Integer) where {T <: AbstractFloat} = one(T) / step
+
+# ╔═╡ 96566aad-6d5c-460c-a924-ae0bad5d8b2d
+updatecoef(est::BA, a::Integer, step::Integer) where {BA <: BanditAlgorithm{T, E, ConstantStep{T}} where {T <: AbstractFloat, E <: Explorer{T}}} = est.update_average.α
+
+# ╔═╡ 4191ff98-f4ab-4f18-a148-d3d3fff3d0ad
+function updatecoef(est::BA, a::Integer, step::Integer) where {BA <: BanditAlgorithm{T, E, UnbiasedConstantStep{T}} where {T <: AbstractFloat, E <: Explorer{T}}}
+	avg = est.update_average
+	avg.o += avg.α*(one(T) - avg.o)
+	avg.α/avg.o
 end
-  ╠═╡ =#
 
-# ╔═╡ fb980aba-a703-44b8-a633-b59a085eee1b
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do
-	actions = collect(1:10)
-	est = ActionValue(10, explorer = UCB())
-	# @code_warntype sample_action(est, 10, actions)
-	@benchmark sample_action($est, 10, $actions)
+# ╔═╡ 09227386-1620-4093-b913-5786205aad13
+function update_estimator!(est::GradientReward{T, E, A}, a::Integer, r::T, step::Integer) where {T <: AbstractFloat, E <: GradientSample{T}, A <: AverageMethod{T}}
+	rdiff = r - est.R̄
+	c = est.α * rdiff
+	est.H .-= c .* est.πvec
+	est.H[a] += c
+
+	est.R̄ += updatecoef(est, a, step) * rdiff
+	update_πvec!(est.πvec,est.H)
 end
-  ╠═╡ =#
 
-# ╔═╡ 32a4af32-c645-4342-b09a-6f4d964e046a
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do
-	actions = collect(1:10)
-	est = GradientReward(10)
-	# @code_warntype sample_action(est, 10, actions)
-	@benchmark sample_action($est, 10, $actions)
+# ╔═╡ 781fa565-398c-4c89-89f3-0595455afc85
+function update_estimator!(est::ActionValue{T, E, A}, a::Integer, r::T, step::Integer) where {T <: AbstractFloat, E <: Explorer{T}, A <: AverageMethod{T}} 	est.N[a] += one(T)	
+	est.Q[a] += updatecoef(est, a, step) * (r - est.Q[a])
 end
-  ╠═╡ =#
-
-# ╔═╡ e1909e7e-b691-4660-af5d-a7d72026195f
-function update_estimator!(est::GradientReward{T}, a::Integer, r::T, step::Integer) where T <: AbstractFloat
-	(H, expH, πvec, α, R̄, r_avg) = (est.H, est.expH, est.πvec, est.α, est.R̄, est.update)
-	rdiff = r - R̄
-	c = α*rdiff
-	for i in eachindex(H)
-		H[i] += c*(i == a ? (one(T) - πvec[i]) : -πvec[i])	
-	end	
-	#update R̄ with desired method
-	updatecoef(::SampleAverage) = one(T)/step
-	updatecoef(r_avg::ConstantStep) = r_avg.α
-	function updatecoef(r_avg::UnbiasedConstantStep) 
-		r_avg.o = r_avg.o + r_avg.α*(one(T) - r_avg.o)
-		r_avg.α/r_avg.o
-	end
-	est.R̄ = R̄ + updatecoef(r_avg)*rdiff
-
-	#update expH and π_vec
-	expH .= exp.(H)
-	πvec .= calc_πvec(expH)
-end	
-
-# ╔═╡ 7a034d15-60e4-4082-9383-6685c8561e33
-function update_estimator!(est::ActionValue{T}, a::Integer, r::T, i::Integer) where T <: AbstractFloat
-	(N, Q, q_avg) = (est.N, est.Q, est.q_avg)
-	N[a] += one(T)
- 	updatecoef(q_avg::SampleAverage) = one(T) / N[a]
-	updatecoef(q_avg::ConstantStep) = q_avg.α
-	function updatecoef(r_avg::UnbiasedConstantStep) 
-		r_avg.o = r_avg.o + r_avg.α*(one(T) - r_avg.o)
-		r_avg.α/r_avg.o
-	end
-	c = updatecoef(q_avg)
-	Q[a] += c*(r - Q[a])
-end	
 
 # ╔═╡ 1004eb4b-1fed-4328-a08b-6f5d9dd5080b
-function run_bandit(qs::Vector{T}, algorithm::BanditAlgorithm{T}; steps = 1000, μ::T = zero(T), σ::T = zero(T)) where T <: AbstractFloat 
+function run_bandit(qs::Vector{T}, algorithm::BanditAlgorithm{T}; steps = 1000, μ::T = zero(T), σ::T = zero(T), cumstart = 1, saveall = true) where T <: AbstractFloat
+#if saveall is false, then only saves the average cumulative reward per step, so it is faster
 	bandit(a) = sample_bandit(a, qs)
 	#in this case the bandit is not stationary
 	updateq = (μ != 0) || (σ != 0)
@@ -1144,153 +1112,101 @@ function run_bandit(qs::Vector{T}, algorithm::BanditAlgorithm{T}; steps = 1000, 
 	actions = collect(eachindex(qs))
 	accum_reward_ideal = zero(T)
     accum_reward = zero(T)
-    cum_reward_ideal = zeros(T, steps)
-    step_reward_ideal = zeros(T, steps)
-    cum_reward = zeros(T, steps)
-    step_reward = zeros(T, steps)
-    optimalstep = fill(false, steps)
-    optimalcount = 0
-    optimalaction_pct = zeros(T, steps)
 	bestaction = argmax(qs)
-    for i = 1:steps
-        a = sample_action(algorithm, i, actions)
-        # a = 1
-		if a == bestaction
-            optimalstep[i] = true
-            optimalcount += 1
-        end
-        step_reward[i] = bandit(a) 
-        step_reward_ideal[i] = bandit(bestaction)
-        accum_reward_ideal += step_reward_ideal[i] 
-        cum_reward_ideal[i] = accum_reward_ideal
-        accum_reward += step_reward[i] 
-        cum_reward[i] = accum_reward
-        optimalaction_pct[i] = optimalcount / i	
-		#update anything required before sampling the next action
-		update_estimator!(algorithm, a, step_reward[i], i)
-		#will only update qs in the non-stationary case and get a new bestaction
-		if updateq				
-			qupdate!(qs)
-			bestaction = argmax(qs)
-		end
-    end
-    return (;step_reward, step_reward_ideal, cum_reward, cum_reward_ideal, optimalstep, optimalaction_pct)
-end
 
-# ╔═╡ 5915e7b4-bb03-4e29-a5bc-5cf2a6cb9f3d
-function run_bandit_cumreward(qs::Vector{T}, algorithm::BanditAlgorithm{T}; steps = 1000, μ::T = zero(T), σ::T = zero(T), cumstart = 1) where T <: AbstractFloat
-#same as run_bandit but only saved the average cumulative reward per step, so it is faster
-	bandit(a) = sample_bandit(a, qs)
-	#in this case the bandit is not stationary
-	updateq = (μ != 0) || (σ != 0)
-	function qupdate!(qs)
-		for i in eachindex(qs)
-			qs[i] += (randn(T)*σ) + μ
-		end
-		return nothing
+	if saveall
+	    cum_reward_ideal = zeros(T, steps)
+	    step_reward_ideal = zeros(T, steps)
+	    cum_reward = zeros(T, steps)
+	    step_reward = zeros(T, steps)
+	    optimalstep = fill(false, steps)
+	    optimalcount = 0
+	    optimalaction_pct = zeros(T, steps)
 	end
-	#initialize values to keep track of
-	actions = collect(eachindex(qs))
-	accum_reward_ideal = zero(T)
-    accum_reward = zero(T)
-	bestaction = argmax(qs)
+	
     for i = 1:steps
         a = sample_action(algorithm, i, actions)
-        r = bandit(a) 
-        r_ideal = bandit(bestaction)
-        if i >= cumstart
-			accum_reward_ideal += r_ideal 
-        	accum_reward += r 
+		r = bandit(a)
+		r_ideal = bandit(bestaction)
+
+		if i >= cumstart
+			accum_reward_ideal += r_ideal
+			accum_reward += r
 		end
+
 		#update anything required before sampling the next action
 		update_estimator!(algorithm, a, r, i)
+
+		if saveall
+			if a == bestaction
+	            optimalstep[i] = true
+	            optimalcount += 1
+	        end
+	        step_reward[i] = r 
+	        step_reward_ideal[i] = r_ideal
+	        cum_reward_ideal[i] = accum_reward_ideal
+	        cum_reward[i] = accum_reward
+	        optimalaction_pct[i] = optimalcount / i	
+		end
+
 		#will only update qs in the non-stationary case and get a new bestaction
 		if updateq				
 			qupdate!(qs)
 			bestaction = argmax(qs)
 		end
+	
     end
-	step_cum_reward = accum_reward/(steps - cumstart + 1)
-	step_cum_reward_ideal = accum_reward_ideal/(steps - cumstart + 1)
-    return (;step_cum_reward, step_cum_reward_ideal)
-end
 
-# ╔═╡ 21956a94-c846-4785-b081-2303bf90abcc
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do
-	actions = collect(1:10)
-	est = ActionValue(10)
-	# @code_warntype update_estimator!(est, 5, 1.0, 10)
-	@benchmark update_estimator!($est, 5, 1.0, 10)
-end
-  ╠═╡ =#
+	saveall && return (;step_reward, step_reward_ideal, cum_reward, cum_reward_ideal, optimalstep, optimalaction_pct)
 
-# ╔═╡ bd76e270-21c1-47f0-9924-8a8f8da48d00
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do
-	actions = collect(1:10)
-	est = GradientReward(10)
-	# @code_warntype update_estimator!(est, 5, 1.0, 10)
-	@benchmark update_estimator!($est, 5, 1.0, 10)
+	navg = steps - cumstart + 1
+	step_cum_reward = accum_reward / navg
+	step_cum_reward_ideal = accum_reward_ideal / navg
+	return (;step_cum_reward, step_cum_reward_ideal)
 end
-  ╠═╡ =#
-
-# ╔═╡ 6af63fff-e58a-4868-a448-e08205cdd5b9
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do 
-	bandit = create_bandit(k)
-	estimator = ActionValue(k, q_avg=ConstantStep())
-	@benchmark run_bandit($bandit, $estimator)
-end
-  ╠═╡ =#
-
-# ╔═╡ a94d9e8f-a20d-4a46-bab4-83235592e198
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do 
-	bandit = create_bandit(k)
-	@benchmark simple_algorithm($bandit, $k, 0.1)
-end
-  ╠═╡ =#
 
 # ╔═╡ 7678b06b-feef-4656-a801-33f630437bfb
-function average_stationary_runs(k, algorithm; steps = 1000, n = 2000, offset = 0.0)
-    runs = Vector{NamedTuple}(undef, n)
-    @threads for i in 1:n
-        qs = create_bandit(k, offset=offset)
+function average_runs(k, algorithm::Function; offset::Float32 = 0.0f0, steps = 1000, n = 2000, make_bandit = create_bandit, kwargs...)
+    names = (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct)
+	runs = Vector{Vector{Vector{Float32}}}(undef, n)
+	function loopbody()
+		qs = make_bandit(k, offset=offset)
 		est = algorithm(k)
-        runs[i] = run_bandit(qs, est, steps = steps) 
+        run = run_bandit(qs, est; steps = steps, kwargs...) 
+		[Float32.(run[name]) for name in names]
+	end
+	runs[1] = loopbody()
+    for i in 2:n
+       runs[i] = loopbody()
     end
-    map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
+
+	for i in eachindex(names)
+		for j in 2:n
+			runs[1][i] .+= runs[j][i]
+		end
+		runs[1][i] ./= n
+	end
+	return runs[1]
 end
 
 # ╔═╡ 8a52acf7-5d57-490f-8bd9-6e1e0e322872
-function average_stationary_runs_cum_reward(k, algorithm; steps = 1000, n = 2000, offset::T = 0.0) where T <: AbstractFloat
+function average_runs_cum_reward(k, algorithm::Function; steps = 1000, n = 2000, offset::T = 0.0f0, make_bandit = create_bandit, kwargs...) where T <: AbstractFloat
     r_step = Atomic{T}(zero(T))
 	r_step_ideal = Atomic{T}(zero(T))
     @threads for i in 1:n
-        qs = create_bandit(k, offset=offset)
+		Random.seed!(i)
+        qs = make_bandit(k, offset=offset)
 		est = algorithm(k)
-        rewards = run_bandit_cumreward(qs, est, steps = steps) 
+		Random.seed!(i)
+        rewards = run_bandit(qs, est; steps = steps, saveall = false, kwargs...) 
     	atomic_add!(r_step, rewards[1])
 		atomic_add!(r_step_ideal, rewards[2])
 	end
     (r_step[]/n, r_step_ideal[]/n)
 end
 
-# ╔═╡ 6a90f167-15a8-4269-80e4-ea7206d90470
-function average_nonstationary_runs(k, algorithm; steps = 10000, n = 2000, qinit::T=0.0) where T<:AbstractFloat
-    runs = Vector{NamedTuple}(undef, n)
-    @threads for i in 1:n
-        qs = ones(T, k) .* qinit
-		est = algorithm(k)
-        runs[i] = run_bandit(qs, est, steps = steps, σ=0.01) 
-    end
-    map(i -> mapreduce(a -> a[i], (a, b) -> a .+ b, runs)./n, (:step_reward, :step_reward_ideal, :optimalstep, :cum_reward, :cum_reward_ideal, :optimalaction_pct))
-end
+# ╔═╡ 181d7eef-24a0-4775-a535-8ef901b7e4eb
+average_nonstationary_runs(k, algorithm::Function; steps = 1_000, n = 2000, qinit::T=0.0f0) where T<:AbstractFloat = average_runs(k, algorithm; offset = qinit, steps = steps, n = n, make_bandit = (k; offset = qinit) -> ones(T, k) .* offset, σ = T(0.01))
 
 # ╔═╡ 34f65898-cbcc-4832-afac-0f7a284e7f0b
 function exercise2_5(; n=10, ϵ=0.1, α=0.1, kwargs...)
@@ -1307,79 +1223,8 @@ end
 # ╔═╡ d24bd737-9e09-441a-aa94-9279c80f566d
 exercise2_5(;nonstationaryparams...)
 
-# ╔═╡ 041e54ab-c7ee-4fe8-96ec-1189a3b18380
-function average_nonstationary_runs_cum_reward(k, algorithm; steps = 10000, n = 2000, qinit::T = 0.0) where T<:AbstractFloat
-    r_step = Atomic{T}(zero(T))
-	r_step_ideal = Atomic{T}(zero(T))
-    @threads for i in 1:n
-        qs = ones(T, k) .* qinit
-		est = algorithm(k)
-        rewards = run_bandit_cumreward(qs, est, steps = steps, σ=0.01, cumstart = floor(Int64, steps/2) + 1) 
-    	atomic_add!(r_step, rewards[1])
-		atomic_add!(r_step_ideal, rewards[2])
-	end
-    (r_step[]/n, r_step_ideal[]/n)
-end
-
-# ╔═╡ 68b09fc5-e0d2-4c58-a382-83fe2a058501
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do 
-	@benchmark average_stationary_runs_cum_reward(k, k -> ActionValue(k))
-end
-  ╠═╡ =#
-
-# ╔═╡ 95bfaee5-05da-4c4c-81d2-5f8aac98fb3b
-# ╠═╡ disabled = true
-#=╠═╡
-with_terminal() do
-#repeat benchmark with Float32 to see how much faster it is
-	@benchmark average_stationary_runs_cum_reward(k, k -> ActionValue(k, Qinit = 0.0f0), offset = 0.0f0)
-end
-  ╠═╡ =#
-
-# ╔═╡ b6e3eca8-f174-4889-b801-2f69c801f8d1
-# ╠═╡ disabled = true
-#=╠═╡
-nonstationaryruns = average_nonstationary_runs(k, k -> ActionValue(k, explorer = ϵ_Greedy(1/128), q_avg = ConstantStep()), steps = 100000)
-  ╠═╡ =#
-
-# ╔═╡ 72e77d4f-229a-4ac1-a023-38059e34740a
-# ╠═╡ disabled = true
-#=╠═╡
-plot(nonstationaryruns[1], legend = false)
-  ╠═╡ =#
-
-# ╔═╡ c348c234-db5d-4f72-b41f-2e0969b69594
-gradient_est = GradientReward(k)
-
-# ╔═╡ 8fda57ef-08a9-4897-b127-a4283b959d06
-run_bandit(create_bandit(k), gradient_est)
-
-# ╔═╡ 66b8b455-b2d3-4e5f-beb4-2c7736eb6de7
-αlist = [0.025, 0.05, 0.1, 0.2, 0.4]
-
-# ╔═╡ 8585f70b-2f4e-47cd-a101-89ba9a9e16c2
-# ╠═╡ disabled = true
-#=╠═╡
-gradientruns_baseline = [average_stationary_runs(k, k -> GradientReward(k, α=α), offset = 4.0) for α in αlist]
-  ╠═╡ =#
-
-# ╔═╡ 99d7fc46-67bf-4b85-b3ee-62a6be79d5d3
-# ╠═╡ disabled = true
-#=╠═╡
-gradientruns_nobaseline = [average_stationary_runs(k, k -> GradientReward(k, α=α, update = ConstantStep(0.0)), offset = 4.0) for α in αlist]
-  ╠═╡ =#
-
-# ╔═╡ eb71f799-e192-4c20-b60c-8c523825261c
-#=╠═╡
-plot(mapreduce(a -> a[3], hcat, gradientruns_baseline), lab = mapreduce(a -> "α=$a", hcat, αlist), xaxis = "Step", yaxis = "% Runs Taking Optimal Action", title="Gradient Algorithm with Baseline and 4.0 Mean Reward", size = (700, 500))
-  ╠═╡ =#
-
-# ╔═╡ 9271bbe3-f8f0-4223-ba3a-35575f5d9725
-#=╠═╡
-plot(mapreduce(a -> a[3], hcat, gradientruns_nobaseline), lab = mapreduce(a -> "α=$a", hcat, αlist), xaxis = "Step", yaxis = "% Runs Taking Optimal Action", title="Gradient Algorithm with No Baseline and 4.0 Mean Reward", size = (700, 500))
-  ╠═╡ =#
+# ╔═╡ 74024d96-d0c7-43c8-8379-caf843cbe4b8
+average_nonstationary_runs_cum_reward(k, algorithm::Function; steps = 1_000, n = 2000, qinit::T=0.0f0) where T<:AbstractFloat = average_runs_cum_reward(k, algorithm; offset = qinit, steps = steps, n = n, make_bandit = (k; offset = qinit) -> ones(T, k) .* offset, σ = T(0.01), cumstart = floor(Int64, steps/2) + 1)
 
 # ╔═╡ 46ce2b1f-02cf-4dae-bf02-f67543f38b91
 md"""
@@ -1389,43 +1234,105 @@ md"""
 # ╔═╡ c61630b0-29c1-4183-90d9-57c999187b53
 function print_power2(n)
 	if abs(n) > 7
-		"2^$n"
+		latexify("2^$n")
 	elseif n < 0
-		"1/$(2^-n)"
+		latexify("1/$(2^-n)")
 	else
-		"$(2^n)"
+		latexify("$(2^n)")
 	end
 end
 
 # ╔═╡ c72d35fc-c8fd-450e-9b95-d12ece5c2291
-function get_param_list(n1::Integer, n2::Integer; base::T = 2.0) where T<:AbstractFloat
+function get_param_list(n1::Integer, n2::Integer; base::T = 2.0f0) where T<:AbstractFloat
 	nlist = collect(n1:n2)
 	plist = base .^nlist	
 	# namelist = print_power2.(nlist)
 	return plist, nlist
 end
 
-# ╔═╡ 52bb3923-14bc-489e-bbb7-e3d1cff7e783
-function stationary_param_search(algorithm, n1, n2; base::T = 2.0) where T<:AbstractFloat
+# ╔═╡ 8f1c7b0d-121c-46bf-884d-729e3b593025
+function param_search(k, algorithm, n1, n2, f; base::T = 2.0f0, kwargs...) where T<:AbstractFloat
 	plist, nlist = get_param_list(n1, n2, base = base)
-	runs = Vector{Tuple{T, T}}(undef, length(plist))
 	cum_rewards = Vector{T}(undef, length(plist))
 	cum_rewards_ideal = similar(cum_rewards)
 	for i in eachindex(runs)
-		run = average_stationary_runs_cum_reward(k, k -> algorithm(plist[i], k))
+		run = f(k, algorithm(plist[i]); kwargs...)
 		cum_rewards[i] = run[1]
 		cum_rewards_ideal[i] = run[2]
 	end
 	plist, nlist, (cum_rewards, cum_rewards_ideal)
 end
 
-# ╔═╡ 57d2fe04-1447-4d0f-a104-3a6034b85a14
-function plotstationaryparamsearch(param_search, pname; addplot = false, ideal = false)
-	(plist, nlist, runrewards) = param_search
-	pltfunc = addplot ? plot! : plot
-	rewardindex = ideal ? 2 : 1
-	pltfunc(plist, runrewards[rewardindex], xaxis = :log, xticks = (plist, print_power2.(nlist)), lab = pname, yaxis = ("Average Reward over first 1000 steps", [0.5, 1.6]), size = (650, 450))
+# ╔═╡ a15e5d05-a238-440b-9a43-d830c6ea2f4d
+function param_search(k, algorithm, f; base::T = 2.0f0, kwargs...) where T<:AbstractFloat
+	@info "Starting parameter search with algorithm: $algorithm"
+	n = -1
+	p = base^n
+	plist = [p]
+	nlist = [n]
+	run = f(k, algorithm(p); kwargs...)
+	cum_rewards = [run[1]]
+	cum_rewards_ideal = [run[2]]
+	maxreward = run[1]
+	minreward = run[1]
+	maxn = n
+	minn = n
+	converged = false
+	c = 1
+	n += c
+	p = base^n
+
+	function update!(p, n)
+		push!(plist, p)
+		push!(nlist, n)
+		run = f(k, algorithm(p); kwargs...)
+		push!(cum_rewards, run[1])
+		push!(cum_rewards_ideal, run[2])
+		return run[1]
+	end
+
+	while !converged
+		@info "Evaluating p = $p"
+		r = update!(p, n)
+		if r > maxreward
+			maxreward = r
+			maxn = n
+		elseif c == 1
+			n += c
+			p = base^n
+			r = update!(p, n)
+			if r < maxreward
+				n = first(nlist)
+				c = -1
+			else
+				maxreward = r
+				maxn = n
+			end
+		else
+			n += c
+			p = base^n
+			r = update!(p, n)
+			if r < maxreward
+				converged = true
+			else
+				maxreward = r
+				maxn = n
+			end
+		end
+			
+		n += c
+		p = base^n
+	end
+
+	inds = sortperm(nlist)
+	plist[inds], nlist[inds], (cum_rewards[inds], cum_rewards_ideal[inds])
 end
+
+# ╔═╡ 22fa2b71-a98f-4b87-9e0b-9d373cd8915f
+stationary_param_search(args...; kwargs...) = param_search(args..., average_runs_cum_reward; kwargs...)
+
+# ╔═╡ 2447c4ea-7752-457c-80da-ac0dd72a64c1
+save_data(varname, data) = jldsave("$varname.jld2"; data)	
 
 # ╔═╡ 865610bb-ee82-4440-9f32-f00d0382783b
 function run_or_load(varname::String, operation::Function)
@@ -1438,51 +1345,81 @@ function run_or_load(varname::String, operation::Function)
 	return data
 end
 
-# ╔═╡ 2447c4ea-7752-457c-80da-ac0dd72a64c1
-save_data(varname, data) = jldsave("$varname.jld2"; data)	
+# ╔═╡ 140f1e20-f86d-4a6f-9cff-99685e129e1c
+function plot_stationary_param_search(;k = 10, steps = 1000, kwargs...)
+	algorithms = [
+		p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p)), 
+		p -> GradientReward(α=p), 
+		p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), 
+		p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep())
+	]
+	
+	names = [L"\epsilon\text{-greedy }", L"\text{gradient bandit }", "UCB", L"\text{greedy optimistic initialization } \alpha = 0.1"]
 
-# ╔═╡ 23a09111-a43d-4da0-b1f4-e8907097e31e
-ϵ_greedy_stationary_param_search = run_or_load("ϵ_greedy_stationary_param_search", ()-> stationary_param_search((p, k) -> ActionValue(k, explorer = ϵ_Greedy(p)), -7, 2))
+	hovertemplates = [
+		"ϵ = %{x:.2g}, reward = %{y:.3g} <extra> ϵ-greedy</extra>",
+		"α = %{x:.2g}, reward = %{y:.3g} <extra> gradient bandit</extra>",
+		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB</extra>",
+		"Q0 = %{x:.2g}, reward = %{y:.3g} <extra> greedy optimistic</extra>",
+	]
+	
+	results = [stationary_param_search(k, algo; steps = steps, kwargs...) for algo in algorithms]
 
-# ╔═╡ 6e99a9bc-cec9-4bc2-a7a1-33c33f1f0988
-plotstationaryparamsearch(ϵ_greedy_stationary_param_search, "ϵ-greedy")
+	idealx = reduce(vcat, [results[i][1] for i in eachindex(names)])
+	idealy = reduce(vcat, [results[i][3][2] for i in eachindex(names)])
+	nlist = sort(unique(reduce(vcat, [results[i][2] for i in eachindex(names)])))
+	
+	traces = [scatter(x = results[i][1], y = results[i][3][1], name = names[i], hovertemplate = hovertemplates[i]) for i in  eachindex(names)]
+	idealtrace = scatter(x = idealx, y = idealy, name = "ideal", hovertemplate = "ideal reward = %{y:.2g}<extra></extra>", mode = "markers")
+	Plot([traces; idealtrace], Layout(xaxis = attr(title = "Method Parameter (see hovertext)", type = "log", tickvals = sort(unique(idealx)), ticktext = print_power2.(nlist)), yaxis = attr(title = "Average Reward over first $steps steps", range = (0.5, 1.6)), legend = attr(orientation = "h", y = 1.2), width = 700, height = 500))	
+end
 
-# ╔═╡ 5c6592ba-91a2-4477-89e3-8d620773722e
-plotstationaryparamsearch(ϵ_greedy_stationary_param_search, "ideal", addplot = true, ideal = true)
+# ╔═╡ b1c8ad1f-c5e1-41fa-a2c2-da601b03a8b9
+const jldpath = joinpath(@__DIR__, "parameter_studies", "searchplots.jld2")
 
-# ╔═╡ 0543d212-382e-4bbe-8ff3-d4db6eccc2ed
-# ╠═╡ disabled = true
-#=╠═╡
-gradient_stationary_param_search = run_or_load("gradient_stationary_param_search", ()->stationary_param_search((p, k) -> 
-	GradientReward(k, α=p), -7, 2))
-  ╠═╡ =#
+# ╔═╡ 8011422a-605a-4339-90c8-7798e7106db6
+const jldfile = jldopen(jldpath, "a+")
 
-# ╔═╡ 3b19b145-94a0-40c6-ad44-5a6c44ad4c15
-#=╠═╡
-plotstationaryparamsearch(gradient_stationary_param_search, "gradient bandit", addplot = true)
-  ╠═╡ =#
+# ╔═╡ 361573c4-e9c0-4af0-b3d1-ea98162ca8c7
+function figure_2_6(;remakeplot = false, steps = 1000, kwargs...)
+	corename = "stationary_parameter_search_$(steps)_steps"
+	path = joinpath(@__DIR__, "parameter_studies", corename)
+	# jldpath = joinpath(@__DIR__, "parameter_studies", "searchplots.jld2")
+	# p = jldopen(jldpath, "a+") do f
+		if !remakeplot && haskey(jldfile, corename)
+			p = read(jldfile, corename)
+		else
+			p = plot_stationary_param_search(;steps = steps, kwargs...)
+			jldfile[corename] = p
+			open("$path.html", "w") do f
+				PlotlyBase.to_html(f, p)
+			end
+		end
+	# end
+	return plot(p)
+end
 
-# ╔═╡ a1b15d7f-8c7c-4b38-910d-19c62098e37a
-# ╠═╡ disabled = true
-#=╠═╡
-UCB_stationary_param_search = run_or_load("UCB_stationary_param_search", ()->stationary_param_search((p, k) -> ActionValue(k, explorer = UCB(p)), -7, 2))
-  ╠═╡ =#
+# ╔═╡ 88e43fed-fcf3-4071-996a-63f63c3d49b4
+md"""
+Number of Steps to Accumulate Reward: $(@bind stationary_numsteps confirm(NumberField(100:100:10000, default = 1000)))
+"""
 
-# ╔═╡ 5597e20e-42ec-4470-be86-2fed94760f21
-#=╠═╡
-plotstationaryparamsearch(UCB_stationary_param_search, "UCB", addplot = true)
-  ╠═╡ =#
+# ╔═╡ 97f6221d-3289-4e54-a80d-26c5c81f2651
+md"""
+By default, a plot will be loaded that matches this search criteria.  Check the box below to recalculate the search and save a new plot whever the submit button is clicked.
 
-# ╔═╡ aeb7bc99-ef3e-4404-961d-fa5a1bea9d75
-# ╠═╡ disabled = true
-#=╠═╡
-optin_stationary_param_search = run_or_load("optin_stationary_param_search", ()->stationary_param_search((p, k) -> ActionValue(k, Qinit = p, explorer = ϵ_Greedy(0.0), q_avg = ConstantStep()), -7, 2))
-  ╠═╡ =#
+Recompute Parameter Search: $(@bind execute_stationary CheckBox())
+"""
 
-# ╔═╡ 2a25d0c3-d1d4-47fb-9262-2b328b8daa8b
-#=╠═╡
-plotstationaryparamsearch(optin_stationary_param_search, "greedy Qinit", addplot = true)
-  ╠═╡ =#
+# ╔═╡ bf3770ea-ee54-4296-ab33-340aea445670
+# ╠═╡ show_logs = false
+figure_2_6(;remakeplot = execute_stationary, steps = stationary_numsteps)
+
+# ╔═╡ caccfb89-d257-4514-9908-0486711bb8ea
+md"""
+### Figure 2.6
+Parameter study of bandit algorithms on the 10-armed testbed for stationary normally distributed bandit rewards.
+"""
 
 # ╔═╡ d0111453-9a66-411d-9966-fc386d1bdcb7
 md"""
@@ -1490,94 +1427,90 @@ md"""
 > Make a figure analogous to Figure 2.6 for the nonstionary case outlined in Exercise 2.5.  Include the constant-step-size ϵ-greedy algorithm with α=0.1.  Use runs of 200,000 steps and, as a performance measure for each algorithm and parameter setting, use the average reward over the last 100,000 steps.
 """
 
-# ╔═╡ 7117b87b-1570-4074-9eb2-a8931be341c9
-numsteps = 200000
+# ╔═╡ 4a89cdd9-c20f-40e2-bc84-c3ea9cbf00e7
+md"""
+Below are functions which mimic those for the stationary bandit parameter search.  The final function produces a plot and saves it to disk or loads one that already exists.
+"""
 
-# ╔═╡ 51e40520-c6c4-41c3-b59e-b005012b9c9a
-function param_search(run_function, algorithm, n1, n2; steps = 1000, base::T = 2.0) where T<:AbstractFloat
-	(plist, nlist) = get_param_list(n1, n2, base=base)
-	cum_rewards = Vector{T}(undef, length(plist))
-	cum_rewards_ideal = similar(cum_rewards)
-	for i in eachindex(plist)
-		run = run_function(k, k -> algorithm(plist[i], k), steps = steps)
-		cum_rewards[i] = run[1]
-		cum_rewards_ideal[i] = run[2]
-	end
-	(plist, nlist, (cum_rewards, cum_rewards_ideal), steps)
+# ╔═╡ aa5acd7c-6a0b-454f-ab05-12a606dd9fc2
+nonstationary_param_search(args...; kwargs...) = param_search(args..., average_nonstationary_runs_cum_reward; kwargs...)
+
+# ╔═╡ 98f4d5e6-7569-457e-851d-713c572ae400
+function plot_nonstationary_param_search(;k = 10, steps = 1_000, kwargs...)
+	algorithms = [
+		p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p)), 
+		p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p), update_average = ConstantStep()), 
+		p -> GradientReward(α=p), 
+		p -> GradientReward(α=p, update_average = ConstantStep()), 
+		p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), 
+		p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p), update_average = ConstantStep()), 
+		p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep())]
+	
+	names = [L"\epsilon\text{-greedy sample average}", L"\epsilon\text{-greedy constant step average } (\alpha = 0.1)", L"\text{gradient bandit sample average}", L"\text{gradient bandit constant step average}", "UCB sample average", "UCB constant step average", L"\text{greedy optimistic initialization } \alpha = 0.1"]
+
+	hovertemplates = [
+		"ϵ = %{x:.2g}, reward = %{y:.3g} <extra> ϵ-greedy Sample Average</extra>",
+		"ϵ = %{x:.2g}, reward = %{y:.3g} <extra> ϵ-greedy Constant Step Average</extra>",
+		"α = %{x:.2g}, reward = %{y:.3g} <extra> gradient bandit Sample Average</extra>",
+		"α = %{x:.2g}, reward = %{y:.3g} <extra> gradient bandit Constant Step Average</extra>",
+		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB Sample Average</extra>",
+		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB Constant Step</extra>",
+		"Q0 = %{x:.2g}, reward = %{y:.3g} <extra> greedy optimistic</extra>",
+	]
+
+	results = [nonstationary_param_search(k, algo; steps = steps) for algo in algorithms]
+
+	idealx = reduce(vcat, [results[i][1] for i in eachindex(names)])
+	idealy = reduce(vcat, [results[i][3][2] for i in eachindex(names)])
+	nlist = sort(unique(reduce(vcat, [results[i][2] for i in eachindex(names)])))
+
+	
+	traces = [scatter(x = results[i][1], y = results[i][3][1], name = names[i], hovertemplate = hovertemplates[i]) for i in  eachindex(names)]
+	idealtrace = scatter(x = idealx, y = idealy, name = "ideal", hovertemplate = "ideal reward = %{y:.2g}<extra></extra>", mode = "markers")
+	Plot([traces; idealtrace], Layout(xaxis = attr(title = "Method Parameter (see hovertext)", type = "log", tickvals = sort(unique(idealx)), ticktext = print_power2.(nlist)), yaxis = attr(title = "Average Reward Final $(floor(Int64, steps / 2)) Steps"), legend = attr(orientation = "h", y = 1.3), width = 700, height = 500))
+	
 end
 
-# ╔═╡ 1770e92e-1056-4c7d-8a03-f9fe5cb7fb07
-function plotnonstationaryparamsearch(param_search, pname; addplot = false, ideal = false)
-	(plist, nlist, runrewards, steps) = param_search
-	pltfunc = addplot ? plot! : plot
-	rewardindex = ideal ? 2 : 1
-	pltfunc(plist, runrewards[rewardindex], xaxis = :log, xticks = (plist, print_power2.(nlist)), lab = pname, yaxis = ("Average Reward over last $(floor(Int64, steps/2)) steps",), size = (700, 450))
+# ╔═╡ 9bd99099-1dfa-477a-9896-3da94bcc0633
+function exercise_2_11(;remakeplot = false, steps = 2_000, σ = 0.01, kwargs...)
+	corename = "nonstationary_parameter_search_$(steps)_steps_$(σ)_driftrate"
+	path = joinpath(@__DIR__, "parameter_studies", corename)
+	# jldpath = joinpath(@__DIR__, "parameter_studies", "searchplots.jld2")
+	# p = jldopen(jldpath, "a+") do f
+		if !remakeplot && haskey(jldfile, corename)
+			p = read(jldfile, corename)
+		else
+			p = plot_nonstationary_param_search(;steps = steps, kwargs...)
+			jldfile[corename] = p
+			open("$path.html", "w") do f
+				PlotlyBase.to_html(f, p)
+			end
+		end
+		# return p
+	# end
+	return plot(p)
 end
 
-# ╔═╡ 77f06b7a-6fd5-4b7a-8895-a8b32d72bea5
-# ╠═╡ disabled = true
-#=╠═╡
-ϵ_greedy_nonstationary_paramsearch = run_or_load("ϵ_greedy_nonstationary_paramsearch", () -> param_search(average_nonstationary_runs_cum_reward, (p, k) -> ActionValue(k, explorer = ϵ_Greedy(p), q_avg = ConstantStep()), -14, -1, steps = numsteps))
-  ╠═╡ =#
+# ╔═╡ 3b88ec30-768b-44d0-88ee-b3ed989f22c3
+@bind nonstationarysearchparams confirm(PlutoUI.combine() do Child
+md"""
+Number of Steps to Accumulate Reward (only measured on second half): $(Child(:steps, NumberField(1000:1000:1_000_000, default = 200_000)))
 
-# ╔═╡ 03dc9aa3-6750-45cf-a500-5f5274936410
-#=╠═╡
-plotnonstationaryparamsearch(ϵ_greedy_nonstationary_paramsearch, "ϵ-greedy")
-  ╠═╡ =#
+Reward Drift Rate Per Step $\sigma$: $(Child(:σ, NumberField(0.001:0.001:0.1, default = 0.01)))
 
-# ╔═╡ ec2abc84-876c-49ca-be8a-5cba5af30367
-# ╠═╡ disabled = true
-#=╠═╡
-ϵ_greedy_unbiased_nonstationary_paramsearch = run_or_load("ϵ_greedy_unbiased_nonstationary_paramsearch", () -> param_search(average_nonstationary_runs_cum_reward, (p, k) -> ActionValue(k, explorer = ϵ_Greedy(p), q_avg = UnbiasedConstantStep()), -14, -1, steps = numsteps))
-  ╠═╡ =#
+By default, a plot will be loaded that matches this search criteria.  Check the box below to recalculate the search and save a new plot whever the submit button is clicked.
 
-# ╔═╡ 0988b634-2bd8-464c-a66f-9adc4da7c9fe
-#=╠═╡
-plotnonstationaryparamsearch(ϵ_greedy_unbiased_nonstationary_paramsearch, "ϵ-greedy-unbiased", addplot=true)
-  ╠═╡ =#
+Recompute Parameter Search: $(Child(:remakeplot, CheckBox()))
+"""
+end)
 
-# ╔═╡ 4a17fb7c-ffdc-4cc6-97bc-35873c17c6ee
-# ╠═╡ disabled = true
-#=╠═╡
-gradient_nonstationary_paramsearch = run_or_load("gradient_nonstationary_paramsearch", () ->  param_search(average_nonstationary_runs_cum_reward, (p, k) -> GradientReward(k, α=p, update = ConstantStep()), -16, -8, steps = numsteps))
-  ╠═╡ =#
-
-# ╔═╡ 52d496bf-040b-436f-8126-9853abc46ebc
-#=╠═╡
-plotnonstationaryparamsearch(gradient_nonstationary_paramsearch, "gradient", addplot=true)
-  ╠═╡ =#
-
-# ╔═╡ 283a2b3e-b1c2-41ff-bd29-cd15a321cc68
-# ╠═╡ disabled = true
-#=╠═╡
-UCB_nonstationary_paramsearch = run_or_load("UCB_nonstationary_paramsearch", () -> param_search(average_nonstationary_runs_cum_reward, (p, k) -> ActionValue(k, explorer = UCB(p), q_avg = ConstantStep()), 2, 9, steps = numsteps))
-  ╠═╡ =#
-
-# ╔═╡ 1fca9780-3a2d-4417-af09-1668f8df4c93
-#=╠═╡
-plotnonstationaryparamsearch(UCB_nonstationary_paramsearch, "UCB", addplot=true)
-  ╠═╡ =#
-
-# ╔═╡ ec7f615a-47ef-492b-9c07-4d2d7f69fbcc
-# ╠═╡ disabled = true
-#=╠═╡
-optinit_nonstationary_paramsearch = run_or_load("optinit_nonstationary_paramsearch", () -> param_search(average_nonstationary_runs_cum_reward, (p, k) -> ActionValue(k, Qinit = p, explorer = ϵ_Greedy(0.0), q_avg = ConstantStep()), -16, 9, steps = numsteps))
-  ╠═╡ =#
-
-# ╔═╡ b13ad1ed-a617-48c8-94aa-4308b5a38e1b
-#=╠═╡
-plotnonstationaryparamsearch(optinit_nonstationary_paramsearch, "Qinit", addplot=true)
-  ╠═╡ =#
-
-# ╔═╡ ae87fb9b-6829-46cb-aad4-5d292280519c
-#=╠═╡
-plotnonstationaryparamsearch(optinit_nonstationary_paramsearch, "ideal", addplot=true, ideal=true)
-  ╠═╡ =#
+# ╔═╡ d59126d7-5af0-4d06-a57b-e115eec32388
+exercise_2_11(;nonstationarysearchparams...)
 
 # ╔═╡ 37446874-1c28-491b-b3cc-b4ad3282686e
 md"""
-Recreation of Figure 2.6 for the non-stationary case.  In all cases where average values are updated, a constant step size of α=0.1 is used.  The parameters that vary along the x-axis correspond to the algorithms as follows: ϵ-greedy -> ϵ, gradient -> α, UCB -> c, Qinit -> initial Q estimate.  Finally the ideal reward if the optimal action is selected each step is also shown.  Unlike in the stationary case, the ϵ-greedy method with α=0.1 for updating the Q values performs the best at a very small ϵ value of $2^{-8}$.  The UCB is a close second but requires a very large c value of 64 compared to ~1 for the stationary case in which it was the best performer.  
-	"""
+Recreation of Figure 2.6 for the non-stationary case over $(nonstationarysearchparams.steps) steps with a drift rate of σ = $(nonstationarysearchparams.σ). These parameters can be adjusted above, but by default this is performed over 200,000 steps with the accumulated reward only being measured on the final 100,000 steps.  Unlike in the stationary case, the ϵ-greedy method with α=0.1 for updating the Q values performs the best at a very small ϵ value of $$$2^{-7}$$$.  The UCB method is the second best performer but requires a very large c value of 128 compared to ~1 for the stationary case in which it was the best performer.  This UCB method also uses the sample average which is not ideal for a non-stationary distribution.  That is one of the reasons why it was mentioned earlier in the chapter that it is difficult to adapt the UCB technique to the non-stationary problem.  We can use the constant step size method but that doesn't help the fact that the variance estimates are wrong.  
+"""
 
 # ╔═╡ 36602c38-8b29-4158-b299-94015a333762
 md"""
@@ -2270,6 +2203,11 @@ version = "17.4.0+2"
 # ╠═34f65898-cbcc-4832-afac-0f7a284e7f0b
 # ╟─276779a3-9332-46bd-b511-a33a2fea4b5f
 # ╟─d24bd737-9e09-441a-aa94-9279c80f566d
+# ╟─7748ab8a-d186-49a4-b6ab-d1bd9ea34990
+# ╠═bb16115a-a2d9-4b8d-9937-96ab1cdd1ce2
+# ╟─9b625fc0-89bd-4064-a379-225e6a940af7
+# ╟─8584ece7-badc-486a-9a57-b60e77f92673
+# ╟─f9e60b35-84d2-4b4b-8832-6b0f08152396
 # ╟─32bff269-e893-4907-b589-7ba2ae1314bd
 # ╠═6292f449-8720-41f1-84de-1865fb5fddbf
 # ╟─70e40b75-e7d8-4009-af80-3bf4086a28df
@@ -2285,7 +2223,9 @@ version = "17.4.0+2"
 # ╟─b24a92fc-f6c6-44e4-9afc-fa4249e4ab83
 # ╟─9d7782f5-b530-40d5-9f75-280d3a762216
 # ╟─0f244fa0-7591-4478-b172-d9c1de51f6e1
+# ╠═99945570-0b2a-432a-ae83-3a7abc39cac8
 # ╠═54deaa09-8f87-4caf-b2a0-f15bcd5b40a5
+# ╠═24759e26-e670-4330-b6e4-b313620660f1
 # ╠═ea6d7cad-47ad-4472-a9e9-1ee33c81058d
 # ╠═51349e41-4696-4bd5-9bc1-cefbb82bea08
 # ╠═f7519adc-7dfb-4030-86f0-7445699dd3db
@@ -2297,29 +2237,19 @@ version = "17.4.0+2"
 # ╟─1f9a98fd-ea29-415c-9f35-add34b513a34
 # ╟─1c9b54cd-08dd-401e-9705-818741844e8d
 # ╠═1004eb4b-1fed-4328-a08b-6f5d9dd5080b
-# ╠═5915e7b4-bb03-4e29-a5bc-5cf2a6cb9f3d
 # ╠═c2347999-5ade-420b-903f-30523b38eb0f
 # ╠═f995d0af-50bc-4e33-9bbf-17a7ab06358a
 # ╠═852df31d-18d8-466c-8225-e06ba7f05e96
 # ╠═44b9ff95-ea3d-41f5-8098-445a263738a9
 # ╠═ca726a9d-364d-48e2-8882-20ddbc85b664
 # ╠═9d36934a-78cb-446b-b3db-1bbd88cf272d
-# ╠═926b95b1-c188-4cfb-8272-10c3a3b9f8e5
-# ╠═53fca00d-69b8-42aa-aeec-41de02f553a3
-# ╠═fba8da74-4a34-49ad-a60e-e1849d138cc8
-# ╠═bae0b1b4-149e-416c-9b92-1cf8ebde07a3
-# ╠═cabfd2b9-307e-4026-a3ac-91d2674c58af
-# ╠═68f7540b-a6d0-49f2-8d34-8b96888e3109
 # ╠═60b2079e-0efa-427e-93cf-7f4646fe202e
 # ╠═3118e102-aeac-42d9-98fc-ca29f40be4cd
 # ╠═8c0f06f7-2ed0-4f3a-ab4e-90ac142f0cd9
 # ╠═a61c15eb-ed5f-4052-a3a3-3276940564a1
 # ╠═47be3ae6-20f7-47d0-aae3-b67154afc1a8
-# ╠═82108d8f-96ab-4647-bd9e-cc7a9d0217e3
-# ╠═3c4462d4-c1ab-4231-8c9e-75ab33734061
-# ╠═2a70e0cb-311f-4ad4-b55d-77d299030d9c
-# ╠═5dac18d3-dcaa-47ce-b050-09357dc41502
-# ╠═33930d1a-ad7b-4359-b46d-fe84d47b16dc
+# ╠═4c6ccbfe-a3ce-4f2d-bcb1-7f1a4b735c65
+# ╠═e50596ab-91db-42f0-a62c-77629a4e79c7
 # ╠═839861db-676f-4544-a802-0abb5d0049e1
 # ╠═1ac5588c-3c32-436e-8b40-41715223fba7
 # ╠═f00ab44e-0d84-40c7-aa23-358c77a013e3
@@ -2330,92 +2260,63 @@ version = "17.4.0+2"
 # ╠═0f6b4e2d-dc09-4e1c-834f-dd8aaa8743ae
 # ╠═7a31d1c5-260b-42f4-b997-967150881e21
 # ╠═5712b303-0aa3-4501-b1b5-020136d6e655
-# ╠═f44d8016-984f-43c1-8541-0bcc74adf735
-# ╠═4d105237-947f-429a-be12-ea73e0ce362c
-# ╠═c9c9c147-be36-4014-be1e-4e72e325f611
-# ╠═01929fe4-0ab7-4e5f-89cf-ade442c4f1a3
 # ╠═f561b0a8-a086-4e1a-bc87-82c4205e89c9
 # ╠═30aa1e1b-0b51-40c4-a093-ef92c3ad519a
 # ╠═0e606680-dd65-444f-bc98-73de4abbcdd4
 # ╠═4ebd4a5a-3bd1-48e2-b03e-a5a3b2ec18a1
-# ╠═3f8d5fc9-a153-4832-bd48-387679757a45
-# ╠═6d3076e4-8644-4436-9c95-480093689dc9
-# ╠═1e1f6d10-1b31-4e0a-96f7-23207e913154
 # ╠═73e5b719-8b91-41d2-b83d-471d981b027f
 # ╠═49e45202-b9ae-42ab-9575-a57edb626a20
 # ╠═3a215c95-c595-4837-a842-1c1e1c6bfa3b
 # ╠═a04da367-3f8d-422d-a443-4e3e666e30ef
+# ╠═68470b1d-3cc2-4cb1-8dc2-53227e6300e7
 # ╠═fb3381b5-10e3-4307-b76d-672245fac9e7
 # ╠═ff6598fa-3366-416c-88a1-6bfcefeb1719
 # ╠═d2ebd908-387d-4e40-bc00-61ce5f45ebdd
+# ╠═1e1f6d10-1b31-4e0a-96f7-23207e913154
 # ╠═13f0adab-7660-49df-b26d-5f89cd73192b
-# ╠═4ce233ba-383e-48c5-a8af-b447b7f46f5f
+# ╠═45cc0a58-3534-4c67-bfd4-1c2b48d59a2e
 # ╠═0fbbe455-79ce-44d6-b010-da0bb56adbb4
-# ╠═a03e2617-048e-44f8-8cf6-a2416190d768
-# ╠═0368db15-f875-45d1-8598-fe53732c58cc
+# ╠═c66f1676-aec1-489d-96ff-99d748dac0fe
 # ╠═8a04adab-e97e-4ac4-a85e-5eae93b1c37b
 # ╠═69b560c1-98ad-4cbf-89d2-e0516299bc69
-# ╠═0785c5d2-e2eb-4176-9b04-7386dc3de82f
-# ╠═003a6b9d-8e89-4063-8c56-4a15d1da2110
+# ╠═d9265b98-cc3e-4a60-b16e-f54d9f78c9d3
 # ╠═4982b489-ca15-4188-90e5-565c45f02e01
 # ╠═672a91c0-aa77-4257-8c83-d857f47cab6c
 # ╠═638f99e6-1cdc-414c-9b67-fd626ec0be3e
 # ╠═aa238ebc-8730-46c7-8ad9-41c7cac70b18
-# ╠═555860b6-4ae6-411f-94d7-5c30efc5c339
-# ╠═fb980aba-a703-44b8-a633-b59a085eee1b
-# ╠═32a4af32-c645-4342-b09a-6f4d964e046a
-# ╠═e1909e7e-b691-4660-af5d-a7d72026195f
-# ╠═7a034d15-60e4-4082-9383-6685c8561e33
-# ╠═21956a94-c846-4785-b081-2303bf90abcc
-# ╠═bd76e270-21c1-47f0-9924-8a8f8da48d00
-# ╠═6af63fff-e58a-4868-a448-e08205cdd5b9
-# ╠═a94d9e8f-a20d-4a46-bab4-83235592e198
+# ╠═62eb0650-96bc-4fd6-bfe0-bf05a4137a03
+# ╠═30f05bd9-e939-4810-b710-edc7f5975921
+# ╠═96566aad-6d5c-460c-a924-ae0bad5d8b2d
+# ╠═4191ff98-f4ab-4f18-a148-d3d3fff3d0ad
+# ╠═09227386-1620-4093-b913-5786205aad13
+# ╠═781fa565-398c-4c89-89f3-0595455afc85
 # ╠═7678b06b-feef-4656-a801-33f630437bfb
 # ╠═8a52acf7-5d57-490f-8bd9-6e1e0e322872
-# ╠═6a90f167-15a8-4269-80e4-ea7206d90470
-# ╠═041e54ab-c7ee-4fe8-96ec-1189a3b18380
-# ╠═68b09fc5-e0d2-4c58-a382-83fe2a058501
-# ╠═95bfaee5-05da-4c4c-81d2-5f8aac98fb3b
-# ╠═b6e3eca8-f174-4889-b801-2f69c801f8d1
-# ╠═72e77d4f-229a-4ac1-a023-38059e34740a
-# ╠═c348c234-db5d-4f72-b41f-2e0969b69594
-# ╠═8fda57ef-08a9-4897-b127-a4283b959d06
-# ╠═66b8b455-b2d3-4e5f-beb4-2c7736eb6de7
-# ╠═8585f70b-2f4e-47cd-a101-89ba9a9e16c2
-# ╠═99d7fc46-67bf-4b85-b3ee-62a6be79d5d3
-# ╟─eb71f799-e192-4c20-b60c-8c523825261c
-# ╟─9271bbe3-f8f0-4223-ba3a-35575f5d9725
+# ╠═181d7eef-24a0-4775-a535-8ef901b7e4eb
+# ╠═74024d96-d0c7-43c8-8379-caf843cbe4b8
 # ╟─46ce2b1f-02cf-4dae-bf02-f67543f38b91
 # ╠═c61630b0-29c1-4183-90d9-57c999187b53
 # ╠═c72d35fc-c8fd-450e-9b95-d12ece5c2291
-# ╠═52bb3923-14bc-489e-bbb7-e3d1cff7e783
-# ╠═57d2fe04-1447-4d0f-a104-3a6034b85a14
-# ╠═865610bb-ee82-4440-9f32-f00d0382783b
+# ╠═8f1c7b0d-121c-46bf-884d-729e3b593025
+# ╠═a15e5d05-a238-440b-9a43-d830c6ea2f4d
+# ╠═22fa2b71-a98f-4b87-9e0b-9d373cd8915f
 # ╠═2447c4ea-7752-457c-80da-ac0dd72a64c1
-# ╠═23a09111-a43d-4da0-b1f4-e8907097e31e
-# ╠═6e99a9bc-cec9-4bc2-a7a1-33c33f1f0988
-# ╠═5c6592ba-91a2-4477-89e3-8d620773722e
-# ╠═0543d212-382e-4bbe-8ff3-d4db6eccc2ed
-# ╠═3b19b145-94a0-40c6-ad44-5a6c44ad4c15
-# ╠═a1b15d7f-8c7c-4b38-910d-19c62098e37a
-# ╠═5597e20e-42ec-4470-be86-2fed94760f21
-# ╠═aeb7bc99-ef3e-4404-961d-fa5a1bea9d75
-# ╠═2a25d0c3-d1d4-47fb-9262-2b328b8daa8b
+# ╠═865610bb-ee82-4440-9f32-f00d0382783b
+# ╠═140f1e20-f86d-4a6f-9cff-99685e129e1c
+# ╠═b1c8ad1f-c5e1-41fa-a2c2-da601b03a8b9
+# ╠═8011422a-605a-4339-90c8-7798e7106db6
+# ╠═361573c4-e9c0-4af0-b3d1-ea98162ca8c7
+# ╟─88e43fed-fcf3-4071-996a-63f63c3d49b4
+# ╟─97f6221d-3289-4e54-a80d-26c5c81f2651
+# ╟─bf3770ea-ee54-4296-ab33-340aea445670
+# ╟─caccfb89-d257-4514-9908-0486711bb8ea
 # ╟─d0111453-9a66-411d-9966-fc386d1bdcb7
-# ╠═7117b87b-1570-4074-9eb2-a8931be341c9
-# ╠═51e40520-c6c4-41c3-b59e-b005012b9c9a
-# ╠═1770e92e-1056-4c7d-8a03-f9fe5cb7fb07
-# ╠═77f06b7a-6fd5-4b7a-8895-a8b32d72bea5
-# ╠═03dc9aa3-6750-45cf-a500-5f5274936410
-# ╠═ec2abc84-876c-49ca-be8a-5cba5af30367
-# ╠═0988b634-2bd8-464c-a66f-9adc4da7c9fe
-# ╠═4a17fb7c-ffdc-4cc6-97bc-35873c17c6ee
-# ╠═52d496bf-040b-436f-8126-9853abc46ebc
-# ╠═283a2b3e-b1c2-41ff-bd29-cd15a321cc68
-# ╠═1fca9780-3a2d-4417-af09-1668f8df4c93
-# ╠═ec7f615a-47ef-492b-9c07-4d2d7f69fbcc
-# ╠═b13ad1ed-a617-48c8-94aa-4308b5a38e1b
-# ╠═ae87fb9b-6829-46cb-aad4-5d292280519c
+# ╟─4a89cdd9-c20f-40e2-bc84-c3ea9cbf00e7
+# ╠═aa5acd7c-6a0b-454f-ab05-12a606dd9fc2
+# ╠═98f4d5e6-7569-457e-851d-713c572ae400
+# ╠═9bd99099-1dfa-477a-9896-3da94bcc0633
+# ╟─3b88ec30-768b-44d0-88ee-b3ed989f22c3
+# ╟─d59126d7-5af0-4d06-a57b-e115eec32388
 # ╟─37446874-1c28-491b-b3cc-b4ad3282686e
 # ╟─36602c38-8b29-4158-b299-94015a333762
 # ╠═1fb1a518-e5ec-4777-80bc-bb55e8172100
