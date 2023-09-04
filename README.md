@@ -19,5 +19,4 @@ To access all the notebooks there is a startup environment to conveniently set u
 julia --threads auto -e 'using Pkg; Pkg.a
 ctivate("PlutoStartup"); Pkg.instantiate(); using PlutoStartup'
 ```
-
-Note that this assumes that the julia command is in your environmental variables.  If not, then `julia` can be replaced with the path to the executable or whatever symbolic link name you are using to access your julia installation. If you follow the installation instructions on the Julia homepage then it should already be set up to run this way.
+You can also run `./start.sh` which will execute the same command.  Note that this assumes that the julia command is in your environmental variables.  If not, then `julia` can be replaced with the path to the executable or whatever symbolic link name you are using to access your julia installation. If you follow the installation instructions on the Julia homepage then it should already be set up to run this way.
