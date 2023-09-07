@@ -87,12 +87,11 @@ $(@bind ktest confirm(NumberField(2:100, default = 10)))
 """
 
 # ╔═╡ 0b951e6e-4b97-4bb5-87d0-6be7f0fd4802
-plot_bandit_testbed(ktest)
-
-# ╔═╡ 2e46853d-f384-49fb-bccd-2fb320444080
 md"""
 ### Figure 2.1
 Shows the reward distribution for each of the $ktest arms in the testbed.  The mean value is marked with a dashed line for each.
+
+$(plot_bandit_testbed(ktest))
 """
 
 # ╔═╡ 14bd0549-747f-4513-809f-8bdb78027807
@@ -217,9 +216,9 @@ function action_value_testbed_plot(; k = 10, ϵ1 = 0.01, ϵ2 = 0.1, steps = 1000
 		scatter(y = a[3], name = labs[i])
 	end, Layout(xaxis_title="Step", yaxis_title = "% Runs Taking Optimal Action", height = 500, showlegend = false))
 	md"""
+	### Figure 2.2
 	$fig22a
 	$fig22b
-	### Figure 2.2
 	"""
 end
 
@@ -247,14 +246,13 @@ md"""
 
 The table below summarizes the actions taken leading into every step and the Q estimate for each action at the end of each step.  So step 0 shows the initial Q estimates of 0 for every action and the selected action 1 that generates the reward on step 1.  For the row in step 1 it shows the Q estimates after receiving the reward on step 1 and thus what actions are demanded by a greedy choice leading into the next step.  If the action selected is not in the set of greedy actions, then a random action **must** have occured.  Since a random action choice can also select one of the greedy actions, such a random choice is possible at every step.  Note that the answer in row 0 corresponds to action $A_1$, row 1 -> $A_2$ etc...
 
-|Step|$Q(1)$|$Q(2)$|$Q(3)$ | Action Selected | Reward 	| Greedy Action | $\epsilon$ Case |
-|----|---- |---- | ---- | ---- 			  | --- 	|  ----         | ----          |
-|  0 |  0  |  0  | 0    | 1               | -1 		| 	1-3         | possibly 		    |
-|  1 |  -1 |  0  | 0    | 2               | 1 | 2-3           | possibly            |
-|  2 |  -1 |  1  | 0 	| 2 | -2 | 2 | possibly |
-| 3  |  -1 | $-\frac{1}{2}$ | 0  	| 2 | 2 |  3 | definitely |
-| 4  | -1  | $\frac{1}{3}$ | 0 	| 3 | 0 | 2 | definitely |
-| 5  | -1  |  $\frac{1}{3}$ |  0 | n/a | n/a |  2 | n/a |
+|Step| Action Selected | Reward | $Q(1)$|$Q(2)$|$Q(3)$ | $Q(4)$ | Greedy Action Set | Greedy Selection | $\epsilon$ Case |
+|----|---- |---- | ---- | ---- |---- | ----	|  ---- | ----  | ---- |
+|  1 |  1| -1  |  0  |  0  | 0    | 0 | 	$\{1, 2, 3, 4\}$ | True | possibly |
+|  2 |  2 | 1 | -1 |  0  | 0    | 0 | $\{2, 3, 4\}$ | True | possibly            |
+|  3 |  2 | -2 | -1 |  1  | 0 	| 0 | $\{2\}$ | True | possibly |
+| 4  | 2 | 2 |   -1 | $-\frac{1}{2}$ | 0  	| 0 | $\{3, 4\}$ | False | definitely |
+| 5  |  3 | 0 | -1  | $\frac{1}{3}$ | 0 | 0 | $\{2\}$ | False | definitely |
 """
 
 # ╔═╡ 464d43c0-cd59-49e6-88f6-12a767677418
@@ -281,7 +279,7 @@ function visualize_bandit_dist(;n = 10, samples = 100_000)
 	maxdist = [maximum(randn(n)) for _ in 1:samples]
 	rankdist = mapreduce(a -> sort(randn(n)), +, 1:samples) ./ samples
 	p1 = histogram(x = maxdist) |> plot
-	p2 = bar(x = 1:10, y = rankdist) |> a -> plot(a, Layout(xaxis_title = "Reward Rank", yaxis_title = "Mean Reward of Arm"))
+	p2 = bar(x = 1:n, y = rankdist) |> a -> plot(a, Layout(xaxis_title = "Reward Rank", yaxis_title = "Mean Reward of Arm"))
 	md"""
 	#### Distribution of Best Action Reward for a $n Armed Bandit
 	$p1
@@ -1099,7 +1097,6 @@ end
 # ╔═╡ 1004eb4b-1fed-4328-a08b-6f5d9dd5080b
 function run_bandit(qs::Vector{T}, algorithm::BanditAlgorithm{T}; steps = 1000, μ::T = zero(T), σ::T = zero(T), cumstart = 1, saveall = true) where T <: AbstractFloat
 #if saveall is false, then only saves the average cumulative reward per step, so it is faster
-	bandit(a) = sample_bandit(a, qs)
 	#in this case the bandit is not stationary
 	updateq = (μ != 0) || (σ != 0)
 	function qupdate!(qs)
@@ -1114,6 +1111,8 @@ function run_bandit(qs::Vector{T}, algorithm::BanditAlgorithm{T}; steps = 1000, 
     accum_reward = zero(T)
 	bestaction = argmax(qs)
 
+	bandit(a) = sample_bandit(a, qs)
+
 	if saveall
 	    cum_reward_ideal = zeros(T, steps)
 	    step_reward_ideal = zeros(T, steps)
@@ -1127,7 +1126,7 @@ function run_bandit(qs::Vector{T}, algorithm::BanditAlgorithm{T}; steps = 1000, 
     for i = 1:steps
         a = sample_action(algorithm, i, actions)
 		r = bandit(a)
-		r_ideal = bandit(bestaction)
+		r_ideal = a == bestaction ? r : bandit(bestaction)
 
 		if i >= cumstart
 			accum_reward_ideal += r_ideal
@@ -1193,6 +1192,9 @@ end
 function average_runs_cum_reward(k, algorithm::Function; steps = 1000, n = 2000, offset::T = 0.0f0, make_bandit = create_bandit, kwargs...) where T <: AbstractFloat
     r_step = Atomic{T}(zero(T))
 	r_step_ideal = Atomic{T}(zero(T))
+	rdiff = Atomic{T}(zero(T))
+	rdiff2 = Atomic{T}(zero(T))
+	getvar(s, s2) = (s2 - (s*s/n))/(n-1)
     @threads for i in 1:n
 		Random.seed!(i)
         qs = make_bandit(k, offset=offset)
@@ -1200,9 +1202,12 @@ function average_runs_cum_reward(k, algorithm::Function; steps = 1000, n = 2000,
 		Random.seed!(i)
         rewards = run_bandit(qs, est; steps = steps, saveall = false, kwargs...) 
     	atomic_add!(r_step, rewards[1])
+		x = abs(rewards[2] - rewards[1])
+		atomic_add!(rdiff, x)
+		atomic_add!(rdiff2, x^2)
 		atomic_add!(r_step_ideal, rewards[2])
 	end
-    (r_step[]/n, r_step_ideal[]/n)
+    (means = (r_step[]/n, r_step_ideal[]/n), rstd = r_step[]/n - sqrt(getvar(rdiff[], rdiff2[])))
 end
 
 # ╔═╡ 181d7eef-24a0-4775-a535-8ef901b7e4eb
@@ -1251,81 +1256,50 @@ function get_param_list(n1::Integer, n2::Integer; base::T = 2.0f0) where T<:Abst
 end
 
 # ╔═╡ 8f1c7b0d-121c-46bf-884d-729e3b593025
+#parameter search with fixed powers of 2 range
 function param_search(k, algorithm, n1, n2, f; base::T = 2.0f0, kwargs...) where T<:AbstractFloat
 	plist, nlist = get_param_list(n1, n2, base = base)
 	cum_rewards = Vector{T}(undef, length(plist))
 	cum_rewards_ideal = similar(cum_rewards)
-	for i in eachindex(runs)
-		run = f(k, algorithm(plist[i]); kwargs...)
-		cum_rewards[i] = run[1]
-		cum_rewards_ideal[i] = run[2]
-	end
-	plist, nlist, (cum_rewards, cum_rewards_ideal)
+	[(param = p, ex = n, rewards = f(k, algorithm(p); kwargs...)) for (p, n) in zip(plist, nlist)]
 end
 
 # ╔═╡ a15e5d05-a238-440b-9a43-d830c6ea2f4d
-function param_search(k, algorithm, f; base::T = 2.0f0, kwargs...) where T<:AbstractFloat
+#parameter search that automatically searches to find a maximum starting from a power of -1 for base 2
+function param_search(k, algorithm, f; base::T = 2.0f0, exmin = -10, exmax = 5, kwargs...) where T<:AbstractFloat
 	@info "Starting parameter search with algorithm: $algorithm"
-	n = -1
-	p = base^n
-	plist = [p]
-	nlist = [n]
-	run = f(k, algorithm(p); kwargs...)
-	cum_rewards = [run[1]]
-	cum_rewards_ideal = [run[2]]
-	maxreward = run[1]
-	minreward = run[1]
-	maxn = n
-	minn = n
-	converged = false
-	c = 1
-	n += c
-	p = base^n
-
-	function update!(p, n)
-		push!(plist, p)
-		push!(nlist, n)
-		run = f(k, algorithm(p); kwargs...)
-		push!(cum_rewards, run[1])
-		push!(cum_rewards_ideal, run[2])
-		return run[1]
+	exmean = round(Int64, (exmin + exmax) / 2)
+	function makerun(ex) 
+		p = base^ex
+		@info "Evaluating p = $base ^ $ex"
+		return (param = p, ex = ex, rewards = f(k, algorithm(p); kwargs...))
 	end
-
-	while !converged
-		@info "Evaluating p = $p"
-		r = update!(p, n)
-		if r > maxreward
-			maxreward = r
-			maxn = n
-		elseif c == 1
-			n += c
-			p = base^n
-			r = update!(p, n)
-			if r < maxreward
-				n = first(nlist)
-				c = -1
-			else
-				maxreward = r
-				maxn = n
-			end
+	
+	function step(count, incr, ex, maxreward, runlist)
+		(ex < exmin) && return runlist
+		(ex > exmax) && return step(0, -1, -2, maxreward, runlist)
+		if (count >= 3)
+		#in this case we've generated 3 points to the right or left of the maximum which means either we change direction and reset left of the maximum or terminate
+			incr == -1 && return runlist
+			return step(0, -1, -2, maxreward, runlist)
 		else
-			n += c
-			p = base^n
-			r = update!(p, n)
-			if r < maxreward
-				converged = true
-			else
+			run = makerun(ex)
+			#mean reward per step
+			r = run.rewards.means[1]
+
+			#if we have a new maximum reset the count to 0 otherwise increment by 1
+			if r > maxreward
+				count = -1
 				maxreward = r
-				maxn = n
 			end
+			return step(count+1, incr, ex+incr, maxreward, vcat(runlist, run))
 		end
-			
-		n += c
-		p = base^n
 	end
 
-	inds = sortperm(nlist)
-	plist[inds], nlist[inds], (cum_rewards[inds], cum_rewards_ideal[inds])
+	#initialize search starting from ex = -1
+	firstrun = makerun(-1)
+	firstreward = firstrun.rewards.means[1]
+	step(0, 1, 0, firstreward, [firstrun])	
 end
 
 # ╔═╡ 22fa2b71-a98f-4b87-9e0b-9d373cd8915f
@@ -1345,13 +1319,41 @@ function run_or_load(varname::String, operation::Function)
 	return data
 end
 
+# ╔═╡ 400e0de1-0101-4531-928f-08ca155da40c
+#makes vectors suitable for plotting the different lines
+function preparetrace(runlist)
+	f(g) = [g(r) for r in runlist]
+	plist = f(r -> r.param)
+	nlist = f(r -> r.ex)
+	inds = sortperm(plist)
+	glist = [r -> r.rewards.means[1], r -> r.rewards.means[2], r -> r.rewards.rstd]
+	yvecs = [f(g)[inds] for g in glist]
+	(x = plist[inds], nlist = nlist[inds], ys = yvecs)
+end
+
+# ╔═╡ fb698663-e9d6-4368-bd53-d88da5e6f2c4
+const colors = PlotlyBase.colors.cyclical[:tableau_colorblind];
+
+# ╔═╡ 7c2015dd-a786-49f5-9fe9-9199335ebd09
+#prepare parameter scan trace with standard deviation
+function maketrace(prep, name, hovertemplate, color)
+	hovertemplatelist = ["$hovertemplate, reward 1 std worse = $v" for v in prep.ys[3]]
+	#mean line
+	meantrace = scatter(x = prep.x, y = prep.ys[1], name = name, hovertemplate = hovertemplatelist, line_color = color, legendgroup = color)
+
+	#dotted lines showing min and max
+	extrematrace = scatter(x = prep.x, y = prep.ys[3], name = "", showlegend = false, legend = "legend2", line = attr(dash = "dot", width = 5, color = color), opacity = 0.25, hovertemplate = hovertemplatelist, legendgroup = color)
+
+	vcat(meantrace, extrematrace)
+end
+
 # ╔═╡ 140f1e20-f86d-4a6f-9cff-99685e129e1c
 function plot_stationary_param_search(;k = 10, steps = 1000, kwargs...)
 	algorithms = [
-		p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p)), 
-		p -> GradientReward(α=p), 
-		p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), 
-		p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep())
+		(p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p)), -100, -1), 
+		(p -> GradientReward(α=p), -100, 100), 
+		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), -100, 100), 
+		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10)
 	]
 	
 	names = [L"\epsilon\text{-greedy }", L"\text{gradient bandit }", "UCB", L"\text{greedy optimistic initialization } \alpha = 0.1"]
@@ -1362,39 +1364,49 @@ function plot_stationary_param_search(;k = 10, steps = 1000, kwargs...)
 		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB</extra>",
 		"Q0 = %{x:.2g}, reward = %{y:.3g} <extra> greedy optimistic</extra>",
 	]
-	
-	results = [stationary_param_search(k, algo; steps = steps, kwargs...) for algo in algorithms]
 
-	idealx = reduce(vcat, [results[i][1] for i in eachindex(names)])
-	idealy = reduce(vcat, [results[i][3][2] for i in eachindex(names)])
-	nlist = sort(unique(reduce(vcat, [results[i][2] for i in eachindex(names)])))
-	
-	traces = [scatter(x = results[i][1], y = results[i][3][1], name = names[i], hovertemplate = hovertemplates[i]) for i in  eachindex(names)]
-	idealtrace = scatter(x = idealx, y = idealy, name = "ideal", hovertemplate = "ideal reward = %{y:.2g}<extra></extra>", mode = "markers")
-	Plot([traces; idealtrace], Layout(xaxis = attr(title = "Method Parameter (see hovertext)", type = "log", tickvals = sort(unique(idealx)), ticktext = print_power2.(nlist)), yaxis = attr(title = "Average Reward over first $steps steps", range = (0.5, 1.6)), legend = attr(orientation = "h", y = 1.2), width = 700, height = 500))	
+	results = [stationary_param_search(k, algo[1]; exmin = algo[2], exmax = algo[3], steps = steps, kwargs...) for algo in algorithms]
+
+	extracts = [preparetrace(runlist) for runlist in results]
+	idealx = reduce(vcat, a.x for a in extracts)
+	idealy = reduce(vcat, a.ys[2] for a in extracts) 
+	nlist = sort(unique(reduce(vcat, a.nlist for a in extracts)))
+
+	traces = reduce(vcat, [maketrace(extracts[i], names[i], hovertemplates[i], colors[i]) for i in eachindex(names)])
+
+	idealtrace = scatter(x = idealx, y = idealy, name = "ideal", hovertemplate = "ideal reward = %{y:.3g}<extra></extra>", mode = "markers")
+	Plot([idealtrace; traces], Layout(xaxis = attr(title = "Method Parameter (see hovertext)", type = "log", tickvals = sort(unique(idealx)), ticktext = print_power2.(nlist)), yaxis = attr(title = "Average Reward over first $steps steps"), legend = attr(orientation = "h", x = -.1, y = -.2), width = 700, height = 500))	
 end
 
-# ╔═╡ b1c8ad1f-c5e1-41fa-a2c2-da601b03a8b9
-const jldpath = joinpath(@__DIR__, "parameter_studies", "searchplots.jld2")
+# ╔═╡ 1cde4625-f8ed-4403-835c-95cc30206699
+const datapath = joinpath(@__DIR__, "parameter_studies")
 
-# ╔═╡ 8011422a-605a-4339-90c8-7798e7106db6
+# ╔═╡ 10532b28-7227-4a80-be36-d88c0a031d62
+const jldpath = joinpath(datapath, "searchplots.jld2")
+
+# ╔═╡ 0826e1ae-51b4-4e03-a41d-cbfe3b188890
 const jldfile = jldopen(jldpath, "a+")
 
-# ╔═╡ 361573c4-e9c0-4af0-b3d1-ea98162ca8c7
-function figure_2_6(;remakeplot = false, steps = 1000, kwargs...)
-	corename = "stationary_parameter_search_$(steps)_steps"
-	path = joinpath(@__DIR__, "parameter_studies", corename)
-	# jldpath = joinpath(@__DIR__, "parameter_studies", "searchplots.jld2")
+# ╔═╡ 6ce00349-1cf0-4a80-bddd-c1d26b66d051
+const plotdict = isempty(keys(jldfile)) ? Dict{String, Plot}() : Dict((k, jldfile[k]) for k in keys(jldfile));
+
+# ╔═╡ 8a0462e9-fd65-4ccc-b795-446cf9ae7392
+function make_or_lookup_param_plot(;f = plot_stationary_param_search, basename = "stationary_parameter_search", remakeplot = false, steps = 1000, kwargs...)
+	corename = "$(basename)_$(steps)_steps"
+	plotpath = joinpath(datapath, corename)
 	# p = jldopen(jldpath, "a+") do f
-		if !remakeplot && haskey(jldfile, corename)
-			p = read(jldfile, corename)
+		if !remakeplot && haskey(plotdict, corename)
+			p = plotdict[corename]
 		else
-			p = plot_stationary_param_search(;steps = steps, kwargs...)
+			p = f(;steps = steps, kwargs...)
+			delete!(jldfile, corename)
 			jldfile[corename] = p
-			open("$path.html", "w") do f
-				PlotlyBase.to_html(f, p)
+			plotdict[corename] = p
+			open("$plotpath.html", "w") do fplot
+				PlotlyBase.to_html(fplot, p)
 			end
 		end
+		# return p
 	# end
 	return plot(p)
 end
@@ -1408,17 +1420,16 @@ Number of Steps to Accumulate Reward: $(@bind stationary_numsteps confirm(Number
 md"""
 By default, a plot will be loaded that matches this search criteria.  Check the box below to recalculate the search and save a new plot whever the submit button is clicked.
 
-Recompute Parameter Search: $(@bind execute_stationary CheckBox())
+Recompute Parameter Search: $(@bind execute_stationary confirm(CheckBox()))
 """
 
 # ╔═╡ bf3770ea-ee54-4296-ab33-340aea445670
 # ╠═╡ show_logs = false
-figure_2_6(;remakeplot = execute_stationary, steps = stationary_numsteps)
-
-# ╔═╡ caccfb89-d257-4514-9908-0486711bb8ea
 md"""
 ### Figure 2.6
 Parameter study of bandit algorithms on the 10-armed testbed for stationary normally distributed bandit rewards.
+
+$(make_or_lookup_param_plot(;remakeplot = execute_stationary, steps = stationary_numsteps))
 """
 
 # ╔═╡ d0111453-9a66-411d-9966-fc386d1bdcb7
@@ -1438,13 +1449,14 @@ nonstationary_param_search(args...; kwargs...) = param_search(args..., average_n
 # ╔═╡ 98f4d5e6-7569-457e-851d-713c572ae400
 function plot_nonstationary_param_search(;k = 10, steps = 1_000, kwargs...)
 	algorithms = [
-		p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p)), 
-		p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p), update_average = ConstantStep()), 
-		p -> GradientReward(α=p), 
-		p -> GradientReward(α=p, update_average = ConstantStep()), 
-		p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), 
-		p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p), update_average = ConstantStep()), 
-		p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep())]
+		(p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p)), -10, -1), 
+		(p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p), update_average = ConstantStep()), -10, -1), 
+		(p -> GradientReward(α=p), -100, 100), 
+		(p -> GradientReward(α=p, update_average = ConstantStep()), -100, 100), 
+		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), -100, 100), 
+		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p), update_average = ConstantStep()), -100, 100), 
+		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10)
+		]
 	
 	names = [L"\epsilon\text{-greedy sample average}", L"\epsilon\text{-greedy constant step average } (\alpha = 0.1)", L"\text{gradient bandit sample average}", L"\text{gradient bandit constant step average}", "UCB sample average", "UCB constant step average", L"\text{greedy optimistic initialization } \alpha = 0.1"]
 
@@ -1458,38 +1470,30 @@ function plot_nonstationary_param_search(;k = 10, steps = 1_000, kwargs...)
 		"Q0 = %{x:.2g}, reward = %{y:.3g} <extra> greedy optimistic</extra>",
 	]
 
-	results = [nonstationary_param_search(k, algo; steps = steps) for algo in algorithms]
+	results = [nonstationary_param_search(k, algo[1]; exmin = algo[2], exmax = algo[3], steps = steps) for algo in algorithms]
 
-	idealx = reduce(vcat, [results[i][1] for i in eachindex(names)])
-	idealy = reduce(vcat, [results[i][3][2] for i in eachindex(names)])
-	nlist = sort(unique(reduce(vcat, [results[i][2] for i in eachindex(names)])))
+	extracts = [preparetrace(runlist) for runlist in results]
+	idealx = reduce(vcat, a.x for a in extracts)
+	idealy = reduce(vcat, a.ys[2] for a in extracts) 
+	nlist = sort(unique(reduce(vcat, a.nlist for a in extracts)))
+
+	traces = reduce(vcat, [maketrace(extracts[i], names[i], hovertemplates[i], colors[i]) for i in eachindex(names)])
+
+	idealtrace = scatter(x = idealx, y = idealy, name = "ideal", hovertemplate = "ideal reward = %{y:.3g}<extra></extra>", mode = "markers")
+
+	# idealx = reduce(vcat, [results[i][1] for i in eachindex(names)])
+	# idealy = reduce(vcat, [results[i][3][2] for i in eachindex(names)])
+	# nlist = sort(unique(reduce(vcat, [results[i][2] for i in eachindex(names)])))
 
 	
-	traces = [scatter(x = results[i][1], y = results[i][3][1], name = names[i], hovertemplate = hovertemplates[i]) for i in  eachindex(names)]
-	idealtrace = scatter(x = idealx, y = idealy, name = "ideal", hovertemplate = "ideal reward = %{y:.2g}<extra></extra>", mode = "markers")
-	Plot([traces; idealtrace], Layout(xaxis = attr(title = "Method Parameter (see hovertext)", type = "log", tickvals = sort(unique(idealx)), ticktext = print_power2.(nlist)), yaxis = attr(title = "Average Reward Final $(floor(Int64, steps / 2)) Steps"), legend = attr(orientation = "h", y = 1.3), width = 700, height = 500))
+	# traces = [scatter(x = results[i][1], y = results[i][3][1], name = names[i], hovertemplate = hovertemplates[i]) for i in  eachindex(names)]
+	# idealtrace = scatter(x = idealx, y = idealy, name = "ideal", hovertemplate = "ideal reward = %{y:.2g}<extra></extra>", mode = "markers")
+	Plot([idealtrace; traces], Layout(xaxis = attr(title = "Method Parameter (see hovertext)", type = "log", tickvals = sort(unique(idealx)), ticktext = print_power2.(nlist)), yaxis = attr(title = "Average Reward Final $(floor(Int64, steps / 2)) Steps"), legend = attr(orientation = "h", x = -0.1, y = -0.2), width = 700, height = 600))
 	
 end
 
 # ╔═╡ 9bd99099-1dfa-477a-9896-3da94bcc0633
-function exercise_2_11(;remakeplot = false, steps = 2_000, σ = 0.01, kwargs...)
-	corename = "nonstationary_parameter_search_$(steps)_steps_$(σ)_driftrate"
-	path = joinpath(@__DIR__, "parameter_studies", corename)
-	# jldpath = joinpath(@__DIR__, "parameter_studies", "searchplots.jld2")
-	# p = jldopen(jldpath, "a+") do f
-		if !remakeplot && haskey(jldfile, corename)
-			p = read(jldfile, corename)
-		else
-			p = plot_nonstationary_param_search(;steps = steps, kwargs...)
-			jldfile[corename] = p
-			open("$path.html", "w") do f
-				PlotlyBase.to_html(f, p)
-			end
-		end
-		# return p
-	# end
-	return plot(p)
-end
+exercise_2_11(;kwargs...) = make_or_lookup_param_plot(;f = plot_nonstationary_param_search, basename = "nonstationary_parameter_search", kwargs...)
 
 # ╔═╡ 3b88ec30-768b-44d0-88ee-b3ed989f22c3
 @bind nonstationarysearchparams confirm(PlutoUI.combine() do Child
@@ -1505,6 +1509,7 @@ Recompute Parameter Search: $(Child(:remakeplot, CheckBox()))
 end)
 
 # ╔═╡ d59126d7-5af0-4d06-a57b-e115eec32388
+# ╠═╡ show_logs = false
 exercise_2_11(;nonstationarysearchparams...)
 
 # ╔═╡ 37446874-1c28-491b-b3cc-b4ad3282686e
@@ -2176,8 +2181,7 @@ version = "17.4.0+0"
 # ╠═97c94391-397d-4cf2-88b1-3bea3af56ed3
 # ╠═7950e06b-e8ce-4bd7-9681-ab7b66dfec69
 # ╟─3e5a226e-ecdb-43fb-a40a-a262da0ae542
-# ╠═0b951e6e-4b97-4bb5-87d0-6be7f0fd4802
-# ╟─2e46853d-f384-49fb-bccd-2fb320444080
+# ╟─0b951e6e-4b97-4bb5-87d0-6be7f0fd4802
 # ╟─14bd0549-747f-4513-809f-8bdb78027807
 # ╠═55f89ca1-cd57-44e0-95e5-63a4be31418f
 # ╠═3a798da5-c309-48f2-aab1-6602ded8a650
@@ -2301,21 +2305,25 @@ version = "17.4.0+0"
 # ╠═22fa2b71-a98f-4b87-9e0b-9d373cd8915f
 # ╠═2447c4ea-7752-457c-80da-ac0dd72a64c1
 # ╠═865610bb-ee82-4440-9f32-f00d0382783b
+# ╠═400e0de1-0101-4531-928f-08ca155da40c
+# ╠═fb698663-e9d6-4368-bd53-d88da5e6f2c4
+# ╠═7c2015dd-a786-49f5-9fe9-9199335ebd09
 # ╠═140f1e20-f86d-4a6f-9cff-99685e129e1c
-# ╠═b1c8ad1f-c5e1-41fa-a2c2-da601b03a8b9
-# ╠═8011422a-605a-4339-90c8-7798e7106db6
-# ╠═361573c4-e9c0-4af0-b3d1-ea98162ca8c7
+# ╠═1cde4625-f8ed-4403-835c-95cc30206699
+# ╠═10532b28-7227-4a80-be36-d88c0a031d62
+# ╠═0826e1ae-51b4-4e03-a41d-cbfe3b188890
+# ╠═6ce00349-1cf0-4a80-bddd-c1d26b66d051
+# ╠═8a0462e9-fd65-4ccc-b795-446cf9ae7392
 # ╟─88e43fed-fcf3-4071-996a-63f63c3d49b4
 # ╟─97f6221d-3289-4e54-a80d-26c5c81f2651
 # ╟─bf3770ea-ee54-4296-ab33-340aea445670
-# ╟─caccfb89-d257-4514-9908-0486711bb8ea
 # ╟─d0111453-9a66-411d-9966-fc386d1bdcb7
 # ╟─4a89cdd9-c20f-40e2-bc84-c3ea9cbf00e7
 # ╠═aa5acd7c-6a0b-454f-ab05-12a606dd9fc2
 # ╠═98f4d5e6-7569-457e-851d-713c572ae400
 # ╠═9bd99099-1dfa-477a-9896-3da94bcc0633
 # ╟─3b88ec30-768b-44d0-88ee-b3ed989f22c3
-# ╟─d59126d7-5af0-4d06-a57b-e115eec32388
+# ╠═d59126d7-5af0-4d06-a57b-e115eec32388
 # ╟─37446874-1c28-491b-b3cc-b4ad3282686e
 # ╟─36602c38-8b29-4158-b299-94015a333762
 # ╠═1fb1a518-e5ec-4777-80bc-bb55e8172100
