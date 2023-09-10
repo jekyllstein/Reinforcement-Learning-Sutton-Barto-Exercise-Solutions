@@ -28,11 +28,11 @@ md"""
 
 Consider a repeated choice among *k* different options.  A numerical reward is chosen from a stationary probability distribution that depends only on the action selected.  The objective is to maximize the accumulated reward over some time period, let's say 1000 action selections or *time steps*.
 
-We denote the action selected on time step *t* as $$A_t$$, and the corresponding reward as $$R_t$$.  The value then of an arbitrary action $$a$$, denoted $$q_*(a)$$, is the expected reward given that $$a$$ is selected:
+We denote the action selected on time step *t* as $$A_t,$$ and the corresponding reward as $$R_t.$$  The value then of an arbitrary action $$a$$, denoted $$q_*(a),$$ is the expected reward given that $a$ is selected:
 
 $$q_*(a) \dot = \mathbf{E}[R_t|A_t=a]$$
 
-If we know the values, then the problem is trivial, but we assume that we only have estimates of the values at a time step $$a$$ which we will denote $$Q_t(a)$$.  At any given time step the greedy action is the one with the highest value estimate.  If we take non-greedy actions then we can improve our value estimate for other states.  To solve the problem in general we must balance *exploiting* the action estimated to be the best with *exploring* the values of other candidate actions.  What follows are various methods to balance these two choices.
+If we know the values, then the problem is trivial, but we assume that we only have estimates of the values at a time step $a$ which we will denote $$Q_t(a).$$  At any given time step the greedy action is the one with the highest value estimate.  If we take non-greedy actions then we can improve our value estimate for other states.  To solve the problem in general we must balance *exploiting* the action estimated to be the best with *exploring* the values of other candidate actions.  What follows are various methods to balance these two choices.
 """
 
 # ╔═╡ 31d8fba9-cd28-4b2b-ba46-70a068b9ecad
@@ -96,7 +96,7 @@ $(plot_bandit_testbed(ktest))
 
 # ╔═╡ 14bd0549-747f-4513-809f-8bdb78027807
 md"""
-### $$\epsilon$$-Greedy Action Value Method
+### $$\epsilon - Greedy$$ Action Value Method
 The functions below implement the sample-average method for estimating the value of each action with the ϵ-greedy method of action selection.  Note that the `simple_algorithm` uses the incremental implementation of calculating the sample average which is described in section **2.4**.
 """
 
@@ -242,16 +242,16 @@ action_value_testbed_plot(;ϵ_action_value_params...)
 # ╔═╡ 965da91b-6a3f-456c-89ce-461c31e0fb7e
 md"""
 > ### *Exercise 2.2:* *Bandit example* 
-> Consider a k-armed bandit problem with k = 4 actions, denoted 1, 2, 3, and 4. Consider applying to this problem a bandit algorithm using $\epsilon$-greedy action selection, sample-average action-value estimates, and initial estimates of $$Q_1(a) = 0$$, for all a. Suppose the initial sequence of actions and rewards is $$A_1 = 1$$, $$R_1 = −1$$, $$A_2 = 2$$, $$R_2 = 1$$, $$A_3 = 2$$, $$R_3 = −2$$, $$A_4 = 2$$, $$R_4 = 2$$, $$A_5 = 3$$, $$R_5 = 0$$. On some of these time steps the $$\epsilon$$ case may have occurred, causing an action to be selected at random. On which time steps did this definitely occur? On which time steps could this possibly have occurred?
+> Consider a k-armed bandit problem with k = 4 actions, denoted 1, 2, 3, and 4. Consider applying to this problem a bandit algorithm using $\epsilon$-greedy action selection, sample-average action-value estimates, and initial estimates of $$Q_1(a) = 0$$, for all a. Suppose the initial sequence of actions and rewards is $$A_1 = 1,$$ $$R_1 = −1,$$ $$A_2 = 2,$$ $$R_2 = 1,$$ $$A_3 = 2,$$ $$R_3 = −2,$$ $$A_4 = 2,$$ $$R_4 = 2,$$ $$A_5 = 3,$$ $$R_5 = 0.$$ On some of these time steps the $$\epsilon$$ case may have occurred, causing an action to be selected at random. On which time steps did this definitely occur? On which time steps could this possibly have occurred?
 
 The table below summarizes the actions taken leading into every step and the Q estimate for each action at the end of each step.  So step 0 shows the initial Q estimates of 0 for every action and the selected action 1 that generates the reward on step 1.  For the row in step 1 it shows the Q estimates after receiving the reward on step 1 and thus what actions are demanded by a greedy choice leading into the next step.  If the action selected is not in the set of greedy actions, then a random action **must** have occured.  Since a random action choice can also select one of the greedy actions, such a random choice is possible at every step.  Note that the answer in row 0 corresponds to action $$A_1$$, row 1 -> $$A_2$$ etc...
 
-|Step| Action Selected | Reward | $$Q(1)$$|$$Q(2)$$|$$Q(3)$$ | $$Q(4)$$ | Greedy Action Set | Greedy Selection | $$\epsilon$$ Case |
-|----|---- |---- | ---- | ---- |---- | ----	|  ---- | ----  | ---- |
-|  1 |  1| -1  |  0  |  0  | 0    | 0 | 	$$\{1, 2, 3, 4\}$$ | True | possibly |
+|Step| Action Selected | Reward | $$Q(1)$$ | $$Q(2)$$ | $$Q(3)$$ | $$Q(4)$$ | Greedy Action Set | Greedy Selection | $$\epsilon$$ Case |
+|----|---- |---- | ---- | ---- |---- | ---- |  ---- | ----  | ---- |
+|  1 |  1| -1  |  0  |  0  | 0    | 0 | $$\{1, 2, 3, 4\}$$ | True | possibly |
 |  2 |  2 | 1 | -1 |  0  | 0    | 0 | $$\{2, 3, 4\}$$ | True | possibly            |
 |  3 |  2 | -2 | -1 |  1  | 0 	| 0 | $$\{2\}$$ | True | possibly |
-| 4  | 2 | 2 |   -1 | $$-\frac{1}{2}$$ | 0  	| 0 | $$\{3, 4\}$$ | False | definitely |
+| 4  | 2 | 2 |   -1 | $$-\frac{1}{2}$$ | 0  | 0 | $$\{3, 4\}$$ | False | definitely |
 | 5  |  3 | 0 | -1  | $$\frac{1}{3}$$ | 0 | 0 | $$\{2\}$$ | False | definitely |
 """
 
@@ -562,7 +562,7 @@ md"""
 
 # ╔═╡ c695b7f9-76ca-419b-924d-8338a42c8188
 md"""
-$$Q_{n+1} = Q_n + \beta_n[R_n - Q_n]$ where $\beta_n \dot= \alpha / \bar{o}_n $$ and $$\bar{o}_n \dot= \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1})$$
+$$Q_{n+1} = Q_n + \beta_n[R_n - Q_n]$$ where $$\beta_n \dot= \alpha / \bar{o}_n $$ and $$\bar{o}_n \dot= \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1})$$
 
 $$\bar{o}_n = \bar{o}_{n-1} + \alpha(1-\bar{o}_{n-1})=\bar{o}_{n-1}(1-\alpha)+\alpha$$
 
@@ -587,7 +587,7 @@ S(1-\alpha) &= (1-\alpha)+\cdots+(1-\alpha)^n=S-1+(1-\alpha)^n \\
 S&=\frac{1-(1-\alpha)^n}{\alpha} \\
 \end{flalign}$$
 
-Therefore, $$\bar{o}_n=\alpha\frac{1-(1-\alpha)^n}{\alpha}=1-(1-\alpha)^n$$, and since $$0<\alpha<1$$, then $$(1 - \alpha)^n \rightarrow 0 \text{ as } n \rightarrow \infty$$.
+Therefore, $$\bar{o}_n=\alpha\frac{1-(1-\alpha)^n}{\alpha}=1-(1-\alpha)^n$$, and since $$0<\alpha<1$$, then $$(1 - \alpha)^n \rightarrow 0 \text{ as } n \rightarrow \infty.$$
 
 $$\beta_n=\frac{\alpha}{\bar{o}_n}=\frac{\alpha}{1-(1-\alpha)^n} \implies \beta_1=1$$
 
@@ -617,7 +617,7 @@ If we expand this sum going backwards from $$i=n$$:
 
 $$Q_n=\frac{\alpha}{1-(1-\alpha)^n} \left[ R_n+R_{n-1}(1-\alpha)+R_{n-2}(1-\alpha)^2+\cdots+R_1(1-\alpha)^{n-1} \right]$$
 
-The constant term starts off at $$1$$ for $$n=1$$ and approaches $$\alpha$$ in the limit of $$n \rightarrow \infty$$.  If $$0<\alpha<1$$, then the coefficients in the sum section for $$R_i$$ decrease exponentially from 1 for $$i=n$$ to $$(1-\alpha)^{n-1}$$ for $$i=1$$.  So the average over rewards includes every reward back to $$R_1$$ like the simple average but the coefficients become exponentially smaller approaching 0 as $$n \rightarrow \infty$$.   
+The constant term starts off at $$1$$ for $$n=1$$ and approaches $$\alpha$$ in the limit of $$n \rightarrow \infty$$.  If $$0<\alpha<1$$, then the coefficients in the sum section for $$R_i$$ decrease exponentially from 1 for $$i=n$$ to $$(1-\alpha)^{n-1}$$ for $$i=1.$$  So the average over rewards includes every reward back to $$R_1$$ like the simple average but the coefficients become exponentially smaller approaching 0 as $$n \rightarrow \infty$$.   
 """
 
 # ╔═╡ 23b99305-c8d9-4129-85fb-a5e4aabc4a31
@@ -660,20 +660,20 @@ figure_2_4(;params_2_4...)
 # ╔═╡ f88029d6-3fc2-4552-8441-5ef37ac42638
 md"""
 > ### *Exercise 2.8: UCB Spikes* 
-> In Figure 2.4 the UCB algorithm shows a distinct spike in performance on the 11th step.  Why is this?  Note that for your answer to be fully satisfactory it must explain both why the reward increases on the 11th step and why it decreases on the subsequent steps.  Hint: If $$c=1$$, then the spike is less prominent.
+> In Figure 2.4 the UCB algorithm shows a distinct spike in performance on the 11th step.  Why is this?  Note that for your answer to be fully satisfactory it must explain both why the reward increases on the 11th step and why it decreases on the subsequent steps.  Hint: If $$c=1,$$ then the spike is less prominent.
 
-By definition, actions with zero visits are always considered maximizing.  Therefore, for the first 10 steps, all 10 unique actions will be sampled once with each Q estimate updating from a single sample.  On the 11th step, the exploration incentive for each action will be equal, so the action with the highest Q estimate will be selected.  This is most likely to be the action with the highest $$q^*$$ value but there is a substantial probability it is the second best action and diminishing probabilities for the remaining actions ranked by true $$q^*$$.  It is on this step though that we expect the selection to be substantially better than random chance although it is only using a single sample to validate the estimates.  On step 12, that improved action will now have a visit count of 2 instead of 1 for every other action.  In the calculation, the exploration bonus for that action will be $$c\sqrt{\frac{\ln{12}}{2}}\approx 1.11465 \times c$$.  Every other action will have an exploration bonus of $$\approx 1.576 \times c$$.  In order for the 2 visit action to be considered maximizing after this it must have a Q estimate that is $$\approx 0.4617 \times c$$ greater than any other action value estimate. In particular for $$c = 2.0$$, the estimate must be $$\approx 0.9234$$ greater than the others.  Since the q's are normally distributed, the difference in expected value between the best and second best action is only about 0.55.  As a rough heuristic for the probability of the action selection remaining unchanged, we can consider the probability that the 2 sample best action estimate exceeds the single sample second best action estimate by 0.9234 with the following calculation: $$1 - \operatorname*{cdf}(\operatorname*{Normal}(\mu = 1.54 - 1, \sigma = \sqrt{\frac{3}{2}}), x = 0.9234) \approx 0.377$$.  Therefore, on step 12, the average run will change the action selection to something less optimal.  The larger the value of c, the more likely the selection is to change due to the larger weight placed on exploration.  Empirically, as c approaches $$\infty$$ the expected reward on step 12 approaches 0.744 vs 1.145 on step 11.  That compares to the expected q value for the top 3 actions of approximately 0.656, 1, and 1.54.  
+By definition, actions with zero visits are always considered maximizing.  Therefore, for the first 10 steps, all 10 unique actions will be sampled once with each Q estimate updating from a single sample.  On the 11th step, the exploration incentive for each action will be equal, so the action with the highest Q estimate will be selected.  This is most likely to be the action with the highest $$q^*$$ value but there is a substantial probability it is the second best action and diminishing probabilities for the remaining actions ranked by true $$q^*$$.  It is on this step though that we expect the selection to be substantially better than random chance although it is only using a single sample to validate the estimates.  On step 12, that improved action will now have a visit count of 2 instead of 1 for every other action.  In the calculation, the exploration bonus for that action will be $$c\sqrt{\frac{\ln{12}}{2}}\approx 1.11465 \times c.$$  Every other action will have an exploration bonus of $$\approx 1.576 \times c.$$  In order for the 2 visit action to be considered maximizing after this it must have a Q estimate that is $$\approx 0.4617 \times c$$ greater than any other action value estimate. In particular for $$c = 2.0,$$ the estimate must be $$\approx 0.9234$$ greater than the others.  Since the q's are normally distributed, the difference in expected value between the best and second best action is only about 0.55.  As a rough heuristic for the probability of the action selection remaining unchanged, we can consider the probability that the 2 sample best action estimate exceeds the single sample second best action estimate by 0.9234 with the following calculation: $$1 - \operatorname*{cdf}(\operatorname*{Normal}(\mu = 1.54 - 1, \sigma = \sqrt{\frac{3}{2}}), x = 0.9234) \approx 0.377.$$  Therefore, on step 12, the average run will change the action selection to something less optimal.  The larger the value of c, the more likely the selection is to change due to the larger weight placed on exploration.  Empirically, as c approaches $$\infty$$ the expected reward on step 12 approaches 0.744 vs 1.145 on step 11.  That compares to the expected q value for the top 3 actions of approximately 0.656, 1, and 1.54.  
 """
 
 # ╔═╡ b24a92fc-f6c6-44e4-9afc-fa4249e4ab83
 md"""
 ## 2.8 Gradient Bandit Algorithms
 
-As an alternative to estimating action values, we can attempt to learn a numerical *preference* for each action $a$ which we will denote $$H_t(a) \in \mathbf{R}$$.  This vector of preferences will be converted in a probability distribution using the *soft-max distribution*.
+As an alternative to estimating action values, we can attempt to learn a numerical *preference* for each action $a$ which we will denote $$H_t(a) \in \mathbf{R}.$$  This vector of preferences will be converted in a probability distribution using the *soft-max distribution*.
 
 $$\Pr\{A_t = a\} \dot = \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \dot = \pi_t(a) \tag{2.11}$$
 
- $$\pi_t(a)$$ is the probability for this agent to select action $$a$$ at time $$t$$.  All action preferences are initialized at the same value.
+ $$\pi_t(a)$$ is the probability for this agent to select action $$a$$ at time $$t.$$  All action preferences are initialized at the same value.
 """
 
 # ╔═╡ 9d7782f5-b530-40d5-9f75-280d3a762216
@@ -681,7 +681,7 @@ md"""
 > ### *Exercise 2.9* 
 > Show that in the case of two actions, the soft-max distribution is the same as that given by the logistic, or sigmoid, function often used in statistics and artificial neural networks.
 
-The sigmoid function is defined as: $$S(x) = \frac{1}{1 + e^{-x}}$$.  For two actions, let's denote them $$a_1$$ and $$a_2$$.  Now for the action probabilities we have.
+The sigmoid function is defined as: $$S(x) = \frac{1}{1 + e^{-x}}.$$  For two actions, let's denote them $$a_1$$ and $$a_2.$$  Now for the action probabilities we have.
 
 $$\pi(a_1) = \frac{e^{H_t(a_1)}}{e^{H_t(a_1)} + e^{H_t(a_2)}}=\frac{1}{1+e^{-(H_t(a_1) - H_t(a_2))}}$$
 
@@ -694,10 +694,10 @@ One natural update rule for the action preferences is to use stochastic gradient
 
 $$\begin{flalign}
 H_{t+1}(A_t) &\dot = H_t(A_t) + \alpha (R_t - \overline R_t)(1-\pi_t (A_t)) \\
-H_{t+1}(a) & \dot = H_t(a) - \alpha(R_t - \overline R_t)\pi_t(a) \forall a \neq A_t
+H_{t+1}(a) & \dot = H_t(a) - \alpha(R_t - \overline R_t)\pi_t(a) \quad \forall a \neq A_t
 \end{flalign} \tag{2.12}$$
 
-where $$\alpha > 0$$ is a step-size parameter and $$\overline R_t \in \mathbf{R}$$ is the average rewards up to but not including time $$t$$.  This average can be computed by any of the techniques mentioned earlier.
+where $$\alpha > 0$$ is a step-size parameter and $$\overline R_t \in \mathbf{R}$$ is the average rewards up to but not including time $$t.$$  This average can be computed by any of the techniques mentioned earlier.
 """
 
 # ╔═╡ 99945570-0b2a-432a-ae83-3a7abc39cac8
