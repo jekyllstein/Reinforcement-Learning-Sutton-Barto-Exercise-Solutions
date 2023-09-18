@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.42
+# v0.19.27
 
 using Markdown
 using InteractiveUtils
@@ -13,6 +13,9 @@ macro bind(def, element)
         el
     end
 end
+
+# ╔═╡ 8c5b0998-7d60-4d0e-b9ca-88ec55c410ca
+using MvNormalCDF
 
 # ╔═╡ 1fb1a518-e5ec-4777-80bc-bb55e8172100
 begin
@@ -823,6 +826,23 @@ struct GradientSample{T <: AbstractFloat} <: Explorer{T} end
 # ╔═╡ e50596ab-91db-42f0-a62c-77629a4e79c7
 (::Type{T})(e::T) where T <: GradientSample = e
 
+# ╔═╡ 6d647790-a029-4579-86fa-9c7294aa94ea
+struct OptimalDistributionSample{T <: AbstractFloat} <: Explorer{T} 
+	minvar::T
+end
+
+# ╔═╡ 0e06d9cf-b995-40b1-86ee-1c6a56c63bd0
+(::Type{T})(e::T) where T <: OptimalDistributionSample = e
+
+# ╔═╡ 2a3fdc71-a897-4f42-88b8-9a32535c6bbf
+(::Type{OptimalDistributionSample{T}})() where T <: AbstractFloat = OptimalDistributionSample(zero(T)) #default for minimum variance is 0
+
+# ╔═╡ d19de7c0-dc0a-4157-975e-48c7ad68a8bf
+(::Type{OptimalDistributionSample})() = OptimalDistributionSample{Float64}()
+
+# ╔═╡ 64f8616a-452c-4aa0-8994-d1d05b39c528
+(::Type{OptimalDistributionSample{T}})(p) where T <: AbstractFloat = OptimalDistributionSample(T(p))
+
 # ╔═╡ 839861db-676f-4544-a802-0abb5d0049e1
 abstract type AverageMethod{T<:AbstractFloat} end
 
@@ -886,6 +906,9 @@ struct SampleAverage{T<:AbstractFloat} <: AverageMethod{T} end
 # ╔═╡ 68470b1d-3cc2-4cb1-8dc2-53227e6300e7
 (::Type{Explorer{T}})(e::GradientSample) where T<:AbstractFloat = GradientSample{T}()
 
+# ╔═╡ d42a346d-6af3-45df-9de5-7043f46c3da3
+(::Type{Explorer{T}})(e::OptimalDistributionSample) where T<:AbstractFloat = OptimalDistributionSample{T}()
+
 # ╔═╡ fb3381b5-10e3-4307-b76d-672245fac9e7
 (::Type{AverageMethod{T}})(a::SampleAverage) where T<:AbstractFloat = SampleAverage{T}()
 
@@ -947,6 +970,11 @@ end
 # ╔═╡ d9265b98-cc3e-4a60-b16e-f54d9f78c9d3
 (::Type{GradientReward})(;kwargs...) = k -> GradientReward(k; kwargs...)
 
+# ╔═╡ f33adafb-44b4-4e56-b3de-9717fe026288
+md"""
+### Sampling Functions
+"""
+
 # ╔═╡ 4982b489-ca15-4188-90e5-565c45f02e01
 sample_action(est::GradientReward, i::Integer, actions) = sample(actions, weights(est.πvec))
 
@@ -969,6 +997,28 @@ function sample_action(est::ActionValue, explorer::UCB, i::Integer, actions::Abs
 	(Q, N, c) = (est.Q, est.N, explorer.c)
 	argmax(view(Q, actions) .+ c .* sqrt.(log(i) ./ view(N, actions)))
 	# argmax(est.Q[actions] .+ (est.explorer.c .* sqrt.(log(i) ./ est.N[actions])))
+end
+
+# ╔═╡ 6cfc6ec9-1c9c-4e90-ab3f-295ebf01b0ba
+function sample_action(est::ActionValue, explorer::OptimalDistributionSample{T}, i::Integer, actions::AbstractVector) where T <: AbstractFloat
+	(Q, N) = (est.Q, est.N)
+	inds = findall(a -> a == 0, N)
+	if !isempty(inds)
+		return rand(actions[inds])
+	else
+		qmax = -T(Inf)
+		amax = rand(eachindex(Q))
+		for i in eachindex(Q)
+			qest = rand(Normal(Q[i], max(sqrt(explorer.minvar), one(T)/N[i])))
+			if qest > qmax
+				qmax = qest
+				amax = i
+			end
+		end
+		return actions[amax]
+	# w = weights(getdistribution(μs = Q, ns = N, samples = 100))
+	# sample(actions, w)
+	end
 end
 
 # ╔═╡ f7519adc-7dfb-4030-86f0-7445699dd3db
@@ -1353,16 +1403,18 @@ function plot_stationary_param_search(;k = 10, steps = 1000, kwargs...)
 		(p -> ActionValue(Qinit = 0.0f0, explorer = ϵ_Greedy(p)), -100, -1), 
 		(p -> GradientReward(α=p), -100, 100), 
 		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), -100, 100), 
-		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10)
+		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10),
+		(p -> ActionValue(Qinit = 0.0f0, explorer = OptimalDistributionSample(p)), -10, 10)
 	]
 	
-	names = [L"\epsilon\text{-greedy }", L"\text{gradient bandit }", "UCB", L"\text{greedy optimistic initialization } \alpha = 0.1"]
+	names = [L"\epsilon\text{-greedy }", L"\text{gradient bandit }", "UCB", L"\text{greedy optimistic initialization } \alpha = 0.1", "Optimal Distribution"]
 
 	hovertemplates = [
 		"ϵ = %{x:.2g}, reward = %{y:.3g} <extra> ϵ-greedy</extra>",
 		"α = %{x:.2g}, reward = %{y:.3g} <extra> gradient bandit</extra>",
 		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB</extra>",
 		"Q0 = %{x:.2g}, reward = %{y:.3g} <extra> greedy optimistic</extra>",
+		"reward = %{y:.3g} <extra> Optimal Distribution Sample</extra>"
 	]
 
 	results = [stationary_param_search(k, algo[1]; exmin = algo[2], exmax = algo[3], steps = steps, kwargs...) for algo in algorithms]
@@ -1425,19 +1477,17 @@ Number of Steps to Accumulate Reward: $(@bind stationary_numsteps confirm(Number
 md"""
 By default, a plot will be loaded that matches this search criteria.  Check the box below to recalculate the search and save a new plot whever the submit button is clicked.
 
-Recompute Parameter Search: $(@bind execute_stationary confirm(CheckBox()))
+Recompute Parameter Search: $(@bind execute_stationary CheckBox())
 """
 
 # ╔═╡ bf3770ea-ee54-4296-ab33-340aea445670
-# ╠═╡ show_logs = false
 md"""
 ### Figure 2.6
 Parameter study of bandit algorithms on the 10-armed testbed for stationary normally distributed bandit rewards.
-
-$(make_or_lookup_param_plot(;remakeplot = execute_stationary, steps = stationary_numsteps))
 """
 
 # ╔═╡ 51b7a645-269a-418c-b6d8-39c01d0609f1
+# ╠═╡ show_logs = false
 make_or_lookup_param_plot(;remakeplot = execute_stationary, steps = stationary_numsteps)
 
 # ╔═╡ d0111453-9a66-411d-9966-fc386d1bdcb7
@@ -1463,10 +1513,11 @@ function plot_nonstationary_param_search(;k = 10, steps = 1_000, kwargs...)
 		(p -> GradientReward(α=p, update_average = ConstantStep()), -100, 100), 
 		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), -100, 100), 
 		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p), update_average = ConstantStep()), -100, 100), 
-		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10)
+		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10),
+		(p -> ActionValue(Qinit = 0.0f0, explorer = OptimalDistributionSample(p), update_average = ConstantStep(p)), -10, 10)
 		]
 	
-	names = [L"\epsilon\text{-greedy sample average}", L"\epsilon\text{-greedy constant step average } (\alpha = 0.1)", L"\text{gradient bandit sample average}", L"\text{gradient bandit constant step average}", "UCB sample average", "UCB constant step average", L"\text{greedy optimistic initialization } \alpha = 0.1"]
+	names = [L"\epsilon\text{-greedy sample average}", L"\epsilon\text{-greedy constant step average } (\alpha = 0.1)", L"\text{gradient bandit sample average}", L"\text{gradient bandit constant step average}", "UCB sample average", "UCB constant step average", L"\text{greedy optimistic initialization } \alpha = 0.1", L"\text{Optimal Distribution}"]
 
 	hovertemplates = [
 		"ϵ = %{x:.2g}, reward = %{y:.3g} <extra> ϵ-greedy Sample Average</extra>",
@@ -1476,6 +1527,7 @@ function plot_nonstationary_param_search(;k = 10, steps = 1_000, kwargs...)
 		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB Sample Average</extra>",
 		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB Constant Step</extra>",
 		"Q0 = %{x:.2g}, reward = %{y:.3g} <extra> greedy optimistic</extra>",
+		"α = %{x:.2g}, reward = %{y:.3g} <extra> optimal distribution</extra>"
 	]
 
 	results = [nonstationary_param_search(k, algo[1]; exmin = algo[2], exmax = algo[3], steps = steps) for algo in algorithms]
@@ -1517,13 +1569,228 @@ Recompute Parameter Search: $(Child(:remakeplot, CheckBox()))
 end)
 
 # ╔═╡ d59126d7-5af0-4d06-a57b-e115eec32388
-# ╠═╡ show_logs = false
+md"""
+### Non-stationary Parameter Study
+"""
+
+# ╔═╡ 2ceadc6d-5522-43f6-a803-a17a47a6048a
 exercise_2_11(;nonstationarysearchparams...)
 
 # ╔═╡ 37446874-1c28-491b-b3cc-b4ad3282686e
 md"""
 Recreation of Figure 2.6 for the non-stationary case over $(nonstationarysearchparams.steps) steps with a drift rate of σ = $(nonstationarysearchparams.σ). These parameters can be adjusted above, but by default this is performed over 200,000 steps with the accumulated reward only being measured on the final 100,000 steps.  Unlike in the stationary case, the ϵ-greedy method with α=0.1 for updating the Q values performs the best at a very small ϵ value of $$2^{-7}.$$  The UCB method is the second best performer but requires a very large c value of 128 compared to ~1 for the stationary case in which it was the best performer.  This UCB method also uses the sample average which is not ideal for a non-stationary distribution.  That is one of the reasons why it was mentioned earlier in the chapter that it is difficult to adapt the UCB technique to the non-stationary problem.  We can use the constant step size method but that doesn't help the fact that the variance estimates are wrong.  
 """
+
+# ╔═╡ 46478110-5ce5-4c72-bb3d-bcb5f516ffdc
+md"""
+## *Extra Notes on the Soft-Max and Gradient Bandit*
+"""
+
+# ╔═╡ 0d8e4160-adf2-4b43-9914-942539339972
+md"""
+For the gradient bandit algorithm we have a probability distribution over actions $\pi_t(x)$ and we seek to maximize the expected reward at each time step $\mathbb{E}[R_t]=\sum_x \pi_t(x) q_*(x)$.  Since we do not know the true values of $q_*$ the algorithm simply replaces this with the sample reward collected at that time step.  This is justifyable because $\mathbb{E}[R_t|A_t] = q_*(A_t)$.  Using this method we only take one gradient step each sample so after a large number of steps we have sampled many rewards from each action and have better estimates for $q_*$.
+
+Consider what is the distribution $\pi_t(x)$ that maximizes $\mathbb{E}[R_t]=\sum_x \pi_t(x) q_*(x)$?  If we revisit the derivation in section 2.8, and keep the $q_*$ values instead of samples, we have
+
+$\frac{\partial \mathbb{E}[R_t]}{\partial H_t(a)} = \sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \pi_t(a) \right ) \right ] = \sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \right ) \right ]$
+
+At the maximum this must be 0 for all actions:
+
+$\sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \right ) \right ] = 0$.  Consider the action that is the maximum.  One solution that would cause that partial derivative to be 0 is if $\pi_t(a_{max}) = 1$ and all others are 0.  To see this the term multiplying the q values would be $(0-0$ for $a \neq a_{max}$ and $(1-1)$ for $a = a_{max}$.  But in this case the other terms are not zero.  What are they?  Consider an action $a \neq a_{max}$.  The sum in this case is $q_a - q_{a_{max}}$ 
+
+Since we know $q_*$, $B_t$ might as well be set to $\sum_x q_*(x) / [x]$
+"""
+
+# ╔═╡ cb2bf56d-5c1d-4265-9480-11523f776a78
+md"""
+$f(p_i) = \frac{\sum_i p_i q_i}{\sum_i p_i}$
+
+$\frac{\partial{f(p_i)}}{\partial p_a} = \frac{q_a - \sum_i p_i q_i}{(\sum_i p_i)^2}$
+
+Setting this equal to 0 for all the partials implies the following:
+
+$q_a = \sum_i p_i q_i \quad \forall \quad a$
+
+Let's say we have 2 actions.  Then we have 2 equations with two unknowns.
+
+$\begin{flalign}
+q_1 &= p_1 q_1 + p_2 q_2 \implies p_1 = \frac{q_1 - p_2 q_2}{q_1} \\
+q_2 &= p_1 q_1 + p_2 q_2 \implies p_2 = \frac{q_2 - p_1 q_1}{q_2} \\
+p_1 &= \frac{q_1 - q_2 + p_1 q_1}{q_1} \implies q_1 = q_2 \\
+\therefore \\
+q &= p_1 q + p_2 q \implies p_1 = p_2
+\end{flalign}$
+
+From the initial equations we see this necessitates all of the q's to be equal, and in this case the optimal solution is for the probabilities to also be equal.
+
+We can also simplify this case with two actions because $p_2 = 1-p_1$ so let's just call $p_1 = p$ and $p_2 = 1-p$.  Then we are trying to maximize $(f(p) = pq_1 + (1-p)q_2$ and we can just take the derivative in terms of p and set that to 0.
+
+$q_1 - q_2 = 0$ which again gives us an unreasonable constraint on the q values.  That is because the only solution with a finite maximum is one in which the probabilities are equal.  In all other cases the extremum only occurs at one of the probabilities being infinite.  We can fix this by sticking with one variable but forcing it to be a true probability.
+
+$p(x) = \frac{e^x}{e^x + 1}$.  So now $f(x) = p(x)q_1 + (1-p(x))q_2 = p(x)q_1 + p(-x)q_2$.
+
+$\frac{d f(x)}{d x} = \frac{d p(x)}{d x} q_1 - \frac{d p(x)}{dx} q_2 = \frac{d p(x)}{d x}(q_1 - q_2)$
+
+Now we can see there are two options for this derivative being 0.  We first have the case where the q values are equal which causes the probabilities to be equal.  Let's consider the case where $q_1 \neq q_2$.  Now we must have:
+
+$\frac{d p(x)}{dx} = e^{-x}(1+e^{-x})^{-2} = 0$
+
+Consider first the case of very large x so the exponential term is close to 0.  In this case the limit as $x \rightarrow \infty$ approaches $\frac{0}{1}=0$.
+
+Now consider the second case of $x \rightarrow -\infty$.  In this case the exponential term is much larger than 1 and the expression simplifies to $\frac{e^{-x}}{e^{-2x}} = e^x$.  And the limit of $e^x$ as $x \rightarrow \infty$ is 0.
+
+So we have shown that the x that solves this maximization can either trend towards positive or negative infinity which corresponds to the probability $p(x) = \{0, 1\}$.  These two cases correspond to the case where $q_1 > q_2$ and $q_1 < q_2$ which can be shown by taking the second derivative. 
+
+This same argument applies to the softmax as well in the limit such that the solution that maximizes the expected value is one in which the largest q value probability is 1 and all the rest are 0.  So if we were to maximize the gradient fully after some set number of samples we'd always arrive at a distribution that only selects the greedy action.  In this algorithm the only thing that controls whether we select other actions is the fact that at any given sample point we have yet to converge.  This is not a very precise way to control exploration and it isn't surprising that simply adjusting the step size does not yield optimal results.  
+"""
+
+# ╔═╡ bc939df7-e457-496c-8977-5fbf9dfe3638
+md"""
+The gradient bandit algorithm is motivated by maximizing an expected value which requires knowledge of the q values.  However, the policy that maximizes that expected value will always be greedy with respect to whichever q value is thought to be maximal.  In reality we do not have certainty over which q value is maximal and instead we have some knowledge of each q value based on samples collected.  If we have some reason to believe that the rewards are not skewed about a mean value, then we can represent our knoweldge of each q by using the maximum entropy distribution based on the samples we've collected.  That would be a normal distribution with 
+
+$\mu(a) = \sum_{A_t = a} R_t / N_{a}$ 
+and 
+
+$\sigma(a)^2 = \frac{\sum_{A_t = a} (R_t - \mu(a))^2}{N_a^2}$ 
+
+If we seek to maximize the expected reward per step as before, all that matters for that is the mean value of each q or in our case the unbiased estimate we have of the mean value.  So calculating the variance doesn't affect this method.  We need to consider some alternative to maximizing the expected reward even though that is directly what we are seeking.  One thing we could do is maximize the probability that the action we've selected is the optimal action.  Selecting the optimal action is identical to maximizing reward in this case.  
+
+$P(A_t = a_*) = \sum_x \pi_t(x) P(x = a_*)$
+
+So it seems we need a way of calculating the probability that a particular action is the optimal one given our samples.  To simplify matters let's consider the case of only two actions and also assume that we already know the variance of the reward about the mean.  That way our distribution for q simplifies to a normal distribution with a mean of $\mu(a) = \sum_{A_t = a}R_t / N_a$ and a variance of $\sigma(a) = 1/N_a$.  Now we have two actions $1$ and $2$ each with their own samples.  So our knowledge of $q_1$ and $q_2$ consists of two normal distributions: $N(\mu_1, \sigma_1^2)$ and $N(\mu_2, \sigma_2^2)$ with the mean and variance calculated as mentioned above.  So what is the probability that action 1 is optimal?  This is the same as asking the probability that a sample from the first distribution is larger than a sample from the second distribution.
+
+$P(X>Y)$ with $X \sim N(\mu_1, \sigma_1^2)$ and $Y \sim N(\mu_2, \sigma_2^2)$
+
+This is equivalent to asking $P(X-Y) > 0$.  Since $X-Y$ is a sum of normal distributions, it is itself a normal distribution: $N(\mu_1 - \mu_2, \sigma_1^2 + \sigma_2^2)$.  The cumulative distribution function will answer this question since it is the probability of a random variable being less than or equal to a given value.  So $1-CDF(0)$ will be our answer where $CDF(0)$ is the cummulative distribution function of our normal variable evaluated at 0: $\frac{1}{2}\left[1+\text{erf}\left(\frac{-\mu_1 + \mu_2}{\sqrt{2(\sigma_1^2 + \sigma_2^2)}} \right ) \right]$.  So this would be the probability of selecting action 1 and 1 minus this would be the probability of selecting action 2.  The assumptions made here are that the rewards are generated by a stationary process with some unknown mean and unit variance.  This method is different from any discussed earlier because we have a stochastic policy yet it is based on estimating the q values.  
+
+For future reference, the function that calculates the probability that one action is optimal over another will be written as $\Phi(a, b)$
+"""
+
+# ╔═╡ b29624b0-be1d-4cc2-964d-0a050f4c1bed
+p(μ1, μ2, n1, n2) = 1 - 0.5*(1 + erf((-μ1+μ2)/sqrt(2*(1/n1^2 + 1/n2^2))))
+
+# ╔═╡ 211d9390-df44-4902-9e13-ad6744b9b7dd
+function getdistribution(;μs::Vector{T} = [1.0, 0.5, 0.0], ns = 2*ones(Int64, length(μs)), samples = 1_000) where T <: AbstractFloat
+	counts = zeros(T, length(μs))
+	inds = findall(a -> a == 0, ns)
+	if !isempty(inds)
+		counts[inds] .= one(T) / length(inds)
+	else
+		values = zeros(T, length(μs))
+		σs = one(T) ./ ns
+		for i in 1:samples
+			for i in eachindex(μs)
+				values[i] = T(rand(Normal(μs[i], σs[i])))
+			end
+			counts[argmax(values)] += one(T)
+		end
+		counts ./= sum(counts)
+	end
+	return counts
+end	
+
+# ╔═╡ 0311c1d9-72d2-4fd7-9e69-02565c48e43c
+#I can use this to generate the distribution just form storing the sample mean and the counts
+getdistribution(μs = [0.0, 0.0], ns = [1, 0])
+
+# ╔═╡ aa4f8727-1c9b-410b-9ac5-3e3e41301a08
+rand(Normal(0.0, Inf))
+
+# ╔═╡ cd17027c-c3d0-45ab-be43-98e7700f44f7
+p(1.0, 0.5, 2, 2)*p(1.0, 0.0, 2, 2)
+
+# ╔═╡ 634188b8-809e-4a52-94b0-b75e79263c1d
+p(0.5, 1.0, 2, 2)*p(1.0, 0.0, 2, 2) + p(0.5, 0.0, 2, 2)*p(0.0, 1.0, 2, 2)
+
+# ╔═╡ c09cf9c9-b27e-4976-a327-95712c9daeff
+p(0.0, 0.5, 2, 2)*p(0.5, 1.0, 2, 2) + p(0.0, 1.0, 2, 2)*p(1.0, 0.5, 2, 2)
+
+# ╔═╡ 1aa7bc33-0ad6-41ab-8e2a-ba22cbfdab53
+@bind testvar PlutoUI.combine() do Child
+	md"""
+	N1: $(Child(:n1, Slider(1:1000, default = 100, show_value=true)))
+	
+	N2: $(Child(:n2, Slider(1:1000, default = 100, show_value=true)))
+	
+	Maximum Mean Difference : $(Child(:diff, Slider(0.0:0.1:10, default = 1.0, show_value = true)))
+	"""
+end
+
+# ╔═╡ c6a8a9d2-1f29-4082-9fd2-d409cf6227ba
+let
+	dvec = -testvar.diff:testvar.diff/20000:testvar.diff
+	plot(dvec, [p(d, 0.0, testvar.n1, testvar.n2) for d in dvec])
+end
+
+# ╔═╡ 5aa170d3-eb87-44dd-b4f4-3ac97476efd7
+md"""
+Above shows the probability of selecting hte first action when its mean reward estimate is a given value above or below the alternative.  The number of samples for each can be controlled above.  
+
+How easy is it to extend this to multiple actions?  We would need to calculate the probability that a given action was best among all the alternatives.  Consider the case of 3 actions.  If we have a distribution for the mean value of each, then they could be ranked as follows:
+
+$q_1 > q_2 > q_3$
+
+$q_1 > q_3 > q_2$
+
+$q_2 > q_3 > q_1$
+
+$q_2 > q_1 > q_3$
+
+$q_3 > q_1 > q_2$
+
+$q_3 > q_2 > q_1$
+
+For the first ranking, we can consider two new normal random variable X = $q_2 - q_1$ and Y = $q_3 - q_2$.  Now (X, Y) follows a multivariate distribution with means $\mu_2 - \mu_1$ and $\mu_3 - \mu_2$.  The variances of each random variable is also calculated above, but the covariance matrix needs to be evaluated.  $\sigma(X, Y) = \sigma(q_2 - q_1, q_3 - q_2) = \sigma(q_2, q_3 - q_2) - \sigma(q_1, q_3 - q_2) = -\sigma^2(q_2)$ since all of the variables are independent.
+
+
+
+For a given action this means that for every pair of other actions it would exceed it.  Calculating each of these independently would not lead to a normalized distribution if we care about calculating the true distribution.  If instead we simply want a value that is ranked the same as the true distribution we can calculate the probability that a given action is optimal.  The alternative is that any one of the other actions are optimal but not which one.
+
+Consider 3 actions.  We have 
+
+$P(a_1 = a_*) = P(q_1 > q_2)P(q_1 > q_3 | q_1 > q_2) = P(q_1 > q_2)P(q_1 > q_3)$
+
+$P(a_2 = a_*) = \Phi(a_2, a_1)\Phi(a_2, a_3)$
+
+$P(a_3 = a_*) = \Phi(a_3, a_1)\Phi(a_3, a_2)$
+
+Also since $\Phi(a, b) = 1 - \Phi(b, a)$ we only need to calculate 3 of these, one for each pair.  Then these look like:
+
+$\begin{flalign}
+P(a_1 = a_*) &= \Phi(a_1, a_2)\Phi(a_1, a_3)\\
+
+P(a_2 = a_*) &= (1-\Phi(a_1, a_2))\Phi(a_2, a_3)\\
+
+P(a_3 = a_*) &= (1-\Phi(a_1, a_3))(1-\Phi(a_2, a_3))
+\end{flalign}$
+
+To simplify writing, rename each pair probability as $p_1 = (1, 2), p_2 = (1, 3), p_3=(2, 3)$.  Then we have:
+
+$\begin{flalign}
+P(a_1 = a_*) &= p_1p_2\\
+
+P(a_2 = a_*) &= (1-p_1)p_3\\
+
+P(a_3 = a_*) &= (1-p_2)(1-p_3)
+\end{flalign}$
+
+$\Phi(a_1, a_2)\Phi(a_1, a_3) + \Phi(a_2, a_1)\Phi(a_2, a_3) + \Phi(a_3, a_1)\Phi(a_3, a_2)$
+
+$\Phi(a_1, a_2)\Phi(a_1, a_3) + (1-\Phi(a_1, a_2))\Phi(a_2, a_3) + (1-\Phi(a_1, a_3))(1-\Phi(a_2, a_3))$
+
+$\Phi(a_1, a_2)\Phi(a_1, a_3) + 2\Phi(a_2, a_3) - \Phi(a_1, a_2)\Phi(a_2, a_3) + 1 - \Phi(a_1, a_3) + \Phi(a_1, a_3)\Phi(a_2, a_3)$
+
+$\Phi(a_1, a_3)(\Phi(a_1, a_2) - 1 -\Phi(a_2, a_3)) + \Phi(a_2, a_3)(2 - \Phi(a_1, a_2)\Phi(a_2, a_3) + 1 - \Phi(a_1, a_3) + \Phi(a_1, a_3)\Phi(a_2, a_3)$
+"""
+
+# ╔═╡ 33d201ba-52f2-44f0-8bc6-3930ec77f62f
+MultivariateNormal()
+
+# ╔═╡ 400d5faa-aceb-48f9-aacd-0c3034aca58b
+Σ = [4 3 2 1; 3 5 -1 1; 2 -1 4 2; 1 1 2 5]
+
+# ╔═╡ bdda0c33-1121-450d-bd00-3b6e8d1b3957
+mvnormcdf([1, 2], [0.5 0.0; 0.0 0.5], [-Inf; -Inf], [0; 0])
 
 # ╔═╡ 36602c38-8b29-4158-b299-94015a333762
 md"""
@@ -1536,6 +1803,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
+MvNormalCDF = "37188c8d-bc69-4638-b057-733e744175ec"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -1548,6 +1816,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Distributions = "~0.25.100"
 LaTeXStrings = "~1.3.0"
 Latexify = "~0.16.1"
+MvNormalCDF = "~0.3.0"
 PlutoPlotly = "~0.3.9"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.52"
@@ -1559,9 +1828,9 @@ StatsBase = "~0.34.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.3"
+julia_version = "1.10.0-beta2"
 manifest_format = "2.0"
-project_hash = "1572bd4e790356c6fdf468cf6358268b3b27299c"
+project_hash = "b0662c8913935ba34f0cc1d84161d8724b16b276"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1631,7 +1900,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.5+0"
+version = "1.0.5+1"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "8da84edb865b0b5b0100c0666a9bc9a0b71c553c"
@@ -1747,6 +2016,11 @@ git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
 uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
+[[deps.IntegerMathUtils]]
+git-tree-sha1 = "b8ffb903da9f7b8cf695a8bead8e01814aa24b30"
+uuid = "18e54dd8-cb9d-406c-a71d-865a43cbb235"
+version = "0.1.2"
+
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -1796,12 +2070,12 @@ version = "0.1.3"
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.3"
+version = "0.6.4"
 
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "7.84.0+0"
+version = "8.0.1+1"
 
 [[deps.LibGit2]]
 deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
@@ -1810,7 +2084,7 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.10.2+0"
+version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -1856,7 +2130,7 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+0"
+version = "2.28.2+1"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -1869,7 +2143,13 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2022.10.11"
+version = "2023.1.10"
+
+[[deps.MvNormalCDF]]
+deps = ["Distributions", "FillArrays", "LinearAlgebra", "Primes", "Random", "StatsBase"]
+git-tree-sha1 = "3d1e8f8e683e506d6fcd41104b3d791aa25d4286"
+uuid = "37188c8d-bc69-4638-b057-733e744175ec"
+version = "0.3.0"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -1884,12 +2164,12 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.21+4"
+version = "0.3.23+2"
 
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+0"
+version = "0.8.1+2"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
@@ -1929,7 +2209,7 @@ version = "2.7.2"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.9.2"
+version = "1.10.0"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -1973,6 +2253,12 @@ git-tree-sha1 = "7eb1686b4f04b82f96ed7a4ea5890a4f0c7a09f1"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
 version = "1.4.0"
 
+[[deps.Primes]]
+deps = ["IntegerMathUtils"]
+git-tree-sha1 = "4c9f306e5d6603ae203c2000dd460d81a5251489"
+uuid = "27ebfcd6-29c5-5fa9-bf4b-fb8fc14df3ae"
+version = "0.5.4"
+
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -1998,7 +2284,7 @@ deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.Random]]
-deps = ["SHA", "Serialization"]
+deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[deps.Reexport]]
@@ -2043,6 +2329,7 @@ version = "1.1.1"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+version = "1.10.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
@@ -2094,7 +2381,7 @@ uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "5.10.1+6"
+version = "7.2.0+1"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -2141,22 +2428,22 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.13+0"
+version = "1.2.13+1"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+0"
+version = "5.8.0+1"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.48.0+0"
+version = "1.52.0+1"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.4.0+0"
+version = "17.4.0+2"
 """
 
 # ╔═╡ Cell order:
@@ -2239,6 +2526,11 @@ version = "17.4.0+0"
 # ╠═47be3ae6-20f7-47d0-aae3-b67154afc1a8
 # ╠═4c6ccbfe-a3ce-4f2d-bcb1-7f1a4b735c65
 # ╠═e50596ab-91db-42f0-a62c-77629a4e79c7
+# ╠═6d647790-a029-4579-86fa-9c7294aa94ea
+# ╠═0e06d9cf-b995-40b1-86ee-1c6a56c63bd0
+# ╠═2a3fdc71-a897-4f42-88b8-9a32535c6bbf
+# ╠═d19de7c0-dc0a-4157-975e-48c7ad68a8bf
+# ╠═64f8616a-452c-4aa0-8994-d1d05b39c528
 # ╠═839861db-676f-4544-a802-0abb5d0049e1
 # ╠═1ac5588c-3c32-436e-8b40-41715223fba7
 # ╠═f00ab44e-0d84-40c7-aa23-358c77a013e3
@@ -2258,6 +2550,7 @@ version = "17.4.0+0"
 # ╠═3a215c95-c595-4837-a842-1c1e1c6bfa3b
 # ╠═a04da367-3f8d-422d-a443-4e3e666e30ef
 # ╠═68470b1d-3cc2-4cb1-8dc2-53227e6300e7
+# ╠═d42a346d-6af3-45df-9de5-7043f46c3da3
 # ╠═fb3381b5-10e3-4307-b76d-672245fac9e7
 # ╠═ff6598fa-3366-416c-88a1-6bfcefeb1719
 # ╠═d2ebd908-387d-4e40-bc00-61ce5f45ebdd
@@ -2269,10 +2562,12 @@ version = "17.4.0+0"
 # ╠═8a04adab-e97e-4ac4-a85e-5eae93b1c37b
 # ╠═69b560c1-98ad-4cbf-89d2-e0516299bc69
 # ╠═d9265b98-cc3e-4a60-b16e-f54d9f78c9d3
+# ╟─f33adafb-44b4-4e56-b3de-9717fe026288
 # ╠═4982b489-ca15-4188-90e5-565c45f02e01
 # ╠═672a91c0-aa77-4257-8c83-d857f47cab6c
 # ╠═638f99e6-1cdc-414c-9b67-fd626ec0be3e
 # ╠═aa238ebc-8730-46c7-8ad9-41c7cac70b18
+# ╠═6cfc6ec9-1c9c-4e90-ab3f-295ebf01b0ba
 # ╠═62eb0650-96bc-4fd6-bfe0-bf05a4137a03
 # ╠═30f05bd9-e939-4810-b710-edc7f5975921
 # ╠═96566aad-6d5c-460c-a924-ae0bad5d8b2d
@@ -2302,7 +2597,7 @@ version = "17.4.0+0"
 # ╟─88e43fed-fcf3-4071-996a-63f63c3d49b4
 # ╟─97f6221d-3289-4e54-a80d-26c5c81f2651
 # ╟─bf3770ea-ee54-4296-ab33-340aea445670
-# ╟─51b7a645-269a-418c-b6d8-39c01d0609f1
+# ╠═51b7a645-269a-418c-b6d8-39c01d0609f1
 # ╟─d0111453-9a66-411d-9966-fc386d1bdcb7
 # ╟─4a89cdd9-c20f-40e2-bc84-c3ea9cbf00e7
 # ╠═aa5acd7c-6a0b-454f-ab05-12a606dd9fc2
@@ -2310,7 +2605,26 @@ version = "17.4.0+0"
 # ╠═9bd99099-1dfa-477a-9896-3da94bcc0633
 # ╟─3b88ec30-768b-44d0-88ee-b3ed989f22c3
 # ╟─d59126d7-5af0-4d06-a57b-e115eec32388
+# ╠═2ceadc6d-5522-43f6-a803-a17a47a6048a
 # ╟─37446874-1c28-491b-b3cc-b4ad3282686e
+# ╟─46478110-5ce5-4c72-bb3d-bcb5f516ffdc
+# ╠═0d8e4160-adf2-4b43-9914-942539339972
+# ╟─cb2bf56d-5c1d-4265-9480-11523f776a78
+# ╟─bc939df7-e457-496c-8977-5fbf9dfe3638
+# ╠═b29624b0-be1d-4cc2-964d-0a050f4c1bed
+# ╠═211d9390-df44-4902-9e13-ad6744b9b7dd
+# ╠═0311c1d9-72d2-4fd7-9e69-02565c48e43c
+# ╠═aa4f8727-1c9b-410b-9ac5-3e3e41301a08
+# ╠═cd17027c-c3d0-45ab-be43-98e7700f44f7
+# ╠═634188b8-809e-4a52-94b0-b75e79263c1d
+# ╠═c09cf9c9-b27e-4976-a327-95712c9daeff
+# ╟─1aa7bc33-0ad6-41ab-8e2a-ba22cbfdab53
+# ╠═c6a8a9d2-1f29-4082-9fd2-d409cf6227ba
+# ╠═5aa170d3-eb87-44dd-b4f4-3ac97476efd7
+# ╠═33d201ba-52f2-44f0-8bc6-3930ec77f62f
+# ╠═400d5faa-aceb-48f9-aacd-0c3034aca58b
+# ╠═bdda0c33-1121-450d-bd00-3b6e8d1b3957
+# ╠═8c5b0998-7d60-4d0e-b9ca-88ec55c410ca
 # ╟─36602c38-8b29-4158-b299-94015a333762
 # ╠═1fb1a518-e5ec-4777-80bc-bb55e8172100
 # ╟─00000000-0000-0000-0000-000000000001
