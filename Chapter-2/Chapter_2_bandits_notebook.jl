@@ -14,9 +14,6 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 8c5b0998-7d60-4d0e-b9ca-88ec55c410ca
-using MvNormalCDF
-
 # ╔═╡ 1fb1a518-e5ec-4777-80bc-bb55e8172100
 begin
 	using Random, Base.Threads, PlutoPlotly, PlutoUI, PlutoProfile, Latexify, LaTeXStrings, SpecialFunctions, Distributions, Statistics, StatsBase
@@ -1407,14 +1404,14 @@ function plot_stationary_param_search(;k = 10, steps = 1000, kwargs...)
 		(p -> ActionValue(Qinit = 0.0f0, explorer = OptimalDistributionSample(p)), -10, 10)
 	]
 	
-	names = [L"\epsilon\text{-greedy }", L"\text{gradient bandit }", "UCB", L"\text{greedy optimistic initialization } \alpha = 0.1", "Optimal Distribution"]
+	names = [L"\epsilon\text{-greedy }", L"\text{gradient bandit }", "UCB", L"\text{greedy optimistic initialization } \alpha = 0.1", L"\text{Optimal Distribution}"]
 
 	hovertemplates = [
 		"ϵ = %{x:.2g}, reward = %{y:.3g} <extra> ϵ-greedy</extra>",
 		"α = %{x:.2g}, reward = %{y:.3g} <extra> gradient bandit</extra>",
 		"c = %{x:.2g}, reward = %{y:.3g} <extra> UCB</extra>",
 		"Q0 = %{x:.2g}, reward = %{y:.3g} <extra> greedy optimistic</extra>",
-		"reward = %{y:.3g} <extra> Optimal Distribution Sample</extra>"
+		"Minimum Variance = %{x:.2g}, reward = %{y:.3g} <extra> Optimal Distribution Sample</extra>"
 	]
 
 	results = [stationary_param_search(k, algo[1]; exmin = algo[2], exmax = algo[3], steps = steps, kwargs...) for algo in algorithms]
@@ -1570,10 +1567,11 @@ end)
 
 # ╔═╡ d59126d7-5af0-4d06-a57b-e115eec32388
 md"""
-### Non-stationary Parameter Study
+### Non-stationary Parameter Study Figure
 """
 
 # ╔═╡ 2ceadc6d-5522-43f6-a803-a17a47a6048a
+# ╠═╡ show_logs = false
 exercise_2_11(;nonstationarysearchparams...)
 
 # ╔═╡ 37446874-1c28-491b-b3cc-b4ad3282686e
@@ -1586,23 +1584,64 @@ md"""
 ## *Extra Notes on the Soft-Max and Gradient Bandit*
 """
 
-# ╔═╡ 0d8e4160-adf2-4b43-9914-942539339972
+# ╔═╡ ecd8833d-441b-4673-b457-dc5109f575ab
 md"""
+### Why softmax?
+
 For the gradient bandit algorithm we have a probability distribution over actions $\pi_t(x)$ and we seek to maximize the expected reward at each time step $\mathbb{E}[R_t]=\sum_x \pi_t(x) q_*(x)$.  Since we do not know the true values of $q_*$ the algorithm simply replaces this with the sample reward collected at that time step.  This is justifyable because $\mathbb{E}[R_t|A_t] = q_*(A_t)$.  Using this method we only take one gradient step each sample so after a large number of steps we have sampled many rewards from each action and have better estimates for $q_*$.
 
-Consider what is the distribution $\pi_t(x)$ that maximizes $\mathbb{E}[R_t]=\sum_x \pi_t(x) q_*(x)$?  If we revisit the derivation in section 2.8, and keep the $q_*$ values instead of samples, we have
+$\pi_t(x)$ is a discrete distribution with one value for each action.  We can represent that simply with a parameter for each action, let's call it $H(x)$ we seek to find the values $H(x)$ which maximize the expected value of reward by setting the partial derivatives with respect to those parameters equal to 0.
+
+$\frac{\partial{\mathbb{E}[R_t]}}{\partial{H_t(x)}} = \frac{\partial}{\partial H_t(a)} \left ( \sum_x H_t(x) q_*(x) \right ) = \sum_x q_*(x)=0$
+
+This is a problem because we do not have control over the $q_*$ values.  So perhaps we should consider some other function of $H_t(x)$.  In particular we know that the probabilities need to be positive so why not select a function that is always positive like $f(x) = x^2$.  What expression for the derivative do we get in this case?
+
+$\frac{\partial{\mathbb{E}[R_t]}}{\partial{H_t(x)}} = \frac{\partial}{\partial H_t(a)} \left ( \sum_x H_t(x)^2 q_*(x) \right ) = \sum_x 2 H_t(x) q_*(x)=0$
+
+Consider the case of only two actions: 
+
+$2 H_t(1) q_*(1) + 2 H_t(2) q_*(2) = 0 \implies H_t(1) = -H_t(2)\frac{q_*(2)}{q_*(1)}.$  As a probability though, we know that $(H_t(1)^2 + H_t(2)^2 = 1)$, but substituting the expression for $H_t(1)$ we get 
+
+$H_t(2)^2 \frac{q_*(2)}{q_*(1)} + H_t(2)^2 = 1 \implies H_t(2) = \sqrt{\frac{1}{1 + r}}$  
+
+where r is the ratio of q values.  This is a problem though because the q values can be any real number including negative ones so the expression in the square root could be negative.  So this form of the probability will not have solutions for certian q values given the contraints of probability.  
+
+We could also consider a function that guarantees that our probabilities meet both contraints:
+
+$\sum_x p(x) = 1 \quad \text{and} \quad 0 \leq p(x) \leq 1 \forall x$
+
+In order to do this let's take the H values, subtract the minimum, and by the sum of the resulting numbers.  That would certainly meet the constraints except in the case where all the values are 0 which could be a problem.  But even ignoring that fact, this procedure is not a differentiable function so we have no convenient way to maximize it.  
+
+For all these cases it is clear that the only suitable function for the probabilities as a function of H is as follows:
+
+$f(H_t(x)) = \frac{u(H_t(x))}{\sum_x u(H_t(x))}$ where $u(a)$ is some function defined over the entire real number line such that $u(a) \geq 0 \forall a$.  We already saw that $u(a) = a^2$ does not work because certain q values do not lead to valid solutions.  Another option for such a function is $u(x) = e^x$ and this has the additional property of being monotonic.  Using this form for $u(x)$ leads to the softmax.  
+
+$p(x) = \frac{e^{H_t(x)}}{\sum_x e^{H_t(x)}}$
+
+Using this form for the probability also means if we add some arbitrary constant to all the H values, it has no effect on the probability.
+
+$\frac{e^{c + H_t(x)}}{\sum_x e^{c + H_t(x)}} = \frac{e^c e^{H_t(x)}}{e^c \sum_x e^{H_t(x)}} = p(x)$
+
+This property is very important considering the fact that we could arbitarily choose to center the H values around 0 or subtract the minimum to make them all positive.  We should be able to eliminate the H value of 1 action by setting it to 0 and considering all the others in relation to that.  Making such a choice should not change the answer of which action is the maximizing one.  Also, it means if our maximization algorithm starts moving in the direction of a certain magnitude of H values, there will always be some solution that works if we fix any particular value so it will be much easier to find the maximum.
+"""
+
+# ╔═╡ 0d8e4160-adf2-4b43-9914-942539339972
+md"""
+Consider what is the distribution $\pi_t(x)$ that maximizes $\mathbb{E}[R_t]=\sum_x \pi_t(x) q_*(x)$ using the softmax representation of the distribution?  If we revisit the derivation in section 2.8, and keep the $q_*$ values instead of samples, we have
 
 $\frac{\partial \mathbb{E}[R_t]}{\partial H_t(a)} = \sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \pi_t(a) \right ) \right ] = \sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \right ) \right ]$
 
 At the maximum this must be 0 for all actions:
 
-$\sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \right ) \right ] = 0$.  Consider the action that is the maximum.  One solution that would cause that partial derivative to be 0 is if $\pi_t(a_{max}) = 1$ and all others are 0.  To see this the term multiplying the q values would be $(0-0$ for $a \neq a_{max}$ and $(1-1)$ for $a = a_{max}$.  But in this case the other terms are not zero.  What are they?  Consider an action $a \neq a_{max}$.  The sum in this case is $q_a - q_{a_{max}}$ 
+$\sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \right ) \right ] = 0$  Consider the action that is the maximum.  One solution that would cause that partial derivative to be 0 is if $\pi_t(a_{max}) = 1$ and all others are 0.  To see this the term multiplying the q values would be $(0-0$ for $a \neq a_{max}$ and $(1-1)$ for $a = a_{max}$.  But in this case the other terms are not zero.  What are they?  Consider an action $a \neq a_{max}$.  The sum in this case is $q_a - q_{a_{max}}$ 
 
 Since we know $q_*$, $B_t$ might as well be set to $\sum_x q_*(x) / [x]$
 """
 
 # ╔═╡ cb2bf56d-5c1d-4265-9480-11523f776a78
 md"""
+This expression will look simpler if we treat the probabilities as variables themselves.
+
 $f(p_i) = \frac{\sum_i p_i q_i}{\sum_i p_i}$
 
 $\frac{\partial{f(p_i)}}{\partial p_a} = \frac{q_a - \sum_i p_i q_i}{(\sum_i p_i)^2}$
@@ -1627,7 +1666,7 @@ We can also simplify this case with two actions because $p_2 = 1-p_1$ so let's j
 
 $q_1 - q_2 = 0$ which again gives us an unreasonable constraint on the q values.  That is because the only solution with a finite maximum is one in which the probabilities are equal.  In all other cases the extremum only occurs at one of the probabilities being infinite.  We can fix this by sticking with one variable but forcing it to be a true probability.
 
-$p(x) = \frac{e^x}{e^x + 1}$.  So now $f(x) = p(x)q_1 + (1-p(x))q_2 = p(x)q_1 + p(-x)q_2$.
+$p(x) = \frac{e^x}{e^x + 1}$  So now $f(x) = p(x)q_1 + (1-p(x))q_2 = p(x)q_1 + p(-x)q_2$
 
 $\frac{d f(x)}{d x} = \frac{d p(x)}{d x} q_1 - \frac{d p(x)}{dx} q_2 = \frac{d p(x)}{d x}(q_1 - q_2)$
 
@@ -1637,7 +1676,7 @@ $\frac{d p(x)}{dx} = e^{-x}(1+e^{-x})^{-2} = 0$
 
 Consider first the case of very large x so the exponential term is close to 0.  In this case the limit as $x \rightarrow \infty$ approaches $\frac{0}{1}=0$.
 
-Now consider the second case of $x \rightarrow -\infty$.  In this case the exponential term is much larger than 1 and the expression simplifies to $\frac{e^{-x}}{e^{-2x}} = e^x$.  And the limit of $e^x$ as $x \rightarrow \infty$ is 0.
+Now consider the second case of $x \rightarrow -\infty$.  In this case the exponential term is much larger than 1 and the expression simplifies to $\frac{e^{-x}}{e^{-2x}} = e^x$.  And the limit of $e^x$ as $x \rightarrow -\infty$ is 0.
 
 So we have shown that the x that solves this maximization can either trend towards positive or negative infinity which corresponds to the probability $p(x) = \{0, 1\}$.  These two cases correspond to the case where $q_1 > q_2$ and $q_1 < q_2$ which can be shown by taking the second derivative. 
 
@@ -1646,28 +1685,41 @@ This same argument applies to the softmax as well in the limit such that the sol
 
 # ╔═╡ bc939df7-e457-496c-8977-5fbf9dfe3638
 md"""
-The gradient bandit algorithm is motivated by maximizing an expected value which requires knowledge of the q values.  However, the policy that maximizes that expected value will always be greedy with respect to whichever q value is thought to be maximal.  In reality we do not have certainty over which q value is maximal and instead we have some knowledge of each q value based on samples collected.  If we have some reason to believe that the rewards are not skewed about a mean value, then we can represent our knoweldge of each q by using the maximum entropy distribution based on the samples we've collected.  That would be a normal distribution with 
+The gradient bandit algorithm is motivated by maximizing an expected value which requires knowledge of the q values.  However, the policy that maximizes that expected value will always be greedy with respect to whichever q value is thought to be maximal.  In reality we do not have certainty over which q value is maximal and instead we have some knowledge of each q value based on samples collected.  We know that the optimal choice only depends on the mean value of the rewards for each action.  Our knowledge of the mean is from the reward samples collected, so we can use the distribution of the sample mean to represent our knowledge of the true q values.  That would be a normal distribution with 
 
 $\mu(a) = \sum_{A_t = a} R_t / N_{a}$ 
 and 
 
 $\sigma(a)^2 = \frac{\sum_{A_t = a} (R_t - \mu(a))^2}{N_a^2}$ 
 
-If we seek to maximize the expected reward per step as before, all that matters for that is the mean value of each q or in our case the unbiased estimate we have of the mean value.  So calculating the variance doesn't affect this method.  We need to consider some alternative to maximizing the expected reward even though that is directly what we are seeking.  One thing we could do is maximize the probability that the action we've selected is the optimal action.  Selecting the optimal action is identical to maximizing reward in this case.  
+If we seek to maximize the expected reward per step as before, all that matters for that is the mean value of each q or in our case the unbiased estimate we have of the mean value.  This will also result in a greedy policy choosing which ever estimate is higher.  We might explore actions but only in the case of the estimates fluctuating.  If we ever consider a method that seeks to maximize the expected reward at a single step, we will always arrive at a greedy policy.  One alternative we could consider is sampling actions based on the probability that what we've selected is optimal.  In other words calculate $P(x = a_*) \quad \forall \quad x$
 
-$P(A_t = a_*) = \sum_x \pi_t(x) P(x = a_*)$
-
-So it seems we need a way of calculating the probability that a particular action is the optimal one given our samples.  To simplify matters let's consider the case of only two actions and also assume that we already know the variance of the reward about the mean.  That way our distribution for q simplifies to a normal distribution with a mean of $\mu(a) = \sum_{A_t = a}R_t / N_a$ and a variance of $\sigma(a) = 1/N_a$.  Now we have two actions $1$ and $2$ each with their own samples.  So our knowledge of $q_1$ and $q_2$ consists of two normal distributions: $N(\mu_1, \sigma_1^2)$ and $N(\mu_2, \sigma_2^2)$ with the mean and variance calculated as mentioned above.  So what is the probability that action 1 is optimal?  This is the same as asking the probability that a sample from the first distribution is larger than a sample from the second distribution.
+To simplify matters let's consider the case of only two actions and also assume that we already know the true variance of the reward for each action about the mean.  That way our distribution for q simplifies to a normal distribution with a mean of $\mu(a) = \sum_{A_t = a}R_t / N_a$ and a variance of $\sigma(a) = 1/N_a$.  Now we have two actions $1$ and $2$ each with their own samples.  So our knowledge of $q_1$ and $q_2$ consists of two normal distributions: $N(\mu_1, \sigma_1^2)$ and $N(\mu_2, \sigma_2^2)$ with the mean and variance calculated as mentioned above.  So what is the probability that action 1 is optimal?  This is the same as asking the probability that a sample from the first distribution is larger than a sample from the second distribution.
 
 $P(X>Y)$ with $X \sim N(\mu_1, \sigma_1^2)$ and $Y \sim N(\mu_2, \sigma_2^2)$
 
 This is equivalent to asking $P(X-Y) > 0$.  Since $X-Y$ is a sum of normal distributions, it is itself a normal distribution: $N(\mu_1 - \mu_2, \sigma_1^2 + \sigma_2^2)$.  The cumulative distribution function will answer this question since it is the probability of a random variable being less than or equal to a given value.  So $1-CDF(0)$ will be our answer where $CDF(0)$ is the cummulative distribution function of our normal variable evaluated at 0: $\frac{1}{2}\left[1+\text{erf}\left(\frac{-\mu_1 + \mu_2}{\sqrt{2(\sigma_1^2 + \sigma_2^2)}} \right ) \right]$.  So this would be the probability of selecting action 1 and 1 minus this would be the probability of selecting action 2.  The assumptions made here are that the rewards are generated by a stationary process with some unknown mean and unit variance.  This method is different from any discussed earlier because we have a stochastic policy yet it is based on estimating the q values.  
-
-For future reference, the function that calculates the probability that one action is optimal over another will be written as $\Phi(a, b)$
 """
 
+# ╔═╡ 1aa7bc33-0ad6-41ab-8e2a-ba22cbfdab53
+@bind testvar PlutoUI.combine() do Child
+	md"""
+	N1: $(Child(:n1, Slider(1:1000, default = 100, show_value=true)))
+	
+	N2: $(Child(:n2, Slider(1:1000, default = 100, show_value=true)))
+	
+	Maximum Mean Difference : $(Child(:diff, Slider(0.0:0.1:10, default = 1.0, show_value = true)))
+	"""
+end
+
 # ╔═╡ b29624b0-be1d-4cc2-964d-0a050f4c1bed
-p(μ1, μ2, n1, n2) = 1 - 0.5*(1 + erf((-μ1+μ2)/sqrt(2*(1/n1^2 + 1/n2^2))))
+p(μ1, μ2, n1, n2) = 1 - 0.5*(1 + erf((-μ1+μ2)/sqrt(2*(1/n1^2 + 1/n2^2))));
+
+# ╔═╡ c6a8a9d2-1f29-4082-9fd2-d409cf6227ba
+let
+	dvec = -testvar.diff:testvar.diff/20000:testvar.diff
+	plot(dvec, [p(d, 0.0, testvar.n1, testvar.n2) for d in dvec], Layout(title = "Probability of Selecting First Action", xaxis_title = "Reward Mean Advantage Estimate"))
+end
 
 # ╔═╡ 211d9390-df44-4902-9e13-ad6744b9b7dd
 function getdistribution(;μs::Vector{T} = [1.0, 0.5, 0.0], ns = 2*ones(Int64, length(μs)), samples = 1_000) where T <: AbstractFloat
@@ -1687,46 +1739,17 @@ function getdistribution(;μs::Vector{T} = [1.0, 0.5, 0.0], ns = 2*ones(Int64, l
 		counts ./= sum(counts)
 	end
 	return counts
-end	
-
-# ╔═╡ 0311c1d9-72d2-4fd7-9e69-02565c48e43c
-#I can use this to generate the distribution just form storing the sample mean and the counts
-getdistribution(μs = [0.0, 0.0], ns = [1, 0])
-
-# ╔═╡ aa4f8727-1c9b-410b-9ac5-3e3e41301a08
-rand(Normal(0.0, Inf))
-
-# ╔═╡ cd17027c-c3d0-45ab-be43-98e7700f44f7
-p(1.0, 0.5, 2, 2)*p(1.0, 0.0, 2, 2)
-
-# ╔═╡ 634188b8-809e-4a52-94b0-b75e79263c1d
-p(0.5, 1.0, 2, 2)*p(1.0, 0.0, 2, 2) + p(0.5, 0.0, 2, 2)*p(0.0, 1.0, 2, 2)
-
-# ╔═╡ c09cf9c9-b27e-4976-a327-95712c9daeff
-p(0.0, 0.5, 2, 2)*p(0.5, 1.0, 2, 2) + p(0.0, 1.0, 2, 2)*p(1.0, 0.5, 2, 2)
-
-# ╔═╡ 1aa7bc33-0ad6-41ab-8e2a-ba22cbfdab53
-@bind testvar PlutoUI.combine() do Child
-	md"""
-	N1: $(Child(:n1, Slider(1:1000, default = 100, show_value=true)))
-	
-	N2: $(Child(:n2, Slider(1:1000, default = 100, show_value=true)))
-	
-	Maximum Mean Difference : $(Child(:diff, Slider(0.0:0.1:10, default = 1.0, show_value = true)))
-	"""
-end
-
-# ╔═╡ c6a8a9d2-1f29-4082-9fd2-d409cf6227ba
-let
-	dvec = -testvar.diff:testvar.diff/20000:testvar.diff
-	plot(dvec, [p(d, 0.0, testvar.n1, testvar.n2) for d in dvec])
-end
+end	;
 
 # ╔═╡ 5aa170d3-eb87-44dd-b4f4-3ac97476efd7
 md"""
-Above shows the probability of selecting hte first action when its mean reward estimate is a given value above or below the alternative.  The number of samples for each can be controlled above.  
+The above plot shows the probability of selecting hte first action when its mean reward estimate is a given value above or below the alternative.  The number of samples for each can be controlled above.  
 
-How easy is it to extend this to multiple actions?  We would need to calculate the probability that a given action was best among all the alternatives.  Consider the case of 3 actions.  If we have a distribution for the mean value of each, then they could be ranked as follows:
+How easy is it to extend this to multiple actions?  We would need to calculate the probability that a given action was best among all the alternatives:
+
+$P(a_i = a_{best}) = P(q_i > max(q_j \forall j \neq i))$
+
+Consider the case of 3 actions.  If we have a distribution for the mean value of each, then there could be six possible rankings excluding the cases where the estimates are equal:
 
 $q_1 > q_2 > q_3$
 
@@ -1740,57 +1763,37 @@ $q_3 > q_1 > q_2$
 
 $q_3 > q_2 > q_1$
 
-For the first ranking, we can consider two new normal random variable X = $q_2 - q_1$ and Y = $q_3 - q_2$.  Now (X, Y) follows a multivariate distribution with means $\mu_2 - \mu_1$ and $\mu_3 - \mu_2$.  The variances of each random variable is also calculated above, but the covariance matrix needs to be evaluated.  $\sigma(X, Y) = \sigma(q_2 - q_1, q_3 - q_2) = \sigma(q_2, q_3 - q_2) - \sigma(q_1, q_3 - q_2) = -\sigma^2(q_2)$ since all of the variables are independent.
+For the first ranking, we can consider two new normal random variable X = $q_2 - q_1$ and Y = $q_3 - q_2$.  Now (X, Y) follows a multivariate distribution with means $\mu_2 - \mu_1$ and $\mu_3 - \mu_2$.  The probability of this ordering can then be calculated by calculating the probability that both X  The variances of X and Y are just equal to the sum of the individual variances for each pair of q's.  However, since this is a multivariate distribution we also need the covariance.  $\sigma(X, Y) = \sigma(q_2 - q_1, q_3 - q_2) = \sigma(q_2, q_3 - q_2) - \sigma(q_1, q_3 - q_2) = -\sigma^2(q_2)$ since all of the variables are independent.  Now the probability follows simply from calculating the CDF of this distribution and evaluating it at (0, 0).  This represents the probability that $q_1 > q_2$ and $q_2 > q_3$ simultaneously.  We would then have to calculate this for each of the above orderings to get the true distribution of each q being maximum.  In the case of even more actions this becomes extremely tedious although in the case of infinitely many actions it simplifies to an easier calculation in the limit.  But we are concerned with cases in which the number of actions is quite small like 10.  
 
+One alternative to calculating this distribution is to simply sample from it.  That is very easy because we need only generate a sample from each q distribution and then examine it to see which action produced the highest value.  If we performed this sampling many times and kept track of which q appears on top, we would indeed recover the true distribution.  But even better than this is that each sample is itself an unbiased estimator for this probability.  Therefore we need only generate a single sample from this distribution and use that to select our action.  Since we are interacting with the bandit for many time steps we will eventually collect enough samples to have a good distribution.  Using this method of action selection is shown under the *optimal distribution* tag in the parameter study and it seems to perform quite well without any parameter tuning.
 
-
-For a given action this means that for every pair of other actions it would exceed it.  Calculating each of these independently would not lead to a normalized distribution if we care about calculating the true distribution.  If instead we simply want a value that is ranked the same as the true distribution we can calculate the probability that a given action is optimal.  The alternative is that any one of the other actions are optimal but not which one.
-
-Consider 3 actions.  We have 
-
-$P(a_1 = a_*) = P(q_1 > q_2)P(q_1 > q_3 | q_1 > q_2) = P(q_1 > q_2)P(q_1 > q_3)$
-
-$P(a_2 = a_*) = \Phi(a_2, a_1)\Phi(a_2, a_3)$
-
-$P(a_3 = a_*) = \Phi(a_3, a_1)\Phi(a_3, a_2)$
-
-Also since $\Phi(a, b) = 1 - \Phi(b, a)$ we only need to calculate 3 of these, one for each pair.  Then these look like:
-
-$\begin{flalign}
-P(a_1 = a_*) &= \Phi(a_1, a_2)\Phi(a_1, a_3)\\
-
-P(a_2 = a_*) &= (1-\Phi(a_1, a_2))\Phi(a_2, a_3)\\
-
-P(a_3 = a_*) &= (1-\Phi(a_1, a_3))(1-\Phi(a_2, a_3))
-\end{flalign}$
-
-To simplify writing, rename each pair probability as $p_1 = (1, 2), p_2 = (1, 3), p_3=(2, 3)$.  Then we have:
-
-$\begin{flalign}
-P(a_1 = a_*) &= p_1p_2\\
-
-P(a_2 = a_*) &= (1-p_1)p_3\\
-
-P(a_3 = a_*) &= (1-p_2)(1-p_3)
-\end{flalign}$
-
-$\Phi(a_1, a_2)\Phi(a_1, a_3) + \Phi(a_2, a_1)\Phi(a_2, a_3) + \Phi(a_3, a_1)\Phi(a_3, a_2)$
-
-$\Phi(a_1, a_2)\Phi(a_1, a_3) + (1-\Phi(a_1, a_2))\Phi(a_2, a_3) + (1-\Phi(a_1, a_3))(1-\Phi(a_2, a_3))$
-
-$\Phi(a_1, a_2)\Phi(a_1, a_3) + 2\Phi(a_2, a_3) - \Phi(a_1, a_2)\Phi(a_2, a_3) + 1 - \Phi(a_1, a_3) + \Phi(a_1, a_3)\Phi(a_2, a_3)$
-
-$\Phi(a_1, a_3)(\Phi(a_1, a_2) - 1 -\Phi(a_2, a_3)) + \Phi(a_2, a_3)(2 - \Phi(a_1, a_2)\Phi(a_2, a_3) + 1 - \Phi(a_1, a_3) + \Phi(a_1, a_3)\Phi(a_2, a_3)$
+A further question could be which action selection is best for improving our accuracy of the distribution, but this requires more thought on how to formulate the problem.  Intuitively we want to sample more around the part of the distribution where pairs of actions are hard to distinguish.  We could rank all the pairs in terms of how indistinguished they are weighted by how likely they are to be the maximum and then sample from the action that appears the most.  
 """
 
 # ╔═╡ 33d201ba-52f2-44f0-8bc6-3930ec77f62f
-MultivariateNormal()
+md"""
+### Softmax Visualization
 
-# ╔═╡ 400d5faa-aceb-48f9-aacd-0c3034aca58b
-Σ = [4 3 2 1; 3 5 -1 1; 2 -1 4 2; 1 1 2 5]
+Number of Items: $(@bind softmax_k NumberField(2:100, default = 10))
+β Parameter: $(@bind β Slider(0.0:0.01:10, default = 1.0, show_value=true))
+"""
 
-# ╔═╡ bdda0c33-1121-450d-bd00-3b6e8d1b3957
-mvnormcdf([1, 2], [0.5 0.0; 0.0 0.5], [-Inf; -Inf], [0; 0])
+# ╔═╡ f1466027-7f52-41df-a8ea-a0650981c9d4
+function plot_softmax(k, β)
+	Random.seed!(1234)
+	xs = randn(k)
+	exs = exp.(β .*xs)
+	ps = exs ./ sum(exs)
+	md"""
+	Original Values: $$h_i$$
+	$(plot(bar(x = 1:k, y = xs), Layout(height = 300)))
+	Softmax: $$\frac{e^{(\beta h_i)}}{\sum_{i = 1} ^k e^{(\beta h_i)}}$$
+	$(plot(bar(x = 1:k, y = ps), Layout(xaxis_title = "Action (i)", height = 300)))
+	"""
+end
+
+# ╔═╡ a228c5ae-e2d0-40c8-9abc-527b8f6d2f8e
+plot_softmax(softmax_k, β)
 
 # ╔═╡ 36602c38-8b29-4158-b299-94015a333762
 md"""
@@ -1803,7 +1806,6 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
-MvNormalCDF = "37188c8d-bc69-4638-b057-733e744175ec"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -1816,7 +1818,6 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Distributions = "~0.25.100"
 LaTeXStrings = "~1.3.0"
 Latexify = "~0.16.1"
-MvNormalCDF = "~0.3.0"
 PlutoPlotly = "~0.3.9"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.52"
@@ -1830,7 +1831,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0-beta2"
 manifest_format = "2.0"
-project_hash = "b0662c8913935ba34f0cc1d84161d8724b16b276"
+project_hash = "1572bd4e790356c6fdf468cf6358268b3b27299c"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2016,11 +2017,6 @@ git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
 uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
-[[deps.IntegerMathUtils]]
-git-tree-sha1 = "b8ffb903da9f7b8cf695a8bead8e01814aa24b30"
-uuid = "18e54dd8-cb9d-406c-a71d-865a43cbb235"
-version = "0.1.2"
-
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -2145,12 +2141,6 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2023.1.10"
 
-[[deps.MvNormalCDF]]
-deps = ["Distributions", "FillArrays", "LinearAlgebra", "Primes", "Random", "StatsBase"]
-git-tree-sha1 = "3d1e8f8e683e506d6fcd41104b3d791aa25d4286"
-uuid = "37188c8d-bc69-4638-b057-733e744175ec"
-version = "0.3.0"
-
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
 git-tree-sha1 = "0877504529a3e5c3343c6f8b4c0381e57e4387e4"
@@ -2252,12 +2242,6 @@ deps = ["TOML"]
 git-tree-sha1 = "7eb1686b4f04b82f96ed7a4ea5890a4f0c7a09f1"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
 version = "1.4.0"
-
-[[deps.Primes]]
-deps = ["IntegerMathUtils"]
-git-tree-sha1 = "4c9f306e5d6603ae203c2000dd460d81a5251489"
-uuid = "27ebfcd6-29c5-5fa9-bf4b-fb8fc14df3ae"
-version = "0.5.4"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -2597,7 +2581,7 @@ version = "17.4.0+2"
 # ╟─88e43fed-fcf3-4071-996a-63f63c3d49b4
 # ╟─97f6221d-3289-4e54-a80d-26c5c81f2651
 # ╟─bf3770ea-ee54-4296-ab33-340aea445670
-# ╠═51b7a645-269a-418c-b6d8-39c01d0609f1
+# ╟─51b7a645-269a-418c-b6d8-39c01d0609f1
 # ╟─d0111453-9a66-411d-9966-fc386d1bdcb7
 # ╟─4a89cdd9-c20f-40e2-bc84-c3ea9cbf00e7
 # ╠═aa5acd7c-6a0b-454f-ab05-12a606dd9fc2
@@ -2605,26 +2589,21 @@ version = "17.4.0+2"
 # ╠═9bd99099-1dfa-477a-9896-3da94bcc0633
 # ╟─3b88ec30-768b-44d0-88ee-b3ed989f22c3
 # ╟─d59126d7-5af0-4d06-a57b-e115eec32388
-# ╠═2ceadc6d-5522-43f6-a803-a17a47a6048a
+# ╟─2ceadc6d-5522-43f6-a803-a17a47a6048a
 # ╟─37446874-1c28-491b-b3cc-b4ad3282686e
 # ╟─46478110-5ce5-4c72-bb3d-bcb5f516ffdc
-# ╠═0d8e4160-adf2-4b43-9914-942539339972
+# ╟─ecd8833d-441b-4673-b457-dc5109f575ab
+# ╟─0d8e4160-adf2-4b43-9914-942539339972
 # ╟─cb2bf56d-5c1d-4265-9480-11523f776a78
 # ╟─bc939df7-e457-496c-8977-5fbf9dfe3638
-# ╠═b29624b0-be1d-4cc2-964d-0a050f4c1bed
-# ╠═211d9390-df44-4902-9e13-ad6744b9b7dd
-# ╠═0311c1d9-72d2-4fd7-9e69-02565c48e43c
-# ╠═aa4f8727-1c9b-410b-9ac5-3e3e41301a08
-# ╠═cd17027c-c3d0-45ab-be43-98e7700f44f7
-# ╠═634188b8-809e-4a52-94b0-b75e79263c1d
-# ╠═c09cf9c9-b27e-4976-a327-95712c9daeff
 # ╟─1aa7bc33-0ad6-41ab-8e2a-ba22cbfdab53
-# ╠═c6a8a9d2-1f29-4082-9fd2-d409cf6227ba
-# ╠═5aa170d3-eb87-44dd-b4f4-3ac97476efd7
-# ╠═33d201ba-52f2-44f0-8bc6-3930ec77f62f
-# ╠═400d5faa-aceb-48f9-aacd-0c3034aca58b
-# ╠═bdda0c33-1121-450d-bd00-3b6e8d1b3957
-# ╠═8c5b0998-7d60-4d0e-b9ca-88ec55c410ca
+# ╟─c6a8a9d2-1f29-4082-9fd2-d409cf6227ba
+# ╟─b29624b0-be1d-4cc2-964d-0a050f4c1bed
+# ╟─211d9390-df44-4902-9e13-ad6744b9b7dd
+# ╟─5aa170d3-eb87-44dd-b4f4-3ac97476efd7
+# ╟─33d201ba-52f2-44f0-8bc6-3930ec77f62f
+# ╟─a228c5ae-e2d0-40c8-9abc-527b8f6d2f8e
+# ╟─f1466027-7f52-41df-a8ea-a0650981c9d4
 # ╟─36602c38-8b29-4158-b299-94015a333762
 # ╠═1fb1a518-e5ec-4777-80bc-bb55e8172100
 # ╟─00000000-0000-0000-0000-000000000001
