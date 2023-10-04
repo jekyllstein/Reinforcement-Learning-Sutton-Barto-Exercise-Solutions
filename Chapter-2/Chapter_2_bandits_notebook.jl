@@ -266,22 +266,33 @@ $$Pr(a=a_{best}|\epsilon = 0.1) = 0.91$$
 
 $$Pr(a=a_{best}|\epsilon = 0.01) = 0.991$$
 
-For the $$\epsilon = 0$$ greedy case the expected reward and optimal action selection probability depends on the order of sampled actions and the likelihood of getting close to or on the optimal action enough to push its Q estimation to the top.  From the plots in figure 2.2 in practice that seems to lead to an average reward of ~1.05 and an optimal action selection probability of 0.3825.  For long term cummulative reward this case will have roughly $$1.05 \times num\_steps$$.  For the other two cases, the long term cummulative reward is based on the expected value of the highest reward mean which is empiracally ~1.55.  For a random action the expected reward should be 0 due to the normal distribution of the action mean rewards.  
+For the $$\epsilon = 0$$ greedy case the expected reward and optimal action selection probability depends on the order of sampled actions and the likelihood of getting close to or on the optimal action enough to push its Q estimation to the top.  From the plots in figure 2.2 in practice that seems to lead to an average reward of ~1.05 and an optimal action selection probability of 0.3825.  For long term cummulative reward this case will have roughly $$1.05 \times num\_steps$$.  For the other two cases, the long term cummulative reward is based on the expected value of the highest reward mean which is approximately ~1.539 (see below for calculation of bandit arm reward distributions).  For a random action the expected reward should be 0 due to the normal distribution of the action mean rewards.  
 
-$$E(long\_term\_step\_reward|\epsilon=0.1) = 0.91 \times 1.55 = 1.41$$
-$$E(long\_term\_step\_reward|\epsilon=0.01) = 0.991 \times 1.55 = 1.536$$
+$$E(long\_term\_step\_reward|\epsilon=0.1) = 0.91 \times 1.539 = 1.4$$
+$$E(long\_term\_step\_reward|\epsilon=0.01) = 0.991 \times 1.539 = 1.525$$
 
 For each case the long run cumulative reward is just this long term expected reward per step times the number of steps.  The statistical properties of the different arms of a generic bandit can be visualized below using the following function.
 """
 
+# ╔═╡ 85b3dbc4-2e02-4924-b3e5-887a1a557a2b
+#pdf for the maximum of n iid standard normals
+fmax(x, n) = n*pdf(Normal(), x)*cdf(Normal(), x)^(n-1)
+
 # ╔═╡ 8b8a9449-04b7-4901-9a2c-fbbdc33dfdfa
 function visualize_bandit_dist(;n = 10, samples = 100_000)
 	maxdist = [maximum(randn(n)) for _ in 1:samples]
+	(mn, mx) = extrema(maxdist)
+	rval = LinRange(mn, mx, 100_00)
+	Δ = rval[2] - rval[1]
+	rpdf = fmax.(rval, n)
 	rankdist = mapreduce(a -> sort(randn(n)), +, 1:samples) ./ samples
-	p1 = histogram(x = maxdist) |> PlutoPlotly.plot
+	expected_reward = sum(rval .* rpdf) * Δ
+	# t1 = histogram(x = maxdist) 
+	t2 = scatter(x = rval, y = rpdf)
+	p1 = plot(t2)
 	p2 = bar(x = 1:n, y = rankdist) |> a -> PlutoPlotly.plot(a, Layout(xaxis_title = "Reward Rank", yaxis_title = "Mean Reward of Arm"))
 	md"""
-	#### Distribution of Best Action Reward for a $n Armed Bandit
+	#### Distribution of Best Action Reward for a Random $n Armed Bandit, Expected Value Estimate = $(round(expected_reward, sigdigits = 4))
 	$p1
 
 	#### Expected Value of Mean Reward for Arms Ranked from 1 to $n
@@ -546,9 +557,9 @@ md"""
 > ### *Exercise 2.6: Mysterious Spikes* 
 > The results shown in Figure 2.3 should be quite reliable because they are averages over 2000 individual, randomly chosen 10-armed bandit tasks.  Why, then, are there oscillations and spikes in the early part of the curve for the optimistic method? In other words, what might make this method perform particularly better or worse, on average, on particular early steps?
 
-The spike occurs on step 11.  Due to the initial Q values it is almost 100% likely that a given run will sample each of the 10 possible actions once before repeating any.  For this not to be the case, one of the samples would have to exceed the initial value of 5.0 which has a probability near zero since the expected q value for the best arm is around 1.55 which unit variance.  That would mean that at any given step only 10% of the runs would select the optimal action and indeed for the first 10 steps about 10% of the runs are selecting the optimal action as we'd expect from random chance.  
+The spike occurs on step 11.  Due to the initial Q values it is almost 100% likely that a given run will sample each of the 10 possible actions once before repeating any.  For this not to be the case, one of the samples would have to exceed the initial value of 5.0 which has a probability near zero since the expected q value for the best arm is around 1.539 which unit variance.  That would mean that at any given step only 10% of the runs would select the optimal action and indeed for the first 10 steps about 10% of the runs are selecting the optimal action as we'd expect from random chance.  
 
-On the 11th step, the Q value estimate for each action is $$(0.9 \times 5) + (0.1 \times action\_reward)$$.  The optimal action will be selected on this step as long as the reward produced by the best action exceeded all the others.  Empirically, that probability is ~44% which is similar to the probability calculated for the expected value of the best action of ~1.55 exceeding the rewards from the other 9 arms.  For those 44% of the runs that do select the optimal action, they will obtain a reward with expected value 1.55.  If they received that reward during both samples, then the Q value estimate will be $$0.9 \times ((0.9 \times 5) + (0.1 \times 1.55)) + (0.1 \times 1.55) \approx 4.34$$.  Let's consider the second best arm which has an expected q value of ~1.  The updated estimate for that arm after receiving a reward equal to the expected value is $$0.9 \times 0.5 + 0.1 \times 1 \approx 4.6$$.  Following the same reasoning for the third best arm, the value is about 4.57.  In fact even a reward of zero will produce an estimate of $$0.9 \times 5 = 4.5$$ which still exceeds the estimate for the optimal action in our scenario.  That explains why the percentage of optimal actions drops in the 12th step because it is expected that the estimate of the action selected on step 11 will drop below at least one of the other arms, thus changing the maximizing action selection to a worse one.
+On the 11th step, the Q value estimate for each action is $$(0.9 \times 5) + (0.1 \times action\_reward)$$.  The optimal action will be selected on this step as long as the reward produced by the best action exceeded all the others.  Empirically, that probability is ~44% which is similar to the probability calculated for the expected value of the best action of ~1.539 exceeding the rewards from the other 9 arms.  For those 44% of the runs that do select the optimal action, they will obtain a reward with expected value 1.539.  If they received that reward during both samples, then the Q value estimate will be $$0.9 \times ((0.9 \times 5) + (0.1 \times 1.539)) + (0.1 \times 1.539) \approx 4.34$$.  Let's consider the second best arm which has an expected q value of ~1.  The updated estimate for that arm after receiving a reward equal to the expected value is $$0.9 \times 0.5 + 0.1 \times 1 \approx 4.6$$.  Following the same reasoning for the third best arm, the value is about 4.57.  In fact even a reward of zero will produce an estimate of $$0.9 \times 5 = 4.5$$ which still exceeds the estimate for the optimal action in our scenario.  That explains why the percentage of optimal actions drops in the 12th step because it is expected that the estimate of the action selected on step 11 will drop below at least one of the other arms, thus changing the maximizing action selection to a worse one.
 """
 
 # ╔═╡ cb93c588-3dfa-45f4-9d83-f2de26cb1cea
@@ -824,21 +835,10 @@ struct GradientSample{T <: AbstractFloat} <: Explorer{T} end
 (::Type{T})(e::T) where T <: GradientSample = e
 
 # ╔═╡ 6d647790-a029-4579-86fa-9c7294aa94ea
-struct OptimalDistributionSample{T <: AbstractFloat} <: Explorer{T} 
-	minvar::T
-end
+struct OptimalDistributionSample{T <: AbstractFloat} <: Explorer{T} end
 
 # ╔═╡ 0e06d9cf-b995-40b1-86ee-1c6a56c63bd0
 (::Type{T})(e::T) where T <: OptimalDistributionSample = e
-
-# ╔═╡ 2a3fdc71-a897-4f42-88b8-9a32535c6bbf
-(::Type{OptimalDistributionSample{T}})() where T <: AbstractFloat = OptimalDistributionSample(zero(T)) #default for minimum variance is 0
-
-# ╔═╡ d19de7c0-dc0a-4157-975e-48c7ad68a8bf
-(::Type{OptimalDistributionSample})() = OptimalDistributionSample{Float64}()
-
-# ╔═╡ 64f8616a-452c-4aa0-8994-d1d05b39c528
-(::Type{OptimalDistributionSample{T}})(p) where T <: AbstractFloat = OptimalDistributionSample(T(p))
 
 # ╔═╡ 839861db-676f-4544-a802-0abb5d0049e1
 abstract type AverageMethod{T<:AbstractFloat} end
@@ -846,6 +846,16 @@ abstract type AverageMethod{T<:AbstractFloat} end
 # ╔═╡ 1ac5588c-3c32-436e-8b40-41715223fba7
 struct ConstantStep{T<:AbstractFloat} <: AverageMethod{T}
 	α::T
+	
+	#ensures that if α exceeds 1 it gets closer to 2 without exceeding it
+	function ConstantStep{T}(α::T) where T <: AbstractFloat
+		if α >= 2
+			new{T}(2 - inv(α))
+		else
+			new{T}(α)
+		end
+	end
+	
 end
 
 # ╔═╡ f00ab44e-0d84-40c7-aa23-358c77a013e3
@@ -856,10 +866,16 @@ mutable struct UnbiasedConstantStep{T<:AbstractFloat}<:AverageMethod{T}
 end
 
 # ╔═╡ 262952a7-280e-4af1-99a6-0899518484a2
-(::Type{ConstantStep})() = ConstantStep(0.1)
+(::Type{ConstantStep})() = ConstantStep{Float64}(0.1)
 
 # ╔═╡ fbf7b108-dc68-4077-b63c-6f88161d2098
 (::Type{ConstantStep{T}})() where T<:AbstractFloat = ConstantStep(T(0.1))
+
+# ╔═╡ 8018edb9-853f-4a88-bef6-9535c2d774b3
+(::Type{ConstantStep})(α::T) where T <: AbstractFloat = ConstantStep{T}(α)
+
+# ╔═╡ 9093ed39-f6e2-4c31-9fef-466bdd197423
+(::Type{ConstantStep{T1}})(α::T2) where {T1 <: AbstractFloat, T2 <: Real} = ConstantStep{T1}(T1(α))
 
 # ╔═╡ e2597cc6-a6f6-4260-887b-c587cacd3bc8
 (::Type{U})(a::U) where U <: ConstantStep = a
@@ -997,7 +1013,7 @@ function sample_action(est::ActionValue, explorer::UCB, i::Integer, actions::Abs
 end
 
 # ╔═╡ 6cfc6ec9-1c9c-4e90-ab3f-295ebf01b0ba
-function sample_action(est::ActionValue, explorer::OptimalDistributionSample{T}, i::Integer, actions::AbstractVector) where T <: AbstractFloat
+function sample_action(est::ActionValue{T, OptimalDistributionSample{T}, SampleAverage{T}}, explorer::OptimalDistributionSample{T}, i::Integer, actions::AbstractVector) where T <: AbstractFloat
 	(Q, N) = (est.Q, est.N)
 	inds = findall(a -> a == 0, N)
 	if !isempty(inds)
@@ -1006,7 +1022,33 @@ function sample_action(est::ActionValue, explorer::OptimalDistributionSample{T},
 		qmax = -T(Inf)
 		amax = rand(eachindex(Q))
 		for i in eachindex(Q)
-			qest = rand(Normal(Q[i], max(sqrt(explorer.minvar), one(T)/N[i])))
+			qest = rand(Normal(Q[i], one(T)/N[i]))
+			if qest > qmax
+				qmax = qest
+				amax = i
+			end
+		end
+		return actions[amax]
+	# w = weights(getdistribution(μs = Q, ns = N, samples = 100))
+	# sample(actions, w)
+	end
+end
+
+# ╔═╡ d53796f1-6fc4-4450-9d66-05ba752ff7eb
+function sample_action(est::ActionValue{T, OptimalDistributionSample{T}, ConstantStep{T}}, explorer::OptimalDistributionSample{T}, i::Integer, actions::AbstractVector) where T <: AbstractFloat
+	(Q, N) = (est.Q, est.N)
+	α = est.update_average.α
+	inds = findall(a -> a == 0, N)
+	if !isempty(inds)
+		return rand(actions[inds])
+	else
+		qmax = -T(Inf)
+		amax = rand(eachindex(Q))
+		for i in eachindex(Q)
+			μ = Q[i]
+			n = N[i]
+			σ² = (α*((1 - α)^(2*n) - 1)/(α - 2)) + (1-α)^(2*n)
+			qest = rand(Normal(Q[i], sqrt(σ²)))
 			if qest > qmax
 				qmax = qest
 				amax = i
@@ -1109,6 +1151,11 @@ end
 # ╔═╡ 691aa77a-d6da-4fde-9024-c4195057179d
 figure_2_5(;params_2_5...)
 
+# ╔═╡ aa7c76b1-ac2d-4df5-88ef-b499b839181e
+md"""
+### Update Functions
+"""
+
 # ╔═╡ 62eb0650-96bc-4fd6-bfe0-bf05a4137a03
 updatecoef(est::ActionValue{T, E, SampleAverage{T}}, a::Integer, step::Integer) where {T <: AbstractFloat, E <: Explorer{T}} = one(T) / est.N[a]
 
@@ -1137,7 +1184,7 @@ function update_estimator!(est::GradientReward{T, E, A}, a::Integer, r::T, step:
 end
 
 # ╔═╡ 781fa565-398c-4c89-89f3-0595455afc85
-function update_estimator!(est::ActionValue{T, E, A}, a::Integer, r::T, step::Integer) where {T <: AbstractFloat, E <: Explorer{T}, A <: AverageMethod{T}} 	est.N[a] += one(T)	
+function update_estimator!(est::ActionValue{T, E, A}, a::Integer, r::T, step::Integer) where {T <: AbstractFloat, E <: Explorer{T}, A <: AverageMethod{T}} 		est.N[a] += one(T)	
 	est.Q[a] += updatecoef(est, a, step) * (r - est.Q[a])
 end
 
@@ -1401,7 +1448,7 @@ function plot_stationary_param_search(;k = 10, steps = 1000, kwargs...)
 		(p -> GradientReward(α=p), -100, 100), 
 		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), -100, 100), 
 		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10),
-		(p -> ActionValue(Qinit = 0.0f0, explorer = OptimalDistributionSample(p)), -10, 10)
+		(p -> ActionValue(Qinit = 0.0f0, explorer = OptimalDistributionSample{Float32}()), -10, 10)
 	]
 	
 	names = [L"\epsilon\text{-greedy }", L"\text{gradient bandit }", "UCB", L"\text{greedy optimistic initialization } \alpha = 0.1", L"\text{Optimal Distribution}"]
@@ -1511,7 +1558,7 @@ function plot_nonstationary_param_search(;k = 10, steps = 1_000, kwargs...)
 		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p)), -100, 100), 
 		(p -> ActionValue(Qinit = 0.0f0, explorer = UCB(p), update_average = ConstantStep()), -100, 100), 
 		(p -> ActionValue(Qinit = p, explorer = ϵ_Greedy(0.0), update_average = ConstantStep()), -10, 10),
-		(p -> ActionValue(Qinit = 0.0f0, explorer = OptimalDistributionSample(p), update_average = ConstantStep(p)), -10, 10)
+		(p -> ActionValue(Qinit = 0.0f0, explorer = OptimalDistributionSample{Float32}(), update_average = ConstantStep(p)), -10, 10)
 		]
 	
 	names = [L"\epsilon\text{-greedy sample average}", L"\epsilon\text{-greedy constant step average } (\alpha = 0.1)", L"\text{gradient bandit sample average}", L"\text{gradient bandit constant step average}", "UCB sample average", "UCB constant step average", L"\text{greedy optimistic initialization } \alpha = 0.1", L"\text{Optimal Distribution}"]
@@ -1625,9 +1672,40 @@ $\frac{e^{c + H_t(x)}}{\sum_x e^{c + H_t(x)}} = \frac{e^c e^{H_t(x)}}{e^c \sum_x
 This property is very important considering the fact that we could arbitarily choose to center the H values around 0 or subtract the minimum to make them all positive.  We should be able to eliminate the H value of 1 action by setting it to 0 and considering all the others in relation to that.  Making such a choice should not change the answer of which action is the maximizing one.  Also, it means if our maximization algorithm starts moving in the direction of a certain magnitude of H values, there will always be some solution that works if we fix any particular value so it will be much easier to find the maximum.
 """
 
+# ╔═╡ 9e644919-5833-46ff-8f6e-e755ba688329
+md"""
+One reason this formula is called the softmax is because it preserves the ordering of the original values including the maximum, and if a  multiplicative parameter (usually called β) is applied to each value in the exponent, it can be made arbitrarily close to returning 1 for the maximum and zero for all other values.  If that parameter is 0, then the function always returns the uniform distribution, so in this way the output can smoothly vary from completely uniform to the unique maximum.  Below is a plot if the softmax of a given number of items where the β parameter can vary.
+"""
+
+# ╔═╡ 33d201ba-52f2-44f0-8bc6-3930ec77f62f
+md"""
+### Softmax Visualization
+
+Number of Items: $(@bind softmax_k NumberField(2:100, default = 10))
+β Parameter: $(@bind β Slider(0.0:0.01:10, default = 1.0, show_value=true))
+"""
+
+# ╔═╡ f1466027-7f52-41df-a8ea-a0650981c9d4
+function plot_softmax(k, β)
+	Random.seed!(1234)
+	xs = randn(k)
+	exs = exp.(β .*xs)
+	ps = exs ./ sum(exs)
+	md"""
+	Original Values: $$h_i$$
+	$(plot(bar(x = 1:k, y = xs), Layout(height = 300)))
+	Softmax: $$\frac{e^{(\beta h_i)}}{\sum_{i = 1} ^k e^{(\beta h_i)}}$$
+	$(plot(bar(x = 1:k, y = ps), Layout(xaxis_title = "Action (i)", height = 300)))
+	"""
+end
+
+# ╔═╡ a228c5ae-e2d0-40c8-9abc-527b8f6d2f8e
+plot_softmax(softmax_k, β)
+
 # ╔═╡ 0d8e4160-adf2-4b43-9914-942539339972
 md"""
-Consider what is the distribution $\pi_t(x)$ that maximizes $\mathbb{E}[R_t]=\sum_x \pi_t(x) q_*(x)$ using the softmax representation of the distribution?  If we revisit the derivation in section 2.8, and keep the $q_*$ values instead of samples, we have
+### Revisiting the Gradient Bandit
+Consider what is the distribution $\pi_t(x)$ that maximizes $\mathbb{E}[R_t]=\sum_x \pi_t(x) q_*(x)$ using the softmax representation of the distribution.  If we revisit the derivation in section 2.8, and keep the $q_*$ values instead of samples, we have
 
 $\frac{\partial \mathbb{E}[R_t]}{\partial H_t(a)} = \sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \pi_t(a) \right ) \right ] = \sum_x \left [ (q_*(x) - B_t) \left ( \mathbb{1}_{a = x} - \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \right ) \right ]$
 
@@ -1685,6 +1763,7 @@ This same argument applies to the softmax as well in the limit such that the sol
 
 # ╔═╡ bc939df7-e457-496c-8977-5fbf9dfe3638
 md"""
+### Alternative Distribution Method
 The gradient bandit algorithm is motivated by maximizing an expected value which requires knowledge of the q values.  However, the policy that maximizes that expected value will always be greedy with respect to whichever q value is thought to be maximal.  In reality we do not have certainty over which q value is maximal and instead we have some knowledge of each q value based on samples collected.  We know that the optimal choice only depends on the mean value of the rewards for each action.  Our knowledge of the mean is from the reward samples collected, so we can use the distribution of the sample mean to represent our knowledge of the true q values.  That would be a normal distribution with 
 
 $\mu(a) = \sum_{A_t = a} R_t / N_{a}$ 
@@ -1770,30 +1849,66 @@ One alternative to calculating this distribution is to simply sample from it.  T
 A further question could be which action selection is best for improving our accuracy of the distribution, but this requires more thought on how to formulate the problem.  Intuitively we want to sample more around the part of the distribution where pairs of actions are hard to distinguish.  We could rank all the pairs in terms of how indistinguished they are weighted by how likely they are to be the maximum and then sample from the action that appears the most.  
 """
 
-# ╔═╡ 33d201ba-52f2-44f0-8bc6-3930ec77f62f
+# ╔═╡ 6a00226c-cda1-49d8-92a8-514f2264469c
 md"""
-### Softmax Visualization
+### Ideas for Non-Stationary Problem
 
-Number of Items: $(@bind softmax_k NumberField(2:100, default = 10))
-β Parameter: $(@bind β Slider(0.0:0.01:10, default = 1.0, show_value=true))
+In the non-stationary problem we can track each average with the constant step size method and this will be our estimate for the q values.  Since the value is drifting over time we definitely cannot represent our knowledge of it with a probability distribution, however we can assume that the exponentially decaying average preserves a small enough amount of information that the samples over that period are roughly stationary.  If we do that, then we can still use a normal distribution for each q value, but the standard deviation now takes a different form.  For the sample average case we had:
+
+$q_{i} \sim N(\mu, \sigma)$
+
+$N_i = \text{number of samples from action i}$
+
+$\mu = \frac{1}{N_i}\sum_{j = 1}^N R_j$
+
+$\sigma^2 = \frac{1}{N_i}$
+
+For the constant step size case, our average can be represented as a weighted sum:
+
+$\mu = (1=\alpha)^N Q_1 + \sum_{i = j}^N \alpha(1-\alpha)^{N-i}R_j$
+
+where $\alpha$ is the constant step size parameter and $Q_1$ is the initial value for the estimate.  This weighted sum implies a different variance for the distribution:
+
+$\sigma^2 = \sum_j w_j^2$ where $w_j$ are the weights in the sum and there is still the assumption that each action produces iid rewards with unit variance.  So what remains is to calculate what this squared sum of the weights is for this type of average.
+
+$\begin{flalign}
+\sigma^2 &= \sum_j w_j^2 \\
+&= (1-\alpha)^{2N} + \sum_{j=1}^N \alpha^2(1-\alpha)^{2N-2j} \\
+&= (1-\alpha)^{2N} + \alpha^2 \left [ 1 + (1-\alpha)^2 + \cdots + (1-\alpha)^{2N-2} \right ] \\
+\end{flalign}$
+
+If we take $a = (1-\alpha)^2$, then the expression in the brackets is just:
+
+$\sum_{j = 0}^{N-1} a^j = \frac{a^N - 1}{a - 1} = \frac{(1-\alpha)^{2N} - 1}{(1-\alpha)^2 - 1} = \frac{(1-\alpha)^{2N} - 1}{\alpha(\alpha - 2)}$
+
+And our overall expression for the variance is:
+
+$\sigma^2 = (1-\alpha)^{2N} + \frac{\alpha((1-\alpha)^{2N} - 1)}{\alpha - 2}$ which depends on both $\alpha$ and $N$.  The variance is plotted below compared to the variance for the sample mean with the option to change the $\alpha$ parameter.
 """
 
-# ╔═╡ f1466027-7f52-41df-a8ea-a0650981c9d4
-function plot_softmax(k, β)
-	Random.seed!(1234)
-	xs = randn(k)
-	exs = exp.(β .*xs)
-	ps = exs ./ sum(exs)
-	md"""
-	Original Values: $$h_i$$
-	$(plot(bar(x = 1:k, y = xs), Layout(height = 300)))
-	Softmax: $$\frac{e^{(\beta h_i)}}{\sum_{i = 1} ^k e^{(\beta h_i)}}$$
-	$(plot(bar(x = 1:k, y = ps), Layout(xaxis_title = "Action (i)", height = 300)))
-	"""
+# ╔═╡ 7cab41cc-2a39-45de-879d-f7f6105238d6
+@bind wsm_params PlutoUI.combine() do Child
+md"""
+Constant Step Size α: $(Child(:α, NumberField(0.01:0.01:1.0, default = 0.1)))
+Max Samples: $(Child(:nmax, Slider(1:10000, default = 1000, show_value = true)))
+"""
 end
 
-# ╔═╡ a228c5ae-e2d0-40c8-9abc-527b8f6d2f8e
-plot_softmax(softmax_k, β)
+# ╔═╡ f78846a8-076a-4a87-b1d0-4f830e2bca27
+begin
+	samplelist = 1:wsm_params.nmax
+	function weightedmeanvar(α, n)
+		α*((1-α)^(2*n) - 1)/(α - 2) + (1-α)^(2*n)
+	end
+	t1 = scatter(x = samplelist, y = 1 ./ samplelist, name = "Sample Mean")
+	t2 = scatter(x = samplelist, y = weightedmeanvar.(wsm_params.α, samplelist), name = "ERWA")
+	plot([t1, t2], Layout(xaxis = attr( type = "log")))
+end
+
+# ╔═╡ 4afd6c2c-632e-4196-ab36-4d314ed9ec96
+md"""
+For $$\alpha = 0.1$$ this value is higher than for the sample average case from the second step onwards.  Also it asymptotes to a finite value whereas the sample average variance trends towards zero.  This asymptote can be calculated by inspecting the equation taking the limit for large N.  If $\alpha < 1$ we have $$\frac{\alpha}{2 - \alpha}$$.  For $\alpha = 0.1$ this is about $(round((0.1 / (2 - 0.1)), sigdigits = 3)).  If we draw an analogy to the sample average case, this would be equivalent to the variance after collecting $((1-0.1)/0.1) samples reflecting the fact that over time we are maintaining information from roughly a constant number of samples.  The "optimal distribution" line in the non-stationary parameter study" figure shows the performance of this policy for different values of $$\alpha$$.
+"""
 
 # ╔═╡ 36602c38-8b29-4158-b299-94015a333762
 md"""
@@ -1829,7 +1944,7 @@ StatsBase = "~0.34.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.0-beta2"
+julia_version = "1.9.3"
 manifest_format = "2.0"
 project_hash = "1572bd4e790356c6fdf468cf6358268b3b27299c"
 
@@ -1901,7 +2016,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.5+1"
+version = "1.0.5+0"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "8da84edb865b0b5b0100c0666a9bc9a0b71c553c"
@@ -2066,12 +2181,12 @@ version = "0.1.3"
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "0.6.3"
 
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.0.1+1"
+version = "7.84.0+0"
 
 [[deps.LibGit2]]
 deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
@@ -2080,7 +2195,7 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.0+1"
+version = "1.10.2+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -2126,7 +2241,7 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+1"
+version = "2.28.2+0"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -2139,7 +2254,7 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2023.1.10"
+version = "2022.10.11"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -2154,12 +2269,12 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+2"
+version = "0.3.21+4"
 
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+2"
+version = "0.8.1+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
@@ -2199,7 +2314,7 @@ version = "2.7.2"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.10.0"
+version = "1.9.2"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -2268,7 +2383,7 @@ deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.Random]]
-deps = ["SHA"]
+deps = ["SHA", "Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[deps.Reexport]]
@@ -2313,7 +2428,6 @@ version = "1.1.1"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.10.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
@@ -2365,7 +2479,7 @@ uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.0+1"
+version = "5.10.1+6"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -2412,22 +2526,22 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.13+1"
+version = "1.2.13+0"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.8.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.52.0+1"
+version = "1.48.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.4.0+2"
+version = "17.4.0+0"
 """
 
 # ╔═╡ Cell order:
@@ -2449,6 +2563,7 @@ version = "17.4.0+2"
 # ╟─79082409-3182-4e0b-9c8c-37a94543fee9
 # ╟─965da91b-6a3f-456c-89ce-461c31e0fb7e
 # ╟─464d43c0-cd59-49e6-88f6-12a767677418
+# ╠═85b3dbc4-2e02-4924-b3e5-887a1a557a2b
 # ╠═8b8a9449-04b7-4901-9a2c-fbbdc33dfdfa
 # ╟─21e56374-35e6-4488-b8da-15e383017c77
 # ╟─2bce1b80-2133-40a0-9367-fc2d491f6245
@@ -2512,14 +2627,13 @@ version = "17.4.0+2"
 # ╠═e50596ab-91db-42f0-a62c-77629a4e79c7
 # ╠═6d647790-a029-4579-86fa-9c7294aa94ea
 # ╠═0e06d9cf-b995-40b1-86ee-1c6a56c63bd0
-# ╠═2a3fdc71-a897-4f42-88b8-9a32535c6bbf
-# ╠═d19de7c0-dc0a-4157-975e-48c7ad68a8bf
-# ╠═64f8616a-452c-4aa0-8994-d1d05b39c528
 # ╠═839861db-676f-4544-a802-0abb5d0049e1
 # ╠═1ac5588c-3c32-436e-8b40-41715223fba7
 # ╠═f00ab44e-0d84-40c7-aa23-358c77a013e3
 # ╠═262952a7-280e-4af1-99a6-0899518484a2
 # ╠═fbf7b108-dc68-4077-b63c-6f88161d2098
+# ╠═8018edb9-853f-4a88-bef6-9535c2d774b3
+# ╠═9093ed39-f6e2-4c31-9fef-466bdd197423
 # ╠═e2597cc6-a6f6-4260-887b-c587cacd3bc8
 # ╠═3b9bb9f0-ba9d-4320-935a-58912afe34b6
 # ╠═0f6b4e2d-dc09-4e1c-834f-dd8aaa8743ae
@@ -2552,6 +2666,8 @@ version = "17.4.0+2"
 # ╠═638f99e6-1cdc-414c-9b67-fd626ec0be3e
 # ╠═aa238ebc-8730-46c7-8ad9-41c7cac70b18
 # ╠═6cfc6ec9-1c9c-4e90-ab3f-295ebf01b0ba
+# ╠═d53796f1-6fc4-4450-9d66-05ba752ff7eb
+# ╟─aa7c76b1-ac2d-4df5-88ef-b499b839181e
 # ╠═62eb0650-96bc-4fd6-bfe0-bf05a4137a03
 # ╠═30f05bd9-e939-4810-b710-edc7f5975921
 # ╠═96566aad-6d5c-460c-a924-ae0bad5d8b2d
@@ -2581,7 +2697,7 @@ version = "17.4.0+2"
 # ╟─88e43fed-fcf3-4071-996a-63f63c3d49b4
 # ╟─97f6221d-3289-4e54-a80d-26c5c81f2651
 # ╟─bf3770ea-ee54-4296-ab33-340aea445670
-# ╟─51b7a645-269a-418c-b6d8-39c01d0609f1
+# ╠═51b7a645-269a-418c-b6d8-39c01d0609f1
 # ╟─d0111453-9a66-411d-9966-fc386d1bdcb7
 # ╟─4a89cdd9-c20f-40e2-bc84-c3ea9cbf00e7
 # ╠═aa5acd7c-6a0b-454f-ab05-12a606dd9fc2
@@ -2589,10 +2705,14 @@ version = "17.4.0+2"
 # ╠═9bd99099-1dfa-477a-9896-3da94bcc0633
 # ╟─3b88ec30-768b-44d0-88ee-b3ed989f22c3
 # ╟─d59126d7-5af0-4d06-a57b-e115eec32388
-# ╟─2ceadc6d-5522-43f6-a803-a17a47a6048a
+# ╠═2ceadc6d-5522-43f6-a803-a17a47a6048a
 # ╟─37446874-1c28-491b-b3cc-b4ad3282686e
 # ╟─46478110-5ce5-4c72-bb3d-bcb5f516ffdc
 # ╟─ecd8833d-441b-4673-b457-dc5109f575ab
+# ╠═9e644919-5833-46ff-8f6e-e755ba688329
+# ╟─33d201ba-52f2-44f0-8bc6-3930ec77f62f
+# ╟─a228c5ae-e2d0-40c8-9abc-527b8f6d2f8e
+# ╟─f1466027-7f52-41df-a8ea-a0650981c9d4
 # ╟─0d8e4160-adf2-4b43-9914-942539339972
 # ╟─cb2bf56d-5c1d-4265-9480-11523f776a78
 # ╟─bc939df7-e457-496c-8977-5fbf9dfe3638
@@ -2601,9 +2721,10 @@ version = "17.4.0+2"
 # ╟─b29624b0-be1d-4cc2-964d-0a050f4c1bed
 # ╟─211d9390-df44-4902-9e13-ad6744b9b7dd
 # ╟─5aa170d3-eb87-44dd-b4f4-3ac97476efd7
-# ╟─33d201ba-52f2-44f0-8bc6-3930ec77f62f
-# ╟─a228c5ae-e2d0-40c8-9abc-527b8f6d2f8e
-# ╟─f1466027-7f52-41df-a8ea-a0650981c9d4
+# ╟─6a00226c-cda1-49d8-92a8-514f2264469c
+# ╟─7cab41cc-2a39-45de-879d-f7f6105238d6
+# ╟─f78846a8-076a-4a87-b1d0-4f830e2bca27
+# ╟─4afd6c2c-632e-4196-ab36-4d314ed9ec96
 # ╟─36602c38-8b29-4158-b299-94015a333762
 # ╠═1fb1a518-e5ec-4777-80bc-bb55e8172100
 # ╟─00000000-0000-0000-0000-000000000001
