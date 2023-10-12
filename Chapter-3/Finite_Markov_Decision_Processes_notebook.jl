@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.27
+# v0.19.29
 
 using Markdown
 using InteractiveUtils
@@ -433,72 +433,106 @@ md"""
 
 $$q_*(s,a)=\sum_{s',r}p(s',r|s,a)\left[r+\gamma \max_{a'}q_*(s',a') \right]$$
 
-As in example 3.9 we will abbreviate the two states high and low with h, l and the three possible actions of search, wait, and recharge by $s$, $w$, $re$.
+As in example 3.9 we will abbreviate the two states high and low with $h$, $l$ and the three possible actions of search, wait, and recharge by $s$, $w$, $re$.
 
 Starting with the h state, there are two possible actions of w and s.
 
-$$q_*(h,s)=p(h|h,s)[r(h,s,h)+\gamma\max_{a'}q_*(h,a')]+p(l|h,s)[r(h,s,l)+\gamma\max_{a'}q_*(l,a')]$$
-$$q_*(h,s)=\alpha[r_s+\gamma\max_{a'}q_*(h,a')]+(1-\alpha)[r_s+\gamma\max_{a'}q_*(l,a')]=r_s+\gamma[\alpha\max_{a'}q_*(h,a')+(1-\alpha)\max_{a'}q_*(l,a')]$$
-$$q_*(h,w)=r_w+\gamma\max_{a'}q_*(h,a')$$
+$\begin{flalign}
+q_*(h,s)&=p(h|h,s)[r(h,s,h)+\gamma\max_{a'}q_*(h,a')]+p(l|h,s)[r(h,s,l)+\gamma\max_{a'}q_*(l,a')] \\
+&=\alpha[r_s+\gamma\max_{a'}q_*(h,a')]+(1-\alpha)[r_s+\gamma\max_{a'}q_*(l,a')] \\
+&=r_s+\gamma[\alpha\max_{a'}q_*(h,a')+(1-\alpha)\max_{a'}q_*(l,a')] \\
+q_*(h,w)&=r_w+\gamma\max_{a'}q_*(h,a')\\
+\end{flalign}$
 
-Starting with the l state, there are three possible actions of w, s, and re.
+Starting with the l state, there are three possible actions: $w$, $s$, and $re$.
 
-$$q_*(l,s)=\beta[r_s+\gamma\max_{a'}q_*(l,a')]+(1-\beta)[-3+\gamma\max_{a'}q_*(h,a')]$$
-$$q_*(l,w)=r_w+\gamma\max_{a'}q_*(l,a')$$
-$$q_*(l,re)=\gamma\max_{a'}q_*(h,a')$$
+$\begin{flalign}
+q_*(l,s)&=\beta[r_s+\gamma\max_{a'}q_*(l,a')]+(1-\beta)[-3+\gamma\max_{a'}q_*(h,a')] \\
+q_*(l,w)&=r_w+\gamma\max_{a'}q_*(l,a')\\
+q_*(l,re)&=\gamma\max_{a'}q_*(h,a')\\
+\end{flalign}$
 
-Together these 5 equations can be solved simultaneously to give 5 values for $q_*$ for each state-action pair.
+Together these five non-linear equations specify $q_*$ for each of the five state-action pairs given the constants $\alpha$, $\beta$, and $\gamma$ as well as the reward values $r_s$ and $r_w$.
 """
 
 # ╔═╡ 9814c35f-ae0f-436b-ab6a-12d2da7922e0
 md"""
-> *Exercise 3.24* Figure 3.5 gives the optimal value of the best state of the gridworld as 24.4, to one decimal place. Use your knowledge of the optimal policy and (3.8) to express this value symbolically, and then to compute it to three decimal places.
+> ### *Exercise 3.24* 
+> Figure 3.5 gives the optimal value of the best state of the gridworld as 24.4, to one decimal place. Use your knowledge of the optimal policy and (3.8) to express this value symbolically, and then to compute it to three decimal places.
 
 Equation 3.8 provides the expected discounted return as:
 
 $$G_t=\sum_{k=0}^{\infty}\gamma^kR_{t+k+1}$$
 
-If we assume the same discount factor as when the problem was introduced of $$\gamma=0.9$$, then we can iterate through the grid using the optimal policy and collect a sequence of rewards. So for that square, the expected discounted return is:
+If we assume the same discount factor as when the problem was introduced of $$\gamma=0.9$$, then we can iterate through the grid using the optimal policy and collect a sequence of rewards.  Rewards are -1 for actions that try to leave the grid, +10 for any action in A, +5 for any action in square B, and 0 otherwise.  Starting at square A, all actions are optimal and result in a reward of +10.  The optimal policy is then to move vertically back to A from A'.  This sequence of actions will result in the reward sequence: $\{+10, 0, 0, 0, 0, +10, \cdots\}$ leading to the discounted return of:
 
-$$G_t=10[1+\gamma^5 + \gamma^{10} + \gamma^{15} + \cdots]$$
+$\begin{flalign}
+G_t&=10\gamma^0 + 0\gamma^1 + 0\gamma^2 + 0\gamma^3 + 0 \gamma^4 + 10\gamma^5 + \cdots\\
+&=10 [1 + \gamma^5 + \gamma^{10} + \cdots ]
+\end{flalign}$
 
-$$G_t\times\gamma^5=10[\gamma^5+\gamma^{15}+\cdots]=G_t-10 \implies G_t=\frac{10}{1-\gamma^5}$$
+Taking $c = \gamma^5$, the term in the brackets is the series $\sum_{i = 0}^{\infty} c^i = (1-c)^{-1} = (1-\gamma^5)^{-1}$.  Therefore the discounted return is:
 
-So for $\gamma=0.9$, $G_t=\frac{10}{1-0.59049} \approx 24.419$
+$$G_t=\frac{10}{1-\gamma^5}$$
+
+And for $\gamma=0.9$: 
+
+$G_t=\frac{10}{1-.9^5} \approx 24.419$
+
+which is consistent with figure 3.5 when rounded to one decimal place.
 """
 
 # ╔═╡ 6997e43e-ae25-4d71-a165-65fdb37f860c
 md"""
-> *Exercise 3.25* Give an equation for $v_*$ in terms of $q_*$.
+> ### *Exercise 3.25* 
+> Give an equation for $v_*$ in terms of $q_*$.
 
 $$v_*(s)=\max_{a\in \mathcal{A} (s)}q_*(s,a)$$
 """
 
 # ╔═╡ 5f0b3ca5-2bec-49b3-8ca2-f4381033c15b
 md"""
-> *Exercise 3.26* Give an equation for $q_*$ in terms of $v_*$ and the four-argument $p$.
+> ### *Exercise 3.26* 
+> Give an equation for $q_*$ in terms of $v_*$ and the four-argument $p$.
 
-$$q_*(s,a)=\mathbb{E}[R_{t+1}+\gamma v_*(S_{t+1})|S_t=s,A_t=a]$$
-$$q_*(s,a)=\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]$$
+$\begin{flalign}
+q_*(s,a)&=\mathbb{E} \left [ R_{t+1}+\gamma v_*(S_{t+1})|S_t=s,A_t=a \right ] \\
+&=\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]
+\end{flalign}$
 """
 
 # ╔═╡ fdd8ca66-00e7-4ce3-85ec-52cafc27bdba
 md"""
-> *Exercise 3.27* Give an equation for $\pi_*$ in terms of $q_*$.
+> ### *Exercise 3.27* 
+> Give an equation for $\pi_*$ in terms of $q_*$.
 
-$$\pi_*(a|s)= 1 \iff a = \text{argmax}_{a\in\mathcal{A}(s)}q_*(s,a) \text{ else 0}$$
+$\pi_*(s) = \begin{cases}
+1 & a = \underset{a \in \mathcal{A}(s)}{\mathrm{argmax}}[q_*(s,a)]\\
+0 & \text{else}
+\end{cases}$
 """
 
 # ╔═╡ cfb040e5-663f-491d-a949-81ad7630a1f3
 md"""
-> *Exercise 3.28* Give an equation for $\pi_*$ in terms of $v_*$ and the four-argument $p$.
+> ### *Exercise 3.28* 
+> Give an equation for $\pi_*$ in terms of $v_*$ and the four-argument $p$.
 
-$$\pi_*(a|s)=1 \iff a = \text{argmax}_{a\in\mathcal{A}(s)}q_*(s,a)=\text{argmax}_{a\in\mathcal{A}(s)}\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \text{ else 0}$$
+In exercise 3.27 for the case of $\pi_* = 1$, we can rewrite the expression in terms of $v_*$ by using the expression in exercise 3.26:
+
+$\underset{a \in \mathcal{A}(s)}{\mathrm{argmax}}[q_*(s,a)]=\underset{a \in \mathcal{A}(s)}{\mathrm{argmax}} \left [ \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \right ]$
+
+So the expression for the optimal policy is just:
+
+$\pi_*(s) = \begin{cases}
+1 & a = \underset{a \in \mathcal{A}(s)}{\mathrm{argmax}} \left [ \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \right ] \\
+0 & \text{else}
+\end{cases}$
 """
 
 # ╔═╡ 2ecb796a-4d41-11ee-2293-2f0ee0eeff79
 md"""
-> *Exercise 3.29* Rewrite the four Bellman equations for the four value functions $(v_\pi, \space v_*, \space q_\pi, \text{ and } q_*)$ in terms of the three argument function $p$ (3.4) and the two-argument function $r$ (3.5).
+> ### *Exercise 3.29* 
+> Rewrite the four Bellman equations for the four value functions $(v_\pi, \space v_*, \space q_\pi, \text{ and } q_*)$ in terms of the three argument function $p$ (3.4) and the two-argument function $r$ (3.5).
 
 From (3.4) we have:
 
@@ -510,24 +544,36 @@ $$r(s,a)=\sum_{r \in \mathcal{R}}r\sum_{s' \in \mathcal{S}}p(s',r|s,a)$$
 
 Starting with $v_\pi$:
 
-$$v_\pi(s)=\sum_{a}\pi(a,s)\sum_{s',r}p(s',r|s,a)[r+\gamma v_\pi(s')],\text{ for all }s\in\mathcal{S}$$
-$$v_\pi(s)=\sum_{a}\pi(a,s)\left[r(s,a)+\sum_{s'}p(s'|s,a)\gamma v_\pi(s')\right],\text{ for all }s\in\mathcal{S}$$
+$\begin{flalign}
+v_\pi(s)&=\sum_{a}\pi(a,s)\sum_{s',r}p(s',r|s,a)[r+\gamma v_\pi(s')]\\
+&=\sum_{a}\pi(a,s)\left[r(s,a)+ \gamma \sum_{s'}p(s'|s,a) v_\pi(s')\right]
+\end{flalign}$
 
 Next for $v_*$:
-$$v_*(s)=\max_{a}\sum_{s',r}p(s',r|s,a)[r+\gamma v_*(s')]$$
-$$v_*(s)=\max_{a}r(s,a)+\sum_{s'}p(s'|s,a)\gamma v_*(s')$$
+
+$\begin{flalign}
+v_*(s)&=\max_{a} \left [ \sum_{s',r}p(s',r|s,a)[r+\gamma v_*(s')] \right ]\\
+&=\max_{a} \left [ r(s,a)+ \gamma \sum_{s'}p(s'|s,a) v_*(s') \right ]
+\end{flalign}$
 
 Next for $q_\pi$:
 
-$$q_\pi(s,a)=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')q_{\pi}(s',a') \right]$$
-$$q_\pi(s,a)=r(s,a)+\gamma\sum_{s'} p(s'|s,a)\sum_{a'} \pi(a', s')q_{\pi}(s',a')$$ Next for $q_*$:
-$$q_*(s,a)=\sum_{s',r}p(s',r|s,a)\left[r+\gamma \max_{a'}q_*(s',a') \right]$$
-$$q_*(s,a)=r(s,a)+\sum_{s'}p(s'|s,a)\gamma \max_{a'}q_*(s',a')$$
+$\begin{flalign}
+q_\pi(s,a)&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')q_{\pi}(s',a') \right] \\
+&=r(s,a)+\gamma\sum_{s'} p(s'|s,a)\sum_{a'} \pi(a', s')q_{\pi}(s',a')
+\end{flalign}$
+
+Next for $q_*$:
+
+$\begin{flalign}
+q_*(s,a)&=\sum_{s',r}p(s',r|s,a)\left[r+\gamma \max_{a'} \left [ q_*(s',a') \right ] \right] \\
+&=r(s,a)+ \gamma \sum_{s'}p(s'|s,a) \max_{a'} \left [ q_*(s',a') \right ]
+\end{flalign}$
 """
 
 # ╔═╡ 4ca58fcf-3115-4100-9f83-b8a389e4eaa0
 md"""
-# Dependencies
+# Dependencies and Settings
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -545,7 +591,7 @@ PlutoUI = "~0.7.52"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.3"
+julia_version = "1.10.0-beta3"
 manifest_format = "2.0"
 project_hash = "518adb648c80095d555fe737933aaac06e6c2875"
 
@@ -598,7 +644,7 @@ version = "0.12.10"
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.5+0"
+version = "1.0.5+1"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -666,21 +712,26 @@ version = "1.3.0"
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.3"
+version = "0.6.4"
 
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "7.84.0+0"
+version = "8.0.1+1"
 
 [[deps.LibGit2]]
-deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
+deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+
+[[deps.LibGit2_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
+uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+version = "1.6.4+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.10.2+0"
+version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -704,14 +755,14 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+0"
+version = "2.28.2+1"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2022.10.11"
+version = "2023.1.10"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -720,7 +771,7 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.21+4"
+version = "0.3.23+2"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "2e73fe17cac3c62ad1aebe70d44c963c3cfdc3e3"
@@ -748,7 +799,7 @@ version = "2.7.2"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.9.2"
+version = "1.10.0"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -795,7 +846,7 @@ deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.Random]]
-deps = ["SHA", "Serialization"]
+deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[deps.Reexport]]
@@ -822,16 +873,17 @@ uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+version = "1.10.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.9.0"
+version = "1.10.0"
 
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "5.10.1+6"
+version = "7.2.0+1"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -878,22 +930,22 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.13+0"
+version = "1.2.13+1"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+0"
+version = "5.8.0+1"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.48.0+0"
+version = "1.52.0+1"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.4.0+0"
+version = "17.4.0+2"
 """
 
 # ╔═╡ Cell order:
@@ -923,7 +975,7 @@ version = "17.4.0+0"
 # ╟─0433fbf6-c753-4621-8ef3-8229cf77b9b2
 # ╟─23516799-1bce-41a2-8dff-f8b8268b54d1
 # ╟─07f0e0a7-8c6e-4474-bc8b-ddf6eaa19a34
-# ╠═7ca226e2-0d8e-4f31-94e1-b0f5301f32ba
+# ╟─7ca226e2-0d8e-4f31-94e1-b0f5301f32ba
 # ╟─9814c35f-ae0f-436b-ab6a-12d2da7922e0
 # ╟─6997e43e-ae25-4d71-a165-65fdb37f860c
 # ╟─5f0b3ca5-2bec-49b3-8ca2-f4381033c15b
