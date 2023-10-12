@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.27
+# v0.19.29
 
 using Markdown
 using InteractiveUtils
@@ -14,8 +14,11 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ f092656a-b5bd-4802-8f08-82bce562f643
-using PlutoPlotly, PlutoUI
+# ╔═╡ 86d53794-2251-47d5-a45e-f1da53cd8ef5
+begin
+	using PlutoPlotly, PlutoUI
+	TableOfContents()
+end
 
 # ╔═╡ 17f36458-139b-4f8b-aba9-d0dd586dd82c
 md"""
@@ -25,7 +28,8 @@ md"""
 
 ## 3.1 The Agent-Environment Interface
 
-> *Exercise 3.1* Devise three example tasks of your own that fit into the MDP framework, identifying for each its states, actions, and rewards. Make the three examples as *different* from each other as possible. The framework is abstract and flexible and can be applied in many different ways. Stretch its limits in some way in at least one of your examples.
+> ### *Exercise 3.1*
+> Devise three example tasks of your own that fit into the MDP framework, identifying for each its states, actions, and rewards. Make the three examples as *different* from each other as possible. The framework is abstract and flexible and can be applied in many different ways. Stretch its limits in some way in at least one of your examples.
 
 - Example Task 1: Fill water bottle
   
@@ -49,28 +53,24 @@ md"""
 
 # ╔═╡ c5abf826-9ce8-4319-a2e5-6cf7fcc61400
 md"""
-> *Exercise 3.2* Is the MDP framework adequate to usefully represent *all* goal-directed learning tasks? Can you think of any clear exceptions?
-
-If the environment depends heavily on the past history in terms of future rewards, but none of that information can be encoded into the current state, then the agent would be unable to learn the correct actions to take unless it had some internal memory of its own. But that would be akin to the agent having an internal state that varied over the course of a trajectory which is not part of the current framework. This could be solved by augmenting the environment state to contain whatever past information is necessary to specify the current state but that information may not always be accessible. In particular consider an environment with a person that has a particular action in mind that if repeated will cause large negative reward. The environment itself provides no record of which actions the agent has taken, so unless the agent saves that information itself, it would have no way of knowing.
-"""
-
-# ╔═╡ 9e4d6151-1e41-4820-a453-4ef2efc2db34
-md"""
-> *Exercise 3.2* Is the MDP framework adequate to usefully represent *all* goal-directed learning tasks? Can you think of any clear exceptions?
+> ### *Exercise 3.2*
+> Is the MDP framework adequate to usefully represent *all* goal-directed learning tasks? Can you think of any clear exceptions?
 
 If the environment depends heavily on the past history in terms of future rewards, but none of that information can be encoded into the current state, then the agent would be unable to learn the correct actions to take unless it had some internal memory of its own. But that would be akin to the agent having an internal state that varied over the course of a trajectory which is not part of the current framework. This could be solved by augmenting the environment state to contain whatever past information is necessary to specify the current state but that information may not always be accessible. In particular consider an environment with a person that has a particular action in mind that if repeated will cause large negative reward. The environment itself provides no record of which actions the agent has taken, so unless the agent saves that information itself, it would have no way of knowing.
 """
 
 # ╔═╡ 85905a6e-1807-4b77-b313-dbadb8b898c8
 md"""
-> *Exercise 3.3* Consider the problem of driving. You could define the actions in terms of the accelerator, steering wheel, and brake, that is, where your body meets the machine. Or you could define them farther out—say, where the rubber meets the road, considering your actions to be tire torques. Or you could define them farther in—say, where your brain meets your body, the actions being muscle twitches to control your limbs. Or you could go to a really high level and say that your actions are your choices of *where* to drive. What is the right level, the right place to draw the line between agent and environment? On what basis is one location of the line to be preferred over another? Is there any fundamental reason for preferring one location over another, or is it a free choice?
+> ### *Exercise 3.3*
+> Consider the problem of driving. You could define the actions in terms of the accelerator, steering wheel, and brake, that is, where your body meets the machine. Or you could define them farther out—say, where the rubber meets the road, considering your actions to be tire torques. Or you could define them farther in—say, where your brain meets your body, the actions being muscle twitches to control your limbs. Or you could go to a really high level and say that your actions are your choices of *where* to drive. What is the right level, the right place to draw the line between agent and environment? On what basis is one location of the line to be preferred over another? Is there any fundamental reason for preferring one location over another, or is it a free choice?
 
 If you have a system like a car, it already has a mechanism for translating the pedal position and steering wheel into forces on the tires. If instead, we tried to have the system directly control the torque on the wheel, it would still have to control that through the pedal and steering wheel and rely on some other learned or explicit mechanism for translating those desires. Using the action space that relates most closely to what can actually be controlled would be the least prone to errors in which the desired actions are not implemented accurately. If we already had a built navigation system for the car in question and the desired task involves choosing the optimal path to navigate between many locations, then it might be appropriate to have the action space in terms of *where* to drive. If the car only has simple controls like accelerator and steering wheel as described above, then even if the ultimate task is more complicated, the natural action space is still the controls we have access to. The agent may effectively learn an intermediate task of how to navigate to a particular city, but putting that in the action space would give the agent no obvious way of performing that action. If we consider a human driving, it would be natural to have the action space in terms of actions that a human would know how to perform such as pressing the accelerator a set amount. Since people already know how to control muscles with electrical impulses, it would be an unnecessary layer of complexity to have an agent learn how to directly control the muscles of a person.
 """
 
 # ╔═╡ 090c50ed-6772-457a-afbb-cf2cde0e2ec4
 md"""
-> *Exercise 3.4* Give a table analogous to that in Example 3.3 but for $p(s',r|s,a)$. It should have columns for $$s, \space a, \space s', \space r$$ and $$p(s',r|s,a)$$, and a row for every 4-tuple for which $p(s',r|s,a)>0$
+> ### *Exercise 3.4*
+> Give a table analogous to that in Example 3.3 but for $p(s',r|s,a)$. It should have columns for $$s, \space a, \space s', \space r$$ and $$p(s',r|s,a)$$, and a row for every 4-tuple for which $p(s',r|s,a)>0$
 
 | $s$ | $a$ | $s'$ | $r$ | $p(s',r \vert s,a)$ |
 | --- | --- | --- | --- | --- |
@@ -87,7 +87,8 @@ md"""
 md"""
 ## 3.3 Returns and Episodes
 
-> *Exercise 3.5* The equations in Section 3.1 are for the continuing case and need to be modified (very slightly) to apply to episodic tasks. Show that you know the modifications needed by giving the modified version of (3.3).
+> ### *Exercise 3.5*
+> The equations in Section 3.1 are for the continuing case and need to be modified (very slightly) to apply to episodic tasks. Show that you know the modifications needed by giving the modified version of (3.3).
 
 From Section 3.1 we have equation (3.3):
 
@@ -101,21 +102,24 @@ $\sum_{s^ \prime \in \mathcal{S}^+}\sum_{r \in \mathcal{R}}p(s^ \prime,r|s,a)=1,
 
 # ╔═╡ 9ce34899-c8d0-428f-a3d3-91f0bf37198e
 md"""
-> *Exercise 3.6* Suppose you treated pole-balancing as an episodic task but also used discounting, with all rewards zero except for -1 upon failure. What then would the return be at each time? How does this return differ from that in the discounted, continuing formulation of this task?
+> ### *Exercise 3.6*
+> Suppose you treated pole-balancing as an episodic task but also used discounting, with all rewards zero except for -1 upon failure. What then would the return be at each time? How does this return differ from that in the discounted, continuing formulation of this task?
 
 The return at each time would be $G_t=-\gamma^{T-t-1}$ where T is the total number of steps in the episode. In the continuing formulation of the task there will be a series of failures each one occurring at a different time $T_i$. At any given time t, only the failures that occur in the future will contribute to the return: $G_t=\sum_{T_i >t}-\gamma^{T_i-t-1}$
 """
 
 # ╔═╡ 9a3d9a79-e44a-40e5-b7bb-947f3327c598
 md"""
-> *Exercise 3.7* Imagine you are designing a robot to run a maze. You decide to give it a reward of +1 for escaping the maze and a reward of zero at all other times. The task seems to break down naturally into episodes-the successive runs through the maze-so you decide to treat it as an episodic task, where the goal is to maximize the expected total reward (3.7). After running the learning agent for a while you find that it is showing no improvement in escaping from the maze. What is going wrong? Have you effectively communicated to the agent what you want it to achieve?
+> ### *Exercise 3.7* 
+> Imagine you are designing a robot to run a maze. You decide to give it a reward of +1 for escaping the maze and a reward of zero at all other times. The task seems to break down naturally into episodes-the successive runs through the maze-so you decide to treat it as an episodic task, where the goal is to maximize the expected total reward (3.7). After running the learning agent for a while you find that it is showing no improvement in escaping from the maze. What is going wrong? Have you effectively communicated to the agent what you want it to achieve?
 
 According to equation 3.7, there is no discount factor for the reward signal. If we assume the maze is simple enough that an agent escapes in some finite time, then it will receive a reward signal of 1. Any agent that solves the maze faster will receive the same reward as do agents that take longer. Because of the lack of discounting within an episode, there is no incentive for agents to solve the maze faster so any agent that can solve the maze is equally good, which in this case would be almost any arbitrary agent except one that simply stands still or only goes in one direction that gets stuck.
 """
 
 # ╔═╡ 1b42d235-5f48-4625-a83e-48b50cbbc347
 md"""
-> *Exercise 3.8* Suppose $\gamma=0.5$ and the following sequence of rewards is received $R_1=-1$, $R_2=2$, $R_3=6$, $R_4=3$, and $R_5=2$, with $T=5$. What are $G_0, \space G_1, \dots,G_5$
+> ### *Exercise 3.8* 
+>Suppose $\gamma=0.5$ and the following sequence of rewards is received $R_1=-1$, $R_2=2$, $R_3=6$, $R_4=3$, and $R_5=2$, with $T=5$. What are $G_0, \space G_1, \dots,G_5$
 
 $\begin{flalign}
 
@@ -135,7 +139,8 @@ G_0&=R_1+\gamma G_1=-1+(0.5\times6)=2
 
 # ╔═╡ 30513c5c-20fe-4a31-9a59-67b73fa1e3a7
 md"""
-> *Exercise 3.9* Suppose $\gamma=0.9$ and the reward sequence is $R_1=2$ followed by an infinite sequence of 7s. What are $G_1$ and $G_0$?
+> ### *Exercise 3.9* 
+> Suppose $\gamma=0.9$ and the reward sequence is $R_1=2$ followed by an infinite sequence of 7s. What are $G_1$ and $G_0$?
 
 $\begin{flalign}
 G_1&=7\times\sum_{k=0}^{\infty}\gamma^k=\frac{7}{1-\gamma}=70\\
@@ -146,7 +151,8 @@ G_0&=R_1+\gamma G_{1}=2+(0.9 \times 70)=65
 
 # ╔═╡ 08ad2c4f-a3c1-4d9b-aafc-9b2394f68f53
 md"""
-> *Exercise 3.10* Prove the second equality in (3.10).
+> ### *Exercise 3.10* 
+> Prove the second equality in (3.10).
 
 Equation (3.10) is: 
 
@@ -178,16 +184,24 @@ G_t&=\frac{1}{1-\gamma} \tag{3.10 equality}
 md"""
 ## 3.5 Policies and Value Functions
 
-> *Exercise 3.11* If the current state is $S_t$, and actions are selected according to a stochastic policy $\pi$, then what is the expectation of $R_{t+1}$ in terms of $\pi$ and the four-argument function $p(s',r|s,a) \dot{=}Pr\{S_t=s', R_t=r|S_{t-1}=s,A_{t-1}=a\}$
+> ### *Exercise 3.11* 
+> If the current state is $S_t$, and actions are selected according to a stochastic policy $\pi$, then what is the expectation of $R_{t+1}$ in terms of $\pi$ and the four-argument function $p(s',r|s,a) \dot{=}Pr\{S_t=s', R_t=r|S_{t-1}=s,A_{t-1}=a\}$
 
-$$\mathbb{E}[R_{t+1}]=\sum_{r \in \mathcal{R}}r\times Pr\{R_{t+1}=r|S_t\}$$
-$$Pr\{R_{t+1}=r|S_t\}=\sum_{a \in \mathcal{A(S_t)}}\pi(a|S_t)\sum_{s' \in \mathcal{S}}p(s', r|S_t,a)$$
-$$\mathbb{E}[R_{t+1}]=\sum_{r \in \mathcal{R}} \left[ r \times \left[ \sum_{a \in \mathcal{A(S_t)}}\pi(a|S_t) \left[ \sum_{s' \in \mathcal{S}}p(s', r|S_t,a) \right] \right] \right]$$
+$$\mathbb{E}[R_{t+1}]=\sum_{r \in \mathcal{R}}r\times Pr\{R_{t+1}=r|S_t=s\}$$
+
+$\begin{flalign}
+Pr\{R_{t+1}=r|S_t = s\} &= \mathbb{E}_\pi \left [ \sum_{s^\prime \in \mathcal{S}}Pr\{S_{t+1} = s^\prime, R_{t+1}=r|S_t = s, A_t = a\} \right ] \\
+&= \mathbb{E}_\pi \left [ \sum_{s^\prime \in \mathcal{S}}p(s^\prime, r \vert s, a) \right ] \\
+&=\sum_{a \in \mathcal{A(s)}}\pi(a|s)\sum_{s' \in \mathcal{S}}p(s', r|s,a) \\
+&\therefore \\
+\mathbb{E}[R_{t+1}] &=\sum_{r \in \mathcal{R}} \left[ r \times \left[ \sum_{a \in \mathcal{A(s)}}\pi(a|s) \left[ \sum_{s' \in \mathcal{S}}p(s', r|s,a) \right] \right] \right]
+\end{flalign}$
 """
 
 # ╔═╡ 7ecbbbd8-9823-41d3-8d38-10c81b59216a
 md"""
-> *Exercise 3.12* Give an equation for $v_{\pi}$ in terms of $q_{\pi}$ and $\pi$.
+> ### *Exercise 3.12* 
+> Give an equation for $v_{\pi}$ in terms of $q_{\pi}$ and $\pi$.
 
 From (3.12) we have 
 $$v_{\pi}(s)= \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \vert S_t=s \right], \text{ for all } s \in \mathcal{S}$$
@@ -203,7 +217,8 @@ $$v_{\pi}(s)= \sum_{a \in \mathcal{A(s)}}\pi(a|s)q_{\pi}(s, a)$$
 
 # ╔═╡ db2157d9-abc1-43c1-8d37-0fe5e803667c
 md"""
-> *Exercise 3.13* Give an equation for $$q_{\pi}$$ in terms of $$v_{\pi}$$ and $$p(s',r|s,a)$$
+> ### *Exercise 3.13* 
+> Give an equation for $$q_{\pi}$$ in terms of $$v_{\pi}$$ and $$p(s',r|s,a)$$
 
 $\begin{flalign}
 q_{\pi}(s,a) & = \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \vert S_t=s,A_t=a \right] \\
@@ -228,7 +243,8 @@ q_{\pi}(s,a) & = \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} 
 
 # ╔═╡ 7e4d7ca2-c4a2-49a0-a2cd-cd1e50a048de
 md"""
-> *Exercise 3.14* The Bellman equation (3.14) must hold for each state for the value function $v_{\pi}$ shown in Figure 3.2 (right) of Example 3.5. Show numerically that this equation holds for the center state, valued at $+0.7$, with respect to its four neighboring states, valued at $+2.3$, $+0.4$, and $+0.7$. (These numbers are accurate only to one decimal place.)
+> ### *Exercise 3.14* 
+> The Bellman equation (3.14) must hold for each state for the value function $v_{\pi}$ shown in Figure 3.2 (right) of Example 3.5. Show numerically that this equation holds for the center state, valued at $+0.7$, with respect to its four neighboring states, valued at $+2.3$, $+0.4$, and $+0.7$. (These numbers are accurate only to one decimal place.)
 
 The Bellman equation states
 
@@ -253,7 +269,8 @@ Now applying the Bellman equation: $v_{\pi}(s)=0.25 \times [2.07-0.36+0.36+0.63]
 
 # ╔═╡ be824355-6fab-4367-ab09-4efaa96b9aae
 md"""
-> *Exercise 3.15* In the gridworld example, rewards are positive for goals, negative for running into the edge of the world, and zero the rest of the time. Are the signs of these rewards important, or only the intervals between them? Prove, using (3.8), that adding a constant $c$ to all rewards adds a constant, $v_c$, to the values of all states, and thus does not affect the relative values of any states under any policies. What is $v_c$ in terms of $c$ and $\gamma$?
+> ### *Exercise 3.15* 
+> In the gridworld example, rewards are positive for goals, negative for running into the edge of the world, and zero the rest of the time. Are the signs of these rewards important, or only the intervals between them? Prove, using (3.8), that adding a constant $c$ to all rewards adds a constant, $v_c$, to the values of all states, and thus does not affect the relative values of any states under any policies. What is $v_c$ in terms of $c$ and $\gamma$?
 
 Equation 3.8 states:
 
@@ -268,7 +285,8 @@ So the modified estimate is simply the previous estimate plus a constant value w
 
 # ╔═╡ 97a605e6-31dc-4ba9-acc5-e0d81093c3ee
 md"""
-> *Exercise 3.16* Now consider adding a constant c to all rewards in an episodic task, such as maze running. Would this have any effect, or would it leave the task unchanged as in the continuing task above? Why or why not? Give an example.
+> ### *Exercise 3.16* 
+> Now consider adding a constant c to all rewards in an episodic task, such as maze running. Would this have any effect, or would it leave the task unchanged as in the continuing task above? Why or why not? Give an example.
 
 In an episodic case, equation 3.8 becomes:
 
@@ -325,7 +343,8 @@ So it seems that rather than each value being shifted by a constant, there is al
 
 # ╔═╡ b5871733-c403-4b39-8b51-2f3941c8a634
 md"""
-> *Exercise 3.17* What is the Bellman equation for action values, that is, for $q_{\pi}$? It must give the action value $q_{\pi}(s,a)$ in terms of the action values, $q_{\pi}(s',a')$, of possible successors to the state-action pair $(s,a)$.  
+> ### *Exercise 3.17* 
+> What is the Bellman equation for action values, that is, for $q_{\pi}$? It must give the action value $q_{\pi}(s,a)$ in terms of the action values, $q_{\pi}(s',a')$, of possible successors to the state-action pair $(s,a)$.  
 > Hint: The backup diagram to the right corresponds to this equation. Show the sequence of equations analogous to (3.14), but for action values.
 
 Following the example in (3.14) but for $q_{\pi}(s, a)$ intsead of $v_{\pi}(s)$ we have:
@@ -341,11 +360,12 @@ q_{\pi}(s,a) & \doteq \mathbb{E}_\pi [G_t|S_t=s,A_t=a] \\
 
 # ╔═╡ 60aa5fa8-ea7d-45c9-8528-22ddd3ba74e2
 md"""
-> *Exercise 3.18* The value of a state depends on the values of the actions possible in that state and how likely each action is to be taken under the current policy. We can think of this in terms of a small backup diagram rooted at the state and considering each possible action. Give the equation corresponding to this intuition and diagram for the value at the root node, $v_\pi(s)$, in terms of the value at the expected leaf node, $q_\pi(s,a)$, given $S_t=s$. This equation should include an expectation conditioned on following the policy, $\pi$. Then give a second equation in which the expected value is written out explicitly in terms of $\pi(a|s)$ such that no expected value notation appears in the equation.
+> ### *Exercise 3.18* 
+> The value of a state depends on the values of the actions possible in that state and how likely each action is to be taken under the current policy. We can think of this in terms of a small backup diagram rooted at the state and considering each possible action. Give the equation corresponding to this intuition and diagram for the value at the root node, $v_\pi(s)$, in terms of the value at the expected leaf node, $q_\pi(s,a)$, given $S_t=s$. This equation should include an expectation conditioned on following the policy, $\pi$. Then give a second equation in which the expected value is written out explicitly in terms of $\pi(a|s)$ such that no expected value notation appears in the equation.
 
 In the diagram we see the value function at the root connecting to all of the the possible actions from that state with a corresponding q value. Each action is taken with a probability given by the policy. Since $v_\pi(s)$ is an average over the value of all actions that could be taken by the policy from this point, we can write it in terms of the expected action.
 
-$$v_\pi(s)=\mathbb{E}_\pi[q_\pi(S_t, A_t)|S_t=s]$$
+$$v_\pi(s)=\mathbb{E}_\pi[q_\pi(s, a) \vert S_t = s]$$
 
 We can rewrite this using the probabilities given by the policy at each action explicitly:
 
@@ -354,7 +374,8 @@ $$v_\pi(s)=\sum_{a}\pi(a|s)q_\pi(s,a) \text{ for all } a\in\mathcal{A(s)}$$
 
 # ╔═╡ a0257b35-b3c8-4bf6-948a-48ced42addf7
 md"""
-> *Exercise 3.19* The value of an action, $q_\pi(s,a)$, depends on the expected next reward and the expected sum of the remaining rewards. Again we can think of this in terms of a small backup diagram, this one rooted at an action (state-action pair) and branching to the possible next states.  
+> ### *Exercise 3.19* 
+> The value of an action, $q_\pi(s,a)$, depends on the expected next reward and the expected sum of the remaining rewards. Again we can think of this in terms of a small backup diagram, this one rooted at an action (state-action pair) and branching to the possible next states.  
 > Give the equation corresponding to this intuition and diagram for the action value, $q_\pi(s,a)$, in terms of the expected next reward, $R_{t+1}$, and the expected next state value, $v_\pi(S_{t+1})$, given that $S_t=s$ and $A_t=a$. This equation should include an expectation but *not* one conditioned on the following policy. Then give a second equation, writing out the expected value explicitly in terms of $p(s',r|s,a)$ defined by (3.2), such that no expected value notation appears in the equation.
 
 The diagram shows a root for the action value estimate and all of the (future state, reward) pairs that are possible from that action. Since there is a distribution over these pairs, we can write the equation in terms of expected value:
@@ -369,23 +390,31 @@ Since this provides the probability for each (future-state, reward) pair that is
 $$q_\pi(s,a)=\sum_{r,s'}p(s',r|s,a)(r+\gamma v_\pi(s')) \text{ for all } r\in\mathcal{R},s'\in\mathcal{S}$$
 """
 
+# ╔═╡ 65457924-9c1f-4e13-834f-22b68e7e9062
+md"""
+## 3.6 Optimal Policies and Optimal Value Functions
+"""
+
 # ╔═╡ 0433fbf6-c753-4621-8ef3-8229cf77b9b2
 md"""
-> *Exercise 3.20* Draw or describe the optimal state-value function for the golf example.
+> ### *Exercise 3.20* 
+> Draw or describe the optimal state-value function for the golf example.
 
 The optimal state-value function assumes that the optimal action is taken which in this case is simply the choice between putter and driver. The optimal action-value function is already shown, so as long as the optimal choice in each region is driver, this function will be identical to the state-value for that state. For all states on the green, the optimal action is putter, not driver, so unlike the bottom of Figure 3.3, any point on the green should have a value of -1. Any point outside the green but within the -2 contour will still have a value of -2 since these states can all reach the green by using the driver. Any point that could reach the green already shares the same value as the optimal state-value function because the optimal action is selected for the subsequent shot.
 """
 
 # ╔═╡ 23516799-1bce-41a2-8dff-f8b8268b54d1
 md"""
-> *Exercise 3.21* Draw of describe the contours of the optimal action-value function for putting, $q_{*}(s,\text{putter})$, for the golf example.
+> ### *Exercise 3.21* 
+> Draw of describe the contours of the optimal action-value function for putting, $q_{*}(s,\text{putter})$, for the golf example.
 
-$q_*(s,\text{putter})$ restricts the selected initial action to be putter, but any subsequent action selected will be the optimal one. Starting on the green, we still have a value of -1 because any ball on the green can reach the hole in one shot. Next we have the contour shown in the top of Figure 3.3 for -2 which will also be the same since any ball in this state can reach the green and then the hole in the next two strokes. The sand pit however will also share a value of -3 with the rest of the -3 contour. Balls in the sandpit cannot move with the putter so a shot will be wasted, but the driver will be used on the next shot to reach the green and then the hole using a total of 3 shots. The -3 contour will remain -3 for the optimal policy because one putt will be used to reach the -2 contour and then whether driver or putter is selected next, it will take exactly 2 strokes to reach the hole. The contour labeled -4 can reach the -3 region with a putt; however at that point the optimal action would be to use the driver and get a hole in another 2 strokes. Therefore, the -4 contour will be merged into the -3 contour, taking on its value. The -5 contour can reach the -4 contour with a putt. If we approximate that this lies within the driver range of the green then much of this region will also share a value of -3. Only the remaining contour of -6 will take on a value of -4 since puts from this region can only reach a region that is still 3 shots away from a hole.
+The $q_*(s,\text{putter})$ action value function restricts the selected initial action to be putter, but any subsequent action selected will be the optimal one. Starting on the green, we still have a value of -1 because any ball on the green can reach the hole in one shot. Next we have the contour shown in the top of Figure 3.3 for -2 which will also be the same since any ball in this state can reach the green and then the hole in the next two strokes. The sand pit however will also share a value of -3 with the rest of the -3 contour. Balls in the sandpit cannot move with the putter so a shot will be wasted, but the driver will be used on the next shot to reach the green and then the hole using a total of 3 shots. The -3 contour will remain -3 for the optimal policy because one putt will be used to reach the -2 contour and then whether driver or putter is selected next, it will take exactly 2 strokes to reach the hole. The contour labeled -4 can reach the -3 region with a putt; however at that point the optimal action would be to use the driver and get a hole in another 2 strokes. Therefore, the -4 contour will be merged into the -3 contour, taking on its value. The -5 contour can reach the -4 contour with a putt. If we approximate that this lies within the driver range of the green then much of this region will also share a value of -3. Only the remaining contour of -6 will take on a value of -4 since puts from this region can only reach a region that is still 3 shots away from a hole.
 """
 
 # ╔═╡ 07f0e0a7-8c6e-4474-bc8b-ddf6eaa19a34
 md"""
-> *Exercise 3.22* Consider the continuing MDP shows to the right. The only decision to be made is that in the top state, where two actions are available, left and right. The numbers show the rewards that are received deterministically after each action. There are exactly two deterministic policies, $\pi_{\text{left}}$ and $\pi_{\text{right}}$. What policy is optimal if $\gamma=0$? If $\gamma=0.9$? If $\gamma=0.5$?
+> ### *Exercise 3.22* 
+> Consider the continuing MDP shows to the right. The only decision to be made is that in the top state, where two actions are available, left and right. The numbers show the rewards that are received deterministically after each action. There are exactly two deterministic policies, $\pi_{\text{left}}$ and $\pi_{\text{right}}$. What policy is optimal if $\gamma=0$? If $\gamma=0.9$? If $\gamma=0.5$?
 
 For $\gamma=0$ the only reward considered is the immediate one from the chosen action. If we select left, the immediate reward is +1 vs 0 so $\pi_{\text{left}}$ is optimal.
 
@@ -399,76 +428,111 @@ So it is clear that if $\gamma>0.5$ then $\pi_{right}$ is more optimal than $\pi
 
 # ╔═╡ 7ca226e2-0d8e-4f31-94e1-b0f5301f32ba
 md"""
-> *Exercise 3.23* Give the Bellman equation for $q_*$ for the recycling robot.
+> ### *Exercise 3.23* 
+> Give the Bellman equation for $q_*$ for the recycling robot.
 
 $$q_*(s,a)=\sum_{s',r}p(s',r|s,a)\left[r+\gamma \max_{a'}q_*(s',a') \right]$$
 
-As in example 3.9 we will abbreviate the two states high and low with h, l and the three possible actions of search, wait, and recharge by s, w, re.
+As in example 3.9 we will abbreviate the two states high and low with $h$, $l$ and the three possible actions of search, wait, and recharge by $s$, $w$, $re$.
 
 Starting with the h state, there are two possible actions of w and s.
 
-$$q_*(h,s)=p(h|h,s)[r(h,s,h)+\gamma\max_{a'}q_*(h,a')]+p(l|h,s)[r(h,s,l)+\gamma\max_{a'}q_*(l,a')]$$
-$$q_*(h,s)=\alpha[r_s+\gamma\max_{a'}q_*(h,a')]+(1-\alpha)[r_s+\gamma\max_{a'}q_*(l,a')]=r_s+\gamma[\alpha\max_{a'}q_*(h,a')+(1-\alpha)\max_{a'}q_*(l,a')]$$
-$$q_*(h,w)=r_w+\gamma\max_{a'}q_*(h,a')$$
+$\begin{flalign}
+q_*(h,s)&=p(h|h,s)[r(h,s,h)+\gamma\max_{a'}q_*(h,a')]+p(l|h,s)[r(h,s,l)+\gamma\max_{a'}q_*(l,a')] \\
+&=\alpha[r_s+\gamma\max_{a'}q_*(h,a')]+(1-\alpha)[r_s+\gamma\max_{a'}q_*(l,a')] \\
+&=r_s+\gamma[\alpha\max_{a'}q_*(h,a')+(1-\alpha)\max_{a'}q_*(l,a')] \\
+q_*(h,w)&=r_w+\gamma\max_{a'}q_*(h,a')\\
+\end{flalign}$
 
-Starting with the l state, there are three possible actions of w, s, and re.
+Starting with the l state, there are three possible actions: $w$, $s$, and $re$.
 
-$$q_*(l,s)=\beta[r_s+\gamma\max_{a'}q_*(l,a')]+(1-\beta)[-3+\gamma\max_{a'}q_*(h,a')]$$
-$$q_*(l,w)=r_w+\gamma\max_{a'}q_*(l,a')$$
-$$q_*(l,re)=\gamma\max_{a'}q_*(h,a')$$
+$\begin{flalign}
+q_*(l,s)&=\beta[r_s+\gamma\max_{a'}q_*(l,a')]+(1-\beta)[-3+\gamma\max_{a'}q_*(h,a')] \\
+q_*(l,w)&=r_w+\gamma\max_{a'}q_*(l,a')\\
+q_*(l,re)&=\gamma\max_{a'}q_*(h,a')\\
+\end{flalign}$
 
-Together these 5 equations can be solved simultaneously to give 5 values for $q_*$ for each state-action pair.
+Together these five non-linear equations specify $q_*$ for each of the five state-action pairs given the constants $\alpha$, $\beta$, and $\gamma$ as well as the reward values $r_s$ and $r_w$.
 """
 
 # ╔═╡ 9814c35f-ae0f-436b-ab6a-12d2da7922e0
 md"""
-> *Exercise 3.24* Figure 3.5 gives the optimal value of the best state of the gridworld as 24.4, to one decimal place. Use your knowledge of the optimal policy and (3.8) to express this value symbolically, and then to compute it to three decimal places.
+> ### *Exercise 3.24* 
+> Figure 3.5 gives the optimal value of the best state of the gridworld as 24.4, to one decimal place. Use your knowledge of the optimal policy and (3.8) to express this value symbolically, and then to compute it to three decimal places.
 
 Equation 3.8 provides the expected discounted return as:
 
 $$G_t=\sum_{k=0}^{\infty}\gamma^kR_{t+k+1}$$
 
-If we assume the same discount factor as when the problem was introduced of $$\gamma=0.9$$, then we can iterate through the grid using the optimal policy and collect a sequence of rewards. So for that square, the expected discounted return is:
+If we assume the same discount factor as when the problem was introduced of $$\gamma=0.9$$, then we can iterate through the grid using the optimal policy and collect a sequence of rewards.  Rewards are -1 for actions that try to leave the grid, +10 for any action in A, +5 for any action in square B, and 0 otherwise.  Starting at square A, all actions are optimal and result in a reward of +10.  The optimal policy is then to move vertically back to A from A'.  This sequence of actions will result in the reward sequence: $\{+10, 0, 0, 0, 0, +10, \cdots\}$ leading to the discounted return of:
 
-$$G_t=10[1+\gamma^5 + \gamma^{10} + \gamma^{15} + \cdots]$$
+$\begin{flalign}
+G_t&=10\gamma^0 + 0\gamma^1 + 0\gamma^2 + 0\gamma^3 + 0 \gamma^4 + 10\gamma^5 + \cdots\\
+&=10 [1 + \gamma^5 + \gamma^{10} + \cdots ]
+\end{flalign}$
 
-$$G_t\times\gamma^5=10[\gamma^5+\gamma^{15}+\cdots]=G_t-10 \implies G_t=\frac{10}{1-\gamma^5}$$
+Taking $c = \gamma^5$, the term in the brackets is the series $\sum_{i = 0}^{\infty} c^i = (1-c)^{-1} = (1-\gamma^5)^{-1}$.  Therefore the discounted return is:
 
-So for $\gamma=0.9$, $G_t=\frac{10}{1-0.59049} \approx 24.419$
+$$G_t=\frac{10}{1-\gamma^5}$$
+
+And for $\gamma=0.9$: 
+
+$G_t=\frac{10}{1-.9^5} \approx 24.419$
+
+which is consistent with figure 3.5 when rounded to one decimal place.
 """
 
 # ╔═╡ 6997e43e-ae25-4d71-a165-65fdb37f860c
 md"""
-> *Exercise 3.25* Give an equation for $v_*$ in terms of $q_*$.
+> ### *Exercise 3.25* 
+> Give an equation for $v_*$ in terms of $q_*$.
 
 $$v_*(s)=\max_{a\in \mathcal{A} (s)}q_*(s,a)$$
 """
 
 # ╔═╡ 5f0b3ca5-2bec-49b3-8ca2-f4381033c15b
 md"""
-> *Exercise 3.26* Give an equation for $q_*$ in terms of $v_*$ and the four-argument $p$.
+> ### *Exercise 3.26* 
+> Give an equation for $q_*$ in terms of $v_*$ and the four-argument $p$.
 
-$$q_*(s,a)=\mathbb{E}[R_{t+1}+\gamma v_*(S_{t+1})|S_t=s,A_t=a]$$
-$$q_*(s,a)=\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]$$
+$\begin{flalign}
+q_*(s,a)&=\mathbb{E} \left [ R_{t+1}+\gamma v_*(S_{t+1})|S_t=s,A_t=a \right ] \\
+&=\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]
+\end{flalign}$
 """
 
 # ╔═╡ fdd8ca66-00e7-4ce3-85ec-52cafc27bdba
 md"""
-> *Exercise 3.27* Give an equation for $\pi_*$ in terms of $q_*$.
+> ### *Exercise 3.27* 
+> Give an equation for $\pi_*$ in terms of $q_*$.
 
-$$\pi_*(a|s)= 1 \iff a = \text{argmax}_{a\in\mathcal{A}(s)}q_*(s,a) \text{ else 0}$$
+$\pi_*(s) = \begin{cases}
+1 & a = \underset{a \in \mathcal{A}(s)}{\mathrm{argmax}}[q_*(s,a)]\\
+0 & \text{else}
+\end{cases}$
 """
 
 # ╔═╡ cfb040e5-663f-491d-a949-81ad7630a1f3
 md"""
-> *Exercise 3.28* Give an equation for $\pi_*$ in terms of $v_*$ and the four-argument $p$.
+> ### *Exercise 3.28* 
+> Give an equation for $\pi_*$ in terms of $v_*$ and the four-argument $p$.
 
-$$\pi_*(a|s)=1 \iff a = \text{argmax}_{a\in\mathcal{A}(s)}q_*(s,a)=\text{argmax}_{a\in\mathcal{A}(s)}\sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \text{ else 0}$$
+In exercise 3.27 for the case of $\pi_* = 1$, we can rewrite the expression in terms of $v_*$ by using the expression in exercise 3.26:
+
+$\underset{a \in \mathcal{A}(s)}{\mathrm{argmax}}[q_*(s,a)]=\underset{a \in \mathcal{A}(s)}{\mathrm{argmax}} \left [ \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \right ]$
+
+So the expression for the optimal policy is just:
+
+$\pi_*(s) = \begin{cases}
+1 & a = \underset{a \in \mathcal{A}(s)}{\mathrm{argmax}} \left [ \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \right ] \\
+0 & \text{else}
+\end{cases}$
 """
 
 # ╔═╡ 2ecb796a-4d41-11ee-2293-2f0ee0eeff79
 md"""
-> *Exercise 3.29* Rewrite the four Bellman equations for the four value functions $(v_\pi, \space v_*, \space q_\pi, \text{ and } q_*)$ in terms of the three argument function $p$ (3.4) and the two-argument function $r$ (3.5).
+> ### *Exercise 3.29* 
+> Rewrite the four Bellman equations for the four value functions $(v_\pi, \space v_*, \space q_\pi, \text{ and } q_*)$ in terms of the three argument function $p$ (3.4) and the two-argument function $r$ (3.5).
 
 From (3.4) we have:
 
@@ -480,19 +544,36 @@ $$r(s,a)=\sum_{r \in \mathcal{R}}r\sum_{s' \in \mathcal{S}}p(s',r|s,a)$$
 
 Starting with $v_\pi$:
 
-$$v_\pi(s)=\sum_{a}\pi(a,s)\sum_{s',r}p(s',r|s,a)[r+\gamma v_\pi(s')],\text{ for all }s\in\mathcal{S}$$
-$$v_\pi(s)=\sum_{a}\pi(a,s)\left[r(s,a)+\sum_{s'}p(s'|s,a)\gamma v_\pi(s')\right],\text{ for all }s\in\mathcal{S}$$
+$\begin{flalign}
+v_\pi(s)&=\sum_{a}\pi(a,s)\sum_{s',r}p(s',r|s,a)[r+\gamma v_\pi(s')]\\
+&=\sum_{a}\pi(a,s)\left[r(s,a)+ \gamma \sum_{s'}p(s'|s,a) v_\pi(s')\right]
+\end{flalign}$
 
 Next for $v_*$:
-$$v_*(s)=\max_{a}\sum_{s',r}p(s',r|s,a)[r+\gamma v_*(s')]$$
-$$v_*(s)=\max_{a}r(s,a)+\sum_{s'}p(s'|s,a)\gamma v_*(s')$$
+
+$\begin{flalign}
+v_*(s)&=\max_{a} \left [ \sum_{s',r}p(s',r|s,a)[r+\gamma v_*(s')] \right ]\\
+&=\max_{a} \left [ r(s,a)+ \gamma \sum_{s'}p(s'|s,a) v_*(s') \right ]
+\end{flalign}$
 
 Next for $q_\pi$:
 
-$$q_\pi(s,a)=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')q_{\pi}(s',a') \right]$$
-$$q_\pi(s,a)=r(s,a)+\gamma\sum_{s'} p(s'|s,a)\sum_{a'} \pi(a', s')q_{\pi}(s',a')$$ Next for $q_*$:
-$$q_*(s,a)=\sum_{s',r}p(s',r|s,a)\left[r+\gamma \max_{a'}q_*(s',a') \right]$$
-$$q_*(s,a)=r(s,a)+\sum_{s'}p(s'|s,a)\gamma \max_{a'}q_*(s',a')$$
+$\begin{flalign}
+q_\pi(s,a)&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')q_{\pi}(s',a') \right] \\
+&=r(s,a)+\gamma\sum_{s'} p(s'|s,a)\sum_{a'} \pi(a', s')q_{\pi}(s',a')
+\end{flalign}$
+
+Next for $q_*$:
+
+$\begin{flalign}
+q_*(s,a)&=\sum_{s',r}p(s',r|s,a)\left[r+\gamma \max_{a'} \left [ q_*(s',a') \right ] \right] \\
+&=r(s,a)+ \gamma \sum_{s'}p(s'|s,a) \max_{a'} \left [ q_*(s',a') \right ]
+\end{flalign}$
+"""
+
+# ╔═╡ 4ca58fcf-3115-4100-9f83-b8a389e4eaa0
+md"""
+# Dependencies and Settings
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -510,7 +591,7 @@ PlutoUI = "~0.7.52"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.0-beta2"
+julia_version = "1.10.0-beta3"
 manifest_format = "2.0"
 project_hash = "518adb648c80095d555fe737933aaac06e6c2875"
 
@@ -639,8 +720,13 @@ uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
 version = "8.0.1+1"
 
 [[deps.LibGit2]]
-deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
+deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+
+[[deps.LibGit2_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
+uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+version = "1.6.4+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
@@ -792,7 +878,7 @@ version = "1.10.0"
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.9.0"
+version = "1.10.0"
 
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
@@ -865,7 +951,6 @@ version = "17.4.0+2"
 # ╔═╡ Cell order:
 # ╟─17f36458-139b-4f8b-aba9-d0dd586dd82c
 # ╟─c5abf826-9ce8-4319-a2e5-6cf7fcc61400
-# ╟─9e4d6151-1e41-4820-a453-4ef2efc2db34
 # ╟─85905a6e-1807-4b77-b313-dbadb8b898c8
 # ╟─090c50ed-6772-457a-afbb-cf2cde0e2ec4
 # ╟─768833aa-ceee-4fe8-958f-c00b778ec764
@@ -880,13 +965,13 @@ version = "17.4.0+2"
 # ╟─7e4d7ca2-c4a2-49a0-a2cd-cd1e50a048de
 # ╟─be824355-6fab-4367-ab09-4efaa96b9aae
 # ╟─97a605e6-31dc-4ba9-acc5-e0d81093c3ee
-# ╟─f092656a-b5bd-4802-8f08-82bce562f643
 # ╟─c12ca18c-0780-4c02-9396-82b97f019bc6
 # ╟─e4d73777-cf4b-40c5-8922-b9df28d25aa0
 # ╟─ede978b8-dd9d-4b26-88c1-7def0dae42ee
 # ╟─b5871733-c403-4b39-8b51-2f3941c8a634
 # ╟─60aa5fa8-ea7d-45c9-8528-22ddd3ba74e2
 # ╟─a0257b35-b3c8-4bf6-948a-48ced42addf7
+# ╟─65457924-9c1f-4e13-834f-22b68e7e9062
 # ╟─0433fbf6-c753-4621-8ef3-8229cf77b9b2
 # ╟─23516799-1bce-41a2-8dff-f8b8268b54d1
 # ╟─07f0e0a7-8c6e-4474-bc8b-ddf6eaa19a34
@@ -897,5 +982,7 @@ version = "17.4.0+2"
 # ╟─fdd8ca66-00e7-4ce3-85ec-52cafc27bdba
 # ╟─cfb040e5-663f-491d-a949-81ad7630a1f3
 # ╟─2ecb796a-4d41-11ee-2293-2f0ee0eeff79
+# ╟─4ca58fcf-3115-4100-9f83-b8a389e4eaa0
+# ╠═86d53794-2251-47d5-a45e-f1da53cd8ef5
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
