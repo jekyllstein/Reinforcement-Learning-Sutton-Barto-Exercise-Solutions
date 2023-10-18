@@ -6,7 +6,7 @@ using InteractiveUtils
 
 # ╔═╡ f5809bd3-64d4-47ee-9e41-e491f8c09719
 begin
-	using PlutoPlotly, PlutoUI
+	using PlutoPlotly, PlutoUI, HypertextLiteral, Random
 	TableOfContents()
 end
 
@@ -63,7 +63,7 @@ v_{k+1}(s) &\doteq \mathbb{E}_\pi [R_{t+1} + \gamma v_k(S_{t+1}) \mid S_t = s] \
 
 for all $s \in \mathcal{S}$.  $v_k = v_\pi$ is a fixed point of this iteration because the Bellman equation assures us of equality in this case.  The sequence $\{ v_k \}$ in general converges to $v_\pi$ as $k \rightarrow \infty$ under the same conditions that guarantee the existence of $v_\pi$.  This algorithm is called *iterative policy evaluation*.
 
-Each round of policy evaluation updates every state once.  These are called *expected* updates because they involve directly calculating the expected value using the true probabilities.  To follow this algorithm precisely, we must keep all the values of $v_k$ fixed while we compute $v_{k+1}$ but in practice we can update in place for each state.  As we sweep through the state space then the updates are computed and use new values as soon as they are available.  This method can converge faster than the strict version and requires keeping track of one less item.  Usually when implemented this in-place version of the algorithm is prefered.  Below are examples of code that implements iterative policy evaluation.
+Each round of policy evaluation updates every state once.  These are called *expected* updates because they involve directly calculating the expected value using the true probabilities.  To follow this algorithm precisely, we must keep all the values of $v_k$ fixed while we compute $v_{k+1}$, but in practice we can update in place for each state.  As we sweep through the state space then the updates are computed and use new values as soon as they are available.  This method can converge faster than the strict version and does not require keeping a separate copy of the unmodified values.  This in-place version of the algorithm is usually what is implemented.  Below are examples of code that implement iterative policy evaluation.
 """
 
 # ╔═╡ 4665aa5c-87d1-4359-8cfd-7502d8c5d2e2
@@ -89,36 +89,20 @@ function bellman_value!(V::Dict, p::Dict, sa_keys::Tuple, π::Dict, γ::Real)
 end
 
 # ╔═╡ 5b912508-aa15-470e-be4e-430e88d8a68d
-function iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, V::Dict, delt::Real, nmax::Real)
+function iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, V::Dict, nmax::Real)
 	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		return V
-	else 
-		delt = bellman_value!(V, p, sa_keys, π, γ)
-		iterative_policy_eval_v(π, θ, mdp, γ, V, delt, nmax - 1)	
-	end
-end
-
-# ╔═╡ e6cdb2be-697d-4191-bd5a-9c129b32246d
-function iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, Vinit = 0.0; nmax = Inf)
-	(p, sa_keys) = mdp
-	V = Dict(s => Vinit for s in keys(sa_keys[1]))
 	delt = bellman_value!(V, p, sa_keys, π, γ)
-	iterative_policy_eval_v(π, θ, mdp, γ, V, delt, nmax - 1)	
+	(nmax <= 0 || delt <= θ) && return V
+	iterative_policy_eval_v(π, θ, mdp, γ, V, nmax - 1)	
 end
 
 # ╔═╡ 9253064c-7dfe-445f-b377-fc1acbb6886e
-function iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, Vinit::Dict; nmax=Inf)
-	(p, sa_keys) = mdp
-	V = deepcopy(Vinit)
-	delt = bellman_value!(V, p, sa_keys, π, γ)
-	iterative_policy_eval_v(π, θ, mdp, γ, V, delt, nmax - 1)
-end
+#first call when the value function is initialized with a dictionary
+iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, Vinit::Dict; nmax=Inf) = iterative_policy_eval_v(π, θ, mdp, γ, deepcopy(Vinit), nmax - 1)
 
-# ╔═╡ 7c8c99fd-1b55-494c-898f-194c61e36724
-md"""
-### Example 4.1
-"""
+# ╔═╡ e6cdb2be-697d-4191-bd5a-9c129b32246d
+#first call when the value function is initialized with a value
+iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, Vinit::Real = 0.0; nmax = Inf) = iterative_policy_eval_v(π, θ, mdp, γ, Dict(s => Vinit for s in keys(mdp[2][1])); nmax = nmax)
 
 # ╔═╡ 5f574281-88e0-4d82-bf18-1cfe4c1990fc
 @enum GridworldAction up down left right
@@ -201,7 +185,7 @@ function form_random_policy(sa_keys)
 		s = k[1]
 		actions = k[2]
 		l = length(actions)
-		p = inv(l)
+		p = inv(l) #equal probability for all actions
 		s => Dict(a => p for a in actions)
 	end
 	for k in sa_keys[1]])
@@ -217,6 +201,216 @@ end
 
 # ╔═╡ 84068701-40d7-4a5e-93f2-af2a751ab2ec
 makefig4_1(Inf)
+
+# ╔═╡ e4370697-e6a7-40f0-974a-ed219102c13f
+linejoin(a, b) = 
+"""
+$a
+$b
+"""
+
+# ╔═╡ 6844dff1-bc0b-47c5-8496-efe46dafbb5b
+function makehtmlgrid(n)
+	mapreduce(linejoin, 1:n) do i
+		"""<div class = "gridcell">$i
+		</div>
+		"""
+	end
+end
+
+# ╔═╡ 34f0f670-483f-4add-bf25-34993d646e5e
+gridworld_display = HTML("""
+<div id = "gridcontainer">
+<div class="gridworld">
+	<div class = "nullcell"></div>
+	$(makehtmlgrid(14))
+	<div class = "nullcell"></div>
+</div>
+</div>
+""");
+
+# ╔═╡ 92e50901-7d10-470b-a985-be45adcad817
+md"""
+### Example 4.1
+| |4x4 gridworld | |
+|---|:---:|---|
+|$$\leftarrow \uparrow \rightarrow \downarrow \text{actions}$$|$gridworld_display|$$R_t = -1$$ on all transitions|
+
+The gray boxes in the corners represent the terminal state
+"""
+
+# ╔═╡ e76bd134-f4ac-4382-b56a-fca8f3ca27cd
+html"""
+<style>
+#gridcontainer {
+	display: flex;
+	background: rgba(0, 0, 0, 0);
+	margin: 0px;
+	padding: 0px;
+}
+.gridworld {
+	width: 24vw;
+	aspect-ratio: 1 / 1;
+	display: grid;
+	grid-template-columns: repeat(4, 6vw);
+	grid-auto-rows: auto;
+	gap: 0px;
+	border: 1px solid black;
+}
+.gridcell {
+	border: 1px solid black;
+	background: white;
+	color: black;
+	writing-mode: horizontal-lr;
+	display: flex;
+	align-items: end;
+	padding-left: 4px;
+}
+
+.valuecell {
+	border: 1px solid black;
+	background: white;
+	color: black;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font: normal 1.5em Veranda;
+}
+
+.nullcell {
+	border: 1px solid black;
+	background: gray;
+	
+}
+</style>
+"""
+
+# ╔═╡ f4fce267-78a2-4fd3-aad5-a8298783c015
+const directions = ("N", "S", "E", "W")
+
+# ╔═╡ 1d098de3-592e-401b-a493-2728e8a6ffe9
+function makepolicycell(πvec)
+	inds = findall(πvec .!= 0)
+	attr = isempty(inds) ? """""" : reduce((a, b) -> """ $a $b""", directions[inds])
+	"""
+	<div class="policycell" $attr>
+		$(mapreduce(a -> """<div></div>""", linejoin, 1:9))
+	</div>
+	"""
+end	
+
+# ╔═╡ d0b4a71b-b574-4d62-be0b-14e03595a15c
+function makevaluecell(value)
+	"""
+	<div class="valuecell">
+		$value
+	</div>
+	"""
+end	
+
+# ╔═╡ a186f0a8-d074-4c25-a703-2aa5ce461349
+html"""
+<style>
+	.policycell {
+		border: 1px solid black;
+		width: 6vw;
+		height: 6vw;
+		display: grid;
+		grid-template-columns: repeat(3, 2vw);
+		grid-template-rows: repeat(3, 2vw);
+		margin: 0px;
+		padding: 0px;
+		background: white;
+		color: black;
+	}
+
+	.policycell * {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font: bold 2.5vw Arial;
+	}
+
+	.policycell *::before {
+		content: "\2191";
+		display: none;
+	}
+
+	.policycell[N] :nth-Child(2)::before {
+		transform: rotate(0deg);
+		display: inline;
+	}
+
+	.policycell[NW] :nth-Child(1)::before {
+		transform: rotate(-45deg);
+		display: inline;
+	}
+
+	.policycell[NE] :nth-Child(3)::before {
+		transform: rotate(45deg);
+		display: inline;
+	}
+
+	.policycell[W] :nth-Child(4)::before {
+		transform: rotate(-90deg);
+		display: inline;
+	}
+
+	.policycell[E] :nth-Child(6)::before {
+		transform: rotate(90deg);
+		display: inline;
+	}
+
+	.policycell[SW] :nth-Child(7)::before {
+		transform: rotate(-135deg);
+		display: inline;
+	}
+
+	.policycell[S] :nth-Child(8)::before {
+		transform: rotate(180deg);
+		display: inline;
+	}
+
+	.policycell[SE] :nth-Child(9)::before {
+		transform: rotate(135deg);
+		display: inline;
+	}
+</style>
+"""
+
+# ╔═╡ 2c23c4ec-f332-4e05-a730-06fa20a0227a
+function show_gridworld_policy(policies)
+	"""
+	<div id="gridcontainer">
+	<div class="gridworld">
+		<div class = "nullcell"></div>
+		$(mapreduce(makepolicycell, linejoin, policies))
+		<div class = "nullcell"></div>
+	</div>
+	</div>
+	"""
+end
+
+# ╔═╡ aa19ffd4-69a0-44a9-8109-d6be003ae7b1
+function show_gridworld_values(values)
+	"""
+	<div id="gridcontainer">
+	<div class="gridworld">
+		$(makevaluecell(0.0))
+		$(mapreduce(makevaluecell, linejoin, values))
+		$(makevaluecell(0.0))
+	</div>
+	</div>
+	"""
+end
+
+# ╔═╡ b3ed0348-3d74-4726-878f-5eefcb1d72d0
+md"""
+| | $$v_k$$ for the random policy | greedy policy w.r.t. $$v_k$$ | |
+|:---:|:----:|:---:| --- |
+| $$k = 0$$ | $(HTML(show_gridworld_values([0.0 for _ in 1:14]))) | $(HTML(show_gridworld_policy([[round(Int64, rand()) for i in 1:4] for _ in 1:14]))) | $$\longleftarrow$$ random policy|
+| $$k = \infty$$ | $(HTML(show_gridworld_values([round(a[2], sigdigits = 2) for a in makefig4_1(Inf)[2:end]]))) | $(HTML(show_gridworld_policy([[round(Int64, rand()) for i in 1:4] for _ in 1:14]))) | $$\longleftarrow$$ random policy|
+"""
 
 # ╔═╡ f80580b3-f370-4a02-a9e2-ed791f380521
 md"""
@@ -725,16 +919,25 @@ end
 modified_jacks_car_mdp = car_rental_modified_mdp()
 
 # ╔═╡ 0a60d83e-3ef6-449f-9131-0c0d0777d413
+# ╠═╡ disabled = true
+#=╠═╡
 V0_modified_car_rental_eval = car_rental_policy_eval(modified_jacks_car_mdp)	
+  ╠═╡ =#
 
 # ╔═╡ 65408c28-eee7-4f60-b71a-cbf31a3c43aa
+#=╠═╡
 heatmap(V0_modified_car_rental_eval[3][1], title="Value Function No Movement Modified Car Rental Policy")
+  ╠═╡ =#
 
 # ╔═╡ c973a895-07bb-4f8f-8498-4b4773bdd02d
+#=╠═╡
 exercise4_7_results = car_rental_policy_iteration(modified_jacks_car_mdp, θ=0.01, null_policy_eval=V0_modified_car_rental_eval)
+  ╠═╡ =#
 
 # ╔═╡ 48ff63c9-97f4-4162-a009-d05517b8f06f
+#=╠═╡
 plotcarpolicy(exercise4_7_results[2])
+  ╠═╡ =#
 
 # ╔═╡ 2bedc22e-9615-4fb4-94bf-6a0e7114c417
 md"""
@@ -941,10 +1144,13 @@ md"""
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [compat]
+HypertextLiteral = "~0.9.4"
 PlutoPlotly = "~0.4.1"
 PlutoUI = "~0.7.52"
 """
@@ -955,7 +1161,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0-beta3"
 manifest_format = "2.0"
-project_hash = "ea5b8488697e5bd401f7286591a24de33ba7f884"
+project_hash = "f1f6b907ed3c37a071c58d66a1a97d0114a22063"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1319,15 +1525,26 @@ version = "17.4.0+2"
 # ╟─4665aa5c-87d1-4359-8cfd-7502d8c5d2e2
 # ╠═59b91c65-3f8a-4015-bb08-d7455623101c
 # ╠═5b912508-aa15-470e-be4e-430e88d8a68d
-# ╠═e6cdb2be-697d-4191-bd5a-9c129b32246d
 # ╠═9253064c-7dfe-445f-b377-fc1acbb6886e
-# ╟─7c8c99fd-1b55-494c-898f-194c61e36724
+# ╠═e6cdb2be-697d-4191-bd5a-9c129b32246d
+# ╟─92e50901-7d10-470b-a985-be45adcad817
 # ╠═5f574281-88e0-4d82-bf18-1cfe4c1990fc
 # ╠═df9593ca-6d27-45de-9d46-79bddc7a3862
 # ╠═c7bdf32a-2f89-4bf8-916b-7558ceedb628
 # ╠═6048b106-458e-4e3b-bba9-5f3578458c7c
 # ╠═0d0e82e4-b3a4-4528-9288-285fdc5aa8af
 # ╠═84068701-40d7-4a5e-93f2-af2a751ab2ec
+# ╠═e4370697-e6a7-40f0-974a-ed219102c13f
+# ╠═6844dff1-bc0b-47c5-8496-efe46dafbb5b
+# ╠═34f0f670-483f-4add-bf25-34993d646e5e
+# ╠═e76bd134-f4ac-4382-b56a-fca8f3ca27cd
+# ╠═f4fce267-78a2-4fd3-aad5-a8298783c015
+# ╠═1d098de3-592e-401b-a493-2728e8a6ffe9
+# ╠═d0b4a71b-b574-4d62-be0b-14e03595a15c
+# ╠═a186f0a8-d074-4c25-a703-2aa5ce461349
+# ╠═2c23c4ec-f332-4e05-a730-06fa20a0227a
+# ╠═aa19ffd4-69a0-44a9-8109-d6be003ae7b1
+# ╠═b3ed0348-3d74-4726-878f-5eefcb1d72d0
 # ╟─f80580b3-f370-4a02-a9e2-ed791f380521
 # ╟─0bebb164-4347-4cff-8169-9f4da4553ae6
 # ╠═10c9b166-3a88-460e-82e8-a16c020c1378
@@ -1382,7 +1599,7 @@ version = "17.4.0+2"
 # ╠═64144caf-7b21-41b5-a002-6a86e5119f8b
 # ╠═d79c93ff-7945-435c-8db1-dfdd6518e34e
 # ╟─42e4a3d6-26ef-48bb-9164-118186ec118b
-# ╠═64f22fbb-5c6c-4e8f-bd79-3c9eb19bedca
+# ╟─64f22fbb-5c6c-4e8f-bd79-3c9eb19bedca
 # ╠═f5809bd3-64d4-47ee-9e41-e491f8c09719
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
