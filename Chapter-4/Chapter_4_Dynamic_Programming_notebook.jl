@@ -4,9 +4,19 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+end
+
 # ╔═╡ f5809bd3-64d4-47ee-9e41-e491f8c09719
 begin
-	using PlutoPlotly, PlutoUI, HypertextLiteral, Random
+	using PlutoPlotly, PlutoUI, HypertextLiteral, Random, LaTeXStrings, Latexify
 	TableOfContents()
 end
 
@@ -90,9 +100,10 @@ end
 
 # ╔═╡ 5b912508-aa15-470e-be4e-430e88d8a68d
 function iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, V::Dict, nmax::Real)
+	nmax < 0 && return V
 	(p, sa_keys) = mdp
 	delt = bellman_value!(V, p, sa_keys, π, γ)
-	(nmax <= 0 || delt <= θ) && return V
+	delt <= θ && return V
 	iterative_policy_eval_v(π, θ, mdp, γ, V, nmax - 1)	
 end
 
@@ -104,8 +115,15 @@ iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, Vinit::Di
 #first call when the value function is initialized with a value
 iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, Vinit::Real = 0.0; nmax = Inf) = iterative_policy_eval_v(π, θ, mdp, γ, Dict(s => Vinit for s in keys(mdp[2][1])); nmax = nmax)
 
-# ╔═╡ 5f574281-88e0-4d82-bf18-1cfe4c1990fc
-@enum GridworldAction up down left right
+# ╔═╡ 4dd32517-4c12-4635-8135-3019828af2b5
+begin
+	abstract type GridworldAction end
+	struct North <: GridworldAction end
+	struct South <: GridworldAction end
+	struct East <: GridworldAction end
+	struct West <: GridworldAction end
+	const gridworld_actions = [North(), South(), East(), West()]
+end
 
 # ╔═╡ df9593ca-6d27-45de-9d46-79bddc7a3862
 #p is the state transition function for an mdp which maps the 4 arguments to a probability.  This function uses p to generate two dictionaries.  The first maps each state to a set of possible actions in that state.  The second maps each state/action pair to a set of possible transition/reward pairs
@@ -125,53 +143,41 @@ end
 
 # ╔═╡ c7bdf32a-2f89-4bf8-916b-7558ceedb628
 function gridworld4x4_mdp()
-	S = collect(1:14)
+	states = collect(1:14)
 	s_term = 0
-	A = [up, down, left, right]
-	#define p by iterating over all possible states and transitions
-	p = Dict{Tuple{Int64, Int64, Int64, GridworldAction}, Float64}()
-
+	#define p by iterating over all possible states and transitions: p(s′, r, s, a)
 	#there is 0 reward and a probability of 1 staying in the terminal state for all 	actions taken from the terminal state
-	for a in A
-		push!(p, (0, 0, 0, a) => 1.0)
+	p = Dict((0, 0.0, 0, a) => 1.0 for a in gridworld_actions)
+
+	#positions that result in terminal states
+	termset(::North) = (4,)
+	termset(::South) = (11,)
+	termset(::East) = (14,)
+	termset(::West) = (1,)
+
+	#positions that leave the state unchanged
+	constset(::North) = (1, 2, 3)
+	constset(::South) = (12, 13, 14)
+	constset(::East) = (3, 7, 11)
+	constset(::West) = (4, 8, 12)
+
+	#usual movement rule
+	delta(::North) = -4
+	delta(::South) = +4
+	delta(::East) = +1
+	delta(::West) = -1
+	
+	function move(s, dir::GridworldAction)
+		in(s, termset(dir)) && return s_term
+		in(s, constset(dir)) && return s
+		return s + delta(dir)
 	end
 
-	#add cases where end up in the terminal state
-	push!(p, (s_term, -1, 14, right) => 1.0)
-	push!(p, (s_term, -1, 11, down) => 1.0)
-	push!(p, (s_term, -1, 1, left) => 1.0)
-	push!(p, (s_term, -1, 4, up) => 1.0)
-	
-	for s in S
-		for a in A
-			for s′ in S
-				check = if a == right
-					if (s == 3) || (s == 7) || (s == 11) 
-						s′ == s
-					else 
-						s′ == s+1
-					end
-				elseif a == left
-					if (s == 4) || (s == 8) || (s == 12)
-						s′ == s
-					else 
-						s′ == s-1
-					end
-				elseif a == up
-					if (s == 1) || (s == 2) || (s == 3)
-						s′ == s
-					else
-						s′ == s - 4
-					end
-				elseif a == down
-					if (s == 12) || (s == 13) || (s == 14)
-						s′ == s
-					else
-						s′ == s + 4
-					end
-				end
-				check && push!(p, (s′,-1,s,a) => 1.0)
-			end
+	#add other transitions to p
+	for s in states
+		for a in gridworld_actions
+			s′ = move(s, a)
+			p[s′, -1.0, s, a] = 1.0
 		end
 	end
 	sa_keys = get_sa_keys(p)
@@ -199,9 +205,6 @@ function makefig4_1(nmax=Inf)
 	[(s, V[s]) for s in 0:14]
 end
 
-# ╔═╡ 84068701-40d7-4a5e-93f2-af2a751ab2ec
-makefig4_1(Inf)
-
 # ╔═╡ e4370697-e6a7-40f0-974a-ed219102c13f
 linejoin(a, b) = 
 """
@@ -212,7 +215,8 @@ $b
 # ╔═╡ 6844dff1-bc0b-47c5-8496-efe46dafbb5b
 function makehtmlgrid(n)
 	mapreduce(linejoin, 1:n) do i
-		"""<div class = "gridcell">$i
+		"""
+		<div class = "gridcell">$i
 		</div>
 		"""
 	end
@@ -249,7 +253,6 @@ html"""
 	padding: 0px;
 }
 .gridworld {
-	width: 24vw;
 	aspect-ratio: 1 / 1;
 	display: grid;
 	grid-template-columns: repeat(4, 6vw);
@@ -257,30 +260,36 @@ html"""
 	gap: 0px;
 	border: 1px solid black;
 }
-.gridcell {
+
+.gridworld .gridcell,.valuecell,.nullcell,.blankcell {
+	width: 6vw;
+	height: 6vw;
 	border: 1px solid black;
-	background: white;
-	color: black;
-	writing-mode: horizontal-lr;
 	display: flex;
+	color: black;
+}
+
+.gridcell {
+	background: white;
+	writing-mode: horizontal-lr;
 	align-items: end;
 	padding-left: 4px;
 }
 
 .valuecell {
-	border: 1px solid black;
 	background: white;
-	color: black;
-	display: flex;
 	align-items: center;
 	justify-content: center;
-	font: normal 1.5em Veranda;
+	font: normal 2vw Veranda;
 }
 
 .nullcell {
-	border: 1px solid black;
 	background: gray;
-	
+}
+
+.blankcell {
+	background: none;
+	border: 0px;
 }
 </style>
 """
@@ -404,37 +413,84 @@ function show_gridworld_values(values)
 	"""
 end
 
-# ╔═╡ b3ed0348-3d74-4726-878f-5eefcb1d72d0
+# ╔═╡ 7539da6f-1fb7-4a63-98ba-52b81bb27eca
+function convertpolicy(π::Dict)
+	function convertdist!(v::Vector)
+		m = maximum(v)
+		v .= isapprox.(v, m; atol = 0.01)
+		v ./ sum(v)
+		return v
+	end
+	[convertdist!([π[s][a] for a in gridworld_actions]) for s in 1:14]
+end
+
+# ╔═╡ f68b0587-1203-4985-9077-ded678ba4b8f
 md"""
-| | $$v_k$$ for the random policy | greedy policy w.r.t. $$v_k$$ | |
-|:---:|:----:|:---:| --- |
-| $$k = 0$$ | $(HTML(show_gridworld_values([0.0 for _ in 1:14]))) | $(HTML(show_gridworld_policy([[round(Int64, rand()) for i in 1:4] for _ in 1:14]))) | $$\longleftarrow$$ random policy|
-| $$k = \infty$$ | $(HTML(show_gridworld_values([round(a[2], sigdigits = 2) for a in makefig4_1(Inf)[2:end]]))) | $(HTML(show_gridworld_policy([[round(Int64, rand()) for i in 1:4] for _ in 1:14]))) | $$\longleftarrow$$ random policy|
+### Figure 4.1 Interactive
+"""
+
+# ╔═╡ 7dcb5621-17ce-4794-b70e-e639e5068a18
+md"""
+Click here to reset value: $(@bind reset_k Button())
+"""
+
+# ╔═╡ 7e9fe05a-c447-4a41-8c61-67c9a899411c
+begin
+	reset_k
+	@bind user_k CounterButton("Click to increase k")
+end
+
+# ╔═╡ 20c5e03d-a1f4-4b2e-9893-efb9b03f00e8
+md"""
+Middle value set by user as k = $(user_k+1).  
+"""
+
+# ╔═╡ 5fae76af-ac80-49c5-b553-73d09a6e9098
+md"""
+### Figure 4.1
 """
 
 # ╔═╡ f80580b3-f370-4a02-a9e2-ed791f380521
 md"""
-> *Exercise 4.1* In Example 4.1, if $\pi$ is the equiprobable random policy, what is $q_{\pi}(11,\text{down})$?  What is $q_{\pi}(7,\text{down})$?
+> ### *Exercise 4.1* 
+> In Example 4.1, if $\pi$ is the equiprobable random policy, what is $q_{\pi}(11,\text{down})$?  What is $q_{\pi}(7,\text{down})$?
 $q_{\pi}(11, \text{down}) = -1$ because this will transition into the terminal state and terminate the episode receiving the single reward of -1.
 
 $q_{\pi}(7,\text{down})=-15$ because we are gauranteed to end up in state 11 and receive a reward of -1 from the first action.  Once we are in state 11, we can add $v_{\pi_{random}}(11)=-14$ to this value since the rewards are not discounted.
 
 """
 
-# ╔═╡ 0bebb164-4347-4cff-8169-9f4da4553ae6
+# ╔═╡ 71abc452-cefc-47f8-8f9c-6fd3565f3ec6
 md"""
-> *Exercise 4.2* In Example 4.1, supposed a new state 15 is added to the gridworld just below state 13, and its actions, $\text{left}$, $\text{up}$, $\text{right}$, and $\text{down}$, take the agent to states 12, 13, 14, and 15 respectively.  Assume that the transitions *from* the original states are unchanged.  What, then is $v_{\pi}(15)$ for the equiprobable random policy?  Now supposed the dynamics of state 13 are also changed, such that action $\text{down}$ from state 13 takes the agent to the new state 15.  What is $v_{\pi}(15)$ for the equiprobable random policy in this case?
+> ### *Exercise 4.2* 
+> In Example 4.1, supposed a new state 15 is added to the gridworld just below state 13, and its actions, $\text{left}$, $\text{up}$, $\text{right}$, and $\text{down}$, take the agent to states 12, 13, 14, and 15 respectively.  Assume that the transitions *from* the original states are unchanged.  What, then is $v_{\pi}(15)$ for the equiprobable random policy?  Now supposed the dynamics of state 13 are also changed, such that action $\text{down}$ from state 13 takes the agent to the new state 15.  What is $v_{\pi}(15)$ for the equiprobable random policy in this case?
+"""
 
+# ╔═╡ 54c73389-bb7a-48f1-b5d5-9d4972b1857a
+gridworld_display_modified = HTML("""
+<div id = "gridcontainer">
+<div class="gridworld">
+	<div class = "nullcell"></div>
+	$(makehtmlgrid(14))
+	<div class = "nullcell"></div>
+	<div class = "blankcell"></div>
+	<div class = "gridcell">15</div>
+</div>
+</div>
+""")
+
+# ╔═╡ 9e594059-39cd-4fc7-91ae-b8e9156db6df
+md"""
 In the first case, we can never re-enter state 15 from any other state, so we can use the average of the value function in the states it transitions into.  
 
-$v_{\pi}(15) = 0.25 \times \left ( v_{\pi}(12) + v_{\pi}(13) + v_{\pi}(14)+ v_{\pi}(15) \right )$ 
-$v_\pi(15) = 0.25 \times (-22 + -20 + -14 + v_\pi(15))$
+$v_{\pi}(15) = -1 + 0.25 \times \left ( v_{\pi}(12) + v_{\pi}(13) + v_{\pi}(14)+ v_{\pi}(15) \right )$ 
+$v_\pi(15) = -1 + 0.25 \times (-22 + -20 + -14 + v_\pi(15))$
 
 Solving for the value at 15 yields:
 
-$v_\pi(15) = \frac{0.25 \times -56}{0.75}=-18.666 \dots$
+$v_\pi(15) = \frac{0.25 \times -56 - 1}{0.75}=-20$
 
-In the second case, the value function at 13 and 15 become coupled because transitions back and forth are allowed.  We can write down new Bellman equations for the equiprobably policy π of these states:
+In the second case, the value function at 13 and 15 become coupled because transitions back and forth are allowed.  We can write down new Bellman equations for the equiprobable policy π of these states:
 
 $v_{\pi}(13) = -1 + \frac{1}{4}(v_{\pi}(9) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15))$
 $v_{\pi}(15) = -1 + \frac{1}{4}(v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15))$
@@ -458,65 +514,56 @@ So we assumed that the value at state 13 was unchanged to get the approximation 
 # ╔═╡ 10c9b166-3a88-460e-82e8-a16c020c1378
 #Exercise 4.2 part 2
 function gridworld_modified_mdp()
-	S = collect(1:15)
+	states = collect(1:15)
 	s_term = 0
-	A = [up, down, left, right]
 
 	#no discounting in this episodic task
 	γ = 1.0
 	
 	#define p by iterating over all possible states and transitions
-	p = Dict{Tuple{Int64, Int64, Int64, GridworldAction}, Float64}()
-
 	#there is 0 reward and a probability of 1 staying in the terminal state for all 	actions taken from the terminal state
-	for a in A
-		push!(p, (0, 0, 0, a) => 1.0)
+	p = Dict((0, 0.0, 0, a) => 1.0 for a in gridworld_actions)
+
+	#positions that result in terminal states
+	termset(::North) = (4,)
+	termset(::South) = (11,)
+	termset(::East) = (14,)
+	termset(::West) = (1,)
+
+	#positions that leave the state unchanged
+	constset(::North) = (1, 2, 3)
+	constset(::South) = (12, 14, 15)
+	constset(::East) = (3, 7, 11)
+	constset(::West) = (4, 8, 12)
+
+	#usual movement rule
+	delta(::North) = -4
+	delta(::South) = +4
+	delta(::East) = +1
+	delta(::West) = -1
+
+	move15(s, ::North) = 13
+	move15(s, ::East) = 14
+	move15(s, ::West) = 12
+
+	move13(s, ::North) = 9
+	move13(s, ::West) = 12
+	move13(s, ::East) = 14
+	move13(s, ::South) = 15
+	
+	function move(s, dir::GridworldAction)
+		in(s, termset(dir)) && return s_term
+		in(s, constset(dir)) && return s
+		(s == 15) && return move15(s, dir)
+		(s == 13) && return move13(s, dir)
+		return s + delta(dir)
 	end
 
-	#add cases where end up in the terminal state
-	push!(p, (s_term, -1, 14, right) => 1.0)
-	push!(p, (s_term, -1, 11, down) => 1.0)
-	push!(p, (s_term, -1, 1, left) => 1.0)
-	push!(p, (s_term, -1, 4, up) => 1.0)
-	
-	for s in S
-		for a in A
-			for s′ in S
-				check = if a == right
-					if (s == 3) || (s == 7) || (s == 11) 
-						s′ == s
-					elseif s == 15
-						s′ == 14
-					else
-						(s != 14) && (s′ == s+1)
-					end
-				elseif a == left
-					if (s == 4) || (s == 8) || (s == 12)
-						s′ == s
-					elseif (s == 15)
-						s′ == 12
-					else
-						s′ == s-1
-					end
-				elseif a == up
-					if (s == 1) || (s == 2) || (s == 3)
-						s′ == s
-					elseif (s == 15)
-						s′ == 13
-					else
-						s′ == s - 4
-					end
-				elseif a == down
-					if (s == 12) || (s == 14) || (s == 15)
-						s′ == s
-					elseif (s == 13)
-						s′ == 15
-					else
-						(s != 11) && (s′ == s + 4)
-					end
-				end
-				check && push!(p, (s′,-1,s,a) => 1.0)
-			end
+	#add other transitions to p
+	for s in states
+		for a in gridworld_actions
+			s′ = move(s, a)
+			p[s′, -1.0, s, a] = 1.0
 		end
 	end
 	sa_keys = get_sa_keys(p)
@@ -531,13 +578,45 @@ function exercise4_2(nmax=Inf)
 	[(s, V[s]) for s in 0:15]
 end
 
+# ╔═╡ 11365717-6dee-461c-8ecf-485144b53a93
+function show_modified_gridworld_values(values)
+	"""
+	<div id="gridcontainer">
+	<div class="gridworld">
+		$(makevaluecell(0.0))
+		$(mapreduce(makevaluecell, linejoin, values[2:end-1]))
+		$(makevaluecell(0.0))
+		<div class = "blankcell"></div>
+		$(makevaluecell(values[end]))
+	</div>
+	</div>
+	"""
+end
+
+# ╔═╡ 68a01f8e-769b-4362-b12a-48733e8b8dba
+@bind k_4_2_reset Button("Click to reset k to 1")
+
+# ╔═╡ ab98efa4-c793-40eb-8c1c-70a0bb929ab3
+begin
+	k_4_2_reset
+	@bind k_4_2 CounterButton("Click to increase k")
+end
+
 # ╔═╡ e4bfdaca-3f3d-43bb-b8aa-7536adbff662
-#calculates value function for gridworld example in part 2 of exercise 4.2 with an added state 15
-exercise4_2()
+begin
+	k_4_2_latex = Markdown.parse(latexify(string("k = ", k_4_2+1)))
+	#calculates value function for gridworld example in part 2 of exercise 4.2 with an added state 15
+	md"""
+	|Modified Gridworld|$k_4_2_latex|$$k = \infty$$|
+	|:---:|:---:|:---:|
+	| $gridworld_display_modified |$(HTML(show_modified_gridworld_values([round(a[2], sigdigits = 2) for a in exercise4_2(k_4_2+1)]))) |  $(HTML(show_modified_gridworld_values([round(a[2], sigdigits = 2) for a in exercise4_2()]))) |
+	"""
+end
 
 # ╔═╡ 35e1ffe5-d36a-449d-aa73-c618e2855042
 md"""
-> *Exercise 4.3* What are the equations analogous to (4.3), (4.4), and (4.5), but for *action*-value functions instead of state-value functions?
+> ### *Exercise 4.3* 
+> What are the equations analogous to (4.3), (4.4), and (4.5), but for *action*-value functions instead of state-value functions?
 
 Equation (4.3)
 
@@ -553,7 +632,7 @@ $v_\pi(s)=\sum_a \pi(a|s) \sum_{s',r} p(s',r|s,a)[r + \gamma v_\pi(s')]$
 
 action-value equivalent
 
-$q_\pi(s,a)=\sum_{s',r} p(s',r|s,a)[r + \gamma \sum_{a'} \pi(s',a') q_\pi(s',a')]$
+$q_\pi(s,a)=\sum_{s',r} p(s',r|s,a)[r + \gamma \sum_{a'} \pi(a'|s') q_\pi(s',a')]$
 
 Equation (4.5)
 
@@ -564,10 +643,78 @@ action-value equivalent
 $q_{k+1}(s,a) = \sum_{s',r} p(s',r|s,a)[r + \gamma \sum_{a'} \pi(a'|s') q_k(s',a')]$
 """
 
+# ╔═╡ aa2e7334-af07-4152-8f21-e80bdcdd979b
+md"""
+## 4.2 Policy Improvement
+"""
+
 # ╔═╡ 67b06f3b-13df-4b27-ad80-d112432e8f42
 md"""
-### 4.3 Policy Iteration
+## 4.3 Policy Iteration
 """
+
+# ╔═╡ 160c59b0-a5ea-4046-b79f-7a6a6fc8db7e
+function greedy_policy(mdp::NamedTuple, V::Dict, γ::Real)
+	(p, sa_keys) = mdp
+	Dict(begin
+		actions = sa_keys[1][s]
+		newdist = Dict(a => 
+				sum(p[(s′,r,s,a)] * (r + γ*V[s′]) for (s′,r) in sa_keys[2][(s,a)])
+				for a in actions)
+		s => newdist
+	end
+	for s in keys(sa_keys[1]))
+end
+
+# ╔═╡ c078f6c3-7576-4933-bc95-d33e8193ee93
+function make_4_1_row(k)
+	v = makefig4_1(k)
+	π = convertpolicy(greedy_policy(gridworld4x4_mdp(), Dict(v), 1.0))
+	# """
+	# | $(latexify(string("k = ", k))) | $(HTML(show_gridworld_values([round(a[2], sigdigits = 2) for a in v[2:end]]))) | $(HTML(show_gridworld_policy(π))) | $(latexify("longleftarrow")) random policy|
+	# """
+
+	ktext = Markdown.parse(latexify(string("k = ", k)))
+
+	valuegrid = HTML(show_gridworld_values([round(a[2], sigdigits = 2) for a in v[2:end]]))
+	policygrid = HTML(show_gridworld_policy(π))
+
+	(ktext, valuegrid, policygrid)
+end
+
+# ╔═╡ 1b8bfddb-97c3-4756-ab8e-123d38afda64
+function make_4_1_interactive(k = 1)
+	results = [make_4_1_row(k) for k in [0, k, typemax(Int64)]]
+	md"""
+	| | $$v_k$$ for the random policy | greedy policy w.r.t. $$v_k$$ | |
+	|:---:|:----:|:---:|--- |
+	|$(results[1][1])|$(results[1][2])|$(results[1][3])|$$\longleftarrow$$ random policy|
+	|$(results[2][1])|$(results[2][2])|$(results[2][3])||
+	|$$k = \infty$$|$(results[3][2])|$(results[3][3])|$$\longleftarrow$$ optimal policy|
+	"""
+end
+
+# ╔═╡ 38875afb-f8a3-4b8f-be7f-a34cc19efa7d
+make_4_1_interactive(user_k+1)
+
+# ╔═╡ b3ed0348-3d74-4726-878f-5eefcb1d72d0
+function make_4_1_table(klist = [0, 1, 2, 3, 10, typemax(Int64)])
+	results = [make_4_1_row(k) for k in klist]
+	results[1][3]
+	md"""
+	| | $$v_k$$ for the random policy | greedy policy w.r.t. $$v_k$$ | |
+	|:---:|:----:|:---:|--- |
+	|$(results[1][1])|$(results[1][2])|$(results[1][3])|$$\longleftarrow$$ random policy|
+	|$(results[2][1])|$(results[2][2])|$(results[2][3])||
+	|$(results[3][1])|$(results[3][2])|$(results[3][3])||
+	|$(results[4][1])|$(results[4][2])|$(results[4][3])||
+	|$(results[5][1])|$(results[5][2])|$(results[5][3])||
+	|$$k = \infty$$|$(results[6][2])|$(results[6][3])|$$\longleftarrow$$ optimal policy|
+	"""
+end
+
+# ╔═╡ dae71267-9945-41d2-bec4-546c8c883ae0
+make_4_1_table()
 
 # ╔═╡ f0e5d2e6-3d00-4ffc-962e-e98d4bb28e4e
 function policy_improvement_v(π::Dict, mdp::NamedTuple, γ::Real, V::Dict)
@@ -806,10 +953,15 @@ function car_rental_policy_eval(mdp, nmax=Inf; θ = eps(0.0), γ=0.9)
 end
 
 # ╔═╡ 3c874757-2f48-4ba0-93ce-38c019fb1f1b
+# ╠═╡ disabled = true
+#=╠═╡
 V0_car_rental_eval = car_rental_policy_eval(jacks_car_mdp, Inf)	
+  ╠═╡ =#
 
 # ╔═╡ a2e0108a-4bf7-40a9-8c06-dc8403042988
+#=╠═╡
 heatmap(V0_car_rental_eval[3][1], title="Value Function No Movement Car Rental Policy")
+  ╠═╡ =#
 
 # ╔═╡ 1bf3eba7-1a02-4035-962c-73c3fda304bd
 #now try policy iteration
@@ -820,7 +972,9 @@ function car_rental_policy_iteration(mdp, nmax=10; θ=eps(0.0), γ=0.9, null_pol
 end
 
 # ╔═╡ 4d00ffa4-40d5-4dbc-a8e2-5a57cbbcbacd
+#=╠═╡
 example4_2_results = car_rental_policy_iteration(jacks_car_mdp, θ=0.01, null_policy_eval=V0_car_rental_eval)
+  ╠═╡ =#
 
 # ╔═╡ 2c4d1304-fa80-4d9f-98f8-5f8d3107110d
 function plotcarpolicy(results)
@@ -833,7 +987,9 @@ function plotcarpolicy(results)
 end
 
 # ╔═╡ 7c2bd3b2-8388-4e80-b423-41cf2a4c95ef
+#=╠═╡
 plotcarpolicy(example4_2_results[2])
+  ╠═╡ =#
 
 # ╔═╡ ad5e013f-7938-4e3d-acec-bfce21b63b61
 function car_rental_modified_mdp(;nmax=20, λs = (3,4,3,2), movecost = 2, rentcredit = 10, movemax=5)
@@ -1145,12 +1301,16 @@ md"""
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [compat]
 HypertextLiteral = "~0.9.4"
+LaTeXStrings = "~1.3.0"
+Latexify = "~0.16.1"
 PlutoPlotly = "~0.4.1"
 PlutoUI = "~0.7.52"
 """
@@ -1161,7 +1321,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0-beta3"
 manifest_format = "2.0"
-project_hash = "f1f6b907ed3c37a071c58d66a1a97d0114a22063"
+project_hash = "8cb545295f9af02abbdce480243331d451b290e0"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1249,6 +1409,12 @@ git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
 
+[[deps.Formatting]]
+deps = ["Printf"]
+git-tree-sha1 = "8339d61043228fdd3eb658d86c926cb282ae72a8"
+uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
+version = "0.4.2"
+
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
@@ -1281,6 +1447,20 @@ version = "0.21.4"
 git-tree-sha1 = "f2355693d6778a178ade15952b7ac47a4ff97996"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.3.0"
+
+[[deps.Latexify]]
+deps = ["Formatting", "InteractiveUtils", "LaTeXStrings", "MacroTools", "Markdown", "OrderedCollections", "Printf", "Requires"]
+git-tree-sha1 = "f428ae552340899a935973270b8d98e5a31c49fe"
+uuid = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
+version = "0.16.1"
+
+    [deps.Latexify.extensions]
+    DataFramesExt = "DataFrames"
+    SymEngineExt = "SymEngine"
+
+    [deps.Latexify.weakdeps]
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    SymEngine = "123dc426-2d89-5057-bbad-38513e3affd8"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -1320,6 +1500,12 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "0.1.4"
+
+[[deps.MacroTools]]
+deps = ["Markdown", "Random"]
+git-tree-sha1 = "9ee1618cbf5240e6d4e0371d6f24065083f60c48"
+uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+version = "0.5.11"
 
 [[deps.Markdown]]
 deps = ["Base64"]
@@ -1528,12 +1714,11 @@ version = "17.4.0+2"
 # ╠═9253064c-7dfe-445f-b377-fc1acbb6886e
 # ╠═e6cdb2be-697d-4191-bd5a-9c129b32246d
 # ╟─92e50901-7d10-470b-a985-be45adcad817
-# ╠═5f574281-88e0-4d82-bf18-1cfe4c1990fc
+# ╠═4dd32517-4c12-4635-8135-3019828af2b5
 # ╠═df9593ca-6d27-45de-9d46-79bddc7a3862
 # ╠═c7bdf32a-2f89-4bf8-916b-7558ceedb628
 # ╠═6048b106-458e-4e3b-bba9-5f3578458c7c
 # ╠═0d0e82e4-b3a4-4528-9288-285fdc5aa8af
-# ╠═84068701-40d7-4a5e-93f2-af2a751ab2ec
 # ╠═e4370697-e6a7-40f0-974a-ed219102c13f
 # ╠═6844dff1-bc0b-47c5-8496-efe46dafbb5b
 # ╠═34f0f670-483f-4add-bf25-34993d646e5e
@@ -1544,14 +1729,31 @@ version = "17.4.0+2"
 # ╠═a186f0a8-d074-4c25-a703-2aa5ce461349
 # ╠═2c23c4ec-f332-4e05-a730-06fa20a0227a
 # ╠═aa19ffd4-69a0-44a9-8109-d6be003ae7b1
+# ╠═7539da6f-1fb7-4a63-98ba-52b81bb27eca
+# ╠═c078f6c3-7576-4933-bc95-d33e8193ee93
+# ╠═1b8bfddb-97c3-4756-ab8e-123d38afda64
+# ╟─f68b0587-1203-4985-9077-ded678ba4b8f
+# ╟─7e9fe05a-c447-4a41-8c61-67c9a899411c
+# ╟─20c5e03d-a1f4-4b2e-9893-efb9b03f00e8
+# ╟─7dcb5621-17ce-4794-b70e-e639e5068a18
+# ╟─38875afb-f8a3-4b8f-be7f-a34cc19efa7d
 # ╠═b3ed0348-3d74-4726-878f-5eefcb1d72d0
+# ╟─5fae76af-ac80-49c5-b553-73d09a6e9098
+# ╟─dae71267-9945-41d2-bec4-546c8c883ae0
 # ╟─f80580b3-f370-4a02-a9e2-ed791f380521
-# ╟─0bebb164-4347-4cff-8169-9f4da4553ae6
+# ╟─71abc452-cefc-47f8-8f9c-6fd3565f3ec6
+# ╟─54c73389-bb7a-48f1-b5d5-9d4972b1857a
+# ╟─9e594059-39cd-4fc7-91ae-b8e9156db6df
 # ╠═10c9b166-3a88-460e-82e8-a16c020c1378
 # ╠═1618ec46-6e13-42bf-a7f2-68f8dbe3714c
-# ╠═e4bfdaca-3f3d-43bb-b8aa-7536adbff662
+# ╠═11365717-6dee-461c-8ecf-485144b53a93
+# ╟─ab98efa4-c793-40eb-8c1c-70a0bb929ab3
+# ╟─68a01f8e-769b-4362-b12a-48733e8b8dba
+# ╟─e4bfdaca-3f3d-43bb-b8aa-7536adbff662
 # ╟─35e1ffe5-d36a-449d-aa73-c618e2855042
+# ╟─aa2e7334-af07-4152-8f21-e80bdcdd979b
 # ╟─67b06f3b-13df-4b27-ad80-d112432e8f42
+# ╠═160c59b0-a5ea-4046-b79f-7a6a6fc8db7e
 # ╠═f0e5d2e6-3d00-4ffc-962e-e98d4bb28e4e
 # ╠═4d15118f-f1ab-4115-bcc9-7f98246eca1c
 # ╠═77250f6b-60d1-426f-85b2-497186b86c50
