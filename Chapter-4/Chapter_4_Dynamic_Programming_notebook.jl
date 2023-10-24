@@ -243,90 +243,67 @@ md"""
 The gray boxes in the corners represent the terminal state
 """
 
+# ╔═╡ 39f4c75c-43f7-476f-bbc9-c704e5dee300
+md"""
+#### CSS for Policy Grids (hidden cell below by default)
+"""
+
 # ╔═╡ e76bd134-f4ac-4382-b56a-fca8f3ca27cd
 html"""
 <style>
-#gridcontainer {
-	display: flex;
-	background: rgba(0, 0, 0, 0);
-	margin: 0px;
-	padding: 0px;
-}
-.gridworld {
-	aspect-ratio: 1 / 1;
-	display: grid;
-	grid-template-columns: repeat(4, 6vw);
-	grid-auto-rows: auto;
-	gap: 0px;
-	border: 1px solid black;
-}
+	#gridcontainer {
+		display: flex;
+		background: rgba(0, 0, 0, 0);
+		margin: 0px;
+		padding: 0px;
+	}
+	.gridworld {
+		aspect-ratio: 1 / 1;
+		display: grid;
+		grid-template-columns: repeat(4, 3vw);
+		grid-auto-rows: auto;
+		gap: 0px;
+		border: 1px solid black;
+	}
+	
+	.gridworld .gridcell,.valuecell,.nullcell,.blankcell {
+		width: 3vw;
+		height: 3vw;
+		border: 1px solid black;
+		display: flex;
+		color: black;
+	}
+	
+	.gridcell {
+		background: white;
+		writing-mode: horizontal-lr;
+		align-items: end;
+		padding-left: 4px;
+	}
+	
+	.valuecell {
+		background: white;
+		align-items: center;
+		justify-content: center;
+		font: normal 1vw Veranda;
+	}
+	
+	.nullcell {
+		background: gray;
+	}
+	
+	.blankcell {
+		background: none;
+		border: 0px;
+	}
 
-.gridworld .gridcell,.valuecell,.nullcell,.blankcell {
-	width: 6vw;
-	height: 6vw;
-	border: 1px solid black;
-	display: flex;
-	color: black;
-}
-
-.gridcell {
-	background: white;
-	writing-mode: horizontal-lr;
-	align-items: end;
-	padding-left: 4px;
-}
-
-.valuecell {
-	background: white;
-	align-items: center;
-	justify-content: center;
-	font: normal 2vw Veranda;
-}
-
-.nullcell {
-	background: gray;
-}
-
-.blankcell {
-	background: none;
-	border: 0px;
-}
-</style>
-"""
-
-# ╔═╡ f4fce267-78a2-4fd3-aad5-a8298783c015
-const directions = ("N", "S", "E", "W")
-
-# ╔═╡ 1d098de3-592e-401b-a493-2728e8a6ffe9
-function makepolicycell(πvec)
-	inds = findall(πvec .!= 0)
-	attr = isempty(inds) ? """""" : reduce((a, b) -> """ $a $b""", directions[inds])
-	"""
-	<div class="policycell" $attr>
-		$(mapreduce(a -> """<div></div>""", linejoin, 1:9))
-	</div>
-	"""
-end	
-
-# ╔═╡ d0b4a71b-b574-4d62-be0b-14e03595a15c
-function makevaluecell(value)
-	"""
-	<div class="valuecell">
-		$value
-	</div>
-	"""
-end	
-
-# ╔═╡ a186f0a8-d074-4c25-a703-2aa5ce461349
-html"""
-<style>
 	.policycell {
 		border: 1px solid black;
-		width: 6vw;
-		height: 6vw;
+		width: 3vw;
+		height: 3vw;
 		display: grid;
-		grid-template-columns: repeat(3, 2vw);
-		grid-template-rows: repeat(3, 2vw);
+		grid-template-columns: repeat(3, 1vw);
+		grid-template-rows: repeat(3, 1vw);
 		margin: 0px;
 		padding: 0px;
 		background: white;
@@ -337,7 +314,7 @@ html"""
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font: bold 2.5vw Arial;
+		font: bold 1.3vw Veranda;
 	}
 
 	.policycell *::before {
@@ -386,6 +363,29 @@ html"""
 	}
 </style>
 """
+
+# ╔═╡ f4fce267-78a2-4fd3-aad5-a8298783c015
+const directions = ("N", "S", "E", "W")
+
+# ╔═╡ 1d098de3-592e-401b-a493-2728e8a6ffe9
+function makepolicycell(πvec)
+	inds = findall(πvec .!= 0)
+	attr = isempty(inds) ? """""" : reduce((a, b) -> """ $a $b""", directions[inds])
+	"""
+	<div class="policycell" $attr>
+		$(mapreduce(a -> """<div></div>""", linejoin, 1:9))
+	</div>
+	"""
+end	
+
+# ╔═╡ d0b4a71b-b574-4d62-be0b-14e03595a15c
+function makevaluecell(value)
+	"""
+	<div class="valuecell">
+		$value
+	</div>
+	"""
+end	
 
 # ╔═╡ 2c23c4ec-f332-4e05-a730-06fa20a0227a
 function show_gridworld_policy(policies)
@@ -542,6 +542,7 @@ function gridworld_modified_mdp()
 	delta(::East) = +1
 	delta(::West) = -1
 
+	#special moves for added square 15
 	move15(s, ::North) = 13
 	move15(s, ::East) = 14
 	move15(s, ::West) = 12
@@ -646,14 +647,51 @@ $q_{k+1}(s,a) = \sum_{s',r} p(s',r|s,a)[r + \gamma \sum_{a'} \pi(a'|s') q_k(s',a
 # ╔═╡ aa2e7334-af07-4152-8f21-e80bdcdd979b
 md"""
 ## 4.2 Policy Improvement
+
+From the value function $v_\pi$ we can systematically find a better policy $$\pi^\prime$$.  First consider a new policy with the following property:
+
+$$q_\pi(s, \pi ^\prime(s)) \geq v_\pi(s) \tag{4.7}$$
+
+If this is true for all $s \in \mathcal{S}$ then the policy $\pi^\prime$ must be as good or better than $\pi$ meaning it has a greater or equal expected return at every state:
+
+$v_{\pi^\prime} \geq v_\pi(s) \tag{4.8}$
+
+Starting wiht $\pi$ consider a new policy that chooses action $a$ at state $s$ instead of the usual action:  $\pi^\prime(s) = a \neq \pi(s)$.  If $q_\pi(s, a) > v_\pi(s)$, then this new policy is better than $\pi$ since $v_{\pi^\prime}(s) \geq q_\pi(s, a) > v_\pi(s)$.  This relationship is shown in the proof of the policy improvement theorem which relies upon expanding out the expression for $q_\pi$ and repeatedly applying the inequality (4.7).  
+
+One way of creating such a policy is using action-value function of the original policy:
+
+$\begin{flalign}
+\pi^\prime(s) &\doteq \underset{a}{\mathrm{argmax}} \: q_\pi(s, a) \\
+&= \underset{a}{\mathrm{argmax}} \: \mathbb{E}[R_{t+1} + \gamma v_\pi(S_{t+1}) \mid S_t = s, A_t = a] \tag{4.9}\\
+&= \underset{a}{\mathrm{argmax}} \: \sum_{s^\prime,r} p(s^\prime, r \vert s, a) \left [r + \gamma v_\pi(s) \right ] \\
+\end{flalign}$
+
+By construction, the greedy policy with respect to the action-value function for $\pi$ meets the criteria of the policy improvement theorem (4.7), so we know that it is as good or better than the original policy.
+
+Suppose that our new policy $\pi^\prime$ is equally good to the original policy.  Then using (4.9):
+
+$\begin{flalign}
+v_{\pi^\prime}(s) &= \underset{a}{\mathrm{max}} \: \mathbb{E}[R_{t+1} + \gamma v_\pi(S_{t+1}) \mid S_t = s, A_t = a] \tag{4.9}\\
+&= \underset{a}{\mathrm{max}} \: \sum_{s^\prime,r} p(s^\prime, r \vert s, a) \left [r + \gamma v_\pi(s) \right ] \\
+\end{flalign}$
+
+
+This is equal to the Bellman optimality equation (4.1), therefore $v_{\pi^\prime} = v_*$ and both $\pi$ and $\pi^\prime$ must be optimal policies.  So if we carry out this improvement procedure to the point where it converges and the value function remains unchanged, then we are guaranteed to compute the optimal policy.  Sometimes the greedy policy with respect to the equiprobable random policy is already optimal as in the case of the gridworld in example 4.1.  But in general many iterations could be required.
 """
 
 # ╔═╡ 67b06f3b-13df-4b27-ad80-d112432e8f42
 md"""
 ## 4.3 Policy Iteration
+
+Once we've improved our policy to $\pi^\prime$ we can repeat the procedure to have a sequence of monotonically improving policies and value functions.
+
+$\pi_0 \overset{\text{E}}{\longrightarrow}v_{\pi_0}\overset{\text{I}}{\longrightarrow}\pi_1 \overset{\text{E}}{\longrightarrow}v_{\pi_1}\overset{\text{I}}{\longrightarrow}\pi_2 \overset{\text{E}}{\longrightarrow} \cdots \overset{\text{I}}{\longrightarrow}\pi_* \overset{\text{E}}{\longrightarrow}v_*$
+
+where $\overset{\text{E}}{\longrightarrow}$ denotes a policy *evaluation* and $\overset{\text{I}}{\longrightarrow}$ denotes a policy *improvement*.  Every policy is guaranteed to be a strict improvement over the previous one unless it is already optimal because the action selection at least at one state must be different.  If all the action selections are the same, then the process has converged.  This method of completing a full policy evaluation between steps of selecting the greedy policy is called *policy iteration$.  Code for carrying out policy iteration are shown below.
 """
 
 # ╔═╡ 160c59b0-a5ea-4046-b79f-7a6a6fc8db7e
+#computes the greedy policy with respect to a given value function.  note that the full probability transition function for the MDP must be known.
 function greedy_policy(mdp::NamedTuple, V::Dict, γ::Real)
 	(p, sa_keys) = mdp
 	Dict(begin
@@ -763,20 +801,51 @@ function gridworld_policy_iteration(nmax=10; θ=eps(0.0), γ=1.0)
 	(policy_stable, Vstar, [(s, first(keys(πstar[s]))) for s in 0:14])
 end
 
+# ╔═╡ bb5fb8e6-0163-4fde-8238-63454f1c5128
+md"""
+### Gridworld Example
+"""
+
 # ╔═╡ 0079b02d-8895-4dd4-9557-5f08ac341404
 #seems to match optimal policy from figure 4.1
-gridworld_policy_iteration()
+gridworld_policy_iteration_results = gridworld_policy_iteration()
+
+# ╔═╡ a5174afc-04f2-4fc9-9b10-7aa7f249332a
+begin
+	πstar_gridworld = Dict(s => zeros(4) for s in 1:14)
+	for s in 1:14
+		πstar_gridworld[s][findfirst(a == gridworld_policy_iteration_results[3][s+1][2] for a in gridworld_actions)] = 1.0
+	end
+	h1 = latexstring("v_*")
+	md"""
+	Note that the value for each square matches the $L_1$ distance from the corner as is expected for the optimal policy.
+	
+	|gridworld|$v_*$|$\pi_*$|
+	|:---:|:---:|:---:|
+	|$(gridworld_display)|$(HTML(show_gridworld_values([round(gridworld_policy_iteration_results[2][i], sigdigits = 2) for i in 1:14])))| $(HTML(show_gridworld_policy([πstar_gridworld[s] for s in 1:14])))|
+	"""
+end
+
+# ╔═╡ c4a14f1c-ce17-40eb-b9ae-00b651d40714
+md"""
+### Example 4.2: Jack's Car Rental
+"""
+
+# ╔═╡ c3f4764f-b2e3-4004-b5ed-2f1cccd2cdde
+
 
 # ╔═╡ 0d6936d1-38af-45f1-b496-da49b60f11f8
 md"""
-> *Exercise 4.4* The policy iteration algorithm on page 80 has a subtle bug in that it may never terminate if the policy continually switches between two or more policies that are equally good.  This is okay for pedagogy, but not for actual use.  Modify the pseudocode so that convergence is guaranteed.
+> ### *Exercise 4.4* 
+> The policy iteration algorithm on page 80 has a subtle bug in that it may never terminate if the policy continually switches between two or more policies that are equally good.  This is okay for pedagogy, but not for actual use.  Modify the pseudocode so that convergence is guaranteed.
 
 Initialize $V_{best}$ at the start randomly and replace it with the first value function calculated.  After each policy improvement, replace $V_{best}$ with the new value function, however add a check after step 2. that if the value function is the same as $V_{best}$ then stop.  This would ensure that no matter how many equivalent policies are optimal, they would all share the same value function and thus trigger the termination condition.
 """
 
 # ╔═╡ ad1bf1d2-211d-44ca-a258-fc6e112785da
 md"""
-> *Exercise 4.5* How would policy iteration be defined for action values?  Give a complete algorithm for computer $q_*$, analogous to that on page 80 for computing $v_*$.  Please pay special attention to this exercise, because the ideas involved will be used throughout the rest of the book.
+> ### *Exercise 4.5* 
+> How would policy iteration be defined for action values?  Give a complete algorithm for computer $q_*$, analogous to that on page 80 for computing $v_*$.  Please pay special attention to this exercise, because the ideas involved will be used throughout the rest of the book.
 
 **Policy Iteration (using iterative policy evaluation) for estimating $\pi \approx \pi_*$ using action-values**
 1. Initialization
@@ -814,7 +883,8 @@ If *policy-stable*, then stop and return $Q \approx q_*$ and $\pi \approx \pi_*$
 
 # ╔═╡ e316f59a-8070-4510-96f3-15498897347c
 md"""
->*Exercise 4.6* Suppose you are restricted to considering only policies that are *ϵ-soft*, meaning that the probability of selecting each action in each state, s, is at least $\epsilon / |\mathcal{A}(s)|$.  Describe qualitatively the changes that would be required in each of the steps 3,2,and 1, in that order, of the policy iteration algorithm for $v_*$ on page 80.
+> ### *Exercise 4.6* 
+> Suppose you are restricted to considering only policies that are *ϵ-soft*, meaning that the probability of selecting each action in each state, s, is at least $\epsilon / |\mathcal{A}(s)|$.  Describe qualitatively the changes that would be required in each of the steps 3,2,and 1, in that order, of the policy iteration algorithm for $v_*$ on page 80.
 
 For step 3: 
 To get the old-action take the argmax over possible actions of the policy distribution for state s.  Rewrite π as π(a|s).
@@ -831,7 +901,8 @@ The initialization of the policy function should be a uniform distribution over 
 
 # ╔═╡ 5dbfb100-49a8-4f9d-a752-bda4da54699e
 md"""
-> *Exercise 4.7 (programming)* Write a program for policy iteration and re-solve Jack's car rental problem with the following changes.  One of Jack's employees at the first location rides a bus home each night and lives near the second location. She is happy to shuttle one car to the second location for free. Each additional car still costs $2, as do all cars moved in the other direction. In addition, Jack has limited parking space at each location.  If more than 10 cars are kept overnight at a location (after any moving of cars), then an additional cost of $4 must be incurred to use a second parking lot (independent of how many cars are kept there). These sorts of nonlinearities and arbitrary dynamics often occur in real problems and cannot easily be handled by optimization methods other than dynamic programming. To check your program, first replicate the results given for the original problem.
+> ### *Exercise 4.7 (programming)* 
+> Write a program for policy iteration and re-solve Jack's car rental problem with the following changes.  One of Jack's employees at the first location rides a bus home each night and lives near the second location. She is happy to shuttle one car to the second location for free. Each additional car still costs $2, as do all cars moved in the other direction. In addition, Jack has limited parking space at each location.  If more than 10 cars are kept overnight at a location (after any moving of cars), then an additional cost of $4 must be incurred to use a second parking lot (independent of how many cars are kept there). These sorts of nonlinearities and arbitrary dynamics often occur in real problems and cannot easily be handled by optimization methods other than dynamic programming. To check your program, first replicate the results given for the original problem.
 """
 
 # ╔═╡ e722b7e0-63a3-4195-b13e-0449abb3cc39
@@ -1072,7 +1143,10 @@ function car_rental_modified_mdp(;nmax=20, λs = (3,4,3,2), movecost = 2, rentcr
 end
 
 # ╔═╡ 5e18e5f1-3d19-4ba7-a7e4-613e6d70a806
+# ╠═╡ disabled = true
+#=╠═╡
 modified_jacks_car_mdp = car_rental_modified_mdp()
+  ╠═╡ =#
 
 # ╔═╡ 0a60d83e-3ef6-449f-9131-0c0d0777d413
 # ╠═╡ disabled = true
@@ -1722,11 +1796,11 @@ version = "17.4.0+2"
 # ╠═e4370697-e6a7-40f0-974a-ed219102c13f
 # ╠═6844dff1-bc0b-47c5-8496-efe46dafbb5b
 # ╠═34f0f670-483f-4add-bf25-34993d646e5e
-# ╠═e76bd134-f4ac-4382-b56a-fca8f3ca27cd
+# ╟─39f4c75c-43f7-476f-bbc9-c704e5dee300
+# ╟─e76bd134-f4ac-4382-b56a-fca8f3ca27cd
 # ╠═f4fce267-78a2-4fd3-aad5-a8298783c015
 # ╠═1d098de3-592e-401b-a493-2728e8a6ffe9
 # ╠═d0b4a71b-b574-4d62-be0b-14e03595a15c
-# ╠═a186f0a8-d074-4c25-a703-2aa5ce461349
 # ╠═2c23c4ec-f332-4e05-a730-06fa20a0227a
 # ╠═aa19ffd4-69a0-44a9-8109-d6be003ae7b1
 # ╠═7539da6f-1fb7-4a63-98ba-52b81bb27eca
@@ -1758,7 +1832,11 @@ version = "17.4.0+2"
 # ╠═4d15118f-f1ab-4115-bcc9-7f98246eca1c
 # ╠═77250f6b-60d1-426f-85b2-497186b86c50
 # ╠═c47882c7-ded1-440c-a9a3-0b89a0e7a011
+# ╟─bb5fb8e6-0163-4fde-8238-63454f1c5128
 # ╠═0079b02d-8895-4dd4-9557-5f08ac341404
+# ╟─a5174afc-04f2-4fc9-9b10-7aa7f249332a
+# ╟─c4a14f1c-ce17-40eb-b9ae-00b651d40714
+# ╠═c3f4764f-b2e3-4004-b5ed-2f1cccd2cdde
 # ╟─0d6936d1-38af-45f1-b496-da49b60f11f8
 # ╟─ad1bf1d2-211d-44ca-a258-fc6e112785da
 # ╟─e316f59a-8070-4510-96f3-15498897347c
