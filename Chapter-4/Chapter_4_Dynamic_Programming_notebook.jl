@@ -14,6 +14,12 @@ macro bind(def, element)
     end
 end
 
+# ╔═╡ 4cebd52d-2e9c-418f-a731-704df188fbf5
+using LinearAlgebra
+
+# ╔═╡ 4c0872f8-0fd5-4a44-9587-28cb04697d25
+using BenchmarkTools
+
 # ╔═╡ f5809bd3-64d4-47ee-9e41-e491f8c09719
 begin
 	using PlutoPlotly, PlutoUI, HypertextLiteral, Random, LaTeXStrings, Latexify
@@ -81,6 +87,70 @@ md"""
 ### Iterative Policy Evaluation Implementation
 """
 
+# ╔═╡ 86cd5d5f-f79f-4dc6-9d88-ae4753190de9
+md"""
+#### MDP Data Structures
+"""
+
+# ╔═╡ 7575b85a-c988-47e6-bdcc-fde4d92708a5
+begin
+	struct FiniteMDP{T<:Real, S, A} 
+		states::Vector{S}
+		actions::Vector{A}
+		rewards::Vector{T}
+		# ptf::Dict{Tuple{S, A}, Matrix{T}}
+		ptf::Array{T, 4}
+		action_scratch::Vector{T}
+		state_scratch::Vector{T}
+		reward_scratch::Vector{T}
+		function FiniteMDP{T, S, A}(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A}
+			new(states, actions, rewards, ptf, Vector{T}(undef, length(actions)), Vector{T}(undef, length(states)+1), Vector{T}(undef, length(rewards)))
+		end	
+	end
+	FiniteMDP(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A} = FiniteMDP{T, S, A}(states, actions, rewards, ptf)
+end
+
+# ╔═╡ 5b65e817-5504-413f-9c1a-17880d238d80
+function bellman_value!(V::Vector{T}, mdp::FiniteMDP{T, S, A}, π::Matrix{T}, γ::T) where {T <: Real, S, A}
+	delt = zero(T)
+	@inbounds @fastmath @simd for i_s in eachindex(mdp.states)
+		newvalue = zero(T)
+		@inbounds @fastmath @simd for i_a in eachindex(mdp.actions)
+			# mdp.action_scratch[i_a] = zero(T)
+			x = zero(T)
+			for (i_r, r) in enumerate(mdp.rewards)
+				@inbounds @fastmath @simd for i_s′ in eachindex(V)
+					# mdp.action_scratch[i_a] += mdp.ptf[i_s′, i_r, i_s, i_a] * (r + γ * V)
+					x += mdp.ptf[i_s′, i_r, i_a, i_s] * (r + γ * V[i_s′])
+				end
+				# mdp.state_scratch .= (r .+ γ .* V) .* mdp.ptf[:, i_r, i_a, i_s]
+				# x += sum(mdp.state_scratch)
+			end
+			# mdp.action_scratch[i_a] = x
+			newvalue += x * π[i_a, i_s]
+		end
+		# mdp.action_scratch .*= π[:, i_s]
+		# newvalue = sum(mdp.action_scratch)
+
+		# newvalue = dot(mdp.action_scratch, π[:, i_s])
+
+		# for i in eachindex(mdp.actions)
+			# newvalue += π[i, i_s] * mdp.action_scratch
+		# newvalue = π[:, i_s]' * mdp.action_scratch
+		# newvalue = π[:, i_s]' * [sum(mdp.ptf[:, :, i_s, i_a]' * (mdp.rewards' .+ γ .* V)) for i_a in eachindex(mdp.actions)]
+
+		#convert this loop over actions into a matrix operation with the policy vector, need to loop over rewards in that case instead of actions and that means that the ptf representation needs to be different where the rewards are what separates things rather than the S,A tuple.  Could be a map from states to a matrix which is the action/newstate matrix so it matches where every matrix has actions in the rows and states in the columns.  Then there would just be a list of these matrices for each reward, but in the case of only having 1 reward, this would just be a single matrix
+		# for (i_a, a) in enumerate(mdp.actions)
+		# 	#this is the probability distribution across rewards and states for the transition
+		# 	rdist = mdp.ptf[(s, a)]
+		# 	newvalue += sum(π[i_a, i_s] * rdist * (mdp.rewards' .+ (γ .* V)))
+		# end
+		delt = max(delt, abs(newvalue - V[i_s]) / (eps(zero(T)) + abs(newvalue)))
+		V[i_s] = newvalue
+	end
+	return delt
+end
+
 # ╔═╡ 59b91c65-3f8a-4015-bb08-d7455623101c
 function bellman_value!(V::Dict, p::Dict, sa_keys::Tuple, π::Dict, γ::Real)
 	delt = 0.0
@@ -93,9 +163,17 @@ function bellman_value!(V::Dict, p::Dict, sa_keys::Tuple, π::Dict, γ::Real)
 							for (s′,r) in sa_keys[2][(s,a)])
 					for a in actions)
 		# end
-		delt = max(delt, abs(v - V[s]))
+		delt = max(delt, abs(v - V[s]) / (eps(0.0) + abs(V[s])))
 	end
 	return delt
+end
+
+# ╔═╡ 88f8e335-968e-4e2f-8d3a-395667ad2ed3
+function iterative_policy_eval_v(π::Matrix{T}, θ::T, mdp::FiniteMDP{T, S, A}, γ::T, V::Vector{T}, nmax::Real) where {T <: Real, S, A}
+	nmax < 0 && return V
+	delt = bellman_value!(V, mdp, π, γ)
+	delt <= θ && return V
+	iterative_policy_eval_v(π, θ, mdp, γ, V, nmax - 1)	
 end
 
 # ╔═╡ 5b912508-aa15-470e-be4e-430e88d8a68d
@@ -107,9 +185,17 @@ function iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, 
 	iterative_policy_eval_v(π, θ, mdp, γ, V, nmax - 1)	
 end
 
+# ╔═╡ d6b58b68-504d-463f-91e8-ee85d0f90000
+#first call when the value function is initialized with a dictionary
+iterative_policy_eval_v(π::Matrix{T}, θ::Real, mdp::FiniteMDP{T, S, A}, γ::T, Vinit::Vector{T}; nmax=Inf) where {T <: Real, S, A} = iterative_policy_eval_v(π, θ, mdp, γ, deepcopy(Vinit), nmax - 1)
+
 # ╔═╡ 9253064c-7dfe-445f-b377-fc1acbb6886e
 #first call when the value function is initialized with a dictionary
 iterative_policy_eval_v(π::Dict, θ::Real, mdp::NamedTuple, γ::Real, Vinit::Dict; nmax=Inf) = iterative_policy_eval_v(π, θ, mdp, γ, deepcopy(Vinit), nmax - 1)
+
+# ╔═╡ d5eda4ce-1c22-4d3d-b1b0-9c8d0357f6cf
+#first call when the value function is initialized with a value
+iterative_policy_eval_v(π::Matrix{T}, θ::Real, mdp::FiniteMDP{T, S, A}, γ::T, Vinit::T = zero(T); nmax = Inf) where {T <: Real, S, A} = iterative_policy_eval_v(π, θ, mdp, γ, zeros(T, size(mdp.ptf, 1)); nmax = nmax)
 
 # ╔═╡ e6cdb2be-697d-4191-bd5a-9c129b32246d
 #first call when the value function is initialized with a value
@@ -184,6 +270,62 @@ function gridworld4x4_mdp()
 	return (p = p, sa_keys = sa_keys)
 end
 
+# ╔═╡ 6d04573a-c2a9-4cfa-88f1-2b2723a95aac
+function create_4x4gridworld_mdp()
+	states = collect(1:14)
+	actions = gridworld_actions
+	rewards = [-1.0]
+	s_term = length(states) + 1
+
+	#positions that result in terminal states
+	termset(::North) = (4,)
+	termset(::South) = (11,)
+	termset(::East) = (14,)
+	termset(::West) = (1,)
+
+	#positions that leave the state unchanged
+	constset(::North) = (1, 2, 3)
+	constset(::South) = (12, 13, 14)
+	constset(::East) = (3, 7, 11)
+	constset(::West) = (4, 8, 12)
+
+	#usual movement rule
+	delta(::North) = -4
+	delta(::South) = +4
+	delta(::East) = +1
+	delta(::West) = -1
+	
+	function move(s, dir::GridworldAction)
+		in(s, termset(dir)) && return s_term
+		in(s, constset(dir)) && return s
+		return s + delta(dir)
+	end
+
+	function getmatrix(s, a)
+		#initialize the matrix for s′, r transitions, each column runs over the transition states including the terminal state which is always in the last row by convention
+			out = zeros(length(states) + 1, length(rewards))
+			#since this mdp is deterministic, there will only be a single value of 1.0 for the transition which is valid, so I just need to replace the 0.0 with a 1.0 corresponding to the unique s′ reached by taking action a in state s.  also there is only one reward to consider
+			s′ = move(s, a)
+			out[s′, 1] = 1.0
+			return out
+	end
+
+	#initialize probability function with all zeros
+	ptf = zeros(length(states)+1, length(rewards), length(actions), length(states))
+
+	for (i_s, s) in enumerate(states)
+		for (i_a, a) in enumerate(actions)
+			ptf[:, :, i_a, i_s] .= getmatrix(s, a)
+		end
+	end
+	# ptf = Dict((s, a) => getmatrix(s, a) for s in states for a in actions)
+
+	FiniteMDP(states, actions, rewards, ptf)
+end
+
+# ╔═╡ 7563d584-abfc-4d9f-9759-163ac55922a9
+create_4x4gridworld_mdp()
+
 # ╔═╡ 6048b106-458e-4e3b-bba9-5f3578458c7c
 #forms a random policy for a generic finite state mdp.  The policy is a dictionary that maps each state to a dictionary of action/probability pairs.
 function form_random_policy(sa_keys)
@@ -197,6 +339,11 @@ function form_random_policy(sa_keys)
 	for k in sa_keys[1]])
 end
 
+# ╔═╡ 4c46ea30-eeb2-4c25-9e6c-3bcddaf48de7
+#forms a random policy for a generic finite state mdp.  The policy is a matrix where the rows represent actions and the columns represent states.  Each column is a probability distribution of actions over that state.
+form_random_policy(mdp::FiniteMDP{T, S, A}) where {T, S, A} = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
+	
+
 # ╔═╡ 0d0e82e4-b3a4-4528-9288-285fdc5aa8af
 function makefig4_1(nmax=Inf)
 	gridworldmdp = gridworld4x4_mdp()
@@ -204,6 +351,34 @@ function makefig4_1(nmax=Inf)
 	V = iterative_policy_eval_v(π_rand, eps(0.0), gridworldmdp, 1.0, nmax = nmax)
 	[(s, V[s]) for s in 0:14]
 end
+
+# ╔═╡ 00593e99-7fa9-49bb-8e60-5a0f083304ab
+function makefig4_1_v2(nmax=Inf)
+	gridworldmdp = create_4x4gridworld_mdp()
+	π_rand = form_random_policy(gridworldmdp)
+	V = iterative_policy_eval_v(π_rand, eps(0.0), gridworldmdp, 1.0; nmax = nmax)
+	[(gridworldmdp.states[i], V[i]) for i in gridworldmdp.states]
+end
+
+# ╔═╡ cda46125-2cfa-4b57-adf8-164eed8f5af6
+# ╠═╡ disabled = true
+#=╠═╡
+@btime makefig4_1()
+  ╠═╡ =#
+
+# ╔═╡ 0a17c3d0-7b46-45b2-8d8e-690fd498565c
+# ╠═╡ disabled = true
+#=╠═╡
+@btime makefig4_1_v2()
+  ╠═╡ =#
+
+# ╔═╡ 17ff2d94-aea9-4a15-98b3-97437e2b70ab
+#for the first attempt at doing this in a matrix style, the time for the 4_1 gridworld is 5.5ms vs ~12ms for the original method.  see how much improvement there is by fixing the action loop above.  Best result is writing everything as a nested loop and not using any linear algebra operations.  This was 366.6μs vs no better than 1 ms using linear algebra and dot fusion operators.  Reduced to 266μs using SIMD on inner loop.  Reduced to 242μs when using SIMD everywhere
+
+# ╔═╡ 0297a007-5898-4936-ae2f-386a725700e4
+md"""
+#### HTML Utilities
+"""
 
 # ╔═╡ e4370697-e6a7-40f0-974a-ed219102c13f
 linejoin(a, b) = 
@@ -242,6 +417,28 @@ md"""
 
 The gray boxes in the corners represent the terminal state
 """
+
+# ╔═╡ d0b4a71b-b574-4d62-be0b-14e03595a15c
+function makevaluecell(value)
+	"""
+	<div class="valuecell">
+		$value
+	</div>
+	"""
+end	
+
+# ╔═╡ aa19ffd4-69a0-44a9-8109-d6be003ae7b1
+function show_gridworld_values(values)
+	"""
+	<div id="gridcontainer">
+	<div class="gridworld">
+		$(makevaluecell(0.0))
+		$(mapreduce(makevaluecell, linejoin, values))
+		$(makevaluecell(0.0))
+	</div>
+	</div>
+	"""
+end
 
 # ╔═╡ 39f4c75c-43f7-476f-bbc9-c704e5dee300
 md"""
@@ -378,15 +575,6 @@ function makepolicycell(πvec)
 	"""
 end	
 
-# ╔═╡ d0b4a71b-b574-4d62-be0b-14e03595a15c
-function makevaluecell(value)
-	"""
-	<div class="valuecell">
-		$value
-	</div>
-	"""
-end	
-
 # ╔═╡ 2c23c4ec-f332-4e05-a730-06fa20a0227a
 function show_gridworld_policy(policies)
 	"""
@@ -395,19 +583,6 @@ function show_gridworld_policy(policies)
 		<div class = "nullcell"></div>
 		$(mapreduce(makepolicycell, linejoin, policies))
 		<div class = "nullcell"></div>
-	</div>
-	</div>
-	"""
-end
-
-# ╔═╡ aa19ffd4-69a0-44a9-8109-d6be003ae7b1
-function show_gridworld_values(values)
-	"""
-	<div id="gridcontainer">
-	<div class="gridworld">
-		$(makevaluecell(0.0))
-		$(mapreduce(makevaluecell, linejoin, values))
-		$(makevaluecell(0.0))
 	</div>
 	</div>
 	"""
@@ -754,6 +929,33 @@ end
 # ╔═╡ dae71267-9945-41d2-bec4-546c8c883ae0
 make_4_1_table()
 
+# ╔═╡ 8b4fb649-8aaa-4e17-8204-540caf8da343
+function policy_improvement_v!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, γ::Real, V::Vector{T}) where {T<:Real, S, A}
+	policy_stable = true
+	dist = zeros(T, length(mdp.actions))
+	for i_s in eachindex(mdp.states)
+		maxv = -Inf
+		for i_a in eachindex(mdp.actions)
+			x = zero(T)
+			for i_r in eachindex(mdp.rewards)
+				for i_s′ in eachindex(V)
+					x += mdp.ptf[i_s′, i_r, i_a, i_s] * (mdp.rewards[i_r] + γ * V[i_s′])
+				end
+			end
+			maxv = max(maxv, x)
+			dist[i_a] = x
+		end
+		dist .= (dist .== maxv)
+		dist ./= sum(dist)
+		for i_a in eachindex(mdp.actions)
+			policy_stable = policy_stable && (sign(π[i_a, i_s]) == sign(dist[i_a]))
+			π[i_a, i_s] = dist[i_a]
+		end
+		
+	end
+	return (policy_stable, π)
+end 
+
 # ╔═╡ f0e5d2e6-3d00-4ffc-962e-e98d4bb28e4e
 function policy_improvement_v(π::Dict, mdp::NamedTuple, γ::Real, V::Dict)
 	(p, sa_keys) = mdp
@@ -774,6 +976,17 @@ function policy_improvement_v(π::Dict, mdp::NamedTuple, γ::Real, V::Dict)
 	return (policy_stable, π_new)
 end 
 
+# ╔═╡ 31a9db21-c7d2-4053-8c18-2023f4720196
+function policy_iteration_v(mdp::FiniteMDP{T, S, A}, π::Matrix{T}, γ::Real, Vold::Vector{T}, iters, θ, evaln, policy_stable, resultlist) where {T<:Real, S, A}
+	policy_stable && return (true, resultlist)
+	V = iterative_policy_eval_v(π, θ, mdp, γ, Vold, nmax = evaln)
+	push!(resultlist, (copy(V), copy(π)))
+	(V == resultlist[end-1][1]) && return (true, resultlist)
+	(iters <= 0) &&	return (false, resultlist)
+	(new_policy_stable, π_new) = policy_improvement_v!(π, mdp, γ, V)
+	policy_iteration_v(mdp, π_new, γ, V, iters-1, θ, evaln, new_policy_stable, resultlist)
+end
+
 # ╔═╡ 4d15118f-f1ab-4115-bcc9-7f98246eca1c
 function policy_iteration_v(mdp::NamedTuple, π::Dict, γ::Real, Vold::Dict, iters, θ, evaln, policy_stable, resultlist)
 	policy_stable && return (true, resultlist)
@@ -792,6 +1005,13 @@ function begin_policy_iteration_v(mdp::NamedTuple, π::Dict, γ::Real; iters=Inf
 	policy_iteration_v(mdp, π_new, γ, V, iters-1, θ, evaln, policy_stable, resultlist)
 end
 
+# ╔═╡ 7021bc9e-716a-43ff-b2cb-40b499ae2706
+function begin_policy_iteration_v(mdp::FiniteMDP{T, S, A}, π::Matrix{T}, γ::Real; iters=Inf, θ=eps(zero(T)), evaln = Inf, V = iterative_policy_eval_v(π, θ, mdp, γ, nmax = evaln)) where {T<:Real, S, A}
+	resultlist = [(copy(V), copy(π))]
+	(policy_stable, π_new) = policy_improvement_v!(π, mdp, γ, V)
+	policy_iteration_v(mdp, π_new, γ, V, iters-1, θ, evaln, policy_stable, resultlist)
+end
+
 # ╔═╡ c47882c7-ded1-440c-a9a3-0b89a0e7a011
 function gridworld_policy_iteration(nmax=10; θ=eps(0.0), γ=1.0)
 	gridworldmdp = gridworld4x4_mdp()
@@ -799,6 +1019,15 @@ function gridworld_policy_iteration(nmax=10; θ=eps(0.0), γ=1.0)
 	(policy_stable, resultlist) = begin_policy_iteration_v(gridworldmdp, π_rand, γ, iters = nmax)
 	(Vstar, πstar) = resultlist[end]
 	(policy_stable, Vstar, [(s, first(keys(πstar[s]))) for s in 0:14])
+end
+
+# ╔═╡ ec5afe79-1b1b-4ccd-b672-450797b4e73e
+function gridworld_policy_iteration_v2(nmax=10; θ=eps(0.0), γ=1.0)
+	gridworldmdp = create_4x4gridworld_mdp()
+	π_rand = form_random_policy(gridworldmdp)
+	(policy_stable, resultlist) = begin_policy_iteration_v(gridworldmdp, π_rand, γ, iters = nmax)
+	(Vstar, πstar) = resultlist[end]
+	(policy_stable, Vstar, πstar, resultlist)
 end
 
 # ╔═╡ bb5fb8e6-0163-4fde-8238-63454f1c5128
@@ -810,21 +1039,19 @@ md"""
 #seems to match optimal policy from figure 4.1
 gridworld_policy_iteration_results = gridworld_policy_iteration()
 
+# ╔═╡ 77d251d3-903b-4e96-9261-77a429a3eda7
+gridworld_policy_iteration_results_v2 = gridworld_policy_iteration_v2()
+
 # ╔═╡ a5174afc-04f2-4fc9-9b10-7aa7f249332a
-begin
-	πstar_gridworld = Dict(s => zeros(4) for s in 1:14)
-	for s in 1:14
-		πstar_gridworld[s][findfirst(a == gridworld_policy_iteration_results[3][s+1][2] for a in gridworld_actions)] = 1.0
-	end
-	h1 = latexstring("v_*")
-	md"""
-	Note that the value for each square matches the $L_1$ distance from the corner as is expected for the optimal policy.
-	
-	|gridworld|$v_*$|$\pi_*$|
-	|:---:|:---:|:---:|
-	|$(gridworld_display)|$(HTML(show_gridworld_values([round(gridworld_policy_iteration_results[2][i], sigdigits = 2) for i in 1:14])))| $(HTML(show_gridworld_policy([πstar_gridworld[s] for s in 1:14])))|
-	"""
-end
+md"""
+Note that the value for each square matches the $L_1$ distance from the corner as is expected for the optimal policy.  The last row represents the optimal policy.  Note that only required 1 iteration to have the optimal value function.  The next iteration is shown to confirm that the values are the same.  The policy in states 6 and 9 actually change to being equiprobable instead of favoring just two directions, but any policy that simply selects one of these actions is also optimal.
+
+|Policy Iteration Step|$v$|$\pi$|
+|:---:|:---:|:---:|
+|1|$(HTML(show_gridworld_values(round.(gridworld_policy_iteration_results_v2[4][1][1][1:end-1], sigdigits = 2))))| $(HTML(show_gridworld_policy(eachcol(gridworld_policy_iteration_results_v2[4][1][2]))))|
+|2|$(HTML(show_gridworld_values(round.(gridworld_policy_iteration_results_v2[4][2][1][1:end-1], sigdigits = 2))))| $(HTML(show_gridworld_policy(eachcol(gridworld_policy_iteration_results_v2[4][2][2]))))|
+|3|$(HTML(show_gridworld_values(gridworld_policy_iteration_results_v2[2][1:end-1])))| $(HTML(show_gridworld_policy(eachcol(gridworld_policy_iteration_results_v2[3]))))|
+"""
 
 # ╔═╡ c4a14f1c-ce17-40eb-b9ae-00b651d40714
 md"""
@@ -832,7 +1059,91 @@ md"""
 """
 
 # ╔═╡ c3f4764f-b2e3-4004-b5ed-2f1cccd2cdde
+#define car rental MDP with states, actions, probabilities as a tensor.  Use code below for poisson distribution etc..
+md"""
+- Each step is one day starting at the end of a given day
+- State space: Number of cars at each location at end of day.  Refer to the locations as A and B
+- Action space: Movement of cars from one location to another.  Maximum of 5 cars can be transfered in either direction.  Consider positive numbers to indicate transfering from A to B and negative numbers to mean transfering from B to A.  This way there are 11 actions from -5 to 5
+- A maximum of 20 cars can be at any location, any extra cars are removed from the problem.
+- During the day cars can be requested and returned at each location following a poisson distribution with the following constants: 
+$p(n) = \frac{\lambda^n}{n!} e^{\lambda}$
+$\lambda_{request, A} = 3, \: \lambda_{request, B}=4, \: \lambda_{return, A} = 3, \: \lambda_{return, B}=2$
 
+- Returned cars are not available until the next day
+- Continuing problem with $\gamma = 0.9$
+- There are $21^2 = 441 states since each location could have 0 to 20 cars at the end of the day.
+- \$10 positive reward for each car that is rented.  Note that if more cars are requested than are available, only the total number of available cars can be rented.
+- \$2 cost for each car moved
+"""
+
+# ╔═╡ eb8fa5e6-c18d-41ba-a78e-cceccc90d9b6
+function car_rental_policy_iteration_v2(mdp, nmax=10; θ=eps(0f0), γ=0.9f0)
+	movezeroind = findfirst(mdp.actions .== 0)
+	zerodist = [i == movezeroind ? 1f0 : 0f0 for i in eachindex(mdp.actions)]
+	π0 = mapreduce(i -> zerodist, hcat, eachindex(mdp.states))
+	# iterative_policy_eval_v(π_rand, θ, mdp, γ)
+	(policy_stable, resultlist) = begin_policy_iteration_v(mdp, π0, γ; iters = nmax, θ = θ)
+	(Vstar, πstar) = resultlist[end]
+	(policy_stable, Vstar, πstar, resultlist)
+end
+
+# ╔═╡ 40d4ec5e-0f9f-49bf-946f-c1b7eeb63f67
+begin
+	p1 = plot(rand(5), rand(5), Layout(width = 200, height = 200, margin_r = 1, margin_l = 1, margin_t = 1, margin_b = 1, font_color = "red", plot_bgcolor = "rgba(0, 0, 0, 0)", xaxis = attr(ticks = "inside", ticklabels = "inside", showgrid = false, linecolor = "black", mirror = true, linewidth = 2), yaxis = attr(showgrid = false, linecolor = "black", mirror = true, linewidth = 2), showgrid = false, paper_bgcolor = "rgba(0, 0, 0, 0)"))
+	eq = md"""$x^2 + 5$"""
+	@htl("""
+	<table>
+		<tr>
+			<th>Plot 1</th>
+			<th>$eq</th>
+		</tr>
+		<tr>
+			<td>$p1</td>
+			<td class = "ex1">$(NumberField(5:10))</td>
+		</tr>
+	</table>
+
+	<style>
+		table {
+			width: 500px;
+			background: rgba(0, 0, 0, 0);
+		}
+		.ex1 *{
+			background: blue;
+			width: 50px;
+			font: bold italic 20pt Veranda;
+		}
+	</style>
+	""")
+end
+
+# ╔═╡ 4fae60d1-a464-48a0-9a40-e417338de14b
+function plotcarmdpresults(mdp, results)
+	policytest = zeros(Int64, 21, 21)
+	valuetest = zeros(Float64, 21, 21)
+	resultlist = results[4]
+	πstarjack = resultlist[end][2]
+	vstarjack = resultlist[end][1]
+	function getaction(dist)
+		sum(dist) == 0 && return 0
+		(p, ind) = findmax(dist)
+		mdp.actions[ind]
+	end
+	for i in 1:size(πstarjack, 2)
+		action = getaction(view(πstarjack, :, i))
+		(n_a, n_b) = mdp.states[i]
+		policytest[n_a+1, n_b+1] = action
+		valuetest[n_a+1, n_b+1] = vstarjack[i]
+	end
+	makeplot(z; colorscale = "RdBu") = heatmap(;x = 0:20, y = 0:20, z = z, colorscale = colorscale) |> p -> plot(p, Layout(xaxis_title = "# Cars at second location", yaxis_title = "# Cars at first location", width = 500))
+	carpolicyplot = makeplot(policytest)
+	carvstarplot = makeplot(valuetest; colorscale = "Bluered")
+	md"""
+	$carpolicyplot
+	$carvstarplot
+	"""
+end
+		
 
 # ╔═╡ 0d6936d1-38af-45f1-b496-da49b60f11f8
 md"""
@@ -907,6 +1218,111 @@ md"""
 
 # ╔═╡ e722b7e0-63a3-4195-b13e-0449abb3cc39
 poisson(n, λ) = exp(-λ) * (λ^n) / factorial(n)
+
+# ╔═╡ bd41fffb-5d8c-4165-9f44-690f81c70113
+function create_car_rental_mdp(;nmax=20, λs = (request_A = 3f0, request_B = 4f0, return_A = 3f0, return_B = 2f0), movecost = 2f0, rentcredit = 10f0, movemax=5, maxovernight = 20, overnightpenalty = 4f0, employeeshuttle = false)
+	#enumerate all states
+	states = [(n_a, n_b) for n_a in 0:nmax for n_b in 0:nmax]
+	
+	actions = collect(-movemax:movemax)
+
+	#enumerate all rewards by simply incrementing by 1 dollar from the worst to best case scenario
+	rewards = collect(-movecost*movemax - 2*overnightpenalty:rentcredit*nmax*2)
+	reward_lookup = Dict(zip(rewards, eachindex(rewards))) #mapping from rewards to the proper index
+
+	#create a lookup for the probability of starting with n cars at the start of the day and ending up with n′ at the end of the day
+	function create_probability_lookup(λ_request, λ_return)
+		#can only rent from 0 to n cars.  if requests exceed n, all of those situations are equivalent and the probability is 1 - p(x < n-1)
+		p_rent = Dict(n_request => poisson(n_request, λ_request) for n_request in 0:nmax-1)
+	
+		#car returns can be any number greater than or equal to 0, but all returns of nmax - (n - nrent) or more will result in the same state which is max cars
+		p_return = Dict(n_return => poisson(n_return, λ_return) for n_return in 0:nmax-1)
+		
+		#initialize probabilities for each final value at 0
+		prob_lookup = Dict((t, nrent) => 0f0 for t in states for nrent in 0:t[1])
+			
+		for n in 0:nmax
+			for n_rent in 0:n-1
+				for n_return in 0:(nmax - n + n_rent - 1)
+					n′ = n - n_rent + n_return
+					p = p_rent[n_rent]*p_return[n_return]
+					prob_lookup[((n, n′), n_rent)] += p
+				end
+				prob_lookup[((n, nmax), n_rent)] += p_rent[n_rent]*(1 - sum(p_return[n_return] for n_return in 0:nmax-n+n_rent-1; init = 0f0))
+			end
+			for n_return in 0:(nmax - 1)
+				n′ = n_return
+				p = (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = 0f0))*p_return[n_return]
+				prob_lookup[((n, n′), n)] += p
+			end
+			prob_lookup[((n, nmax), n)] += (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = 0f0))*(1 - sum(p_return[n_return] for n_return in 0:nmax-1, init = 0f0))
+		end
+		return prob_lookup
+	end
+
+	probabilities = (location_A = create_probability_lookup(λs.request_A, λs.return_A), location_B = create_probability_lookup(λs.request_B, λs.return_B))
+
+	#calculate probability matrix for all the s′, r transitions given starting in state s and taking action a
+	function getmatrix(s, a)
+		#initialize the matrix for s′, r transitions, each column runs over the transition states
+		out = zeros(length(states), length(rewards))
+		(n_a, n_b) = s
+		aftercount_a = n_a - a
+		aftercount_b = n_b + a
+
+		checkvalid(n) = (n <= nmax) && (n >= 0)
+
+		#invalid states have 0 probability
+		!all(checkvalid(n) for n in (aftercount_a, aftercount_b)) && return out
+		cost = (abs(a) - (a > 0)*employeeshuttle)*movecost + (overnightpenalty * ((aftercount_a > maxovernight) + (aftercount_b > maxovernight))) #one free transfer from A to B if employee shuttle is true in modified version, overnight penalty if too many cars are left at a lot
+		for (i_s′, s′) in enumerate(states)
+			(n_a′, n_b′) = s′
+			for n_rent_a in 0:aftercount_a
+				for n_rent_b in 0:aftercount_b
+					p_a = probabilities.location_A[((aftercount_a, n_a′), n_rent_a)]
+					p_b = probabilities.location_B[((aftercount_b, n_b′), n_rent_b)]
+					p_total = p_a*p_b
+					r = rentcredit*(n_rent_a+n_rent_b) - cost
+					out[i_s′, reward_lookup[r]] += p_total
+				end
+			end
+		end
+		return out
+	end
+
+	#initialize probability function with all zeros
+	ptf = zeros(Float32, length(states), length(rewards), length(actions), length(states))
+	for (i_s, s) in enumerate(states)
+		for (i_a, a) in enumerate(actions)
+			ptf[:, :, i_a, i_s] .= getmatrix(s, a)
+		end
+	end
+
+	#find indices of the reward vector that never have non zero probability
+	inds = reduce(intersect, [findall(0 .== [sum(ptf[:, i, j, k]) for i in 1:size(ptf, 2)]) for j in 1:size(ptf, 3) for k in 1:size(ptf, 4)])
+
+	goodinds = setdiff(eachindex(rewards), inds)
+	
+	FiniteMDP(states, actions, rewards[goodinds], ptf[:, goodinds, :, :])
+end
+
+# ╔═╡ 871d78a4-cc74-4866-896b-027a6c626676
+car_rental_mdp_v2 = create_car_rental_mdp()
+
+# ╔═╡ 05512261-d0c7-4602-8280-cd1d4d45e875
+example4_2_results = car_rental_policy_iteration_v2(car_rental_mdp_v2;θ = .001f0)
+
+# ╔═╡ 67e73c2a-91d6-499b-8ed6-991ad3b3bb7e
+plotcarmdpresults(car_rental_mdp_v2, example4_2_results)
+
+# ╔═╡ 2360169d-291b-4976-815a-8092c89260a8
+modified_car_rental_mdp = create_car_rental_mdp(; employeeshuttle = true, maxovernight = 10)
+
+# ╔═╡ 45fe9d02-5b77-4dc4-868d-1c598121cd90
+exercise4_7_results = car_rental_policy_iteration_v2(modified_car_rental_mdp; θ = 0.001f0)
+
+# ╔═╡ 19e7b5c2-a32d-47e7-a436-f95fd3397ac5
+plotcarmdpresults(modified_car_rental_mdp, exercise4_7_results)
 
 # ╔═╡ 66b7746a-5dd2-4d3b-8026-0c9c10fb5ba3
 function car_rental_mdp(;nmax=20, λs = (3,4,3,2), movecost = 2, rentcredit = 10, movemax=5)
@@ -996,7 +1412,10 @@ function car_rental_mdp(;nmax=20, λs = (3,4,3,2), movecost = 2, rentcredit = 10
 end
 
 # ╔═╡ b775fac4-8da9-4a27-a830-934df4b86dc2
+# ╠═╡ disabled = true
+#=╠═╡
 jacks_car_mdp = car_rental_mdp()
+  ╠═╡ =#
 
 # ╔═╡ f0552339-b9ae-4036-8c6a-c232faee2b42
 function convertcarpolicy(V, π, nmax=20)
@@ -1024,7 +1443,6 @@ function car_rental_policy_eval(mdp, nmax=Inf; θ = eps(0.0), γ=0.9)
 end
 
 # ╔═╡ 3c874757-2f48-4ba0-93ce-38c019fb1f1b
-# ╠═╡ disabled = true
 #=╠═╡
 V0_car_rental_eval = car_rental_policy_eval(jacks_car_mdp, Inf)	
   ╠═╡ =#
@@ -1058,9 +1476,7 @@ function plotcarpolicy(results)
 end
 
 # ╔═╡ 7c2bd3b2-8388-4e80-b423-41cf2a4c95ef
-#=╠═╡
 plotcarpolicy(example4_2_results[2])
-  ╠═╡ =#
 
 # ╔═╡ ad5e013f-7938-4e3d-acec-bfce21b63b61
 function car_rental_modified_mdp(;nmax=20, λs = (3,4,3,2), movecost = 2, rentcredit = 10, movemax=5)
@@ -1165,9 +1581,7 @@ exercise4_7_results = car_rental_policy_iteration(modified_jacks_car_mdp, θ=0.0
   ╠═╡ =#
 
 # ╔═╡ 48ff63c9-97f4-4162-a009-d05517b8f06f
-#=╠═╡
 plotcarpolicy(exercise4_7_results[2])
-  ╠═╡ =#
 
 # ╔═╡ 2bedc22e-9615-4fb4-94bf-6a0e7114c417
 md"""
@@ -1374,14 +1788,17 @@ md"""
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [compat]
+BenchmarkTools = "~1.3.2"
 HypertextLiteral = "~0.9.4"
 LaTeXStrings = "~1.3.0"
 Latexify = "~0.16.1"
@@ -1395,7 +1812,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0-beta3"
 manifest_format = "2.0"
-project_hash = "8cb545295f9af02abbdce480243331d451b290e0"
+project_hash = "f98b95d413b2ec16c9a6d0f700b23b16b273630e"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1417,6 +1834,12 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 git-tree-sha1 = "1c9b6f39f40dba0ef22244a175e2d4e42c8f6ee7"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
 version = "1.2.0"
+
+[[deps.BenchmarkTools]]
+deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "d9a9701b899b30332bbcb3e1679c41cce81fb0e8"
+uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+version = "1.3.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
@@ -1670,6 +2093,10 @@ version = "1.4.1"
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
+[[deps.Profile]]
+deps = ["Printf"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -1783,26 +2210,42 @@ version = "17.4.0+2"
 # ╟─55276004-877e-47c0-b5b5-49dbe29aa6f7
 # ╟─772d17b0-6fbc-4309-b55b-d17f9b4d3ddf
 # ╟─4665aa5c-87d1-4359-8cfd-7502d8c5d2e2
+# ╟─86cd5d5f-f79f-4dc6-9d88-ae4753190de9
+# ╠═7575b85a-c988-47e6-bdcc-fde4d92708a5
+# ╠═4cebd52d-2e9c-418f-a731-704df188fbf5
+# ╠═5b65e817-5504-413f-9c1a-17880d238d80
 # ╠═59b91c65-3f8a-4015-bb08-d7455623101c
+# ╠═88f8e335-968e-4e2f-8d3a-395667ad2ed3
 # ╠═5b912508-aa15-470e-be4e-430e88d8a68d
+# ╠═d6b58b68-504d-463f-91e8-ee85d0f90000
 # ╠═9253064c-7dfe-445f-b377-fc1acbb6886e
+# ╠═d5eda4ce-1c22-4d3d-b1b0-9c8d0357f6cf
 # ╠═e6cdb2be-697d-4191-bd5a-9c129b32246d
 # ╟─92e50901-7d10-470b-a985-be45adcad817
 # ╠═4dd32517-4c12-4635-8135-3019828af2b5
 # ╠═df9593ca-6d27-45de-9d46-79bddc7a3862
 # ╠═c7bdf32a-2f89-4bf8-916b-7558ceedb628
+# ╠═6d04573a-c2a9-4cfa-88f1-2b2723a95aac
+# ╠═7563d584-abfc-4d9f-9759-163ac55922a9
 # ╠═6048b106-458e-4e3b-bba9-5f3578458c7c
+# ╠═4c46ea30-eeb2-4c25-9e6c-3bcddaf48de7
 # ╠═0d0e82e4-b3a4-4528-9288-285fdc5aa8af
-# ╠═e4370697-e6a7-40f0-974a-ed219102c13f
-# ╠═6844dff1-bc0b-47c5-8496-efe46dafbb5b
-# ╠═34f0f670-483f-4add-bf25-34993d646e5e
+# ╠═00593e99-7fa9-49bb-8e60-5a0f083304ab
+# ╠═cda46125-2cfa-4b57-adf8-164eed8f5af6
+# ╠═0a17c3d0-7b46-45b2-8d8e-690fd498565c
+# ╠═17ff2d94-aea9-4a15-98b3-97437e2b70ab
+# ╠═4c0872f8-0fd5-4a44-9587-28cb04697d25
+# ╟─0297a007-5898-4936-ae2f-386a725700e4
+# ╟─e4370697-e6a7-40f0-974a-ed219102c13f
+# ╟─6844dff1-bc0b-47c5-8496-efe46dafbb5b
+# ╟─34f0f670-483f-4add-bf25-34993d646e5e
+# ╟─1d098de3-592e-401b-a493-2728e8a6ffe9
+# ╟─d0b4a71b-b574-4d62-be0b-14e03595a15c
+# ╟─2c23c4ec-f332-4e05-a730-06fa20a0227a
+# ╟─aa19ffd4-69a0-44a9-8109-d6be003ae7b1
 # ╟─39f4c75c-43f7-476f-bbc9-c704e5dee300
 # ╟─e76bd134-f4ac-4382-b56a-fca8f3ca27cd
 # ╠═f4fce267-78a2-4fd3-aad5-a8298783c015
-# ╠═1d098de3-592e-401b-a493-2728e8a6ffe9
-# ╠═d0b4a71b-b574-4d62-be0b-14e03595a15c
-# ╠═2c23c4ec-f332-4e05-a730-06fa20a0227a
-# ╠═aa19ffd4-69a0-44a9-8109-d6be003ae7b1
 # ╠═7539da6f-1fb7-4a63-98ba-52b81bb27eca
 # ╠═c078f6c3-7576-4933-bc95-d33e8193ee93
 # ╠═1b8bfddb-97c3-4756-ab8e-123d38afda64
@@ -1811,7 +2254,7 @@ version = "17.4.0+2"
 # ╟─20c5e03d-a1f4-4b2e-9893-efb9b03f00e8
 # ╟─7dcb5621-17ce-4794-b70e-e639e5068a18
 # ╟─38875afb-f8a3-4b8f-be7f-a34cc19efa7d
-# ╠═b3ed0348-3d74-4726-878f-5eefcb1d72d0
+# ╟─b3ed0348-3d74-4726-878f-5eefcb1d72d0
 # ╟─5fae76af-ac80-49c5-b553-73d09a6e9098
 # ╟─dae71267-9945-41d2-bec4-546c8c883ae0
 # ╟─f80580b3-f370-4a02-a9e2-ed791f380521
@@ -1828,15 +2271,30 @@ version = "17.4.0+2"
 # ╟─aa2e7334-af07-4152-8f21-e80bdcdd979b
 # ╟─67b06f3b-13df-4b27-ad80-d112432e8f42
 # ╠═160c59b0-a5ea-4046-b79f-7a6a6fc8db7e
+# ╠═8b4fb649-8aaa-4e17-8204-540caf8da343
 # ╠═f0e5d2e6-3d00-4ffc-962e-e98d4bb28e4e
+# ╠═31a9db21-c7d2-4053-8c18-2023f4720196
 # ╠═4d15118f-f1ab-4115-bcc9-7f98246eca1c
 # ╠═77250f6b-60d1-426f-85b2-497186b86c50
+# ╠═7021bc9e-716a-43ff-b2cb-40b499ae2706
 # ╠═c47882c7-ded1-440c-a9a3-0b89a0e7a011
+# ╠═ec5afe79-1b1b-4ccd-b672-450797b4e73e
 # ╟─bb5fb8e6-0163-4fde-8238-63454f1c5128
 # ╠═0079b02d-8895-4dd4-9557-5f08ac341404
+# ╠═77d251d3-903b-4e96-9261-77a429a3eda7
 # ╟─a5174afc-04f2-4fc9-9b10-7aa7f249332a
 # ╟─c4a14f1c-ce17-40eb-b9ae-00b651d40714
-# ╠═c3f4764f-b2e3-4004-b5ed-2f1cccd2cdde
+# ╟─c3f4764f-b2e3-4004-b5ed-2f1cccd2cdde
+# ╠═bd41fffb-5d8c-4165-9f44-690f81c70113
+# ╠═871d78a4-cc74-4866-896b-027a6c626676
+# ╠═2360169d-291b-4976-815a-8092c89260a8
+# ╠═eb8fa5e6-c18d-41ba-a78e-cceccc90d9b6
+# ╠═05512261-d0c7-4602-8280-cd1d4d45e875
+# ╠═45fe9d02-5b77-4dc4-868d-1c598121cd90
+# ╠═40d4ec5e-0f9f-49bf-946f-c1b7eeb63f67
+# ╠═4fae60d1-a464-48a0-9a40-e417338de14b
+# ╠═67e73c2a-91d6-499b-8ed6-991ad3b3bb7e
+# ╠═19e7b5c2-a32d-47e7-a436-f95fd3397ac5
 # ╟─0d6936d1-38af-45f1-b496-da49b60f11f8
 # ╟─ad1bf1d2-211d-44ca-a258-fc6e112785da
 # ╟─e316f59a-8070-4510-96f3-15498897347c
