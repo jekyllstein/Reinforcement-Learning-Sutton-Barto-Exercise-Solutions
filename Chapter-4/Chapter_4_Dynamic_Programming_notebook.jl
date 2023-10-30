@@ -929,6 +929,26 @@ end
 # ╔═╡ dae71267-9945-41d2-bec4-546c8c883ae0
 make_4_1_table()
 
+# ╔═╡ 56184148-aaad-470c-b79c-30b952e1142d
+function make_greedy_policy!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, V::Vector{T}, γ::T) where {T<:Real,S,A}
+	for i_s in eachindex(mdp.states)
+		maxv = -Inf
+		for i_a in eachindex(mdp.actions)
+			x = zero(T)
+			for i_r in eachindex(mdp.rewards)
+				for i_s′ in eachindex(V)
+					x += mdp.ptf[i_s′, i_r, i_a, i_s] * (mdp.rewards[i_r] + γ * V[i_s′])
+				end
+			end
+			maxv = max(maxv, x)
+			π[i_a, i_s] = x
+		end
+		π[:, i_s] .= (π[:, i_s] .== maxv)
+		π[:, i_s] ./= sum(π[:, i_s])
+	end
+	return π
+end
+
 # ╔═╡ 8b4fb649-8aaa-4e17-8204-540caf8da343
 function policy_improvement_v!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, γ::Real, V::Vector{T}) where {T<:Real, S, A}
 	policy_stable = true
@@ -1076,151 +1096,11 @@ $\lambda_{request, A} = 3, \: \lambda_{request, B}=4, \: \lambda_{return, A} = 3
 - \$2 cost for each car moved
 """
 
-# ╔═╡ eb8fa5e6-c18d-41ba-a78e-cceccc90d9b6
-function car_rental_policy_iteration_v2(mdp, nmax=10; θ=eps(0f0), γ=0.9f0)
-	movezeroind = findfirst(mdp.actions .== 0)
-	zerodist = [i == movezeroind ? 1f0 : 0f0 for i in eachindex(mdp.actions)]
-	π0 = mapreduce(i -> zerodist, hcat, eachindex(mdp.states))
-	# iterative_policy_eval_v(π_rand, θ, mdp, γ)
-	(policy_stable, resultlist) = begin_policy_iteration_v(mdp, π0, γ; iters = nmax, θ = θ)
-	(Vstar, πstar) = resultlist[end]
-	(policy_stable, Vstar, πstar, resultlist)
-end
-
-# ╔═╡ 40d4ec5e-0f9f-49bf-946f-c1b7eeb63f67
-begin
-	p1 = plot(rand(5), rand(5), Layout(width = 200, height = 200, margin_r = 1, margin_l = 1, margin_t = 1, margin_b = 1, font_color = "red", plot_bgcolor = "rgba(0, 0, 0, 0)", xaxis = attr(ticks = "inside", ticklabels = "inside", showgrid = false, linecolor = "black", mirror = true, linewidth = 2), yaxis = attr(showgrid = false, linecolor = "black", mirror = true, linewidth = 2), showgrid = false, paper_bgcolor = "rgba(0, 0, 0, 0)"))
-	eq = md"""$x^2 + 5$"""
-	@htl("""
-	<table>
-		<tr>
-			<th>Plot 1</th>
-			<th>$eq</th>
-		</tr>
-		<tr>
-			<td>$p1</td>
-			<td class = "ex1">$(NumberField(5:10))</td>
-		</tr>
-	</table>
-
-	<style>
-		table {
-			width: 500px;
-			background: rgba(0, 0, 0, 0);
-		}
-		.ex1 *{
-			background: blue;
-			width: 50px;
-			font: bold italic 20pt Veranda;
-		}
-	</style>
-	""")
-end
-
-# ╔═╡ 4fae60d1-a464-48a0-9a40-e417338de14b
-function plotcarmdpresults(mdp, results)
-	policytest = zeros(Int64, 21, 21)
-	valuetest = zeros(Float64, 21, 21)
-	resultlist = results[4]
-	πstarjack = resultlist[end][2]
-	vstarjack = resultlist[end][1]
-	function getaction(dist)
-		sum(dist) == 0 && return 0
-		(p, ind) = findmax(dist)
-		mdp.actions[ind]
-	end
-	for i in 1:size(πstarjack, 2)
-		action = getaction(view(πstarjack, :, i))
-		(n_a, n_b) = mdp.states[i]
-		policytest[n_a+1, n_b+1] = action
-		valuetest[n_a+1, n_b+1] = vstarjack[i]
-	end
-	makeplot(z; colorscale = "RdBu") = heatmap(;x = 0:20, y = 0:20, z = z, colorscale = colorscale) |> p -> plot(p, Layout(xaxis_title = "# Cars at second location", yaxis_title = "# Cars at first location", width = 500))
-	carpolicyplot = makeplot(policytest)
-	carvstarplot = makeplot(valuetest; colorscale = "Bluered")
-	md"""
-	$carpolicyplot
-	$carvstarplot
-	"""
-end
-		
-
-# ╔═╡ 0d6936d1-38af-45f1-b496-da49b60f11f8
-md"""
-> ### *Exercise 4.4* 
-> The policy iteration algorithm on page 80 has a subtle bug in that it may never terminate if the policy continually switches between two or more policies that are equally good.  This is okay for pedagogy, but not for actual use.  Modify the pseudocode so that convergence is guaranteed.
-
-Initialize $V_{best}$ at the start randomly and replace it with the first value function calculated.  After each policy improvement, replace $V_{best}$ with the new value function, however add a check after step 2. that if the value function is the same as $V_{best}$ then stop.  This would ensure that no matter how many equivalent policies are optimal, they would all share the same value function and thus trigger the termination condition.
-"""
-
-# ╔═╡ ad1bf1d2-211d-44ca-a258-fc6e112785da
-md"""
-> ### *Exercise 4.5* 
-> How would policy iteration be defined for action values?  Give a complete algorithm for computer $q_*$, analogous to that on page 80 for computing $v_*$.  Please pay special attention to this exercise, because the ideas involved will be used throughout the rest of the book.
-
-**Policy Iteration (using iterative policy evaluation) for estimating $\pi \approx \pi_*$ using action-values**
-1. Initialization
-$Q(s,a) \in \mathbb{R} \text{ and } \pi(s) \in \mathcal{A}(s) \text{ arbitrarily for all } s \in \mathcal{S}; Q(terminal,a) \doteq 0 \space \forall \space a \in \mathcal{A}$
-
-2. Policy Evaluation
-   
-   Loop:
-
-$\Delta \leftarrow 0$
-
-Loop for each $s \in \mathcal{S}$:
-
-Loop for each $a \in \mathcal{A}(s)$:
-
-$q \leftarrow Q(s,a)$
-$Q(s,a) \leftarrow \ \sum_{s',r} p(s',r|s,a)[r + \gamma \sum_{a'} \pi(s',a') Q(s',a')]$
-$\Delta \leftarrow \max{(\Delta, |q - Q(s,a)|)}$
-
-until $\Delta < \theta$ (a small positive number determining the accuracy of estimation)
-
-3. Policy Improvement
-*policy-stable* $\leftarrow$ *true*
-
-For each $s \in \mathcal{S}$:
-
-$old-action \leftarrow \pi(s)$
-
-$\pi(s) \leftarrow \text{argmax}_a Q(s,a)$
-
-If *old-action* $\neq \pi(s)$, then *policy-stable* $\leftarrow false$
-
-If *policy-stable*, then stop and return $Q \approx q_*$ and $\pi \approx \pi_*$; else go to 2
-"""
-
-# ╔═╡ e316f59a-8070-4510-96f3-15498897347c
-md"""
-> ### *Exercise 4.6* 
-> Suppose you are restricted to considering only policies that are *ϵ-soft*, meaning that the probability of selecting each action in each state, s, is at least $\epsilon / |\mathcal{A}(s)|$.  Describe qualitatively the changes that would be required in each of the steps 3,2,and 1, in that order, of the policy iteration algorithm for $v_*$ on page 80.
-
-For step 3: 
-To get the old-action take the argmax over possible actions of the policy distribution for state s.  Rewrite π as π(a|s).
-Instead of having a probability of 1.0 for the argmax of the expression, we must adjust the value to be $1.0 - \epsilon$.  Similarly the *old-action* and *new-action* should be the argmax of the policy distribution at state s rather than the single value.
-
-For step 2:
-
-The expression for updating the value function should have a sum over possible actions weighted by the policy distribution for each action.  The inner sum can remain the same except the policy argument for p should be replaced with the variable summing over actions.
-
-For step 1:
-
-The initialization of the policy function should be a uniform distribution over all possible actions for each state rather than a single action value.
-"""
-
-# ╔═╡ 5dbfb100-49a8-4f9d-a752-bda4da54699e
-md"""
-> ### *Exercise 4.7 (programming)* 
-> Write a program for policy iteration and re-solve Jack's car rental problem with the following changes.  One of Jack's employees at the first location rides a bus home each night and lives near the second location. She is happy to shuttle one car to the second location for free. Each additional car still costs $2, as do all cars moved in the other direction. In addition, Jack has limited parking space at each location.  If more than 10 cars are kept overnight at a location (after any moving of cars), then an additional cost of $4 must be incurred to use a second parking lot (independent of how many cars are kept there). These sorts of nonlinearities and arbitrary dynamics often occur in real problems and cannot easily be handled by optimization methods other than dynamic programming. To check your program, first replicate the results given for the original problem.
-"""
-
 # ╔═╡ e722b7e0-63a3-4195-b13e-0449abb3cc39
 poisson(n, λ) = exp(-λ) * (λ^n) / factorial(n)
 
 # ╔═╡ bd41fffb-5d8c-4165-9f44-690f81c70113
-function create_car_rental_mdp(;nmax=20, λs = (request_A = 3f0, request_B = 4f0, return_A = 3f0, return_B = 2f0), movecost = 2f0, rentcredit = 10f0, movemax=5, maxovernight = 20, overnightpenalty = 4f0, employeeshuttle = false)
+function create_car_rental_mdp(;nmax=20, λs::@NamedTuple{request_A::T, request_B::T, return_A::T, return_B::T} = (request_A = 3f0, request_B = 4f0, return_A = 3f0, return_B = 2f0), movecost::T = 2f0, rentcredit::T = 10f0, movemax::Integer=5, maxovernight::Integer = 20, overnightpenalty::T = 4f0, employeeshuttle = false) where T <: Real
 	#enumerate all states
 	states = [(n_a, n_b) for n_a in 0:nmax for n_b in 0:nmax]
 	
@@ -1252,10 +1132,10 @@ function create_car_rental_mdp(;nmax=20, λs = (request_A = 3f0, request_B = 4f0
 			end
 			for n_return in 0:(nmax - 1)
 				n′ = n_return
-				p = (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = 0f0))*p_return[n_return]
+				p = (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = zero(T)))*p_return[n_return]
 				prob_lookup[((n, n′), n)] += p
 			end
-			prob_lookup[((n, nmax), n)] += (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = 0f0))*(1 - sum(p_return[n_return] for n_return in 0:nmax-1, init = 0f0))
+			prob_lookup[((n, nmax), n)] += (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = zero(T)))*(1 - sum(p_return[n_return] for n_return in 0:nmax-1, init = zero(T)))
 		end
 		return prob_lookup
 	end
@@ -1291,7 +1171,7 @@ function create_car_rental_mdp(;nmax=20, λs = (request_A = 3f0, request_B = 4f0
 	end
 
 	#initialize probability function with all zeros
-	ptf = zeros(Float32, length(states), length(rewards), length(actions), length(states))
+	ptf = zeros(T, length(states), length(rewards), length(actions), length(states))
 	for (i_s, s) in enumerate(states)
 		for (i_a, a) in enumerate(actions)
 			ptf[:, :, i_a, i_s] .= getmatrix(s, a)
@@ -1309,11 +1189,166 @@ end
 # ╔═╡ 871d78a4-cc74-4866-896b-027a6c626676
 car_rental_mdp_v2 = create_car_rental_mdp()
 
+# ╔═╡ eb8fa5e6-c18d-41ba-a78e-cceccc90d9b6
+function car_rental_policy_iteration_v2(mdp, nmax=10; θ=eps(0f0), γ=0.9f0)
+	movezeroind = findfirst(mdp.actions .== 0)
+	zerodist = [i == movezeroind ? 1f0 : 0f0 for i in eachindex(mdp.actions)]
+	π0 = mapreduce(i -> zerodist, hcat, eachindex(mdp.states))
+	# iterative_policy_eval_v(π_rand, θ, mdp, γ)
+	(policy_stable, resultlist) = begin_policy_iteration_v(mdp, π0, γ; iters = nmax, θ = θ)
+	(Vstar, πstar) = resultlist[end]
+	(policy_stable, Vstar, πstar, resultlist)
+end
+
 # ╔═╡ 05512261-d0c7-4602-8280-cd1d4d45e875
 example4_2_results = car_rental_policy_iteration_v2(car_rental_mdp_v2;θ = .001f0)
 
-# ╔═╡ 67e73c2a-91d6-499b-8ed6-991ad3b3bb7e
-plotcarmdpresults(car_rental_mdp_v2, example4_2_results)
+# ╔═╡ c4835f94-1ebc-43bf-b54a-5252e4280635
+function makepolicyvaluemaps(mdp::FiniteMDP, v::Vector{T}, π::Matrix{T}) where T <: Real
+	function getaction(dist)
+		#default action will be 0
+		sum(dist) == 0 && return 0
+		(p, ind) = findmax(dist)
+		mdp.actions[ind]
+	end
+	policymap = zeros(Int64, 21, 21)
+	valuemap = zeros(T, 21, 21)
+	for i in 1:size(π, 2)
+		action = getaction(view(π, :, i))
+		(n_a, n_b) = mdp.states[i]
+		policymap[n_a+1, n_b+1] = action
+		valuemap[n_a+1, n_b+1] = v[i]
+	end
+	(policymap, valuemap)
+end
+
+# ╔═╡ 8b0e875b-2644-4f52-83a0-a736e9330e78
+function makepolicyvalueplots(mdp::FiniteMDP, v::Vector{T}, π::Matrix{T}, iter::Integer; policycolorscale = "RdBu", valuecolorscale = "Bluered", kwargs...) where T <: Real
+	(policymap, valuemap) = makepolicyvaluemaps(mdp, v, π)
+	layout = Layout(autosize = false, height = 220, width = 230, paper_bgcolor = "rgba(30, 30, 30, 1)", margin = attr(l = 0, t = 0, r = 0, b = 0, padding = 0), xaxis = attr(title = attr(text = "# Cars at second location", font_size = 10, standoff = 1, automargin = true), tickvals = [0, 20], linecolor = "white", mirror = true, linewidth = 2, yanchor = "bottom"), yaxis = attr(title = attr(text = "# Cars at first location", standoff = 1, automargin = true, pad_l = 0), tickvals = [0, 20], linecolor = "white", mirror = true, linewidth = 2), font_color = "gray", font_size = 9)
+	
+	function makeplot(z, colorscale; kwargs...) 
+		tr = heatmap(;x = 0:20, y = 0:20, z = z, colorscale = colorscale, colorbar_thickness = 2)
+		plot(tr, layout)
+	end
+	vtitle = L"v_{\pi_{%$(iter-1)}}"
+	policyplot = relayout(makeplot(policymap, policycolorscale), (title = attr(text =  latexify("π_$(iter-1)"), x = 0.5, xanchor = "center", font_size = 20, automargin = true, yref = "paper", yanchor = "bottom", pad_b = 10)))
+	valueplot = relayout(makeplot(valuemap, valuecolorscale), (title = attr(text = vtitle, x = 0.5, xanchor = "center", font_size = 20, automargin = true, yref = "paper", yanchor = "bottom", pad_b = 10)))
+	
+	(π = relayout(policyplot, kwargs), v = relayout(valueplot, kwargs))
+end
+
+# ╔═╡ e7f3cc36-56a7-4592-b3f6-05001675cc14
+function plotcariterations(mdp, resultslist; kwargs...)
+	[makepolicyvalueplots(mdp, value, policy, i; kwargs...) for (i, (value, policy)) in enumerate(resultslist)] 
+end
+
+# ╔═╡ e94c14ac-9583-4b31-a392-996dcb6d79b7
+carplots = plotcariterations(car_rental_mdp_v2, example4_2_results[4]);
+
+# ╔═╡ 1f566e69-e534-48e3-96c0-9e00d3407cec
+"""
+a
+b
+"""
+
+# ╔═╡ 26566af8-152f-4553-b26b-303dff3d2f24
+function figure4_2(carplots)
+	joinlines(a, b) = """$a\n$b"""
+	l = L"\pi"
+	cardivs = mapreduce(p ->@htl("""<div>$p</div>"""), joinlines, [a.π for a in carplots])
+	valuediv = @htl("""<div>$(last(carplots).v)</div>""")
+	HTML(
+	"""
+	<div class = "carplots">
+		$cardivs
+		$valuediv
+	</div>
+	<style>
+		.carplots {
+			display: flex;
+			flex-wrap: wrap;
+			width: 700px;
+		}
+	</style>
+	""")
+end	
+
+# ╔═╡ 3e1a1559-6dc0-46a1-a639-d8655b72e740
+figure4_2(carplots)
+
+# ╔═╡ 0d6936d1-38af-45f1-b496-da49b60f11f8
+md"""
+> ### *Exercise 4.4* 
+> The policy iteration algorithm on page 80 has a subtle bug in that it may never terminate if the policy continually switches between two or more policies that are equally good.  This is okay for pedagogy, but not for actual use.  Modify the pseudocode so that convergence is guaranteed.
+
+Initialize $V_{best}$ at the start randomly and replace it with the first value function calculated.  After each policy improvement, replace $V_{best}$ with the new value function, however add a check after step 2. that if the value function is the same as $V_{best}$ then stop.  This would ensure that no matter how many equivalent policies are optimal, they would all share the same value function and thus trigger the termination condition.
+"""
+
+# ╔═╡ ad1bf1d2-211d-44ca-a258-fc6e112785da
+md"""
+> ### *Exercise 4.5* 
+> How would policy iteration be defined for action values?  Give a complete algorithm for computer $q_*$, analogous to that on page 80 for computing $v_*$.  Please pay special attention to this exercise, because the ideas involved will be used throughout the rest of the book.
+
+**Policy Iteration (using iterative policy evaluation) for estimating $\pi \approx \pi_*$ using action-values**
+
+1. Initialization
+   * $Q(s,a) \in \mathbb{R} \text{ and } \pi(s) \in \mathcal{A}(s) \text{ arbitrarily for all } s \in \mathcal{S}; Q(terminal,a) \doteq 0 \space \forall \space a \in \mathcal{A}$
+
+2. Policy Evaluation
+   
+   * Loop:
+     *  $\Delta \leftarrow 0$
+
+     * Loop for each $s \in \mathcal{S}$:
+
+       * Loop for each $a \in \mathcal{A}(s)$:
+$\begin{flalign} 
+& \hspace{4em} q \leftarrow Q(s,a) \\
+& \hspace{4em} Q(s,a) \leftarrow \ \sum_{s',r} p(s',r|s,a)[r + \gamma \sum_{a'} \pi(s',a') Q(s',a')] \\
+& \hspace{4em} \Delta \leftarrow \max{(\Delta, |q - Q(s,a)|)}\\
+\end{flalign}$
+*
+   * until $\Delta < \theta$ (a small positive number determining the accuracy of estimation)
+
+3. Policy Improvement
+   * *policy-stable* $\leftarrow$ *true*
+
+   * For each $s \in \mathcal{S}$:
+
+      *  $old-action \leftarrow \pi(s)$
+
+      *  $\pi(s) \leftarrow \text{argmax}_a Q(s,a)$
+
+      * If *old-action* $\neq \pi(s)$, then *policy-stable* $\leftarrow false$
+
+   * If *policy-stable*, then stop and return $Q \approx q_*$ and $\pi \approx \pi_*$; else go to 2
+"""
+
+# ╔═╡ e316f59a-8070-4510-96f3-15498897347c
+md"""
+> ### *Exercise 4.6* 
+> Suppose you are restricted to considering only policies that are $\epsilon \textendash soft$, meaning that the probability of selecting each action in each state, s, is at least $\epsilon / |\mathcal{A}(s)|$.  Describe qualitatively the changes that would be required in each of the steps 3,2,and 1, in that order, of the policy iteration algorithm for $v_*$ on page 80.
+
+- For step 3 inside the loop over states: 
+   -  $old \textendash action \textendash distribution \leftarrow \pi(s)$ which returns a probability distribution accross actions. 
+   - Calculate $q(s, a) = \sum_{s^\prime, r} p(s^\prime, r \vert s, a)[r + \gamma V(s^\prime)]$ for each action  
+   - Find the maximum value of $q(a | s)$ and create a policy distribution with equal probability weight on each maximizing action.  That means if there is a unique maximum, 100% probability weight on that action and if there are N equal maxima then each will have a weight of 1/N.  Call this distribution $\pi_{greedy}$
+   - In the $\epsilon \textendash soft$ policy, there is a probability $\epsilon$ of a random action and a probability $1-\epsilon$ to follow the greedy policy, so to get the $\epsilon \textendash soft$ distribution we must calculate: $\pi(a \vert s) = (1-\epsilon)\pi_{greedy}(a \vert s) + \epsilon \frac{1}{\vert \mathcal{A}(s) \vert }$ and $\pi_{greedy}$ was described above.
+
+- For step 2 inside the loop over states:
+   - Replace the state value update with: $V(s) \leftarrow \sum_a \pi(a \vert s) \sum_{s^\prime, r} p(s^\prime, r \vert s, a)[r + \gamma V(s^\prime)$
+
+- For step 1:
+
+   - The policy must be initialized as a distribution over actions for each state.  One natrual choice is just the random policy so $\pi(a \vert s) = \pi_{rand}(a \vert s) = \frac{1}{\vert \mathcal{A}(s) \vert} \: \forall s \in \mathcal{S}$
+"""
+
+# ╔═╡ 5dbfb100-49a8-4f9d-a752-bda4da54699e
+md"""
+> ### *Exercise 4.7 (programming)* 
+> Write a program for policy iteration and re-solve Jack's car rental problem with the following changes.  One of Jack's employees at the first location rides a bus home each night and lives near the second location. She is happy to shuttle one car to the second location for free. Each additional car still costs $2, as do all cars moved in the other direction. In addition, Jack has limited parking space at each location.  If more than 10 cars are kept overnight at a location (after any moving of cars), then an additional cost of $4 must be incurred to use a second parking lot (independent of how many cars are kept there). These sorts of nonlinearities and arbitrary dynamics often occur in real problems and cannot easily be handled by optimization methods other than dynamic programming. To check your program, first replicate the results given for the original problem.
+"""
 
 # ╔═╡ 2360169d-291b-4976-815a-8092c89260a8
 modified_car_rental_mdp = create_car_rental_mdp(; employeeshuttle = true, maxovernight = 10)
@@ -1321,271 +1356,24 @@ modified_car_rental_mdp = create_car_rental_mdp(; employeeshuttle = true, maxove
 # ╔═╡ 45fe9d02-5b77-4dc4-868d-1c598121cd90
 exercise4_7_results = car_rental_policy_iteration_v2(modified_car_rental_mdp; θ = 0.001f0)
 
+# ╔═╡ 13ca35da-7f61-4a89-98ba-6418d754707f
+modifiedcarplots = plotcariterations(modified_car_rental_mdp, exercise4_7_results[4]);
+
 # ╔═╡ 19e7b5c2-a32d-47e7-a436-f95fd3397ac5
-plotcarmdpresults(modified_car_rental_mdp, exercise4_7_results)
-
-# ╔═╡ 66b7746a-5dd2-4d3b-8026-0c9c10fb5ba3
-function car_rental_mdp(;nmax=20, λs = (3,4,3,2), movecost = 2, rentcredit = 10, movemax=5)
-	#enumerate all possible states from which to transition
-	S = ((x, y) for x in 0:nmax for y in 0:nmax)
-
-	#check that new states are valid
-	function checkstate(S)
-		@assert (S[1] >= 0) && (S[1] <= nmax)
-		@assert (S[2] >= 0) && (S[2] <= nmax)
-	end
-	
-	#before proceeding, it will be useful to have a lookup table of probabilities for all of the possible rental and return requests at each location.  Since we can never rent more cars than are available, 0 to nmax-1 is the only range that needs to be considered.  For returns, we can receive any arbitrary number but any that exceed nmax will be returned.  Thus we may have a situation where receiving as a return any number greater than or equal to a given value will result in the same state.  To calculate such a probability we need to sum up all of the probilities for return values less than that and subtract it from 1.  If we have 0 cars at a given location prior to returns, then the maximum return value we would need to calculate is up to nmax-1.  That way the probability leading to nmax cars would be 1 minus the sum of every other probility calculated from 0 to nmax-1.
-	rentprobs = Dict((loc, rent) => poisson(rent, λs[loc]) for rent in 0:nmax-1 for loc in 1:2)
-	retprobs = Dict((loc, ret) => poisson(ret, λs[loc+2]) for ret in 0:nmax-1 for loc in 1:2)
-
-	#define p by iterating over all possible states and transitions
-	ptf = Dict{Tuple{Tuple{Int64, Int64}, Int64, Tuple{Int64, Int64}, Int64}, Float64}()
-	
-	for s in S
-		#for actions a negative number indicates moving cars from 2 to 1
-		#a positive number indicates moving cars from 1 to 2
-		for a in -min(movemax, s[2]):min(movemax, s[1])
-			#after taking action a, we have our first intermediate state for the next morning which cannot exceed nmax at each location
-			sint1 = (min(s[1]-a, nmax), min(s[2]+a, nmax))
-			checkstate(sint1)
-			
-			#the next day we can only rent cars from each location that are available
-			for (rent1, rent2) in ((x,y) for x in 0:sint1[1] for y in 0:sint1[2])
-				#after specifing the number of cars rented we have our final reward value
-				r = rentcredit*(rent1+rent2) - movecost*abs(a)
-				
-				#if we n cars from a given location, we could have received rental requests for that number or higher.  So the probability of such a rental is 1 minus the sum of the probability of receiving every request less than that number
-				function calcrentprob(loc, nrent)
-					ncars = sint1[loc]
-					@assert nrent <= ncars
-					if ncars == 0
-						1.0
-					elseif nrent < ncars
-						rentprobs[(loc, nrent)]
-					else
-						1.0 - sum(rentprobs[(loc, r)] for r in 0:nrent-1)
-					end
-				end
-
-				#calculate the probability of renting these cars at these locations
-				prent = calcrentprob(1, rent1)*calcrentprob(2, rent2)
-
-				#new intermediate state after renting cars
-				sint2 = (sint1[1]-rent1, sint1[2]-rent2)
-				checkstate(sint2)
-
-				#after receiving returns, we can only increase the number of cars at each loaction, so the possible final transition states we can end up with are as follows
-				for s′ in ((x,y) for x in sint2[1]:nmax for y in sint2[2]:nmax)
-					checkstate(s′)
-					
-					#change in cars from returns
-					delt1 = s′[1] - sint2[1]
-					delt2 = s′[2] - sint2[2]
-					
-					function pdelt(loc, delt)
-						if sint2[loc] == nmax
-							#in this case the location already had the maximum number of cars so any return value is possible
-							1.0
-						elseif s′[loc] < nmax
-							#in this the requested returns match delta
-							retprobs[(loc,delt)]
-						else
-							1.0 - sum(retprobs[(loc, r)] for r in 0:delt-1)
-						end
-					end
-
-					pret = pdelt(1, delt1)*pdelt(2, delt2)
-
-					totalprob = prent*pret
-					
-					#finally we can assign the probability of the entire transition, if keys appear more than once, we need to add the probabilities since there are multiple ways to observe the same transition
-					newkey = (s′, r, s, a)
-					basevalue = haskey(ptf, newkey) ? ptf[newkey] : 0.0
-					ptf[newkey] = basevalue + totalprob
-				end
-			end
-		end
-	end
-	sa_keys = get_sa_keys(ptf)
-	return (p = ptf, sa_keys = sa_keys)
-end
-
-# ╔═╡ b775fac4-8da9-4a27-a830-934df4b86dc2
-# ╠═╡ disabled = true
-#=╠═╡
-jacks_car_mdp = car_rental_mdp()
-  ╠═╡ =#
-
-# ╔═╡ f0552339-b9ae-4036-8c6a-c232faee2b42
-function convertcarpolicy(V, π, nmax=20)
-	vmat = zeros(nmax+1, nmax+1)
-	pmat = zeros(nmax+1, nmax+1)
-	A = -nmax:nmax
-	for i = 0:nmax
-		for j = 0:nmax
-			vmat[i+1,j+1] = V[(i,j)]
-			a = argmax(π[(i,j)])
-			pmat[i+1,j+1] = a
-		end
-	end
-	return (value=vmat, policy=pmat)
-end
-
-# ╔═╡ b9998e51-f7e5-46c2-80cd-e327911db01b
-#first test that the policy evaluation works on the mdp
-function car_rental_policy_eval(mdp, nmax=Inf; θ = eps(0.0), γ=0.9)
-	states = keys(mdp.sa_keys[1])
-	π_0 = Dict(s => Dict(0 => 1.0) for s in states)
-	V0 = iterative_policy_eval_v(π_0, θ, mdp, γ, nmax = nmax)
-	nullpolicymats = convertcarpolicy(V0, π_0)
-	(V0, π_0, nullpolicymats)
-end
-
-# ╔═╡ 3c874757-2f48-4ba0-93ce-38c019fb1f1b
-#=╠═╡
-V0_car_rental_eval = car_rental_policy_eval(jacks_car_mdp, Inf)	
-  ╠═╡ =#
-
-# ╔═╡ a2e0108a-4bf7-40a9-8c06-dc8403042988
-#=╠═╡
-heatmap(V0_car_rental_eval[3][1], title="Value Function No Movement Car Rental Policy")
-  ╠═╡ =#
-
-# ╔═╡ 1bf3eba7-1a02-4035-962c-73c3fda304bd
-#now try policy iteration
-function car_rental_policy_iteration(mdp, nmax=10; θ=eps(0.0), γ=0.9, null_policy_eval = car_rental_policy_eval(mdp))
-	(V0, π_0, mats) = null_policy_eval
-	(converged, resultlist) = begin_policy_iteration_v(mdp, π_0, γ, V = V0, iters = nmax, θ = θ)
-	(converged, [(Vstar, πstar, convertcarpolicy(Vstar, πstar)) for (Vstar, πstar) in resultlist])
-end
-
-# ╔═╡ 4d00ffa4-40d5-4dbc-a8e2-5a57cbbcbacd
-#=╠═╡
-example4_2_results = car_rental_policy_iteration(jacks_car_mdp, θ=0.01, null_policy_eval=V0_car_rental_eval)
-  ╠═╡ =#
-
-# ╔═╡ 2c4d1304-fa80-4d9f-98f8-5f8d3107110d
-function plotcarpolicy(results)
-	πheatmaps = [a[3][2] for a in results]
-	finalvaluemap = results[end][3][1]
-	plist = [heatmap(h, title="π_$(i-1)") for (i,h) in enumerate(πheatmaps)]
-	pvalue = surface(finalvaluemap, title="Value Function after $(length(results)-1) Iterations", legend = false)
-	πplots = plot(Tuple(plist)...)
-	plot(πplots, pvalue, layout = (2,1), size=(700, 900))
-end
-
-# ╔═╡ 7c2bd3b2-8388-4e80-b423-41cf2a4c95ef
-plotcarpolicy(example4_2_results[2])
-
-# ╔═╡ ad5e013f-7938-4e3d-acec-bfce21b63b61
-function car_rental_modified_mdp(;nmax=20, λs = (3,4,3,2), movecost = 2, rentcredit = 10, movemax=5)
-	#enumerate all possible states from which to transition
-	S = ((x, y) for x in 0:nmax for y in 0:nmax)
-
-	#lookup tables for rental and return request probabilities
-	rentprobs = Dict((loc, rent) => poisson(rent, λs[loc]) for rent in 0:nmax-1 for loc in 1:2)
-	retprobs = Dict((loc, ret) => poisson(ret, λs[loc+2]) for ret in 0:nmax-1 for loc in 1:2)
-
-	#define p by iterating over all possible states and transitions
-	ptf = Dict{Tuple{Tuple{Int64, Int64}, Int64, Tuple{Int64, Int64}, Int64}, Float64}()
-	
-	for s in S
-		#for actions a negative number indicates moving cars from 2 to 1
-		#a positive number indicates moving cars from 1 to 2
-		for a in -min(movemax, s[2]):min(movemax, s[1])
-			#after taking action a, we have our first intermediate state for the next morning which cannot exceed nmax at each location
-			sint1 = (min(s[1]-a, nmax), min(s[2]+a, nmax))
-
-			move_expense = movecost * ((a > 0) ? (a-1) : -a)
-			
-			#the next day we can only rent cars from each location that are available
-			for (rent1, rent2) in ((x,y) for x in 0:sint1[1] for y in 0:sint1[2])
-				#if we n cars from a given location, we could have received rental requests for that number or higher.  So the probability of such a rental is 1 minus the sum of the probability of receiving every request less than that number
-				function calcrentprob(loc, nrent)
-					ncars = sint1[loc]
-					if ncars == 0
-						1.0
-					elseif nrent < ncars
-						rentprobs[(loc, nrent)]
-					else
-						1.0 - sum(rentprobs[(loc, r)] for r in 0:nrent-1)
-					end
-				end
-
-				#calculate the probability of renting these cars at these locations
-				prent = calcrentprob(1, rent1)*calcrentprob(2, rent2)
-
-				#new intermediate state after renting cars
-				sint2 = (sint1[1]-rent1, sint1[2]-rent2)
-
-				#after receiving returns, we can only increase the number of cars at each loaction, so the possible final transition states we can end up with are as follows
-				for s′ in ((x,y) for x in sint2[1]:nmax for y in sint2[2]:nmax)
-		
-					#change in cars from returns
-					delt1 = s′[1] - sint2[1]
-					delt2 = s′[2] - sint2[2]
-					
-					function pdelt(loc, delt)
-						if sint2[loc] == nmax
-							#in this case the location already had the maximum number of cars so any return value is possible
-							1.0
-						elseif s′[loc] < nmax
-							#in this the requested returns match delta
-							retprobs[(loc,delt)]
-						else
-							1.0 - sum(retprobs[(loc, r)] for r in 0:delt-1)
-						end
-					end
-
-					pret = pdelt(1, delt1)*pdelt(2, delt2)
-
-					#after specifing the number of cars rented, moved, and at each location we can calculate our total reward
-					secondlotcost = 4 * ((s′[1] > 10) + (s′[2] > 10))
-					r = rentcredit*(rent1+rent2) - move_expense - secondlotcost
-					
-					totalprob = prent*pret
-					
-					#finally we can assign the probability of the entire transition, if keys appear more than once, we need to add the probabilities since there are multiple ways to observe the same transition
-					newkey = (s′, r, s, a)
-					basevalue = haskey(ptf, newkey) ? ptf[newkey] : 0.0
-					ptf[newkey] = basevalue + totalprob
-				end
-			end
-		end
-	end
-	sa_keys = get_sa_keys(ptf)
-	return (p = ptf, sa_keys = sa_keys)
-end
-
-# ╔═╡ 5e18e5f1-3d19-4ba7-a7e4-613e6d70a806
-# ╠═╡ disabled = true
-#=╠═╡
-modified_jacks_car_mdp = car_rental_modified_mdp()
-  ╠═╡ =#
-
-# ╔═╡ 0a60d83e-3ef6-449f-9131-0c0d0777d413
-# ╠═╡ disabled = true
-#=╠═╡
-V0_modified_car_rental_eval = car_rental_policy_eval(modified_jacks_car_mdp)	
-  ╠═╡ =#
-
-# ╔═╡ 65408c28-eee7-4f60-b71a-cbf31a3c43aa
-#=╠═╡
-heatmap(V0_modified_car_rental_eval[3][1], title="Value Function No Movement Modified Car Rental Policy")
-  ╠═╡ =#
-
-# ╔═╡ c973a895-07bb-4f8f-8498-4b4773bdd02d
-#=╠═╡
-exercise4_7_results = car_rental_policy_iteration(modified_jacks_car_mdp, θ=0.01, null_policy_eval=V0_modified_car_rental_eval)
-  ╠═╡ =#
-
-# ╔═╡ 48ff63c9-97f4-4162-a009-d05517b8f06f
-plotcarpolicy(exercise4_7_results[2])
+figure4_2(modifiedcarplots)
 
 # ╔═╡ 2bedc22e-9615-4fb4-94bf-6a0e7114c417
 md"""
 ## 4.4 Value Iteration
+
+One drawback of policy iteration is that each iteration requires policy evaluation to converge.  We can truncate policy evaluation without losing the convergence guarantees.  One special case is when we stop policy iteration after just one sweep through the state space.  This is called value iteration and has one simple update operation that continues until the value function has converged:
+
+$\begin{flalign}
+v_{k+1} & \doteq \underset{a}{\mathrm{max}} \: \mathbb{E} \left [ R_{t+1} + \gamma v_k (S_{t+1} \mid S_t = s, A_t = a) \right ] \\
+& = \underset{a}{\mathrm{max}} \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + \gamma v_k(s^\prime) \right ] \tag{4.10}
+\end{flalign}$
+
+If we compare this to the Bellman optimality equation (4.1), we can see that value iteration simply turns that equation into an update rule.  When this process converges, we are guaranteed to have the optimal value function since it satisfies the optimality equation.
 """
 
 # ╔═╡ 7140970d-d4a7-45bc-9626-26cf1a2f945b
@@ -1599,6 +1387,60 @@ function bellman_optimal_value!(V::Dict, p::Dict, sa_keys::Tuple, γ::Real)
 	end
 	return delt
 end
+
+# ╔═╡ 057beec8-0ad7-4bf2-ac45-6753614c0b4d
+function bellman_optimal_value!(V::Vector{T}, mdp::FiniteMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	delt = zero(T)
+	@inbounds @fastmath @simd for i_s in eachindex(mdp.states)
+		maxvalue = typemin(T)
+		@inbounds @fastmath @simd for i_a in eachindex(mdp.actions)
+			x = zero(T)
+			for (i_r, r) in enumerate(mdp.rewards)
+				@inbounds @fastmath @simd for i_s′ in eachindex(V)
+					x += mdp.ptf[i_s′, i_r, i_a, i_s] * (r + γ * V[i_s′])
+				end
+			end
+			maxvalue = max(maxvalue, x)
+		end
+		delt = max(delt, abs(maxvalue - V[i_s]) / (eps(abs(V[i_s])) + abs(V[i_s])))
+		V[i_s] = maxvalue
+	end
+	return delt
+end
+
+# ╔═╡ fa1849cb-663f-49c0-acc1-f7fdbcbb4189
+function value_iteration_v!(V::Vector{T}, θ::Real, mdp::FiniteMDP{T, S, A}, γ::T, nmax::Real, valuelist) where {T<:Real, S, A}
+	nmax <= 0 && return valuelist
+	
+	#update value function
+	delt = bellman_optimal_value!(V, mdp, γ)
+	
+	#add copy of value function to results list
+	push!(valuelist, copy(V))
+
+	#halt when value function is no longer changing
+	delt <= θ && return valuelist
+	
+	value_iteration_v!(V, θ, mdp, γ, nmax - 1, valuelist)	
+end
+
+# ╔═╡ 9c5144fa-9138-4d20-b1da-b69c6f7cae4c
+function begin_value_iteration_v(mdp::FiniteMDP{T,S,A}, γ::T, V::Vector{T}; θ = eps(0.0), nmax=typemax(Int64)) where {T<:Real,S,A}
+	valuelist = [copy(V)]
+	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
+
+	π = form_random_policy(mdp)
+	make_greedy_policy!(π, mdp, V, γ)
+	return (valuelist, π)
+end
+
+# ╔═╡ 1ce9df3d-c989-499b-88b8-d59381d37adf
+begin_value_iteration_v(mdp::FiniteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, size(mdp.ptf, 1)); kwargs...)
+
+# ╔═╡ b4607b63-08f4-4a90-99e6-56860c3d9337
+md"""
+### Value Iteration Results for Jack's Car Rental
+"""
 
 # ╔═╡ 39e0e313-79e7-4343-8e02-526f30a66aad
 function calculatepolicy(mdp::NamedTuple, γ::Real, V::Dict)
@@ -1643,6 +1485,33 @@ function begin_value_iteration_v(mdp::NamedTuple, γ::Real, V; θ = eps(0.0), nm
 	newV = deepcopy(V)
 	delt = bellman_optimal_value!(newV, p, sa_keys, γ)
 	value_iteration_v(θ, mdp, γ, newV, delt, nmax-1, [V, newV])
+end
+
+# ╔═╡ d710264a-c567-415b-9106-a95eace8c622
+begin
+	gridworld_value_iteration = begin_value_iteration_v(create_4x4gridworld_mdp(), 1.0)
+	md"""
+	### Value Iteration Results for Gridworld 
+	
+	|$v_*$|$\pi_*$|
+	|:---:|:---:|
+	|$(HTML(show_gridworld_values(gridworld_value_iteration[1][end][1:14])))|$(HTML(show_gridworld_policy(eachcol(gridworld_value_iteration[2]))))|
+
+	Converged after $(length(gridworld_value_iteration[1]) - 1) iterations
+	"""
+end
+
+# ╔═╡ a671f4ed-d758-4b42-a970-c088b6b59eb2
+car_value_iteration = begin_value_iteration_v(car_rental_mdp_v2, 0.9f0; θ = 0.001f0)
+
+# ╔═╡ e337bb47-8309-4af1-8ed3-2b0de1875e57
+begin
+	carvalueiterplots = makepolicyvalueplots(car_rental_mdp_v2, car_value_iteration[1][end], car_value_iteration[2], length(car_value_iteration[1]))
+	HTML("""
+	<div class = carplots>
+		$(mapreduce(a -> @htl("""<div>$(relayout(a, width = 350, height = 340))</div>"""), linejoin, carvalueiterplots))
+	</div>
+	""")
 end
 
 # ╔═╡ c2fca344-c1db-4416-8ce4-39eae9e972af
@@ -2271,6 +2140,7 @@ version = "17.4.0+2"
 # ╟─aa2e7334-af07-4152-8f21-e80bdcdd979b
 # ╟─67b06f3b-13df-4b27-ad80-d112432e8f42
 # ╠═160c59b0-a5ea-4046-b79f-7a6a6fc8db7e
+# ╠═56184148-aaad-470c-b79c-30b952e1142d
 # ╠═8b4fb649-8aaa-4e17-8204-540caf8da343
 # ╠═f0e5d2e6-3d00-4ffc-962e-e98d4bb28e4e
 # ╠═31a9db21-c7d2-4053-8c18-2023f4720196
@@ -2285,40 +2155,37 @@ version = "17.4.0+2"
 # ╟─a5174afc-04f2-4fc9-9b10-7aa7f249332a
 # ╟─c4a14f1c-ce17-40eb-b9ae-00b651d40714
 # ╟─c3f4764f-b2e3-4004-b5ed-2f1cccd2cdde
+# ╠═e722b7e0-63a3-4195-b13e-0449abb3cc39
 # ╠═bd41fffb-5d8c-4165-9f44-690f81c70113
 # ╠═871d78a4-cc74-4866-896b-027a6c626676
-# ╠═2360169d-291b-4976-815a-8092c89260a8
 # ╠═eb8fa5e6-c18d-41ba-a78e-cceccc90d9b6
 # ╠═05512261-d0c7-4602-8280-cd1d4d45e875
-# ╠═45fe9d02-5b77-4dc4-868d-1c598121cd90
-# ╠═40d4ec5e-0f9f-49bf-946f-c1b7eeb63f67
-# ╠═4fae60d1-a464-48a0-9a40-e417338de14b
-# ╠═67e73c2a-91d6-499b-8ed6-991ad3b3bb7e
-# ╠═19e7b5c2-a32d-47e7-a436-f95fd3397ac5
+# ╠═c4835f94-1ebc-43bf-b54a-5252e4280635
+# ╠═8b0e875b-2644-4f52-83a0-a736e9330e78
+# ╠═e7f3cc36-56a7-4592-b3f6-05001675cc14
+# ╠═e94c14ac-9583-4b31-a392-996dcb6d79b7
+# ╠═1f566e69-e534-48e3-96c0-9e00d3407cec
+# ╠═26566af8-152f-4553-b26b-303dff3d2f24
+# ╟─3e1a1559-6dc0-46a1-a639-d8655b72e740
 # ╟─0d6936d1-38af-45f1-b496-da49b60f11f8
 # ╟─ad1bf1d2-211d-44ca-a258-fc6e112785da
 # ╟─e316f59a-8070-4510-96f3-15498897347c
 # ╟─5dbfb100-49a8-4f9d-a752-bda4da54699e
-# ╠═e722b7e0-63a3-4195-b13e-0449abb3cc39
-# ╠═66b7746a-5dd2-4d3b-8026-0c9c10fb5ba3
-# ╠═b775fac4-8da9-4a27-a830-934df4b86dc2
-# ╠═f0552339-b9ae-4036-8c6a-c232faee2b42
-# ╠═b9998e51-f7e5-46c2-80cd-e327911db01b
-# ╠═3c874757-2f48-4ba0-93ce-38c019fb1f1b
-# ╠═a2e0108a-4bf7-40a9-8c06-dc8403042988
-# ╠═1bf3eba7-1a02-4035-962c-73c3fda304bd
-# ╠═4d00ffa4-40d5-4dbc-a8e2-5a57cbbcbacd
-# ╠═2c4d1304-fa80-4d9f-98f8-5f8d3107110d
-# ╠═7c2bd3b2-8388-4e80-b423-41cf2a4c95ef
-# ╠═ad5e013f-7938-4e3d-acec-bfce21b63b61
-# ╠═5e18e5f1-3d19-4ba7-a7e4-613e6d70a806
-# ╠═0a60d83e-3ef6-449f-9131-0c0d0777d413
-# ╠═65408c28-eee7-4f60-b71a-cbf31a3c43aa
-# ╠═c973a895-07bb-4f8f-8498-4b4773bdd02d
-# ╠═48ff63c9-97f4-4162-a009-d05517b8f06f
+# ╠═2360169d-291b-4976-815a-8092c89260a8
+# ╠═45fe9d02-5b77-4dc4-868d-1c598121cd90
+# ╠═13ca35da-7f61-4a89-98ba-6418d754707f
+# ╟─19e7b5c2-a32d-47e7-a436-f95fd3397ac5
 # ╟─2bedc22e-9615-4fb4-94bf-6a0e7114c417
 # ╠═7140970d-d4a7-45bc-9626-26cf1a2f945b
+# ╠═057beec8-0ad7-4bf2-ac45-6753614c0b4d
 # ╠═f9b3f359-0c24-4a70-9ba8-be185cc01a62
+# ╠═fa1849cb-663f-49c0-acc1-f7fdbcbb4189
+# ╠═9c5144fa-9138-4d20-b1da-b69c6f7cae4c
+# ╠═1ce9df3d-c989-499b-88b8-d59381d37adf
+# ╟─d710264a-c567-415b-9106-a95eace8c622
+# ╠═a671f4ed-d758-4b42-a970-c088b6b59eb2
+# ╟─b4607b63-08f4-4a90-99e6-56860c3d9337
+# ╟─e337bb47-8309-4af1-8ed3-2b0de1875e57
 # ╠═39e0e313-79e7-4343-8e02-526f30a66aad
 # ╠═a5f1a71f-3c28-49ed-8f29-ff164c4ea02c
 # ╠═3d7f4a19-316e-4874-8c28-8e8fe96a9002
