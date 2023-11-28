@@ -14,15 +14,12 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 4cebd52d-2e9c-418f-a731-704df188fbf5
-using LinearAlgebra
-
 # ╔═╡ 4c0872f8-0fd5-4a44-9587-28cb04697d25
 using BenchmarkTools
 
 # ╔═╡ f5809bd3-64d4-47ee-9e41-e491f8c09719
 begin
-	using PlutoPlotly, PlutoUI, HypertextLiteral, Random, LaTeXStrings, Latexify
+	using PlutoPlotly, PlutoUI, HypertextLiteral, Random, LaTeXStrings, Latexify, LinearAlgebra, LinearAlgebra.BLAS
 	TableOfContents()
 end
 
@@ -103,8 +100,10 @@ begin
 		action_scratch::Vector{T}
 		state_scratch::Vector{T}
 		reward_scratch::Vector{T}
+		state_index::Dict{S, Int64}
+		action_index::Dict{A, Int64}
 		function FiniteMDP{T, S, A}(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A}
-			new(states, actions, rewards, ptf, Vector{T}(undef, length(actions)), Vector{T}(undef, length(states)+1), Vector{T}(undef, length(rewards)))
+			new(states, actions, rewards, ptf, Vector{T}(undef, length(actions)), Vector{T}(undef, length(states)+1), Vector{T}(undef, length(rewards)), Dict(zip(states, eachindex(states))), Dict(zip(actions, eachindex(actions))))
 		end	
 	end
 	FiniteMDP(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A} = FiniteMDP{T, S, A}(states, actions, rewards, ptf)
@@ -377,7 +376,7 @@ end
 
 # ╔═╡ 0297a007-5898-4936-ae2f-386a725700e4
 md"""
-#### HTML Utilities
+### HTML Utilities
 """
 
 # ╔═╡ e4370697-e6a7-40f0-974a-ed219102c13f
@@ -428,13 +427,16 @@ function makevaluecell(value)
 end	
 
 # ╔═╡ aa19ffd4-69a0-44a9-8109-d6be003ae7b1
-function show_gridworld_values(values)
+function show_gridworld_values(values; title = "")
 	"""
+	<div style="display: flex; flex-direction: column;">
+	$title
 	<div id="gridcontainer">
 	<div class="gridworld">
 		$(makevaluecell(0.0))
 		$(mapreduce(makevaluecell, linejoin, values))
 		$(makevaluecell(0.0))
+	</div>
 	</div>
 	</div>
 	"""
@@ -450,6 +452,7 @@ html"""
 <style>
 	#gridcontainer {
 		display: flex;
+		flex-direction: row;
 		background: rgba(0, 0, 0, 0);
 		margin: 0px;
 		padding: 0px;
@@ -948,7 +951,7 @@ function make_greedy_policy!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, V::Vector{T
 			maxv = max(maxv, x)
 			π[i_a, i_s] = x
 		end
-		π[:, i_s] .= (π[:, i_s] .== maxv)
+		π[:, i_s] .= (π[:, i_s] .≈ maxv)
 		π[:, i_s] ./= sum(π[:, i_s])
 	end
 	return π
@@ -970,7 +973,7 @@ function policy_improvement_v!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, γ::Real,
 			maxv = max(maxv, x)
 			dist[i_a] = x
 		end
-		dist .= (dist .== maxv)
+		dist .= (dist .≈ maxv)
 		dist ./= sum(dist)
 		for i_a in eachindex(mdp.actions)
 			policy_stable = policy_stable && (sign(π[i_a, i_s]) == sign(dist[i_a]))
@@ -1401,6 +1404,26 @@ function bellman_optimal_value!(V::Dict, p::Dict, sa_keys::Tuple, γ::Real)
 	return delt
 end
 
+# ╔═╡ 09a98ebf-4685-404b-b492-116c184d4a52
+function compute_Q(V::Vector{T}, i_s::Integer, i_a::Integer, mdp::FiniteMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	#compute the Q value for a given state action pair and value function
+	x = zero(T)
+	for (i_r, r) in enumerate(mdp.rewards)
+		@inbounds @fastmath @simd for i_s′ in eachindex(V)
+			x += mdp.ptf[i_s′, i_r, i_a, i_s] * (r + γ * V[i_s′])
+		end
+	end
+	return x
+end
+
+# ╔═╡ 64dc17e3-a83f-4414-a74a-c6c8e3e498fa
+compute_V(π::Matrix{T}, Q::Matrix{T}) where T <: Real = Q' * π
+
+# ╔═╡ 16adacf1-2757-4a45-a2e5-8ec4bf04584e
+function update_V!(V::Vector{T}, π::Matrix{T}, Q::Matrix{T}) where T <: Real 
+	gemm!('T', 'N', one(T), Q, π, zero(T), V)
+end
+
 # ╔═╡ 057beec8-0ad7-4bf2-ac45-6753614c0b4d
 function bellman_optimal_value!(V::Vector{T}, mdp::FiniteMDP{T, S, A}, γ::T) where {T <: Real, S, A}
 	delt = zero(T)
@@ -1495,22 +1518,36 @@ function begin_value_iteration_v(mdp::NamedTuple, γ::Real, V; θ = eps(0.0), nm
 	value_iteration_v(θ, mdp, γ, newV, delt, nmax-1, [V, newV])
 end
 
+# ╔═╡ 0587517b-4a4c-44f4-81e1-9e630043df9a
+md"""
+### Value Iteration Results for Gridworld 
+"""
+
+# ╔═╡ 5f365f8b-1448-4301-bb4c-2c43ee96b5ab
+md"""
+#### Value Function Iterations
+"""
+
+# ╔═╡ 9f6b1d57-87a0-494a-a844-5d8760513bb6
+gridworld_value_iteration = begin_value_iteration_v(create_4x4gridworld_mdp(), 1.0)
+
+# ╔═╡ c693bad0-31a8-42d8-a472-52f2c9825f1b
+HTML("""
+<div style="display: flex">
+$(reduce(linejoin, [show_gridworld_values(values[1:14]; title = "Iteration $(i-1)") for (i, values) in enumerate(gridworld_value_iteration[1])]))
+</div>
+""")
+
 # ╔═╡ d710264a-c567-415b-9106-a95eace8c622
-begin
-	gridworld_value_iteration = begin_value_iteration_v(create_4x4gridworld_mdp(), 1.0)
-	md"""
-	### Value Iteration Results for Gridworld 
-	
-	|$v_*$|$\pi_*$|
-	|:---:|:---:|
-	|$(HTML(show_gridworld_values(gridworld_value_iteration[1][end][1:14])))|$(HTML(show_gridworld_policy(eachcol(gridworld_value_iteration[2]))))|
+md"""
+#### Optimal Value Function and Policy
+|$v_*$|$\pi_*$|
+|:---:|:---:|
+|$(HTML(show_gridworld_values(gridworld_value_iteration[1][end][1:14])))|$(HTML(show_gridworld_policy(eachcol(gridworld_value_iteration[2]))))|
 
-	Converged after $(length(gridworld_value_iteration[1]) - 1) iterations
-	"""
-end
+Converged after $(length(gridworld_value_iteration[1]) - 1) iterations
+"""
 
-# ╔═╡ c2fca344-c1db-4416-8ce4-39eae9e972af
-begin_value_iteration_v(gridworld4x4_mdp(), 1.0)
 
 # ╔═╡ b4607b63-08f4-4a90-99e6-56860c3d9337
 md"""
@@ -1581,16 +1618,10 @@ function make_gambler_mdp_v2(p::T; winningcapital = 100, losingcapital = 0) wher
 	FiniteMDP(states, actions, rewards, ptf)
 end		
 
-# ╔═╡ 8bc5e53f-632d-4ea4-98ca-b3740d98c297
-gambler_mdp = make_gambler_mdp(0.4)
-
-# ╔═╡ 6100a0a1-3e35-44d1-af18-76ce1f8b937b
-gambler_mdp_v2 = make_gambler_mdp_v2(BigFloat(0.4))
-
 # ╔═╡ bb87aea9-7d4c-4d2f-b62d-3402fc309d50
-function plot_gambler_results(p::T; winningcapital = 100, losingcapital = 0, kwargs...) where T <: Real
+function plot_gambler_results(p::T; winningcapital = 100, losingcapital = 0, γ = one(T), kwargs...) where T <: Real
 	mdp = make_gambler_mdp_v2(p; winningcapital=winningcapital, losingcapital=losingcapital)
-	results = begin_value_iteration_v(mdp, one(T); kwargs...)
+	results = begin_value_iteration_v(mdp, γ; kwargs...)
 	numiter = length(first(results))
 	valuetraces = [scatter(x = mdp.states, y = first(results)[i], name = "sweep $(i-1)") for i in [2:min(4, numiter); [numiter-1, numiter]]]
 	valueplot = plot(valuetraces, Layout(xaxis_title = "Capital", yaxis_title = "Value estimates", width = 600, height = 350, legend_orientation = "h", legend_y = 1.2, margin_t = 10))
@@ -1601,27 +1632,92 @@ function plot_gambler_results(p::T; winningcapital = 100, losingcapital = 0, kwa
 	@htl("""
 	<div>$valueplot</div>
 	<div>$policymap</div>
-	The solution to the gambler's problem for $str.  The upper graph shows the value function found by successive sweeps of value iteration.  } \\ \text{The lower graph shows the final policy distribution accross actions (stakes) for each state (capital)}</div>
+	The solution to the gambler's problem for $str  The upper graph shows the value function found by successive sweeps of value iteration.  The lower graph shows the final policy distribution accross actions (stakes) for each state (capital)</div>
 	""")
 end
 
 # ╔═╡ 5f3dd95b-3563-4a29-ae6d-e772df4f53ad
 md"""
 ### Figure 4.3
-Probability of Heads for Gambler's Problem $(@bind p_h NumberField(0.0:0.1:1.0, default = 0.4))
+Probability of Heads for Gambler's Problem: $(@bind p_h NumberField(0.0:0.1:1.0, default = 0.4))
+
+Winning Capital: $(@bind wc NumberField(1:1000, default = 100))
+
+Discount Rate: $(@bind γ_gambler NumberField(0.01:0.01:1.0, default = 1.0))
 """
 
 # ╔═╡ bb38c5a9-7916-489e-8d94-834f421d57e2
-plot_gambler_results(p_h; θ = 0.0)
+plot_gambler_results(Float32(p_h); winningcapital = wc, γ = Float32(γ_gambler))
 
 # ╔═╡ 04e6f567-31c5-4f05-b5e2-8b46d22dffbc
 md"""
 > ### *Exercise 4.8* 
 > Why does the optimal policy for the gambler's problem have such a curious form?  In particular, for capital of 50 it bets it all on one flip, but for capital of 51 it does not.  Why is this a good policy?
 
-At capital of 50, it is possible to reach the terminal winning state with a 100% stake.  In the value function estimate we see that this state is valued, as expected, at the probability of receiving a winning flip.  Every capital state larger than 50 has a higher value estimate than this presumably because if we lose a flip we can always try again from the 50 state and otherwise we can more slowly advance up the capital states.  Then again at 75, there is a potentially winning stake of 25.  However, if we lose at the 75 state, we drop to 50 and have another chance to win.  That is why the 75 state will always be valued higher than the 50 state.  Since $p_h$ is less than 50%, if we chose to play it safe and bet less than a winning amount at 50, it is actually most likely that we lose capital progressively and never again reach the 50 state.  Therefore, it makes sense that the moment we reach the 50 state (one flip away from a win), we take the oppotunity to win immediately.  The situation is completely different in a game where the probability of a winning flip is greater than half.  In that case, it would never make sense to risk enough capital to lose in one turn, because we would expect in the long run to accumulate capital slowly.
+Since $p=0.4$, the expected outcome of a flip is a loss.  Therefore, repeated flips  will lower our chance of winning and discounting is not a factor in this problem so only the final probability for a series of flips is relevant.  That is why at a capital of 50, the strategy wagers all of the available capital resulting in a 40% chance to win and a 60% chance to lose.  Any smaller bet would avoid a loss but neessitate additional flips each of which is expected to lose.  In other words, if we have a chance to win in one flip, it should be taken immediately because otherwise we would be counting on having more winning than losing flips for repeated flips which is not expected.  Following this same logic, for every capital amount greater than 50, the optimal wager is the exact amount of capital needed to win in one flip and this strategy forms the upper policy line shown in the bottom half of figure 4.3.
 
+For any capital amount less than 50, we can only win after repeated flips which is why these capital states have lower values than any state above them, in fact the entire value estimate curve is monotonic for this reason.  One optimal strategy for these capital amounts is to wager all of the available capital as this will advance the capital up as quickly as possible with a win.
+
+There are other optimal policies though, in particular we see that for capital values between 51 and 62, there are two optimal wagers and then from 63 to 74 there are three optimal wagers.  The effect is mirrored at the capital values less than 50 as well.  For this particular value of winning capital the maximum number of optimal wagers is three for a given capital value, but for variations of this problem there could be additional splitting.  At a winning capital of 104, there are 4 optimal wagers starting at a capital of 33.  What is going on here can be understood by looking at the value function.  There are only two possible transitions from a wager so we can write down the Bellman optimality equation as $v_*(s) = \max_a \left [ pv_*(s+a) + (1-p)v_*(s-a) \right ]$.  Given the shape of the value function, there are certain states with non-unique pairs of outcomes that sum to the same optimal value.  For example at a capital state of 51, the wagers of 49 and 1 both lead to the same action value estimate simply because $0.4 + 0.6v_*(2) = 0.4v_*(51) + 0.6v_*(50)$.  A visualization of this equality is shown below.  
 """
+
+# ╔═╡ 76c09949-ca38-4d96-b2aa-f7a1017ff322
+md"""
+#### Action Value Visualization
+Capital State: $(@bind capitaleval NumberField(1:99, default = 50))
+
+Winning Flip Probability: $(@bind pheval NumberField(0.0:0.01:1.0, default = 0.4)) 
+"""
+
+# ╔═╡ 9462c98d-1a0e-4c61-b7cf-31fb320ffe68
+function evaluate_gambler(p::T; winningcapital = 100, losingcapital = 0, γ = one(T), kwargs...) where T <: Real
+	mdp = make_gambler_mdp_v2(p; winningcapital=winningcapital, losingcapital=losingcapital)
+	results = begin_value_iteration_v(mdp, γ; kwargs...)
+	v = results |> first |> last
+	v[1:end-1]
+end
+
+# ╔═╡ 4883c217-3f5f-4b30-a92d-615ae0deff7d
+function evaluate_wager(p::T, v::Vector{T}, s) where T <: Real
+	[begin 
+		v1 = s + a > length(v) ? one(T) : v[s+a]
+		v2 = s-a < 1 ? zero(T) : v[s-a]
+		p*v1 + (1-p)*v2 
+	end
+	for a in 1:s]
+end
+
+# ╔═╡ f9dc45e8-1bfe-4115-a2e2-6dd2cbc427ff
+function plot_gambler_Q(s, p::T; winningcapital = 100, losingcapital = 0, γ = one(T), kwargs...) where T <: Real
+	v = evaluate_gambler(p; winningcapital = winningcapital, losingcapital = losingcapital, γ = γ, kwargs...)
+	push!(v, one(T)) #add the winning value to v at the winning capital amount
+	q = evaluate_wager(p, v, s)
+	maxq = maximum(q)
+	bestwagers = findall(q .≈ maxq)
+	vtrace = scatter(x = eachindex(v), y = v, showlegend = false, name = "Value Function")
+	vtraces = [scatter(x = [s + bestwager, s - bestwager], y = [v[s + bestwager], (s - bestwager) <= 0 ? zero(T) : v[s - bestwager]], name = "Wager of $bestwager", mode = "markers") for bestwager in bestwagers]
+	vtrace3 = scatter(x = [s], y = [v[s]], name = "Capital State = $s")
+	vplt = plot([vtrace; vtrace3; vtraces], Layout(xaxis_title = "Capital", yaxis_title = "Value estimates", title = "Optimal Value Function", height = 350))
+	formatwagers(x::AbstractVector) = reduce((a, b) -> "$a, $b", x)
+	t1 = scatter(x = eachindex(q), y = q, showlegend = false, name = "")
+	t2 = scatter(x = bestwagers, y = maxq .* ones(length(bestwagers)), name = "Optimal Wager", mode = "markers")
+	qplt = plot([t1, t2], Layout(xaxis_title = "Wager", yaxis_title = "Action Value", title = "Optimal Action Values for Capital $s", height = 350))
+	msg = if length(bestwagers) == 1
+		md"""Unique best wager of $(first(bestwagers))"""
+	else
+		md"""The following wagers are equally good: $(formatwagers(bestwagers))"""
+	end
+		
+	md"""
+	$qplt
+	Gambler action value estimates for winning probability $p and winning capital of $winningcapital.  
+	$msg
+	$vplt
+	"""
+end
+
+# ╔═╡ b5d83b23-e5f1-4280-b5d8-2b13191c8ffc
+plot_gambler_Q(capitaleval, Float32(pheval))
 
 # ╔═╡ 2f2f6821-8459-4bf9-b0d8-62deffbe5c6b
 md"""
@@ -1649,6 +1745,92 @@ $v_{k+1}(s) = \max_a \sum_{s',r} p(s',r|s,a)[r+\gamma v_k(s')]$
 To create the equivalent for action values, we need to use the Bellman Optimality Equation for q rather than v
 
 $q_{k+1}(s,a) = \sum_{s',r}p(s',r|s,a)[r + \gamma \max_{a'} q_k(s',a')]$
+"""
+
+# ╔═╡ cf8a9ce5-8204-4628-a21c-df52d986aca0
+md"""
+# Key Equation Reference
+
+Add summary of Bellman equations and Bellman optimality equations for v and q as well as the mixtures and iterative update equations mentioned in chapters 3 and 4
+"""
+
+# ╔═╡ 1c8bf532-326d-4da7-905f-1ba05ea4d748
+md"""
+## Probability Transition Function
+$\begin{flalign}
+p(s^\prime, r \vert s, a) &\doteq \Pr \{ S_{t+1} = s^\prime, R_{t+1} = r \mid S_t = s, A_t = a \}
+\end{flalign}$
+"""
+
+# ╔═╡ 75aeff5b-fb91-4567-84d8-1e617366a6f3
+md"""
+## Expected Value
+$\begin{flalign}
+\mathbb{E}[X \vert A] &= \sum_i \Pr \{ X = x_i \vert A \} x_i \\
+\mathbb{E}[X + Y] &= \mathbb{E}[X] + \mathbb{E}[Y] \\
+\mathbb{E}[cX] &= c \mathbb{E}[X] \: \forall \: \text{constants }c \\
+\end{flalign}$
+"""
+
+# ╔═╡ 4bbf42a7-3d5e-4e7e-ac12-b135736d19d3
+md"""
+## Discounted Return
+$\begin{flalign}
+G_t & \doteq \sum_{k=0}^\infty \gamma^k R_{t+k+1} \text{ or } \sum_{k = t+1} ^ T \gamma^{k-t-1}R_k \tag{3.8/3.11} \\
+&= R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \\
+&= R_{t+1} + \gamma \left [ R_{t+2} + \gamma R_{t+3} + \cdots \right ] \\
+&= R_{t+1} + \gamma G_{t+1} \tag{3.9}
+\end{flalign}$
+"""
+
+# ╔═╡ 14f7ccb6-facc-4d1e-9d15-1eb93253548a
+md"""
+## Policy Expectations
+$\begin{flalign}
+\mathbb{E}_\pi [R_{t+1} \vert S_t = s] &\doteq \sum_a \pi(a \vert s) \mathbb{E} [R_{t+1} \vert S_t = s, A_t = a] \\
+& = \sum_a \pi(a \vert s) \sum_r r \sum_{s^\prime} \Pr \{S_{t+1} = s^\prime, R_{t+1} = r  \mid S_t = s, A_t = a \} \\
+& = \sum_a \pi(a \vert s) \sum_r r \sum_{s^\prime} p(s^\prime, r \vert s, a) \\
+
+\mathbb{E}_\pi [R_{t+2} \vert S_t = s] &\doteq \sum_{s^\prime, r, a} \pi(a \vert s) p(s^\prime, r \vert s, a) \sum_{a^\prime} \pi(a^\prime \vert s^\prime) \sum_{r^\prime} r^\prime \Pr \{ R_{t+2} = r^\prime \vert S_{t+1} = s^\prime, A_{t+1} = a^\prime \} \\
+&= \sum_{s^\prime, r, a} \pi(a \vert s) p(s^\prime, r \vert s, a) \mathbb{E}_\pi [R_{t+2} \vert S_{t+1} = s^\prime] \\
+
+
+\mathbb{E}_\pi [G_{t+1} \vert S_t = s] &= \mathbb{E}_\pi [R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \vert S_t = s] \\
+&= \sum_a \pi(a \vert s) \sum_r r \sum_{s^\prime} p(s^\prime, r \vert s, a) + \gamma\mathbb{E}_\pi [R_{t+2} + \gamma R_{t+3} + \cdots \vert S_t = s] \\
+\end{flalign}$
+"""
+
+# ╔═╡ a3269e92-2e16-4173-9bbe-9771dfa291f6
+md"""
+## Value Functions
+$\begin{flalign}
+v_\pi(s) &\doteq \mathbb{E}_\pi [G_t \mid S_t = s] \tag{3.12}\\
+&= \sum_a \pi(a \vert s) \mathbb{E}_\pi [G_{t} \mid S_t = s, A_t = a] \tag{exp value def} \\
+&= \sum_a \pi(a \vert s) q_\pi(s, a) \tag{by definition of q (1)} \\
+&= \sum_a \pi(a \vert s) \sum_{s^\prime, r} p(s^\prime, r \vert s, a) [r + \gamma v_\pi(s^\prime)] \tag{by (4.6) (3.14)}\\
+
+q_\pi(s, a) &\doteq \mathbb{E}_\pi[G_t \mid S_t=s,A_t=a] \tag{3.13} \\
+& = \mathbb{E}_\pi \left [ R_{t+1} + \gamma G_{t+1} \mid S_t = s, A_t = a \right ] \tag{by (3.9)} \\
+& = \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \mathbb{E}_\pi \left [ r + \gamma G_{t+1} \mid S_{t+1} = s^\prime \right ] \tag{exp value def}\\
+& = \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + \gamma \mathbb{E}_\pi [G_{t+1} \mid S_{t+1} = s^\prime] \right ] \\
+& = \sum_{s^\prime, r} p(s^\prime, r \vert s, a) [r + \gamma v_\pi(s^\prime)] \tag{by definition of v (4.6)} \\
+& = \sum_{s^\prime, r} p(s^\prime, r \vert s, a) [r + \gamma\sum_{a^\prime} \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime)] \tag{by (1)} \\
+\end{flalign}$
+"""
+
+# ╔═╡ b59756bc-d268-45cf-8fe9-1981d7af1cb6
+md"""
+## Optimal Value Functions
+$\begin{flalign}
+v_*(s) &\doteq \max_\pi v_\pi(s) \: \forall \: s \in \mathcal{S} \tag{3.15} \\
+&= \max_{a \in \mathcal{A}(s)} q_{*}(s, a) \: \forall \: s \in \mathcal{S} \tag{meaning of optimal}\\
+&= \max_{a \in \mathcal{A}(s)} \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + γ v_* (s^\prime) \right ] \quad \forall s \in \mathcal{S} \tag{by (3.21) (3.19)}\\
+q_*(s, a) &\doteq \max_\pi q_\pi(s, a) \: \forall \: s \in \mathcal{S} \text{ and } a \in \mathcal{A}(s) \tag{3.16} \\
+&=\mathbb{E} \left [ R_{t+1} + \gamma v_* (S_{t+1}) \mid S_t = s, A_t = a \right ] \tag{3.17} \\
+&= \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + γ v_* (s^\prime) \right ] \tag{exp value def (3.21)} \\
+&= \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + γ \max_{a^\prime} q_*(s^\prime, a^\prime) \right ] \tag{3.20} \\
+\end{flalign}$
+
 """
 
 # ╔═╡ 64f22fbb-5c6c-4e8f-bd79-3c9eb19bedca
@@ -1681,7 +1863,7 @@ PlutoUI = "~0.7.52"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.0-beta3"
+julia_version = "1.10.0-rc1"
 manifest_format = "2.0"
 project_hash = "f98b95d413b2ec16c9a6d0f700b23b16b273630e"
 
@@ -1838,7 +2020,7 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.0.1+1"
+version = "8.4.0+0"
 
 [[deps.LibGit2]]
 deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -2010,7 +2192,7 @@ version = "1.10.0"
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.0+1"
+version = "7.2.1+1"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -2083,7 +2265,6 @@ version = "17.4.0+2"
 # ╟─4665aa5c-87d1-4359-8cfd-7502d8c5d2e2
 # ╟─86cd5d5f-f79f-4dc6-9d88-ae4753190de9
 # ╠═7575b85a-c988-47e6-bdcc-fde4d92708a5
-# ╠═4cebd52d-2e9c-418f-a731-704df188fbf5
 # ╠═5b65e817-5504-413f-9c1a-17880d238d80
 # ╠═59b91c65-3f8a-4015-bb08-d7455623101c
 # ╠═88f8e335-968e-4e2f-8d3a-395667ad2ed3
@@ -2113,9 +2294,9 @@ version = "17.4.0+2"
 # ╟─1d098de3-592e-401b-a493-2728e8a6ffe9
 # ╟─d0b4a71b-b574-4d62-be0b-14e03595a15c
 # ╟─2c23c4ec-f332-4e05-a730-06fa20a0227a
-# ╟─aa19ffd4-69a0-44a9-8109-d6be003ae7b1
+# ╠═aa19ffd4-69a0-44a9-8109-d6be003ae7b1
 # ╟─39f4c75c-43f7-476f-bbc9-c704e5dee300
-# ╟─e76bd134-f4ac-4382-b56a-fca8f3ca27cd
+# ╠═e76bd134-f4ac-4382-b56a-fca8f3ca27cd
 # ╠═f4fce267-78a2-4fd3-aad5-a8298783c015
 # ╠═7539da6f-1fb7-4a63-98ba-52b81bb27eca
 # ╠═c078f6c3-7576-4933-bc95-d33e8193ee93
@@ -2180,6 +2361,9 @@ version = "17.4.0+2"
 # ╟─2bedc22e-9615-4fb4-94bf-6a0e7114c417
 # ╟─dde0354c-81cb-4898-85ac-723ec7346116
 # ╠═7140970d-d4a7-45bc-9626-26cf1a2f945b
+# ╠═09a98ebf-4685-404b-b492-116c184d4a52
+# ╠═64dc17e3-a83f-4414-a74a-c6c8e3e498fa
+# ╠═16adacf1-2757-4a45-a2e5-8ec4bf04584e
 # ╠═057beec8-0ad7-4bf2-ac45-6753614c0b4d
 # ╠═f9b3f359-0c24-4a70-9ba8-be185cc01a62
 # ╠═fa1849cb-663f-49c0-acc1-f7fdbcbb4189
@@ -2188,24 +2372,37 @@ version = "17.4.0+2"
 # ╠═39e0e313-79e7-4343-8e02-526f30a66aad
 # ╠═a5f1a71f-3c28-49ed-8f29-ff164c4ea02c
 # ╠═3d7f4a19-316e-4874-8c28-8e8fe96a9002
+# ╟─0587517b-4a4c-44f4-81e1-9e630043df9a
+# ╟─5f365f8b-1448-4301-bb4c-2c43ee96b5ab
+# ╟─c693bad0-31a8-42d8-a472-52f2c9825f1b
 # ╟─d710264a-c567-415b-9106-a95eace8c622
-# ╠═c2fca344-c1db-4416-8ce4-39eae9e972af
+# ╟─9f6b1d57-87a0-494a-a844-5d8760513bb6
 # ╟─b4607b63-08f4-4a90-99e6-56860c3d9337
 # ╠═a671f4ed-d758-4b42-a970-c088b6b59eb2
 # ╟─e337bb47-8309-4af1-8ed3-2b0de1875e57
 # ╟─315562d0-2bf6-431a-be3f-fb7d2af248b5
 # ╠═c456fbdc-0d52-41a9-8e18-dee3c2f4e258
 # ╠═1016ad1f-36b5-4f4f-86f1-ac8b8c03dbff
-# ╠═8bc5e53f-632d-4ea4-98ca-b3740d98c297
-# ╠═6100a0a1-3e35-44d1-af18-76ce1f8b937b
 # ╟─bb87aea9-7d4c-4d2f-b62d-3402fc309d50
 # ╟─5f3dd95b-3563-4a29-ae6d-e772df4f53ad
 # ╟─bb38c5a9-7916-489e-8d94-834f421d57e2
 # ╟─04e6f567-31c5-4f05-b5e2-8b46d22dffbc
+# ╟─76c09949-ca38-4d96-b2aa-f7a1017ff322
+# ╟─b5d83b23-e5f1-4280-b5d8-2b13191c8ffc
+# ╟─9462c98d-1a0e-4c61-b7cf-31fb320ffe68
+# ╟─4883c217-3f5f-4b30-a92d-615ae0deff7d
+# ╟─f9dc45e8-1bfe-4115-a2e2-6dd2cbc427ff
 # ╟─2f2f6821-8459-4bf9-b0d8-62deffbe5c6b
 # ╟─64144caf-7b21-41b5-a002-6a86e5119f8b
 # ╟─d79c93ff-7945-435c-8db1-dfdd6518e34e
 # ╟─42e4a3d6-26ef-48bb-9164-118186ec118b
+# ╟─cf8a9ce5-8204-4628-a21c-df52d986aca0
+# ╟─1c8bf532-326d-4da7-905f-1ba05ea4d748
+# ╟─75aeff5b-fb91-4567-84d8-1e617366a6f3
+# ╟─4bbf42a7-3d5e-4e7e-ac12-b135736d19d3
+# ╟─14f7ccb6-facc-4d1e-9d15-1eb93253548a
+# ╟─a3269e92-2e16-4173-9bbe-9771dfa291f6
+# ╟─b59756bc-d268-45cf-8fe9-1981d7af1cb6
 # ╟─64f22fbb-5c6c-4e8f-bd79-3c9eb19bedca
 # ╠═f5809bd3-64d4-47ee-9e41-e491f8c09719
 # ╟─00000000-0000-0000-0000-000000000001
