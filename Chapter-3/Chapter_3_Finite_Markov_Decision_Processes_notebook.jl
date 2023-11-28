@@ -221,23 +221,17 @@ md"""
 > Give an equation for $$q_{\pi}$$ in terms of $$v_{\pi}$$ and $$p(s',r|s,a)$$
 
 $\begin{flalign}
-q_{\pi}(s,a) & = \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \vert S_t=s,A_t=a \right] \\
+q_{\pi}(s,a) & = \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \mid S_t=s,A_t=a \right] \\
 
-&=\mathbb{E}_{\pi}[R_{t+1} | S_t=s, A_t = a] + \mathbb{E}_{\pi} \left[ \sum_{k=1}^{\infty} \gamma^k R_{t+k+1} \vert S_t=s,A_t=a \right] \\
+&=\mathbb{E}_{\pi} \left [ R_{t+1} + \sum_{k=1}^{\infty} \gamma^k R_{t+k+1} \mid S_t=s,A_t=a \right] \\
 
-&=\sum_{r \in \mathcal{R}}r \sum_{s ^ \prime \in \mathcal{S}}p(s^ \prime, r|s, a) + \mathbb{E}_{\pi} \left[ \sum_{k=1}^{\infty} \gamma^k R_{t+k+1} \vert S_t=s,A_t=a \right] \tag{by 3.5}\\
+&=\sum_{r, s^\prime} p(s^\prime, r \vert s, a) \left [ r + \gamma \mathbb{E}_{\pi} \left[ \sum_{k=1}^{\infty} \gamma^{k-1} R_{t+k+1} \vert S_{t+1}=s^\prime\right] \right ] \tag{by 3.5} \\
 
-&=\sum_{r \in \mathcal{R}}r \sum_{s ^ \prime \in \mathcal{S}}p(s^ \prime, r|s, a) + \mathbb{E}_{\pi} \left[ \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \vert S_t=s,A_t=a  \right]\\
+&=\sum_{r, s^\prime} p(s^\prime, r \vert s, a) \left [ r + \gamma \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^{k} R_{t+k+2} \vert S_{t+1}=s^\prime\right] \right ] \\
 
-&=\sum_{r \in \mathcal{R}}r \sum_{s ^ \prime \in \mathcal{S}}p(s^ \prime, r|s, a) + \sum_{s^\prime \in \mathcal{S}} p(s^\prime|s, a) \mathbb{E}_{\pi} \left[ \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \vert S_{t+1}=s^ \prime  \right]\\
+&=\sum_{r, s^\prime} p(s^\prime, r \vert s, a) \left [ r + \gamma \mathbb{E}_{\pi} \left[ G_{t+1} \mid S_{t+1} = s^\prime \right ] \right ] \tag{by 3.9} \\
 
-&=\sum_{r \in \mathcal{R}}r \sum_{s ^ \prime \in \mathcal{S}}p(s^ \prime, r|s, a) + \sum_{r \in \mathcal{R}} r \sum_{s^\prime \in \mathcal{S}} p(s^\prime, r|s, a) \times  \gamma \mathbb{E}_{\pi} \left[ R_{t+2} + \gamma R_{t+3} + \cdots \vert S_{t+1}=s^ \prime  \right]\\
-
-&=\sum_{r \in \mathcal{R}}r \sum_{s ^ \prime \in \mathcal{S}}p(s^ \prime, r|s, a) + \sum_{r \in \mathcal{R}} r \sum_{s^\prime \in \mathcal{S}} p(s^\prime, r|s, a) \times  \gamma \mathbb{E}_{\pi} \left[ R_{u+1} + \gamma R_{u+2} + \cdots \vert S_{u}=s^ \prime  \right]\\
-
-&=\sum_{r \in \mathcal{R}}r \sum_{s ^ \prime \in \mathcal{S}}p(s^ \prime, r|s, a) + \sum_{r \in \mathcal{R}} r \sum_{s^\prime \in \mathcal{S}} p(s^\prime, r|s, a) \times  \gamma v_\pi (s^\prime) \tag{by 3.12} \\
-
-&=\sum_{r \in \mathcal{R}} r \sum_{s ^ \prime \in \mathcal{S}} p(s^ \prime, r|s, a) (1 + \gamma v_\pi (s^\prime) \tag{by 3.12} \\
+&=\sum_{r \in \mathcal{R}} \sum_{s ^ \prime \in \mathcal{S}} p(s^ \prime, r|s, a) \left ( r + \gamma v_\pi (s^\prime) \right ) \tag{by 3.12} \\
 \end{flalign}$
 """
 
@@ -591,7 +585,7 @@ PlutoUI = "~0.7.52"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.0-beta3"
+julia_version = "1.10.0-rc1"
 manifest_format = "2.0"
 project_hash = "518adb648c80095d555fe737933aaac06e6c2875"
 
@@ -717,7 +711,7 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.0.1+1"
+version = "8.4.0+0"
 
 [[deps.LibGit2]]
 deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -883,7 +877,7 @@ version = "1.10.0"
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.0+1"
+version = "7.2.1+1"
 
 [[deps.TOML]]
 deps = ["Dates"]
