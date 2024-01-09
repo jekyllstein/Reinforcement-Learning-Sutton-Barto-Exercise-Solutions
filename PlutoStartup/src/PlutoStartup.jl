@@ -5,7 +5,7 @@ using Reexport, PrecompileTools, Base.Threads
 @reexport using Pluto, PlutoSliderServer, Statistics, StatsBase
 
 function __init__()
-    Pluto.run()
+    Pluto.run(launch_browser=false)
 end
 # @setup_workload begin
 #     using PlotlyJS
