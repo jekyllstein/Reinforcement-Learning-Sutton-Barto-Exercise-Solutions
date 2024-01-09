@@ -508,12 +508,9 @@ function plot_blackjack_value(v)
 	(p1, p2)
 end
 
-# ╔═╡ ec29865f-3ba3-4bb3-84df-c2b472e03ff2
-(πstar_blackjack, Qstar_blackjack) = monte_carlo_ES(blackjack_mdp, 1.0f0, 2_000_000; π_init = π_blackjack1)
-
 # ╔═╡ 627d5aa3-974f-4949-8b65-9500eba1d7cc
 #recreation of figure 5.2
-function figure_5_2()
+function figure_5_2(πstar_blackjack, Qstar_blackjack)
 	policyplot = plot_blackjack_policy(πstar_blackjack)
 	vstar = sum(Qstar_blackjack .* πstar_blackjack, dims = 1)[:]
 	# vhit = Qstar_blackjack[1, :][:]
@@ -532,6 +529,9 @@ function figure_5_2()
 	"""
 end
 
+# ╔═╡ ec29865f-3ba3-4bb3-84df-c2b472e03ff2
+(πstar_blackjack, Qstar_blackjack) = monte_carlo_ES(blackjack_mdp, 1.0f0, 2_000_000; π_init = π_blackjack1)
+
 # ╔═╡ 9fe42679-dce3-4ee3-b565-eed4ff7d8e4d
 md"""
 ### Figure 5.2:
@@ -540,7 +540,7 @@ The optimal policy and state-value function for blackjack found by Monte Carlo E
 """
 
 # ╔═╡ f9bc84ff-c2f9-4ac2-b2ce-34dfcf837a73
-figure_5_2()
+figure_5_2(πstar_blackjack, Qstar_blackjack)
 
 # ╔═╡ c883748c-76b9-4086-8698-b40df51390da
 md"""
@@ -555,48 +555,77 @@ $\text{Returns}(s,a) = \frac{\text{Returns}(s,a) \times (\text{Count}(s,a) - 1) 
 # ╔═╡ e2a720b0-a8c4-43a2-bf34-750ff3323004
 md"""
 ## 5.4 Monte Carlo Control without Exploring Starts
+
+To only way to ensure all state-action pairs are visited without exploring starts is to use a policy with a non-zero probability of visiting all such states.  One policy that meets this criterion is an *ϵ-soft* policy meaning that $\pi(a \vert s) > 0 \: \forall \: s \in \mathcal{S}$.  To achieve this with Monte Carlo Control, we simply update the policy to be $\epsilon$-greedy for every Q update, so the maximizing (greedy) action is given a probability $1 - \epsilon + \frac{\epsilon}{\vert \mathcal{A}(s) \vert}$ and all other actions are given the probability $\frac{\epsilon}{\vert \mathcal{A}(s) \vert}$.
+
+Below is code implementing MC control for ϵ-soft policies.  It is mostly identical to the every visit method except the policy is always used to select the initial action and the policy update uses an ϵ-greedy update rather than a greedy one.
 """
 
-# ╔═╡ 38957d8d-e1d0-44c3-bac9-1417925ac882
-function monte_carlo_ϵsoft(states, actions, simulator, γ, ϵ, nmax = 1000; gets0 = () -> rand(states))
-	#initialize
-	nact = length(actions)
-	avec = collect(actions)
-	adict = Dict(a => i for (i, a) in enumerate(actions))
-	π = Dict(s => ones(nact)./nact for s in states)
-	Q = Dict((s, a) => 0.0 for s in states for a in actions)
-	counts = Dict((s, a) => 0 for s in states for a in actions)
-	sampleπ(s) = sample(avec, weights(π[s]))
-	for i in 1:nmax
-		s0 = gets0()
-		a0 = sampleπ(s0)
-		(traj, rewards) = simulator(s0, a0, sampleπ)
-		
-		#there's no check here so this is equivalent to every-visit estimation
-		t = length(traj)
-		g = 0.0
-		while t != 0
-			g = γ*g + rewards[t]
-			(s,a) = traj[t]
-			counts[(s,a)] += 1
-			Q[(s,a)] += (g - Q[(s,a)])/counts[(s,a)]
-			astar = argmax(a -> Q[(s,a)], actions)
-			istar = adict[astar]
-			π[s] .= ϵ/nact
-			π[s][istar] += 1 - ϵ
-			t -= 1
+# ╔═╡ abdcbbad-747a-41ba-a95d-82404e735793
+function make_ϵsoft_policy!(v::AbstractVector{T}, ϵ::T) where T <: Real
+	vmax = maximum(v)
+	v .= isapprox.(v, vmax)
+	s = sum(v)
+	c = ϵ / length(v)
+	d = 1/s - ϵ #value to add to actions that are maximizing
+	for (i, v) in enumerate(v)
+		if v == 1
+			v[i] = d + c
+		else
+			v[i] = c
 		end
 	end
-	π_det = Dict(s => actions[argmax(π[s])] for s in states)
-	return π_det, Q
+	return v
 end
 
+# ╔═╡ 334b4d77-8784-46be-b9e8-80c0a2244694
+function monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, π_init::Matrix{T}, Q_init::Matrix{T}, γ, num_episodes) where T <: Real
+	#initialize
+	π = copy(π_init)
+	Q = copy(Q_init)
+	counts = zeros(Int64, length(mdp.actions), length(mdp.states))
+	vhold = zeros(T, length(mdp.actions))
+	for i in 1:num_episodes
+		s0 = mdp.state_init()
+		i_a0 = sample_action(π, mdp.statelookup[s0])
+		a0 = mdp.actions[i_a0]
+		(traj, rewards) = mdp.simulator(s0, a0, π)
+
+		#there's no check here so this is equivalent to every-visit estimation
+		function updateQ!(traj, rewards; t = length(traj), g_old = zero(T))		
+			#terminate at the end of a trajectory
+			t == 0 && return nothing
+			#accumulate future discounted returns
+			g = γ*g_old + rewards[t]
+			(i_s,i_a) = traj[t]
+			#increment count by 1
+			counts[i_a, i_s] += 1
+			Q[i_a, i_s] += (g - Q[i_a, i_s])/counts[i_a, i_s] #update running average of Q
+			vhold .= Q[:, i_s]
+			make_ϵsoft_policy!(vhold)
+			π[:, i_s] .= vhold
+			updateQ!(traj, rewards; t = t-1, g_old = g)
+		end
+		updateQ!(traj, rewards)
+	end
+	return π, Q
+end
+
+# ╔═╡ 54f73eb8-dcea-4da0-83af-35720e56ccbc
+monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T))) where T <: Real = monte_carlo_ES(mdp, π_init, Q_init, γ, num_episodes) 
+
 # ╔═╡ bf19e6cf-1fb5-49c9-974e-1613d90ef4cf
-(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjackstates, blackjackactions, blackjackepisode, 1.0, 0.05, 10_000_000)
+(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjack_mdp, 1.0f0, 0.2f0, 1_000_000)
+
+# ╔═╡ 3ee31af5-b19c-49dc-8fbf-f07e93d1f0c5
+md"""
+### Figure 5.2b:
+Recreation of Figure 5.2 using an ϵ-soft MC control with $$\epsilon = 0.2$$
+"""
 
 # ╔═╡ b040f245-b2d6-4ec6-aa7f-511c54aabd0d
 #recreation of figure 5.2 using ϵ-soft method
-plot_blackjack_policy(πstar_blackjack2)
+figure_5_2(πstar_blackjack2, Qstar_blackjack2)
 
 # ╔═╡ 12c0cd0b-eb4f-45a0-836b-53b3c5cdafd9
 md"""
@@ -1985,9 +2014,12 @@ version = "17.4.0+2"
 # ╟─f9bc84ff-c2f9-4ac2-b2ce-34dfcf837a73
 # ╟─c883748c-76b9-4086-8698-b40df51390da
 # ╟─e2a720b0-a8c4-43a2-bf34-750ff3323004
-# ╠═38957d8d-e1d0-44c3-bac9-1417925ac882
+# ╠═abdcbbad-747a-41ba-a95d-82404e735793
+# ╠═334b4d77-8784-46be-b9e8-80c0a2244694
+# ╠═54f73eb8-dcea-4da0-83af-35720e56ccbc
 # ╠═bf19e6cf-1fb5-49c9-974e-1613d90ef4cf
-# ╠═b040f245-b2d6-4ec6-aa7f-511c54aabd0d
+# ╟─3ee31af5-b19c-49dc-8fbf-f07e93d1f0c5
+# ╟─b040f245-b2d6-4ec6-aa7f-511c54aabd0d
 # ╟─12c0cd0b-eb4f-45a0-836b-53b3c5cdafd9
 # ╟─9793b5c9-d4ec-492d-a72d-8737bb65c8a5
 # ╟─15925cc6-9605-4357-9c2a-cdfe54070989
