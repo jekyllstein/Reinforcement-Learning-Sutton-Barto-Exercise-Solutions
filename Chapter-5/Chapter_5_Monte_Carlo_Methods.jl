@@ -267,10 +267,117 @@ md"""
 
 # ╔═╡ be7c096c-cc8c-407b-8287-8fb2ee7150a7
 md"""
-> *Exercise 5.3* What is the backup diagram for Monte Carlo estimation of $q_\pi$
+> ### *Exercise 5.3* 
+> What is the backup diagram for Monte Carlo estimation of $q_\pi$
 
 Similar to the $v_\pi$ diagram except the root is the s,a pair under consideration followed by the new state and the action taken along the trajectory.  The rewards are still accumulated to the end, just the start of the trajectory is a solid filled in circle that would contain the value for that s,a pair.
 """
+
+# ╔═╡ 2572e35c-e6a3-4562-aa0f-6a5ab32d39ea
+@htl("""
+<div style="display: flex; flex-direction: row; align-items: flex-start; justify-content: center; background-color: rgb(100, 100, 100)">
+	
+	<div class="backup">
+		<div>State Value Function</div>
+		<div class="circlestate"></div>
+		<div class="arrow"></div>
+		<div class="circleaction"></div>
+		<div class="arrow"></div>
+		<div class="circlestate"></div>
+		<div class="arrow"></div>
+		<div class="circleaction"></div>
+		<div style = "color: black; font-size: 30px;">&#8942;</div>
+		<div class="circleaction"></div>
+		<div class="arrow"></div>
+		<div class="term"></div>
+	</div>
+	<div class="backup">
+		<div>State Action Value Function</div>
+		<div class="circleaction"></div>
+		<div class="arrow"></div>
+		<div class="circlestate"></div>
+		<div class="arrow"></div>
+		<div class="circleaction"></div>
+		<div class="arrow"></div>
+		<div class="circlestate"></div>
+		<div style = "color: black; font-size: 30px;">&#8942;</div>
+		<div class="circlestate"></div>
+		<div class="arrow"></div>
+		<div class="circleaction"></div>
+		<div class="arrow"></div>
+		<div class="term"></div>
+	</div>
+	<div>
+		<div class="q_backup"></div>
+	</div>
+</div>
+
+<style>
+
+	.backup {
+		margin: 5px;
+	}
+	.backup, .backup * {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		color: black;
+	}
+	.circlestate, .circleaction {
+		margin: 0;
+	}
+	.circlestate::before {
+		content: '';
+		display: inline-block;
+		border: 1px solid black;
+		border-radius: 50%;
+		height: 20px;
+		width: 20px;
+		background-color: white;
+	}
+	.circleaction::before {
+		content: '';
+		display: inline-block;
+		border: 1px solid black;
+		border-radius: 50%;
+		height: 10px;
+		width: 10px;
+		background-color: black;
+	}
+	.arrow {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+	.arrow::before {
+		content: '';
+		display: inline-block;
+		width: 2px;
+		height: 30px;
+		background-color: black;
+		margin-bottom: 0px;
+	}
+	.arrow::after {
+		content: '';
+		display: inline-block;
+		width: 4px;
+		height: 4px;
+		border-bottom: 3px solid black;
+		border-right: 3px solid black;
+		transform: translateY(-5px) rotate(45deg);
+		position: relative;
+	}
+	.term::before {
+		content: '';
+		display: inline-block;
+		width: 20px;
+		height: 20px;
+		border: 2px solid black;
+		background-color: rgb(50, 50, 50);
+	}
+</style>
+""")
 
 # ╔═╡ 47daf83b-8fe9-4491-b9ae-84bd269d5546
 md"""
@@ -1773,8 +1880,9 @@ version = "17.4.0+2"
 # ╟─e5384dd0-fad1-4a24-b011-73b062fcfb1b
 # ╟─30809344-b4ab-468b-b4b7-5ef3dca5ffc7
 # ╟─f406be9e-3e3f-4b55-99b0-4858c774ed96
-# ╠═be7c096c-cc8c-407b-8287-8fb2ee7150a7
-# ╠═47daf83b-8fe9-4491-b9ae-84bd269d5546
+# ╟─be7c096c-cc8c-407b-8287-8fb2ee7150a7
+# ╟─2572e35c-e6a3-4562-aa0f-6a5ab32d39ea
+# ╟─47daf83b-8fe9-4491-b9ae-84bd269d5546
 # ╠═13cc524c-d983-44f4-8731-0595249fb888
 # ╟─9618a093-cdb7-4589-a783-de8e9021b705
 # ╠═ec29865f-3ba3-4bb3-84df-c2b472e03ff2
