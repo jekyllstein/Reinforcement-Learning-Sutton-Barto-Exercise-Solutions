@@ -55,6 +55,17 @@ struct MDP_Opaque{S, A, F<:Function, G<:Function}
 	end
 end
 
+# ╔═╡ b2115f33-f8e2-452e-9b0e-90610f0f09b1
+function make_random_policy(mdp::MDP_Opaque; init::T = 1.0f0) where T <: AbstractFloat
+	ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
+end
+
+# ╔═╡ 202eb066-877d-4537-85b2-31b41db8eca0
+initialize_state_value(mdp::MDP_Opaque; vinit::T = 0.0f0) where T<:AbstractFloat = ones(length(mdp.states)) .* vinit
+
+# ╔═╡ d55860d1-e4c1-4a79-adbe-b40a6d6283a7
+initialize_state_action_value(mdp::MDP_Opaque; qinit::T = 0.0f0) where T<:AbstractFloat = ones(T, length(mdp.actions), length(mdp.states)) .* qinit
+
 # ╔═╡ 11723075-d1db-4512-abf2-3fe494a71a3b
 function check_policy(π::Matrix{T}, mdp::MDP_Opaque{S, A, F}) where {T <: AbstractFloat, S, A, F}
 #checks to make sure that a policy is defined over the same space as an MDP
@@ -234,6 +245,24 @@ end
 # ╔═╡ 6d765229-2816-4abb-a868-6be919a96530
 const blackjack_mdp = make_blackjack_mdp()
 
+# ╔═╡ a35de859-4046-4f6d-9ea9-b523d21cee5d
+function make_value_grid(v_π)
+	vgridua = zeros(Float32, 10, 10)
+	vgridnua = zeros(Float32, 10, 10)
+	for i in eachindex(blackjackstates)
+		(s, c, ua) = blackjackstates[i]
+		if ua
+			vgridua[s-11, cardlookup[c]] = v_π[i]
+		else
+			vgridnua[s-11, cardlookup[c]] = v_π[i]
+		end
+	end
+	return vgridua, vgridnua
+end
+
+# ╔═╡ 01683e11-a368-45bc-abbc-bbd5c94d7b22
+plot_value(grid; title = "", xtitle = "Dealer showing", ytitle = "Player sum", xticktext = ["A", "10"], yticktext = [12, 21], showscale = false, width = 350, height = 300) = plot(heatmap(x = 1:10, y = 12:21, z = grid, showscale=showscale, colorscale = "Bluered", zmin = -1.0, zmax = 1.0), Layout(title = title, yaxis_title = ytitle, yaxis_tickvals = [12, 21], xaxis_title = xtitle, yaxis_ticktext = yticktext, xaxis_tickvals = [1, 10], xaxis_ticktext = xticktext, width = width, height = height, autosize = false, margin = attr(l = 0, b = 0, r = 0)))
+
 # ╔═╡ d766d44e-3684-497c-814e-8f71740cb232
 md"""
 ### **Figure 5.1**:  
@@ -384,49 +413,143 @@ md"""
 ## 5.3 Monte Carlo Control
 """
 
+# ╔═╡ 2d10281a-a4af-4ea8-b63b-e11f2d0893ed
+function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
+	(vmin, vmax) = extrema(v)
+	if vmin == vmax
+		v .= one(T) / length(v)
+	else
+		v .= (v .- vmax) ./ abs(vmin - vmax)
+		v .= exp.(c .* v)
+		v .= v ./ sum(v)
+	end
+	return v
+end
+
 # ╔═╡ 13cc524c-d983-44f4-8731-0595249fb888
-function monte_carlo_ES(states, actions, simulator, γ, nmax = 1000)
+function monte_carlo_ES(mdp::MDP_Opaque, π_init::Matrix{T}, Q_init::Matrix{T}, γ, num_episodes) where T <: Real
 	#initialize
-	π = Dict(s => rand(actions) for s in states)
-	Q = Dict((s, a) => 0.0 for s in states for a in actions)
-	counts = Dict((s, a) => 0 for s in states for a in actions)
-	for i in 1:nmax
-		s0 = rand(states)
-		a0 = rand(actions)
-		(traj, rewards) = simulator(s0, a0, s -> π[s])
+	π = copy(π_init)
+	Q = copy(Q_init)
+	counts = zeros(Int64, length(mdp.actions), length(mdp.states))
+	vhold = zeros(T, length(mdp.actions))
+	for i in 1:num_episodes
+		s0 = mdp.state_init()
+		a0 = rand(mdp.actions)
+		(traj, rewards) = mdp.simulator(s0, a0, π)
 
 		#there's no check here so this is equivalent to every-visit estimation
-		t = length(traj)
-		g = 0.0
-		while t != 0
-			g = γ*g + rewards[t]
-			(s,a) = traj[t]
-			counts[(s,a)] += 1
-			Q[(s,a)] += (g - Q[(s,a)])/counts[(s,a)]
-			π[s] = argmax(a -> Q[(s,a)], actions)
-			t -= 1
+		function updateQ!(traj, rewards; t = length(traj), g_old = zero(T))		
+			#terminate at the end of a trajectory
+			t == 0 && return nothing
+			#accumulate future discounted returns
+			g = γ*g_old + rewards[t]
+			(i_s,i_a) = traj[t]
+			#increment count by 1
+			counts[i_a, i_s] += 1
+			Q[i_a, i_s] += (g - Q[i_a, i_s])/counts[i_a, i_s] #update running average of Q
+			vhold .= Q[:, i_s]
+			make_greedy_policy!(vhold)
+			π[:, i_s] .= vhold
+			updateQ!(traj, rewards; t = t-1, g_old = g)
 		end
+		updateQ!(traj, rewards)
 	end
 	return π, Q
 end
+
+# ╔═╡ 1b78b25d-3942-4a6b-a2bd-7d97242da9fe
+monte_carlo_ES(mdp::MDP_Opaque, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T))) where T <: Real = monte_carlo_ES(mdp, π_init, Q_init, γ, num_episodes) 
 
 # ╔═╡ 9618a093-cdb7-4589-a783-de8e9021b705
 md"""
 ### Example 5.3: Solving Blackjack
 """
 
+# ╔═╡ 5c57e4b7-51d6-492d-9fc9-bcdab1dd46f4
+function plot_blackjack_policy(π)
+	πstargridua = zeros(Float64, 10, 10)
+	πstargridnua = zeros(Float64, 10, 10)
+	for state in blackjackstates
+		(s, c, ua) = state
+		i_s = blackjack_mdp.statelookup[state]
+		v = π[1, i_s] - π[2, i_s]
+
+		y = c == :A ? 1 : c
+		if ua
+			πstargridua[s-11, y] = v
+		else
+			πstargridnua[s-11, y] = v
+		end
+	end
+
+	function plot_policy_grid(grid)
+		plot(heatmap(y = 12:21, z = grid, showscale=false, colorscale = "Greys", zmin = -1, zmax = 1), Layout(xaxis_title = "Dealer showing", yaxis_title = "Player sum", margin = attr(t = 30, b = 0, l = 0, r = 10), width = 300, height = 300, xaxis_tickvals = 1:10, yaxis_tickvals = 12:21, yaxis_ticktext = 12:21, xaxis_ticktext = ["A"; 2:10]))
+	end
+
+	p1 = plot_policy_grid(πstargridua)
+	p2 = plot_policy_grid(πstargridnua)
+	# vstar = eval_blackjack_policy(Dict(s => π[s] == :hit ? [1.0, 0.0] : [0.0, 1.0] for s in blackjackstates), 500_000)
+	# p1 = heatmap(πstargridua, xticks = (1:10, ["A", 2, 3, 4, 5, 6, 7, 8, 9, 10]), yticks = (1:10, 12:21), legend = false, title = "Usable Ace Policy, Black=Stick, White = Hit")
+	# p2 = heatmap(πstargridnua, xticks = (1:10, ["A", 2, 3, 4, 5, 6, 7, 8, 9, 10]), yticks = (1:10, 12:21), legend = false, title = "No usable Ace Policy", xlabel = "Dealer Showing", ylabel = "Player sum")
+
+	# p3 = heatmap(vstar[1], legend = false, yticks = (1:10, 12:21), title = "V*")
+	# p4 = heatmap(vstar[2], yticks = (1:10, 12:21))
+	# plot(p1, p3, p2, p4, layout = (2,2))
+	(p1, p2)
+end
+
+# ╔═╡ 06960937-a87a-4015-bdeb-5d17aa41fe6b
+function plot_blackjack_value(v)
+	uagrid, nuagrid = make_value_grid(v)
+	p1 = plot_value(uagrid, showscale=true, width = 400)
+	p2 = plot_value(nuagrid, showscale=true, width = 400)
+	
+	(p1, p2)
+end
+
 # ╔═╡ ec29865f-3ba3-4bb3-84df-c2b472e03ff2
-(πstar_blackjack, Qstar_blackjack) = monte_carlo_ES(blackjackstates, blackjackactions, blackjackepisode, 1.0, 10_000_000)
+(πstar_blackjack, Qstar_blackjack) = monte_carlo_ES(blackjack_mdp, 1.0f0, 2_000_000; π_init = π_blackjack1)
+
+# ╔═╡ 627d5aa3-974f-4949-8b65-9500eba1d7cc
+#recreation of figure 5.2
+function figure_5_2()
+	policyplot = plot_blackjack_policy(πstar_blackjack)
+	vstar = sum(Qstar_blackjack .* πstar_blackjack, dims = 1)[:]
+	# vhit = Qstar_blackjack[1, :][:]
+	# vstick = Qstar_blackjack[2, :][:]
+	# vdiff = (vhit .- vstick)
+	valueplot = plot_blackjack_value(vstar)
+	# policyplot = plot_blackjack_value(vdiff)
+	vtitle = md"""$v_*$"""
+	ptitle = md"""$π_*$"""
+
+	md"""
+	| |$\pi_*$ (Black = Stick, White = Hit)|$v_*$|
+	|---|:---:|:---:|
+	|Usable ace|$(policyplot[1])|$(valueplot[1])|
+	|No usable ace|$(policyplot[2])|$(valueplot[2])|
+	"""
+end
+
+# ╔═╡ 9fe42679-dce3-4ee3-b565-eed4ff7d8e4d
+md"""
+### Figure 5.2:
+
+The optimal policy and state-value function for blackjack found by Monte Carlo ES.  The state value function shown was computed from the action-value function found by Monte Carlo ES
+"""
+
+# ╔═╡ f9bc84ff-c2f9-4ac2-b2ce-34dfcf837a73
+figure_5_2()
 
 # ╔═╡ c883748c-76b9-4086-8698-b40df51390da
 md"""
-> *Exercise 5.4* The pseudocode for Monte Carlo ES is inefficient because, for each state-action pair, it maintains a list of all returns and repeatedly calculates their mean.  It would be more dfficient to use techniques similar to those explained in Section 2.4 to maintain just the mean and a count (for each state-action pair) and update them incrementally.  Describe how the pseudocode would be altered to achieve this.
+> ### *Exercise 5.4* 
+> The pseudocode for Monte Carlo ES is inefficient because, for each state-action pair, it maintains a list of all returns and repeatedly calculates their mean.  It would be more dfficient to use techniques similar to those explained in Section 2.4 to maintain just the mean and a count (for each state-action pair) and update them incrementally.  Describe how the pseudocode would be altered to achieve this.
 
-Returns(s,a) will not maintain a list but instead be a list of single values for each state-action pair.  Additionally, another list Counts(s,a) should be initialized at 0 for each pair.  When new G values are obtained for state-action pairs, the Count(s,a) value should be incremented by 1.  Then Returns(s,a) can be updated with the following formula: $\text{Returns}(s,a) = \left [ \text{Returns}(s,a) \times (\text{Count}(s,a) - 1) + G(s,a) \right ] / \text{Count}(s,a)$
+Returns(s,a) will not maintain a list but instead be a list of single values for each state-action pair.  Additionally, another list Counts(s,a) should be initialized at 0 for each pair.  When new G values are obtained for state-action pairs, the Count(s,a) value should be incremented by 1.  Then Returns(s,a) can be updated with the following formula: 
 
-Alternatively, this can be written as:
-
-$\text{Returns}(s,a) = \text{Returns}(s,a) + \frac{G(s,a) - \text{Returns}(s,a)}{\text{Count}(s,a)}$
+$\text{Returns}(s,a) = \frac{\text{Returns}(s,a) \times (\text{Count}(s,a) - 1) + G(s,a)}{\text{Count}(s,a)} = \text{Returns}(s,a) + \frac{G(s,a) - \text{Returns}(s,a)}{\text{Count}(s,a)}$
 """
 
 # ╔═╡ e2a720b0-a8c4-43a2-bf34-750ff3323004
@@ -470,6 +593,10 @@ end
 
 # ╔═╡ bf19e6cf-1fb5-49c9-974e-1613d90ef4cf
 (πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjackstates, blackjackactions, blackjackepisode, 1.0, 0.05, 10_000_000)
+
+# ╔═╡ b040f245-b2d6-4ec6-aa7f-511c54aabd0d
+#recreation of figure 5.2 using ϵ-soft method
+plot_blackjack_policy(πstar_blackjack2)
 
 # ╔═╡ 12c0cd0b-eb4f-45a0-836b-53b3c5cdafd9
 md"""
@@ -593,24 +720,13 @@ end
 #calculate value function for blackjack policy π and save results in plot-ready grid form
 function eval_blackjack_policy(π, episodes; γ=1f0)
 	v_π = monte_carlo_pred(π, blackjack_mdp, γ; num_episodes = episodes)
-	vgridua = zeros(Float32, 10, 10)
-	vgridnua = zeros(Float32, 10, 10)
-	for i in eachindex(blackjackstates)
-		(s, c, ua) = blackjackstates[i]
-		if ua
-			vgridua[s-11, cardlookup[c]] = v_π[i]
-		else
-			vgridnua[s-11, cardlookup[c]] = v_π[i]
-		end
-	end
-	return vgridua, vgridnua
+	make_value_grid(v_π)
 end
 
 # ╔═╡ a68b4965-c392-47e5-9b29-93e7ada9990a
 function plot_fig5_1()
 	(uagrid10k, nuagrid10k) = eval_blackjack_policy(π_blackjack1, 10_000)
 	(uagrid500k, nuagrid500k) = eval_blackjack_policy(π_blackjack1, 500_000)
-	plot_value(grid; title = "", xtitle = "Dealer showing", ytitle = "Player sum", xticktext = ["A", "10"], yticktext = [12, 21], showscale = false, width = 350, height = 300) = plot(heatmap(x = 1:10, y = 12:21, z = grid, showscale=showscale, colorscale = "Bluered", zmin = -1.0, zmax = 1.0), Layout(title = title, yaxis_title = ytitle, yaxis_tickvals = [12, 21], xaxis_title = xtitle, yaxis_ticktext = yticktext, xaxis_tickvals = [1, 10], xaxis_ticktext = xticktext, width = width, height = height, autosize = false, margin = attr(l = 0, b = 0, r = 0)))
 	p1 = plot_value(uagrid10k; title = "After 10,000 episodes", width = 320, ytitle = "", xtitle = "") 
 	p2 = plot_value(nuagrid10k, width = 320, ytitle = "")
 	# p2 = plot(heatmap(z = nuagrid10k, showscale = false, colorscale = "Bluered", zmin = -1.0, zmax = 1.0), Layout(width = 300, height = 300, margin = attr(b = 0, r = 0, t=0, l = 0), autosize = false, yaxis_title = "No usable ace"))
@@ -635,37 +751,6 @@ end
 
 # ╔═╡ 82284c63-2306-4469-9b1a-a5ec87037e79
 plot_fig5_1()
-
-# ╔═╡ 5c57e4b7-51d6-492d-9fc9-bcdab1dd46f4
-function plot_blackjack_policy(π)
-	πstargridua = zeros(Int64, 10, 10)
-	πstargridnua = zeros(Int64, 10, 10)
-	for state in blackjackstates
-		(s, c, ua) = state
-		a = π[state]
-		if ua
-			(a == :hit) && (πstargridua[s-11, c] = 1)
-		else
-			(a == :hit) && (πstargridnua[s-11, c] = 1)
-		end
-	end
-
-	vstar = eval_blackjack_policy(Dict(s => π[s] == :hit ? [1.0, 0.0] : [0.0, 1.0] for s in blackjackstates), 500_000)
-	p1 = heatmap(πstargridua, xticks = (1:10, ["A", 2, 3, 4, 5, 6, 7, 8, 9, 10]), yticks = (1:10, 12:21), legend = false, title = "Usable Ace Policy, Black=Stick, White = Hit")
-	p2 = heatmap(πstargridnua, xticks = (1:10, ["A", 2, 3, 4, 5, 6, 7, 8, 9, 10]), yticks = (1:10, 12:21), legend = false, title = "No usable Ace Policy", xlabel = "Dealer Showing", ylabel = "Player sum")
-
-	p3 = heatmap(vstar[1], legend = false, yticks = (1:10, 12:21), title = "V*")
-	p4 = heatmap(vstar[2], yticks = (1:10, 12:21))
-	plot(p1, p3, p2, p4, layout = (2,2))
-end
-
-# ╔═╡ 627d5aa3-974f-4949-8b65-9500eba1d7cc
-#recreation of figure 5.2
-plot_blackjack_policy(πstar_blackjack)
-
-# ╔═╡ b040f245-b2d6-4ec6-aa7f-511c54aabd0d
-#recreation of figure 5.2 using ϵ-soft method
-plot_blackjack_policy(πstar_blackjack2)
 
 # ╔═╡ cede8090-5b1a-436b-a184-fca5c4d3de48
 md"""
@@ -1865,6 +1950,9 @@ version = "17.4.0+2"
 # ╠═a85e7dd3-ea5e-4c77-a18e-f1e190658ae3
 # ╠═72e9721f-ee17-4557-b090-71728e6c22ce
 # ╠═21d248f5-edad-4614-8c1c-ae330f9e5a18
+# ╠═b2115f33-f8e2-452e-9b0e-90610f0f09b1
+# ╠═202eb066-877d-4537-85b2-31b41db8eca0
+# ╠═d55860d1-e4c1-4a79-adbe-b40a6d6283a7
 # ╠═11723075-d1db-4512-abf2-3fe494a71a3b
 # ╠═760c5361-02d4-46b7-a05c-fc2d10d93de6
 # ╟─6a11daf7-2859-41fa-9c3d-d1f3580dbb5f
@@ -1873,7 +1961,9 @@ version = "17.4.0+2"
 # ╠═7fb4244c-828a-49d6-a15b-178fa3a42e00
 # ╠═c23475f0-c5f0-49ce-a665-f93c8bda0474
 # ╠═6d765229-2816-4abb-a868-6be919a96530
+# ╠═a35de859-4046-4f6d-9ea9-b523d21cee5d
 # ╠═94be5289-bba7-4490-bdcd-0d217a31c665
+# ╠═01683e11-a368-45bc-abbc-bbd5c94d7b22
 # ╠═a68b4965-c392-47e5-9b29-93e7ada9990a
 # ╟─d766d44e-3684-497c-814e-8f71740cb232
 # ╟─82284c63-2306-4469-9b1a-a5ec87037e79
@@ -1883,11 +1973,16 @@ version = "17.4.0+2"
 # ╟─be7c096c-cc8c-407b-8287-8fb2ee7150a7
 # ╟─2572e35c-e6a3-4562-aa0f-6a5ab32d39ea
 # ╟─47daf83b-8fe9-4491-b9ae-84bd269d5546
+# ╠═2d10281a-a4af-4ea8-b63b-e11f2d0893ed
 # ╠═13cc524c-d983-44f4-8731-0595249fb888
+# ╠═1b78b25d-3942-4a6b-a2bd-7d97242da9fe
 # ╟─9618a093-cdb7-4589-a783-de8e9021b705
-# ╠═ec29865f-3ba3-4bb3-84df-c2b472e03ff2
-# ╟─5c57e4b7-51d6-492d-9fc9-bcdab1dd46f4
+# ╠═5c57e4b7-51d6-492d-9fc9-bcdab1dd46f4
+# ╠═06960937-a87a-4015-bdeb-5d17aa41fe6b
 # ╠═627d5aa3-974f-4949-8b65-9500eba1d7cc
+# ╠═ec29865f-3ba3-4bb3-84df-c2b472e03ff2
+# ╟─9fe42679-dce3-4ee3-b565-eed4ff7d8e4d
+# ╟─f9bc84ff-c2f9-4ac2-b2ce-34dfcf837a73
 # ╟─c883748c-76b9-4086-8698-b40df51390da
 # ╟─e2a720b0-a8c4-43a2-bf34-750ff3323004
 # ╠═38957d8d-e1d0-44c3-bac9-1417925ac882
