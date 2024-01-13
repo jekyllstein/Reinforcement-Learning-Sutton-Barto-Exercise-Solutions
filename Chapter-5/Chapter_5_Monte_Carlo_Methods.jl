@@ -4,6 +4,9 @@
 using Markdown
 using InteractiveUtils
 
+# ╔═╡ a2412730-40b8-43c4-8ef8-02820a5285e7
+using PlutoProfile
+
 # ╔═╡ 77cf7fee-0ad8-4d22-b376-75833307db93
 begin
 	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly
@@ -86,16 +89,17 @@ function monte_carlo_pred(π::Matrix{T}, mdp::MDP_Opaque{S, A, F, G}, γ::T; num
 	counts = zeros(Integer, length(mdp.states))
 
 	#there's no check here so this is equivalent to every-visit estimation
-	function updateV!(traj, rewards; t = length(traj), g = zero(T))		
+	function updateV!(states, actions, rewards; t = length(states), g = zero(T))		
 		#terminate at the end of a trajectory
 		t == 0 && return nothing
 		#accumulate future discounted returns
 		g = γ*g + rewards[t]
-		(i_s,i_a) = traj[t]
+		i_s = mdp.statelookup[states[t]]
+		i_a = mdp.actionlookup[actions[t]]
 		#increment count by 1
 		counts[i_s] += 1
 		V[i_s] += (g - V[i_s])/counts[i_s] #update running average of V
-		updateV!(traj, rewards; t = t-1, g = g)
+		updateV!(states, actions, rewards; t = t-1, g = g)
 	end
 
 	
@@ -104,10 +108,10 @@ function monte_carlo_pred(π::Matrix{T}, mdp::MDP_Opaque{S, A, F, G}, γ::T; num
 		i_a0 = sample_action(π, mdp.statelookup[s0])
 		a0 = mdp.actions[i_a0]
 		# (s0, a0) = initialize_episode()
-		(traj, rewards) = mdp.simulator(s0, a0, π)
+		(states, actions, rewards) = mdp.simulator(s0, a0, π)
 	
 		#update value function for each trajectory
-		updateV!(traj, rewards)
+		updateV!(states, actions, rewards)
 	end
 	return V
 end
@@ -122,12 +126,74 @@ begin
 	abstract type BlackjackAction end
 	struct Hit <: BlackjackAction end
 	struct Stick <: BlackjackAction end
-	const cards = [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, :A]
-	const unique_cards = [:A, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-	const cardlookup = Dict(unique_cards[i] => i for i in eachindex(unique_cards))
+	struct BlackjackState
+		sum::Int64
+		upcard::Int64
+		ua::Bool
+	end
+	const cards = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10]
+	const unique_cards = collect(1:10)
 	const blackjack_actions = [Hit(), Stick()]
-	const blackjackstates = [(sum=s, upcard=c, ua = ua) for s in 12:21 for c in unique_cards for ua in (true, false)]
+	const blackjackstates = [BlackjackState(s, c, ua) for s in 12:21 for c in unique_cards for ua in (true, false)]
+	const blackjack_statelookup = makelookup(blackjackstates)
 	const π_blackjack_random = ones(Float32, 2, length(blackjackstates)) /2
+	#deal a card from an infinite deck and return either the value of that card or an ace
+	deal() = rand(cards)
+	
+	#takes a previous sum, usable ace indicator, and a card to be added to the sum.  Returns the updated sum and whether an ace is still usable
+	function addsumace(s::Int64, ua::Bool)
+		if !ua
+			s >= 11 ? (s+1, false) : (s+11, true)
+		else
+			(s+1, true)
+		end
+	end
+
+	function addsum(s::Int64, ua::Bool, c::Int64)
+		c == 1 && return addsumace(s, ua)
+		if !ua
+			(s + c, false)
+		else
+			if (s + c) > 21
+				(s + c - 10, false)
+			else
+				(s + c, true)
+			end
+		end
+	end
+
+	function dealer_sim(dealer_sum::Int64, dua::Bool)
+		(dealer_sum >= 17) && return dealer_sum
+		(new_sum, ua) = addsum(dealer_sum, dua, deal())
+		dealer_sim(new_sum, ua)
+	end
+
+	playersim(state, ::Stick, π, statehistory, actionhistory) = (state.sum, statehistory, actionhistory)
+	function playersim(state, ::Hit, π, statehistory, actionhistory)
+		(s, ua) = addsum(state.sum, state.ua, deal())
+		(s >= 21) && return (s, statehistory, actionhistory)
+		newstate = BlackjackState(s, state.upcard, ua)
+		i_s = blackjack_statelookup[newstate]
+		i_a = sample_action(π, i_s)
+		newaction = blackjack_actions[i_a]
+		playersim(newstate, newaction, π, push!(statehistory, newstate), push!(actionhistory, newaction))
+	end
+	playersim(state::BlackjackState, action::BlackjackAction, π::Matrix{Float32}) = playersim(state, action, π, [state], Vector{BlackjackAction}([action]))
+
+	#score a game in which the player didn't go bust
+	function scoregame(playersum, dealersum)
+		#if the dealer goes bust, the player wins
+		dealersum > 21 && return 1.0f0
+
+		#if the player is closer to 21 the player wins
+		playersum > dealersum && return 1.0f0
+
+		#if the dealer sum is closer to 21 the player loses
+		playersum < dealersum && return -1.0f0
+
+		#otherwise the outcome is a draw
+		return 0.0f0
+	end
 end
 
 # ╔═╡ 481ad435-cc80-4164-882d-8310b010ca91
@@ -144,84 +210,23 @@ const π_blackjack1 = make_simple_blackjack_policy(20)
 
 # ╔═╡ c23475f0-c5f0-49ce-a665-f93c8bda0474
 function make_blackjack_mdp()
-	actionlookup = Dict([Hit() => 1, Stick() => 2])
-	#deal a card from an infinite deck and return either the value of that card or an ace
-	deal() = rand(cards)
-	blackjackstates = [(sum=s, upcard=c, ua = ua) for s in 12:21 for c in unique_cards for ua in (true, false)]
-	statelookup = Dict(blackjackstates[i] => i for i in eachindex(blackjackstates))
-
-	#takes a previous sum, usable ace indicator, and a card to be added to the sum.  Returns the updated sum and whether an ace is still usable
-	function addsum(s::Int64, ua::Bool, c::Symbol)
-		if !ua
-			s >= 11 ? (s+1, false) : (s+11, true)
-		else
-			(s+1, true)
-		end
-	end
-
-	function addsum(s::Int64, ua::Bool, c::Int64)
-		if !ua
-			(s + c, false)
-		else
-			if (s + c) > 21
-				(s + c - 10, false)
-			else
-				(s + c, true)
-			end
-		end
-	end
-
-	playersim(state, ::Stick, π, traj = [(statelookup[state], 2)]) = (state.sum, traj)
-	function playersim(state, action::Hit, π, traj = [(statelookup[state], 1)])
-		(s, ua) = addsum(state.sum, state.ua, deal())
-		(s >= 21) && return (s, traj)
-		newstate = (sum=s, upcard=state.upcard, ua=ua)
-		i_s = statelookup[newstate]
-		i_a = sample_action(π, i_s)
-		push!(traj, (i_s, i_a))
-		playersim(newstate, blackjack_actions[i_a], π, traj)
-	end
-
-	function dealer_sim(s::Int64, ua::Bool)
-		(s >= 17) && return s
-		(s, ua) = addsum(s, ua, deal())
-		dealer_sim(s, ua)
-	end
-
-	#score a game in which the player didn't go bust
-	function scoregame(playersum, dealersum)
-		#if the dealer goes bust, the player wins
-		dealersum > 21 && return 1.0f0
-
-		#if the player is closer to 21 the player wins
-		playersum > dealersum && return 1.0f0
-
-		#if the dealer sum is closer to 21 the player loses
-		playersum < dealersum && return -1.0f0
-
-		#otherwise the outcome is a draw
-		return 0.0f0
-	end
-
-	state_init() = (sum = rand(12:21), upcard = rand(unique_cards), ua = rand([true, false]))
-		
+	state_init() = BlackjackState(rand(12:21), rand(unique_cards), rand() > 0.5)
 
 	#starting with an initial state, action, and policy, generate a trajectory for blackjack returning that and the reward
-	function blackjackepisode(s0::NamedTuple{(:sum, :upcard, :ua)}, a0::BlackjackAction, π::Matrix{Float32})
-		(s, c, ua) = s0
-		playernatural = (s == 21)
-		splayer, traj = playersim(s0, a0, π)
-		rewardbase = zeros(Float32, length(traj) - 1)
+	function blackjackepisode(s0::BlackjackState, a0::BlackjackAction, π::Matrix{Float32})
+		playernatural = (s0.sum == 21) && s0.ua
+		splayer, statehistory, actionhistory = playersim(s0, a0, π)
+		rewardbase = zeros(Float32, length(statehistory) - 1)
 		finalr = if splayer > 21 
 			#if the player goes bust, the game is lost regardless of the dealers actions
 			-1.0f0
 		else
 			#generate hidden dealer card and final state
 			hc = deal()
-			(ds, dua) = if c == :A
+			(ds, dua) = if s0.upcard == 1
 				addsum(11, true, hc)
 			else 
-				addsum(c, false, hc)
+				addsum(s0.upcard, false, hc)
 			end
 	
 			dealernatural = ds == 21
@@ -235,7 +240,7 @@ function make_blackjack_mdp()
 				scoregame(splayer, sdealer)
 			end
 		end
-		return (traj, [rewardbase; finalr])
+		return (statehistory, actionhistory, push!(rewardbase, finalr))
 	end
 
 	
@@ -249,12 +254,11 @@ const blackjack_mdp = make_blackjack_mdp()
 function make_value_grid(v_π)
 	vgridua = zeros(Float32, 10, 10)
 	vgridnua = zeros(Float32, 10, 10)
-	for i in eachindex(blackjackstates)
-		(s, c, ua) = blackjackstates[i]
-		if ua
-			vgridua[s-11, cardlookup[c]] = v_π[i]
+	for (i_s, s) in enumerate(blackjackstates)
+		if s.ua
+			vgridua[s.sum-11, s.upcard] = v_π[i_s]
 		else
-			vgridnua[s-11, cardlookup[c]] = v_π[i]
+			vgridnua[s.sum-11, s.upcard] = v_π[i_s]
 		end
 	end
 	return vgridua, vgridnua
@@ -436,24 +440,25 @@ function monte_carlo_ES(mdp::MDP_Opaque, π_init::Matrix{T}, Q_init::Matrix{T}, 
 	for i in 1:num_episodes
 		s0 = mdp.state_init()
 		a0 = rand(mdp.actions)
-		(traj, rewards) = mdp.simulator(s0, a0, π)
+		(states, actions, rewards) = mdp.simulator(s0, a0, π)
 
 		#there's no check here so this is equivalent to every-visit estimation
-		function updateQ!(traj, rewards; t = length(traj), g_old = zero(T))		
+		function updateQ!(states, actions, rewards; t = length(states), g_old = zero(T))		
 			#terminate at the end of a trajectory
 			t == 0 && return nothing
 			#accumulate future discounted returns
 			g = γ*g_old + rewards[t]
-			(i_s,i_a) = traj[t]
+			i_s = mdp.statelookup[states[t]]
+			i_a = mdp.actionlookup[actions[t]]
 			#increment count by 1
 			counts[i_a, i_s] += 1
 			Q[i_a, i_s] += (g - Q[i_a, i_s])/counts[i_a, i_s] #update running average of Q
 			vhold .= Q[:, i_s]
 			make_greedy_policy!(vhold)
 			π[:, i_s] .= vhold
-			updateQ!(traj, rewards; t = t-1, g_old = g)
+			updateQ!(states, actions, rewards; t = t-1, g_old = g)
 		end
-		updateQ!(traj, rewards)
+		updateQ!(states, actions, rewards)
 	end
 	return π, Q
 end
@@ -471,15 +476,12 @@ function plot_blackjack_policy(π)
 	πstargridua = zeros(Float64, 10, 10)
 	πstargridnua = zeros(Float64, 10, 10)
 	for state in blackjackstates
-		(s, c, ua) = state
 		i_s = blackjack_mdp.statelookup[state]
 		v = π[1, i_s] - π[2, i_s]
-
-		y = c == :A ? 1 : c
-		if ua
-			πstargridua[s-11, y] = v
+		if state.ua
+			πstargridua[state.sum-11, state.upcard] = v
 		else
-			πstargridnua[s-11, y] = v
+			πstargridnua[state.sum-11, state.upcard] = v
 		end
 	end
 
@@ -615,7 +617,7 @@ end
 monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T))) where T <: Real = monte_carlo_ES(mdp, π_init, Q_init, γ, num_episodes) 
 
 # ╔═╡ bf19e6cf-1fb5-49c9-974e-1613d90ef4cf
-(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjack_mdp, 1.0f0, 0.2f0, 1_000_000)
+(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjack_mdp, 1.0f0, 0.05f0, 2_000_000)
 
 # ╔═╡ 3ee31af5-b19c-49dc-8fbf-f07e93d1f0c5
 md"""
@@ -841,7 +843,7 @@ md"""
 """
 
 # ╔═╡ 02dd1e77-2a7e-4123-94db-d17b31a8b15a
-const blackjack_state1 = (sum = 13, upcard = 2, ua = true)
+const blackjack_state1 = BlackjackState(13, 2, true)
 
 # ╔═╡ acb08e38-fc87-43f4-ac2d-6c6bf0f2e9e6
 function estimate_mdp_state(mdp, π::Matrix{T}, stateindex, num_episodes) where T<:AbstractFloat
@@ -850,7 +852,7 @@ function estimate_mdp_state(mdp, π::Matrix{T}, stateindex, num_episodes) where 
 	i_a0 = sample_action(π, stateindex)
 	a0 = mdp.actions[i_a0]
 	for i in 1:num_episodes
-		(traj, rewards) = mdp.simulator(s0, a0, π)
+		(states, actions, rewards) = mdp.simulator(s0, a0, π)
 		staterewards[i] = last(rewards)
 	end
 	return staterewards
@@ -864,7 +866,7 @@ function estimate_blackjack_state(blackjackstate, π_blackjack, num_episodes)
 end
 
 # ╔═╡ d16ac2a8-1a5a-4ded-9285-d2c6cd550066
-estimate_blackjack_state(blackjack_state1, π_blackjack1, 1_000_000)
+estimate_blackjack_state(blackjack_state1, π_blackjack1, 100_000_000)
 
 # ╔═╡ 2b9131c1-4d79-4ea3-b51f-7f3380aeb629
 # ╠═╡ disabled = true
@@ -1572,6 +1574,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
+PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
@@ -1580,6 +1583,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 HypertextLiteral = "~0.9.5"
 LaTeXStrings = "~1.3.1"
 PlutoPlotly = "~0.4.4"
+PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.50"
 StatsBase = "~0.33.21"
 """
@@ -1590,13 +1594,18 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0"
 manifest_format = "2.0"
-project_hash = "0db33129a411493ff9d6d371968e3a831122631a"
+project_hash = "a9f1e73cd347c9121e407e41bd5396e656cfac35"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "8eaf9f1b4921132a4cff3f36a1d9ba923b14a481"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.1.4"
+
+[[deps.AbstractTrees]]
+git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -1690,6 +1699,12 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "c5c28c245101bd59154f649e19b038d15901b5dc"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.16.2"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
@@ -1698,6 +1713,12 @@ deps = ["Statistics"]
 git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
+
+[[deps.FlameGraphs]]
+deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
+git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
+uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
+version = "0.2.10"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -1716,6 +1737,11 @@ deps = ["Logging", "Random"]
 git-tree-sha1 = "f7be53659ab06ddc986428d3a9dcc95f6fa6705a"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.2"
+
+[[deps.IndirectArrays]]
+git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
+uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
+version = "1.0.0"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -1736,6 +1762,12 @@ version = "0.21.4"
 git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.3.1"
+
+[[deps.LeftChildRightSiblingTrees]]
+deps = ["AbstractTrees"]
+git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
+uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
+version = "0.1.3"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -1865,6 +1897,12 @@ version = "0.4.4"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
+[[deps.PlutoProfile]]
+deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
+git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
+uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
+version = "0.4.0"
+
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
 git-tree-sha1 = "5bb5129fdd62a2bbbe17c2756932259acf467386"
@@ -1886,6 +1924,16 @@ version = "1.3.0"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[[deps.Profile]]
+deps = ["Printf"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+
+[[deps.ProfileCanvas]]
+deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
+version = "0.1.0"
 
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
@@ -2076,6 +2124,7 @@ version = "17.4.0+2"
 # ╟─b39d1ea0-86a2-4215-ae73-e4492f3f2f00
 # ╠═02dd1e77-2a7e-4123-94db-d17b31a8b15a
 # ╠═acb08e38-fc87-43f4-ac2d-6c6bf0f2e9e6
+# ╠═a2412730-40b8-43c4-8ef8-02820a5285e7
 # ╠═e293e184-5938-40b5-a04b-5306760a06ae
 # ╠═d16ac2a8-1a5a-4ded-9285-d2c6cd550066
 # ╠═2b9131c1-4d79-4ea3-b51f-7f3380aeb629
