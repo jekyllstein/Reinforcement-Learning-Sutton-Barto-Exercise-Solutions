@@ -691,58 +691,55 @@ struct Weighted <: ImportanceMethod end
 # ╔═╡ 4197cc28-b24c-48cb-bd8d-ef998983ad77
 struct Ordinary <: ImportanceMethod end
 
-# ╔═╡ 6be7ff29-5845-4df4-ba18-bafea79ace71
-function monte_carlo_pred(π_target, π_behavior, states, actions, simulator, γ, nmax = 1000; gets0 = () -> rand(states), historystate = states[1], samplemethod::ImportanceMethod = Ordinary(), V0 = 0.0)
-	#initialize values and counts at 0
-	V = Dict(s => V0 for s in states)
-	Vhistory = zeros(nmax)
-	counts = Dict(s => 0.0 for s in states)
+# ╔═╡ d11bfcf9-b964-4c67-afdc-53d81f051fd5
+function monte_carlo_pred(π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::MDP_Opaque{S, A, F, G}, γ::T; num_episodes::Integer = 1000, qinit::T = zero(T), Q::Matrix{T} = ones(T, length(mdp.actions), length(mdp.states)) .* qinit, historystateindex::Integer = 1, samplemethod::ImportanceMethod = Ordinary(), override_state_init::Bool = false) where {T <: AbstractFloat, S, A, F, G}
 	
-	#maps actions to the index for the probability lookup
-	adict = Dict(a => i for (i, a) in enumerate(actions))
+	check_policy(π_target, mdp)
+	check_policy(π_behavior, mdp)
+	@assert all(x -> x != 0, π_behavior) #behavior policy must have full coverage
 	
-	avec = collect(actions) #in case actions aren't a vector
-	sample_b(s) = sample(avec, weights(π_behavior[s])) #samples probabilities defined in policy to generate actions 
+	#initialize
+	counts = zeros(Integer, length(mdp.actions), length(mdp.states))
+	valuehistory = zeros(T, num_episodes)
 
 	#updates the denominator used in the value update.  For ordinary sampling, this is just the count of visits to that state.  For weighted sampling, this is the sum of all importance-sampling ratios at that state
-	updatecounts!(::Ordinary, s, w) = counts[s] += 1.0
-	updatecounts!(::Weighted, s, w) = counts[s] += w
+	updatecounts!(::Ordinary, i_s, i_a, w) = counts[i_a, i_s] += one(T)
+	updatecounts!(::Weighted, i_s, i_a, w) = counts[i_a, i_s] += w
 	
-
 	#updates the value estimates at a given state using the future discounted return and the importance-sampling ratio
-	updatevalue!(::Ordinary, s, g, w) = V[s] += (w*g - V[s])/counts[s]
-	updatevalue!(::Weighted, s, g, w) = V[s] += (g - V[s])*w/counts[s]
-		
-	for i in 1:nmax
-		s0 = gets0()
-		a0 = sample_b(s0)
-		(traj, rewards) = simulator(s0, a0, sample_b)
-		
-		#there's no check here so this is equivalent to every-visit estimation
-		function updateV!(t = length(traj); g = 0.0, w = 1.0)
-			#terminate at the end of a trajectory
-			t == 0 && return nothing
-			(s,a) = traj[t]
-			
-			#since this is the value estimate, every action must update the importance-sampling weight before the update to that state is calculated. In contrast, for the action-value estimate the weight is only the actions made after the current step are relevant to the weight
-			w *= π_target[s][adict[a]] / π_behavior[s][adict[a]]
-			
-			updatecounts!(samplemethod, s, w)
-			
-			#terminate when w = 0 if the weighted sample method is being used.  under ordinary sampling, the updates to the count and value will still occur because the denominator will still increment
-			(w == 0 && isa(samplemethod, Weighted)) && return nothing
-			
-			#update discounted future return from the current step
-			g = γ*g + rewards[t]
-			updatevalue!(samplemethod, s, g, w)
+	updatevalue!(::Ordinary, i_s, i_a, g, w) = Q[i_a, i_s] += (w*g - Q[i_a, i_s])/counts[i_a, i_s]
+	updatevalue!(::Weighted, i_s, i_a, g, w) = Q[i_a, i_s] += (g - Q[i_a, i_s])*w/counts[i_a, i_s]
 
-			#continue back through trajectory one step
-			updateV!(t-1, g = g, w = w)
-		end
-		updateV!()
-		Vhistory[i] = V[historystate] #save the value after iteration i for the specified state
+	#there's no check here so this is equivalent to every-visit estimation
+	function updateQ!(traj, rewards; t = length(traj), g_old = zero(T), w = one(T))		
+		#terminate at the end of a trajectory
+		t == 0 && return nothing
+		#accumulate future discounted returns
+		g = γ*g_old + rewards[t]
+		(i_s,i_a) = traj[t]
+		
+		updatecounts!(samplemethod, i_s, i_a, w)
+		updatevalue!(samplemethod, i_s, i_a, g, w)
+		w *= π_target[i_a, i_s] / π_behavior[i_a, i_s]
+		updateQ!(traj, rewards; t = t-1, g_old = g)
 	end
-	return V, Vhistory
+
+	
+	for i in 1:num_episodes
+		#if only interested in one state then always initialize there
+		s0 = override_state_init ? mdp.states[historystateindex] : mdp.state_init()
+		i_a0 = sample_action(π_behavior, mdp.statelookup[s0])
+		a0 = mdp.actions[i_a0]
+		# (s0, a0) = initialize_episode()
+		(traj, rewards) = mdp.simulator(s0, a0, π_behavior)
+	
+		#update value function for each trajectory
+		updateQ!(traj, rewards)
+
+		#for selected state check value
+		valuehistory[i] = sum(view(Q, :, historystateindex) .* view(π_target, :, historystateindex))
+	end
+	return valuehistory, Q 
 end
 
 # ╔═╡ 94be5289-bba7-4490-bdcd-0d217a31c665
@@ -783,44 +780,91 @@ plot_fig5_1()
 
 # ╔═╡ cede8090-5b1a-436b-a184-fca5c4d3de48
 md"""
-> *Exercise 5.5* Consider an MDP with a single nonterminal state and a single action that transitions back to the nonterminal state with probability $p$ and transitions to the terminal state with probability $1-p$.  Let the reward be +1 on all transitions, and let $\gamma=1$.  Suppose you observe one episode that lasts 10 steps, with a return of 10.  What are the first-visit and every-visit estimators of the value of the nonterminal state?
+> ### *Exercise 5.5* 
+> Consider an MDP with a single nonterminal state and a single action that transitions back to the nonterminal state with probability $p$ and transitions to the terminal state with probability $1-p$.  Let the reward be +1 on all transitions, and let $\gamma=1$.  Suppose you observe one episode that lasts 10 steps, with a return of 10.  What are the first-visit and every-visit estimators of the value of the nonterminal state?
 
 For the first-visit estimator, we only consider the single future reward from the starting state which would be 10.  There is nothing to average since we just have the single value of 10 for the episode.
 
 For the every-visit estimator, we need to average together all 10 visits to the non-terminal state.  For the first visit, the future reward is 10.  For the second visit it is 9, third 8, and so forth.  The final visit has a reward of 1, so the value estimate is the average of 10, 9, ..., 1 which is $\frac{(1+10) \times 5}{10}=\frac{55}{10} = 5.5$
 """
 
+# ╔═╡ c9bd778c-217a-4664-8cde-841beca10307
+@htl("""
+<div>Reward = +1 on All Transitions</div>
+<div style="display: flex; align-items: center; background-color: lightgray; color: black; height: 150px; width: 100px;">
+<div class="backup" style="transform: scale(130%)">
+	<div class="circlestate"></div>
+	<div class="arrow"></div>
+	<div class="term"></div>
+</div>
+<div>
+	<div class="loop"></div>
+	<div style="transform: translateY(-15px)">1-p</div>
+</div>
+</div>
+<style>
+	.loop {
+		display: flex;
+		border-width: 2px 0px 0px 2px;
+		border-style: solid;
+		border-color: black;
+		width: 38px;
+		height: 28px;
+		border-radius: 50% 50% 50% 15%;
+		transform: translateY(-30px) rotate(45deg);
+	}
+	.loop::before {
+		content: '';
+		position: relative;
+		width: 5px;
+		height: 5px;
+		border-width: 0px 0px 3px 3px;
+		border-style: solid;
+		border-color: black;
+		transform: translateX(-4px) translateY(17px) rotate(-45deg)
+	}
+	.loop::after {
+		content: 'p';
+		border-width: 0px 2px 2px 0px;
+		border-style: solid;
+		border-color: black;
+		width: 38px;
+		height: 28px;
+		border-radius: 50% 50% 50% 0%;
+	}
+</style>
+""")
+
 # ╔═╡ b39d1ea0-86a2-4215-ae73-e4492f3f2f00
 md"""
 ### Example 5.4: Off-policy Estimation of a Blackjack State Value
 """
 
-# ╔═╡ a2b7d85e-c9ad-4104-92d6-bac2ce362f1d
-# ╠═╡ disabled = true
-#=╠═╡
-blackjackepisode((13, 2, true), :hit, s -> sample(collect(blackjackactions), weights(π_blackjack1[s])))
-  ╠═╡ =#
-
-# ╔═╡ 1d2e91d0-a1a0-4630-ac06-37684a9104f3
-# ╠═╡ disabled = true
-#=╠═╡
-blackjackepisode((13, 2, true), :hit, s -> rand(blackjackactions))
-  ╠═╡ =#
+# ╔═╡ 02dd1e77-2a7e-4123-94db-d17b31a8b15a
+const blackjack_state1 = (sum = 13, upcard = 2, ua = true)
 
 # ╔═╡ acb08e38-fc87-43f4-ac2d-6c6bf0f2e9e6
-function estimate_blackjack_state(n, π)
-	avec = collect(blackjackactions)
-	rewards = zeros(n)
-	sampleπ(s) = sample(avec, weights(π[s]))
-	s0 = (13, 2, true)
-	a0 = sampleπ(s0)
-	for i in 1:n
-		ep = blackjackepisode(s0, a0, sampleπ)
-		rewards[i] = ep[2][end]
+function estimate_mdp_state(mdp, π::Matrix{T}, stateindex, num_episodes) where T<:AbstractFloat
+	staterewards = zeros(T, num_episodes)
+	s0 = mdp.states[stateindex]
+	i_a0 = sample_action(π, stateindex)
+	a0 = mdp.actions[i_a0]
+	for i in 1:num_episodes
+		(traj, rewards) = mdp.simulator(s0, a0, π)
+		staterewards[i] = last(rewards)
 	end
-
-	return mean(rewards), var(rewards)
+	return staterewards
 end
+
+# ╔═╡ e293e184-5938-40b5-a04b-5306760a06ae
+function estimate_blackjack_state(blackjackstate, π_blackjack, num_episodes)
+	stateindex = blackjack_mdp.statelookup[blackjackstate]
+	state_rewards = estimate_mdp_state(blackjack_mdp, π_blackjack1, stateindex, num_episodes)
+	summarystats(state_rewards)
+end
+
+# ╔═╡ d16ac2a8-1a5a-4ded-9285-d2c6cd550066
+estimate_blackjack_state(blackjack_state1, π_blackjack1, 1_000_000)
 
 # ╔═╡ 2b9131c1-4d79-4ea3-b51f-7f3380aeb629
 # ╠═╡ disabled = true
@@ -2026,12 +2070,14 @@ version = "17.4.0+2"
 # ╠═d97f693d-27f2-49be-a549-07a290c95b53
 # ╠═660ef59c-205c-44c2-9c46-5a74e09497ab
 # ╠═4197cc28-b24c-48cb-bd8d-ef998983ad77
-# ╠═6be7ff29-5845-4df4-ba18-bafea79ace71
+# ╠═d11bfcf9-b964-4c67-afdc-53d81f051fd5
 # ╟─cede8090-5b1a-436b-a184-fca5c4d3de48
+# ╟─c9bd778c-217a-4664-8cde-841beca10307
 # ╟─b39d1ea0-86a2-4215-ae73-e4492f3f2f00
-# ╠═a2b7d85e-c9ad-4104-92d6-bac2ce362f1d
-# ╠═1d2e91d0-a1a0-4630-ac06-37684a9104f3
+# ╠═02dd1e77-2a7e-4123-94db-d17b31a8b15a
 # ╠═acb08e38-fc87-43f4-ac2d-6c6bf0f2e9e6
+# ╠═e293e184-5938-40b5-a04b-5306760a06ae
+# ╠═d16ac2a8-1a5a-4ded-9285-d2c6cd550066
 # ╠═2b9131c1-4d79-4ea3-b51f-7f3380aeb629
 # ╠═70d9d39f-020d-4f25-810c-82a143a3335b
 # ╠═8faca500-b80d-4b50-88b6-683d18a1286b
