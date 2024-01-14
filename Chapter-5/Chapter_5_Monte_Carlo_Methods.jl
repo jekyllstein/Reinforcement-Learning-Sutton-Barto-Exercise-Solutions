@@ -171,7 +171,7 @@ begin
 	playersim(state, ::Stick, π, statehistory, actionhistory) = (state.sum, statehistory, actionhistory)
 	function playersim(state, ::Hit, π, statehistory, actionhistory)
 		(s, ua) = addsum(state.sum, state.ua, deal())
-		(s >= 21) && return (s, statehistory, actionhistory)
+		(s > 21) && return (s, statehistory, actionhistory)
 		newstate = BlackjackState(s, state.upcard, ua)
 		i_s = blackjack_statelookup[newstate]
 		i_a = sample_action(π, i_s)
@@ -214,6 +214,7 @@ function make_blackjack_mdp()
 
 	#starting with an initial state, action, and policy, generate a trajectory for blackjack returning that and the reward
 	function blackjackepisode(s0::BlackjackState, a0::BlackjackAction, π::Matrix{Float32})
+		#given any valid state, the simulation results will be affected by whether or not the player has a natural.  This can only be the case when the player sum is 21 and the player has a usable ace.  However, even if this is the case, it is not necessarily a natural.  A natural would occur with (A, 10), (A, J), (A, Q), (A, K).  But the player could also have (A, A, 9), (A, A, 7, 2), (A, A, A, 8), (A, A, A, A, 7) and so forth.  Also, if the starting state has a sum less than 21 and a usable ace, then after further dealing the player could arrive at the state with a sum of 21 and a usable ace.  In that situation, the player would never have a natural, but state value will be updated nonetheless.  So the probabilities must match for sampling purposes meaning the reward sampled from the (sum=21, ua=true) player state must reflect the true probabilities.  This would be the case if the simulation is always started with zero cards and dealt, but how to do that when we pass the starting state into it?  Since the game can go on past this point, this starting state should be handled for initial card draws where the sum is less than 12.  All of the situations with a usuable ace, a sum of 21, and not having a player natural require the player having two or more aces without a face/10 card.  If the first two cards dealt are the aces, then this would be a sum of 12 and the player would need to hit for a subsequent state.  If the first two cards result in a sum of less than 12 such as 7,2 then the player would automatically receive an additional card with zero probability of a bust, so no policy is needed.  Once the first ace is dealt, the policy would be required to hit to draw a second ace.  So if we treat s0 as the initial deal, then the remainder of the simulation will cover all of the other cases where we arrive at a sum of 21 with a usable ace
 		playernatural = (s0.sum == 21) && s0.ua
 		splayer, statehistory, actionhistory = playersim(s0, a0, π)
 		rewardbase = zeros(Float32, length(statehistory) - 1)
@@ -222,15 +223,9 @@ function make_blackjack_mdp()
 			-1.0f0
 		else
 			#generate hidden dealer card and final state
-			hc = deal()
-			(ds, dua) = if s0.upcard == 1
-				addsum(11, true, hc)
-			else 
-				addsum(s0.upcard, false, hc)
-			end
-	
+			(ds, dua) = addsum(0, false, deal())
+			(ds, dua) = addsum(ds, dua, s0.upcard)
 			dealernatural = ds == 21
-	
 			if playernatural
 				Float32(!dealernatural)
 			elseif dealernatural #not stated in book but used by authors in their code and matches actual blackjack rules
@@ -486,7 +481,7 @@ function plot_blackjack_policy(π)
 	end
 
 	function plot_policy_grid(grid)
-		plot(heatmap(y = 12:21, z = grid, showscale=false, colorscale = "Greys", zmin = -1, zmax = 1), Layout(xaxis_title = "Dealer showing", yaxis_title = "Player sum", margin = attr(t = 30, b = 0, l = 0, r = 10), width = 300, height = 300, xaxis_tickvals = 1:10, yaxis_tickvals = 12:21, yaxis_ticktext = 12:21, xaxis_ticktext = ["A"; 2:10]))
+		plot(heatmap(x = 1:10, y = 12:21, z = grid, showscale=false, colorscale = "Greys", zmin = -1, zmax = 1), Layout(xaxis_title = "Dealer showing", yaxis_title = "Player sum", margin = attr(t = 30, b = 0, l = 0, r = 10), width = 300, height = 300, xaxis_tickvals = 1:10, yaxis_tickvals = 12:21, yaxis_ticktext = 12:21, xaxis_ticktext = ["A"; 2:10]))
 	end
 
 	p1 = plot_policy_grid(πstargridua)
@@ -532,7 +527,7 @@ function figure_5_2(πstar_blackjack, Qstar_blackjack)
 end
 
 # ╔═╡ ec29865f-3ba3-4bb3-84df-c2b472e03ff2
-(πstar_blackjack, Qstar_blackjack) = monte_carlo_ES(blackjack_mdp, 1.0f0, 2_000_000; π_init = π_blackjack1)
+(πstar_blackjack, Qstar_blackjack) = monte_carlo_ES(blackjack_mdp, 1.0f0, 5_000_000; π_init = π_blackjack1)
 
 # ╔═╡ 9fe42679-dce3-4ee3-b565-eed4ff7d8e4d
 md"""
@@ -591,24 +586,25 @@ function monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, π_init::Matrix{T}, Q_init::
 		s0 = mdp.state_init()
 		i_a0 = sample_action(π, mdp.statelookup[s0])
 		a0 = mdp.actions[i_a0]
-		(traj, rewards) = mdp.simulator(s0, a0, π)
+		(states, actions, rewards) = mdp.simulator(s0, a0, π)
 
 		#there's no check here so this is equivalent to every-visit estimation
-		function updateQ!(traj, rewards; t = length(traj), g_old = zero(T))		
+		function updateQ!(states, actions, rewards; t = length(states), g_old = zero(T))		
 			#terminate at the end of a trajectory
 			t == 0 && return nothing
 			#accumulate future discounted returns
 			g = γ*g_old + rewards[t]
-			(i_s,i_a) = traj[t]
+			i_s = mdp.statelookup[states[t]]
+			i_a = mdp.actionlookup[actions[t]]
 			#increment count by 1
 			counts[i_a, i_s] += 1
 			Q[i_a, i_s] += (g - Q[i_a, i_s])/counts[i_a, i_s] #update running average of Q
 			vhold .= Q[:, i_s]
 			make_ϵsoft_policy!(vhold)
 			π[:, i_s] .= vhold
-			updateQ!(traj, rewards; t = t-1, g_old = g)
+			updateQ!(states, actions, rewards; t = t-1, g_old = g)
 		end
-		updateQ!(traj, rewards)
+		updateQ!(states, actions, rewards)
 	end
 	return π, Q
 end
@@ -617,7 +613,7 @@ end
 monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T))) where T <: Real = monte_carlo_ES(mdp, π_init, Q_init, γ, num_episodes) 
 
 # ╔═╡ bf19e6cf-1fb5-49c9-974e-1613d90ef4cf
-(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjack_mdp, 1.0f0, 0.05f0, 2_000_000)
+(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjack_mdp, 1.0f0, 0.6f0, 5_000_000)
 
 # ╔═╡ 3ee31af5-b19c-49dc-8fbf-f07e93d1f0c5
 md"""
@@ -693,6 +689,41 @@ struct Weighted <: ImportanceMethod end
 # ╔═╡ 4197cc28-b24c-48cb-bd8d-ef998983ad77
 struct Ordinary <: ImportanceMethod end
 
+# ╔═╡ aaa9647c-afb6-44d1-ae1e-a2e957064080
+#updates the denominator used in the value update.  For ordinary sampling, this is just the count of visits to that state.  For weighted sampling, this is the sum of all importance-sampling ratios at that state
+updatecount(::Ordinary, w::T) where T<:Real = one(T)
+
+# ╔═╡ 2646c9a2-46b1-4700-9290-ddc7dc9a59af
+updatecount(::Weighted, w) = w
+	
+	#updates the value estimates at a given state using the future discounted return and the importance-sampling ratio
+
+# ╔═╡ c8f3f7e3-be7e-4615-a667-d9f789928883
+updatevalue(::Ordinary, q::T, g::T, w::T, c::T) where T<:Real = (w*g - q)/c
+
+# ╔═╡ 020131a1-c68b-403a-9c5e-944edb6220e9
+updatevalue(::Weighted, q::T, g::T, w::T, c::T) where T<:Real = (g - q)*w/c
+
+# ╔═╡ 61d8cfc6-a50c-4546-9e1f-dc73d4764bb9
+#there's no check here so this is equivalent to every-visit estimation
+function updateQ!(mdp, Q, counts, π_target::Matrix{T}, π_behavior::Matrix{T}, states, actions, rewards::Vector{T}, γ::T, samplemethod::ImportanceMethod; t = length(states), g_old = zero(T), w = one(T)) where T<:Real		
+
+	#terminate at the end of a trajectory
+	(t == 0) && return nothing
+	
+	if (w == zero(T)) && isa(samplemethod, Weighted) 
+		return nothing
+	end
+	
+	#accumulate future discounted returns
+	g = γ*g_old + rewards[t]
+	i_s = mdp.statelookup[states[t]]
+	i_a = mdp.actionlookup[actions[t]]
+	counts[i_a, i_s] += updatecount(samplemethod, w)
+	Q[i_a, i_s] += updatevalue(samplemethod, Q[i_a, i_s], g, w, counts[i_a, i_s])
+	updateQ!(mdp, Q, counts, π_target, π_behavior, states, actions, rewards, γ, samplemethod; t = t-1, g_old = g, w = w * π_target[i_a, i_s] / π_behavior[i_a, i_s])
+end
+
 # ╔═╡ d11bfcf9-b964-4c67-afdc-53d81f051fd5
 function monte_carlo_pred(π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::MDP_Opaque{S, A, F, G}, γ::T; num_episodes::Integer = 1000, qinit::T = zero(T), Q::Matrix{T} = ones(T, length(mdp.actions), length(mdp.states)) .* qinit, historystateindex::Integer = 1, samplemethod::ImportanceMethod = Ordinary(), override_state_init::Bool = false) where {T <: AbstractFloat, S, A, F, G}
 	
@@ -701,30 +732,9 @@ function monte_carlo_pred(π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::MDP
 	@assert all(x -> x != 0, π_behavior) #behavior policy must have full coverage
 	
 	#initialize
-	counts = zeros(Integer, length(mdp.actions), length(mdp.states))
+	counts = zeros(T, length(mdp.actions), length(mdp.states))
 	valuehistory = zeros(T, num_episodes)
 
-	#updates the denominator used in the value update.  For ordinary sampling, this is just the count of visits to that state.  For weighted sampling, this is the sum of all importance-sampling ratios at that state
-	updatecounts!(::Ordinary, i_s, i_a, w) = counts[i_a, i_s] += one(T)
-	updatecounts!(::Weighted, i_s, i_a, w) = counts[i_a, i_s] += w
-	
-	#updates the value estimates at a given state using the future discounted return and the importance-sampling ratio
-	updatevalue!(::Ordinary, i_s, i_a, g, w) = Q[i_a, i_s] += (w*g - Q[i_a, i_s])/counts[i_a, i_s]
-	updatevalue!(::Weighted, i_s, i_a, g, w) = Q[i_a, i_s] += (g - Q[i_a, i_s])*w/counts[i_a, i_s]
-
-	#there's no check here so this is equivalent to every-visit estimation
-	function updateQ!(traj, rewards; t = length(traj), g_old = zero(T), w = one(T))		
-		#terminate at the end of a trajectory
-		t == 0 && return nothing
-		#accumulate future discounted returns
-		g = γ*g_old + rewards[t]
-		(i_s,i_a) = traj[t]
-		
-		updatecounts!(samplemethod, i_s, i_a, w)
-		updatevalue!(samplemethod, i_s, i_a, g, w)
-		w *= π_target[i_a, i_s] / π_behavior[i_a, i_s]
-		updateQ!(traj, rewards; t = t-1, g_old = g)
-	end
 
 	
 	for i in 1:num_episodes
@@ -733,10 +743,10 @@ function monte_carlo_pred(π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::MDP
 		i_a0 = sample_action(π_behavior, mdp.statelookup[s0])
 		a0 = mdp.actions[i_a0]
 		# (s0, a0) = initialize_episode()
-		(traj, rewards) = mdp.simulator(s0, a0, π_behavior)
+		(states, actions, rewards) = mdp.simulator(s0, a0, π_behavior)
 	
 		#update value function for each trajectory
-		updateQ!(traj, rewards)
+		updateQ!(mdp, Q, counts, π_target, π_behavior, states, actions, rewards, γ, samplemethod)
 
 		#for selected state check value
 		valuehistory[i] = sum(view(Q, :, historystateindex) .* view(π_target, :, historystateindex))
@@ -845,13 +855,16 @@ md"""
 # ╔═╡ 02dd1e77-2a7e-4123-94db-d17b31a8b15a
 const blackjack_state1 = BlackjackState(13, 2, true)
 
+# ╔═╡ 04752549-ffca-4e31-869e-714f835d3e85
+const blackjack_stateindex1 = blackjack_mdp.statelookup[blackjack_state1]
+
 # ╔═╡ acb08e38-fc87-43f4-ac2d-6c6bf0f2e9e6
 function estimate_mdp_state(mdp, π::Matrix{T}, stateindex, num_episodes) where T<:AbstractFloat
 	staterewards = zeros(T, num_episodes)
 	s0 = mdp.states[stateindex]
-	i_a0 = sample_action(π, stateindex)
-	a0 = mdp.actions[i_a0]
 	for i in 1:num_episodes
+		i_a0 = sample_action(π, stateindex)
+		a0 = mdp.actions[i_a0]
 		(states, actions, rewards) = mdp.simulator(s0, a0, π)
 		staterewards[i] = last(rewards)
 	end
@@ -861,78 +874,44 @@ end
 # ╔═╡ e293e184-5938-40b5-a04b-5306760a06ae
 function estimate_blackjack_state(blackjackstate, π_blackjack, num_episodes)
 	stateindex = blackjack_mdp.statelookup[blackjackstate]
-	state_rewards = estimate_mdp_state(blackjack_mdp, π_blackjack1, stateindex, num_episodes)
-	summarystats(state_rewards)
+	estimate_mdp_state(blackjack_mdp, π_blackjack, stateindex, num_episodes)
 end
 
 # ╔═╡ d16ac2a8-1a5a-4ded-9285-d2c6cd550066
-estimate_blackjack_state(blackjack_state1, π_blackjack1, 100_000_000)
-
-# ╔═╡ 2b9131c1-4d79-4ea3-b51f-7f3380aeb629
-# ╠═╡ disabled = true
-#=╠═╡
 #target policy state value estimate and variance, why is the mean squared error after 1 episode for weighted importance sampling less than the variance of the state values?  The reason is after 1 episode of weighted importance sampling, there is a greater than 50% chance of a 0% decision being made resulting in the value estimate not updating from its initial value.  Since that initial value is 0 and episodes are likely to terminate with rewards of -1 or 1, the variance is moved closer to 0 than for truly sampling the target policy rewards
-estimate_blackjack_state(100_000_000, π_blackjack1)
-  ╠═╡ =#
+const blackjack_state_value1 = estimate_blackjack_state(blackjack_state1, π_blackjack1, 5_000_000) |> mean
 
 # ╔═╡ 70d9d39f-020d-4f25-810c-82a143a3335b
-const π_rand_blackjack = Dict(s => [0.5, 0.5] for s in blackjackstates)
+const π_rand_blackjack = make_random_policy(blackjack_mdp)
 
 # ╔═╡ 8faca500-b80d-4b50-88b6-683d18a1286b
 #behavior policy state value estimate and variance
-estimate_blackjack_state(10_000_000, π_rand_blackjack)
-
-# ╔═╡ d6863551-a254-44b6-b6fe-551d134cdf01
-# ╠═╡ disabled = true
-#=╠═╡
-v_offpol = monte_carlo_pred(π_blackjack1, Dict(s => [0.5, 0.5] for s in blackjackstates), blackjackstates, blackjackactions, blackjackepisode, 1.0, 10_000_000, gets0 = () -> (13, 2, true))
-  ╠═╡ =#
-
-# ╔═╡ c5482c11-1635-4016-bf6a-4c5f01ae66b9
-#=╠═╡
-#confirms that the off policy value estimate is accurate
-v_offpol[1][(13, 2, true)]
-  ╠═╡ =#
-
-# ╔═╡ 303c852d-177c-4ddc-aa53-b72e6e82cc55
-function figure5_3_extra(n = 100; ep = 10^4)
-	v0 = 0.0
-	s0 = (13, 2, true)
-	gets0() = s0
-
-	π_rand = Dict(s => [0.5, 0.5] for s in blackjackstates)
-
-	π_b = π_rand
-	# π_b = π_blackjack1
-	
-	vhist_ordinary = reduce(hcat, [monte_carlo_pred(π_blackjack1, π_b, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, V0 = v0)[2] for _ in 1:n])
-	vhist_weighted = reduce(hcat, [monte_carlo_pred(π_blackjack1, π_b, blackjackstates, blackjackactions, blackjackepisode, 1.0, ep, gets0 = gets0, historystate = s0, samplemethod = Weighted(), V0 = v0)[2] for _ in 1:n])
-	ord_var = var(vhist_ordinary, dims = 2)
-	ord_mean = mean(vhist_ordinary, dims = 2)
-	weighted_var = var(vhist_weighted, dims = 2)
-	weighted_mean = mean(vhist_weighted, dims = 2)
-	plot(ord_var, xaxis = :log, lab = "ordinary variance", yaxis = [-0.5, 2.0])
-	plot!(ord_mean, lab = "ordinary mean")
-	plot!(weighted_var, lab = "weighted variance")
-	plot!(weighted_mean, lab = "weighted mean")
-end
-
-# ╔═╡ 74fc1b42-9784-4968-8c85-f3d0b778fa2f
-figure5_3_extra(1000)
+estimate_blackjack_state(blackjack_state1, π_rand_blackjack, 5_000_000) |> v -> (mean(v), var(v))
 
 # ╔═╡ 00cd2194-af13-415a-b725-bb34832e5d9a
-function figure5_3(n = 100)
-	s0 = (13, 2, true)
-	gets0() = s0
-	π_rand = Dict(s => [0.5, 0.5] for s in blackjackstates)
-	vhist_ordinary = [(monte_carlo_pred(π_blackjack1, π_rand, blackjackstates, blackjackactions, blackjackepisode, 1.0, 10_000, gets0 = gets0, historystate = s0)[2] .+ 0.27726) .^2 for _ in 1:n]
-	vhist_weighted = [(monte_carlo_pred(π_blackjack1, π_rand, blackjackstates, blackjackactions, blackjackepisode, 1.0, 10_000, gets0 = gets0, historystate = s0, samplemethod = Weighted())[2] .+ 0.27726) .^2 for _ in 1:n]
-	plot(reduce((a, b) -> a .+ b, vhist_ordinary) ./ n, xaxis = :log, lab = "ordinary")
-	plot!(reduce((a, b) -> a .+ b, vhist_weighted) ./ n, xaxis = :log, lab = "weighted", yaxis = [0, 5])
+function figure5_3(;n = 100)
+	runsim(importancemethod) = monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  10_000, historystateindex = blackjack_stateindex1, override_state_init = true, samplemethod=importancemethod)[1]
+	vhists = [[runsim(importancemethod) for _ in 1:n] for importancemethod in [Ordinary(), Weighted()]]
+	errors = [[(v .- blackjack_state_value1) .^2 for v in vhists] for vhists in vhists]
+	traces1 = [scatter(x = 1:10_000, y = mean(error), name = name) for (error, name) in zip(errors, ["Ordinary importance sampling", "Weighted importance sampling"])]
+	p1 = plot(traces1, Layout(xaxis_type = "log", yaxis_range = [-0.1,5], legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "Mean square error (average over 100 runs)"))
+	
+	traces2 = [scatter(x = 1:10_000, y = mean(vhist), name = name) for (vhist, name) in zip(vhists, ["Ordinary importance sampling", "Weighted importance sampling"])]
+	
+	p2 = plot(traces2, Layout(xaxis_type = "log", legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "State Value Estimate (average over 100 runs)"))
+
+	traces3 = [scatter(x = 1:10_000, y = var(vhist), name = name) for (vhist, name) in zip(vhists, ["Ordinary importance sampling", "Weighted importance sampling"])]
+	p3 = plot(traces3, Layout(xaxis_type = "log", legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "State Value Estimate Variance Over 100 runs"))
+	md"""
+	### Figure 5.3
+	Weighted importance sampling produces lower error estimates of the value of a single blackjack state from off-policy episodes
+
+	$p1
+	"""
 end
 
-# ╔═╡ 1a97b3de-1aaa-4f51-b358-5c5f2b1d0851
-figure5_3(1000)
+# ╔═╡ 9ca72278-fff6-4b0f-b72c-e0d3768aff73
+figure5_3(;n = 100)
 
 # ╔═╡ e10378eb-12b3-4468-9c22-1838107da450
 md"""
@@ -2118,24 +2097,25 @@ version = "17.4.0+2"
 # ╠═d97f693d-27f2-49be-a549-07a290c95b53
 # ╠═660ef59c-205c-44c2-9c46-5a74e09497ab
 # ╠═4197cc28-b24c-48cb-bd8d-ef998983ad77
+# ╠═aaa9647c-afb6-44d1-ae1e-a2e957064080
+# ╠═2646c9a2-46b1-4700-9290-ddc7dc9a59af
+# ╠═c8f3f7e3-be7e-4615-a667-d9f789928883
+# ╠═020131a1-c68b-403a-9c5e-944edb6220e9
+# ╠═61d8cfc6-a50c-4546-9e1f-dc73d4764bb9
 # ╠═d11bfcf9-b964-4c67-afdc-53d81f051fd5
 # ╟─cede8090-5b1a-436b-a184-fca5c4d3de48
 # ╟─c9bd778c-217a-4664-8cde-841beca10307
 # ╟─b39d1ea0-86a2-4215-ae73-e4492f3f2f00
 # ╠═02dd1e77-2a7e-4123-94db-d17b31a8b15a
+# ╠═04752549-ffca-4e31-869e-714f835d3e85
 # ╠═acb08e38-fc87-43f4-ac2d-6c6bf0f2e9e6
 # ╠═a2412730-40b8-43c4-8ef8-02820a5285e7
 # ╠═e293e184-5938-40b5-a04b-5306760a06ae
 # ╠═d16ac2a8-1a5a-4ded-9285-d2c6cd550066
-# ╠═2b9131c1-4d79-4ea3-b51f-7f3380aeb629
 # ╠═70d9d39f-020d-4f25-810c-82a143a3335b
 # ╠═8faca500-b80d-4b50-88b6-683d18a1286b
-# ╠═d6863551-a254-44b6-b6fe-551d134cdf01
-# ╠═c5482c11-1635-4016-bf6a-4c5f01ae66b9
-# ╠═303c852d-177c-4ddc-aa53-b72e6e82cc55
-# ╠═74fc1b42-9784-4968-8c85-f3d0b778fa2f
 # ╠═00cd2194-af13-415a-b725-bb34832e5d9a
-# ╠═1a97b3de-1aaa-4f51-b358-5c5f2b1d0851
+# ╟─9ca72278-fff6-4b0f-b72c-e0d3768aff73
 # ╟─e10378eb-12b3-4468-9c22-1838107da450
 # ╠═f071b7e2-3f78-4132-8b84-f810f178c89d
 # ╠═ab2c27c8-122e-4e38-8aab-73291077b640
