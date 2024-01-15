@@ -9,7 +9,7 @@ using PlutoProfile
 
 # ╔═╡ 77cf7fee-0ad8-4d22-b376-75833307db93
 begin
-	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly
+	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads
 
 	html"""
 	<style>
@@ -50,7 +50,7 @@ struct MDP_Opaque{S, A, F<:Function, G<:Function}
 	actions::Vector{A}
 	actionlookup::Dict{A, Int64}
 	state_init::G #function that produces an initial state for an episode
-	simulator::F #function that takes as input an initial state action pair as well as the policy to be simulated.  Should return a trajectory as a vector of state action pairs and a vector of rewards
+	simulator::F #function that takes as input an initial state action pair as well as the policy to be simulated.  Should return a trajectory as a vector of states, actions and rewards all of equal length
 	function MDP_Opaque(states::Vector{S}, actions::Vector{A}, state_init::G, simulator::F) where {S, A, F<:Function, G<:Function}
 		statelookup = makelookup(states)
 		actionlookup = makelookup(actions)
@@ -695,10 +695,9 @@ updatecount(::Ordinary, w::T) where T<:Real = one(T)
 
 # ╔═╡ 2646c9a2-46b1-4700-9290-ddc7dc9a59af
 updatecount(::Weighted, w) = w
-	
-	#updates the value estimates at a given state using the future discounted return and the importance-sampling ratio
 
 # ╔═╡ c8f3f7e3-be7e-4615-a667-d9f789928883
+#updates the value estimates at a given state using the future discounted return and the importance-sampling ratio
 updatevalue(::Ordinary, q::T, g::T, w::T, c::T) where T<:Real = (w*g - q)/c
 
 # ╔═╡ 020131a1-c68b-403a-9c5e-944edb6220e9
@@ -709,10 +708,10 @@ updatevalue(::Weighted, q::T, g::T, w::T, c::T) where T<:Real = (g - q)*w/c
 function updateQ!(mdp, Q, counts, π_target::Matrix{T}, π_behavior::Matrix{T}, states, actions, rewards::Vector{T}, γ::T, samplemethod::ImportanceMethod; t = length(states), g_old = zero(T), w = one(T)) where T<:Real		
 
 	#terminate at the end of a trajectory
-	(t == 0) && return nothing
+	(t == 0) && return w
 	
 	if (w == zero(T)) && isa(samplemethod, Weighted) 
-		return nothing
+		return w
 	end
 	
 	#accumulate future discounted returns
@@ -725,7 +724,7 @@ function updateQ!(mdp, Q, counts, π_target::Matrix{T}, π_behavior::Matrix{T}, 
 end
 
 # ╔═╡ d11bfcf9-b964-4c67-afdc-53d81f051fd5
-function monte_carlo_pred(π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::MDP_Opaque{S, A, F, G}, γ::T; num_episodes::Integer = 1000, qinit::T = zero(T), Q::Matrix{T} = ones(T, length(mdp.actions), length(mdp.states)) .* qinit, historystateindex::Integer = 1, samplemethod::ImportanceMethod = Ordinary(), override_state_init::Bool = false) where {T <: AbstractFloat, S, A, F, G}
+function monte_carlo_pred(π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::MDP_Opaque{S, A, F, G}, γ::T; num_episodes::Integer = 1000, qinit::T = zero(T), Q::Matrix{T} = ones(T, length(mdp.actions), length(mdp.states)) .* qinit, historystateindex::Integer = 1, samplemethod::ImportanceMethod = Ordinary(), override_state_init::Bool = false, use_target_initial_action::Bool = false, sampleinds = 1:num_episodes) where {T <: AbstractFloat, S, A, F, G}
 	
 	check_policy(π_target, mdp)
 	check_policy(π_behavior, mdp)
@@ -733,25 +732,30 @@ function monte_carlo_pred(π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::MDP
 	
 	#initialize
 	counts = zeros(T, length(mdp.actions), length(mdp.states))
-	valuehistory = zeros(T, num_episodes)
+	valuehistory = zeros(T, length(sampleinds))
+	weighthistory = ones(T, length(sampleinds))
+	sampleind = 1
 
-
-	
 	for i in 1:num_episodes
 		#if only interested in one state then always initialize there
 		s0 = override_state_init ? mdp.states[historystateindex] : mdp.state_init()
-		i_a0 = sample_action(π_behavior, mdp.statelookup[s0])
+		π_init = use_target_initial_action ? π_target : π_behavior
+		i_a0 = sample_action(π_init, mdp.statelookup[s0])
 		a0 = mdp.actions[i_a0]
 		# (s0, a0) = initialize_episode()
 		(states, actions, rewards) = mdp.simulator(s0, a0, π_behavior)
 	
 		#update value function for each trajectory
-		updateQ!(mdp, Q, counts, π_target, π_behavior, states, actions, rewards, γ, samplemethod)
+		w = updateQ!(mdp, Q, counts, π_target, π_behavior, states, actions, rewards, γ, samplemethod)
 
 		#for selected state check value
-		valuehistory[i] = sum(view(Q, :, historystateindex) .* view(π_target, :, historystateindex))
+		if i == sampleinds[sampleind]
+			valuehistory[sampleind] = sum(view(Q, :, historystateindex) .* view(π_target, :, historystateindex))
+			weighthistory[sampleind] = w
+			sampleind += 1
+		end
 	end
-	return valuehistory, Q 
+	return valuehistory, Q, weighthistory 
 end
 
 # ╔═╡ 94be5289-bba7-4490-bdcd-0d217a31c665
@@ -888,22 +892,59 @@ const π_rand_blackjack = make_random_policy(blackjack_mdp)
 #behavior policy state value estimate and variance
 estimate_blackjack_state(blackjack_state1, π_rand_blackjack, 5_000_000) |> v -> (mean(v), var(v))
 
+# ╔═╡ 892b5d8e-ac51-48f1-8288-65e9f68acd2d
+[monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  10, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3][1:10] |> sum for i in 1:1000] |> v -> (mean(v), count(v .== 0)/1000)
+#for the target vs behavior policy, after one episode the mean weight including hte 0 values is about 2, let's say that all of these terminate in either 1 or -1.  Then we'd have a mean reward value of 2 or -2 which has a squared error of ~5 and 3 respectively depending on whether a win or loss is more likely since the denominator will be 1.  This is with ordinary importance sampling.  In contrast with weighted importance sampling the divisor will be 2 on average too and each estimate will be an actual return value experienced by the behavior policy or 0 for impossible trajectories.  Each of these will be worse than the 0 estimate.  About 72% of the episodes will have a 0 weight after the first episode but only 3.5% will not have any update after 10 episodes.  So for weighted importance sampling we have 72% 0 values and 28% the normal values.  The key difference is that for ordinary importance sampling the 28% of values that aren't zero have a weight of about 7 whereas for weighted sampling all the weights are 1 for the value estimate after normalization.  With an initial value estimate of 0, the squared error would be about 0.077.  Seeing the error for the weighted results after 1 episode on average, it is about 0.25 which is consistent with about 28% of the runs having error values of 0.52 or 1.63 instead of 0.77.  One thing I'm wondering though is why doesn't the error go up for Ordinary importance sampling after more of the episodes have non zero weighting.  Key point is that the initial value of V doesn't matter.  Some of the values are 0 just because the weighting is 0 and the corresponding denominator is still 1.  Remember that as the second episode is added it is likely that most of those values will get cut in half due to a 0 weight trajectory and the count going up.  Whereas for weighted sampling, all the 0's that get replaced will get worse while the others that have a new estimate won't be changed at all if they get a 0 weight trajectory.  This behavior policy seems to on average product a trajectory that is possible with the target policy only 28% of the time so the most likely thing is just replacing existing 0's and not changing the other estimates.  With normal importance sampling though, all those existing estimates will get cut in half and then some new ones will come in.  Also it is likely that each run would need 4 non zero samples before that estimate is better than the initial 0 value, so that explains why the weighted sampling error doesn't drop until after 10 episodes where the average number of non zero samples is higher than that. After 7 episodes the average number of non zero weight trajectories is 2.  At 10 episodes the median and mode non zero weights is 3
+
+# ╔═╡ a59d9c84-d35f-4a9b-9fb6-13e30cdd7c3a
+monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  100000, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3] |> mean #mean weight is 2 and it stays this way as the number of episodes increases so the returns that are seen by the behavior are roughtly doubled and counted with the 0 returns
+
+# ╔═╡ 217ecc59-d6e3-48fa-9d6d-700a3947b805
+[monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  1, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3][1:1] |> sum for i in 1:1000] |> v -> mean(v)
+
+# ╔═╡ 19e42f50-5301-41b9-becb-2368c26b6236
+[monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  10, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3] |> mean for i in 1:1000] |> v -> mean(v)
+
+# ╔═╡ 5b32bbc7-dc34-4fc3-bacc-92e55f26a98c
+[monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  1, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3][1:1] |> sum for i in 1:1000] |> v -> mean(filter(x -> x != 0, v))
+
+# ╔═╡ b6eac49e-6742-4594-87a5-821437846b0d
+function test(n)
+	[monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  n, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3][1:n] |> v -> n - sum(v .== 0) for _ in 1:10000] |> v -> (mean(v), median(v), mode(v), mean(v .== 0), mean(v .== 1), mean(v .== 2))
+end
+
+# ╔═╡ 847a074c-1d23-4de3-a039-322aeb9f7613
+test(2)
+
+# ╔═╡ 496d4ae7-10b2-466d-a391-7cd56635691b
+0.277^2
+
+# ╔═╡ a091e411-64b4-4899-9ff5-fba56228d6ec
+(1+.277)^2
+
+# ╔═╡ 5a89cbff-07d2-4fe6-91f9-352b817130b5
+0.077*.72 + .28*.52
+
+# ╔═╡ 46952a9f-60ba-4c7c-be2c-8d1e27d96439
+(-2+.277)^2
+
 # ╔═╡ 00cd2194-af13-415a-b725-bb34832e5d9a
-function figure5_3(;n = 100)
-	runsim(importancemethod) = monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  10_000, historystateindex = blackjack_stateindex1, override_state_init = true, samplemethod=importancemethod)[1]
+function figure5_3(;n = 100, qinit = 0.0f0, targetstart = true, episodes = 10_000, title = "", caption = "Figure 5.3")
+	#note that with targetstart = true, the episode will always begin with the action selected by the target policy.  Since we only care about the value estimate for this state, we only need the q value for actions taken by the target policy.  This way, every episode will produce relevant sample updates
+	runsim(importancemethod) = monte_carlo_pred(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  episodes, historystateindex = blackjack_stateindex1, qinit = qinit, override_state_init = true, samplemethod=importancemethod, use_target_initial_action = targetstart)[1]
 	vhists = [[runsim(importancemethod) for _ in 1:n] for importancemethod in [Ordinary(), Weighted()]]
 	errors = [[(v .- blackjack_state_value1) .^2 for v in vhists] for vhists in vhists]
-	traces1 = [scatter(x = 1:10_000, y = mean(error), name = name) for (error, name) in zip(errors, ["Ordinary importance sampling", "Weighted importance sampling"])]
-	p1 = plot(traces1, Layout(xaxis_type = "log", yaxis_range = [-0.1,5], legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "Mean square error (average over 100 runs)"))
+	traces1 = [scatter(x = 1:episodes, y = mean(error), name = name) for (error, name) in zip(errors, ["Ordinary importance sampling", "Weighted importance sampling"])]
+	p1 = plot(traces1, Layout(xaxis_type = "log", yaxis_range = [-0.1,5], legend_orientation = "h", legend_y = -0.2, xaxis_title = "Episodes", yaxis_title = "Mean square error <br> (average over $n runs)", title = title))
 	
-	traces2 = [scatter(x = 1:10_000, y = mean(vhist), name = name) for (vhist, name) in zip(vhists, ["Ordinary importance sampling", "Weighted importance sampling"])]
+	traces2 = [scatter(x = 1:episodes, y = mean(vhist), name = name) for (vhist, name) in zip(vhists, ["Ordinary importance sampling", "Weighted importance sampling"])]
 	
-	p2 = plot(traces2, Layout(xaxis_type = "log", legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "State Value Estimate (average over 100 runs)"))
+	p2 = plot(traces2, Layout(xaxis_type = "log", legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "State Value Estimate (average over $n runs)"))
 
-	traces3 = [scatter(x = 1:10_000, y = var(vhist), name = name) for (vhist, name) in zip(vhists, ["Ordinary importance sampling", "Weighted importance sampling"])]
-	p3 = plot(traces3, Layout(xaxis_type = "log", legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "State Value Estimate Variance Over 100 runs"))
+	traces3 = [scatter(x = 1:episodes, y = var(vhist), name = name) for (vhist, name) in zip(vhists, ["Ordinary importance sampling", "Weighted importance sampling"])]
+	p3 = plot(traces3, Layout(xaxis_type = "log", legend_orientation = "h", xaxis_title = "Episodes", yaxis_title = "State Value Estimate Variance Over $n runs"))
 	md"""
-	### Figure 5.3
+	### $caption
 	Weighted importance sampling produces lower error estimates of the value of a single blackjack state from off-policy episodes
 
 	$p1
@@ -911,7 +952,7 @@ function figure5_3(;n = 100)
 end
 
 # ╔═╡ 9ca72278-fff6-4b0f-b72c-e0d3768aff73
-figure5_3(;n = 100)
+figure5_3(;n = 100, qinit = 0.0f0)
 
 # ╔═╡ e10378eb-12b3-4468-9c22-1838107da450
 md"""
@@ -919,43 +960,45 @@ md"""
 """
 
 # ╔═╡ f071b7e2-3f78-4132-8b84-f810f178c89d
-const one_state_actions = (:left, :right)
+begin 
+	abstract type OneStateAction end
+	struct Left <: OneStateAction end
+	struct Right <: OneStateAction end
+	struct OneState end
 
-# ╔═╡ ab2c27c8-122e-4e38-8aab-73291077b640
-function one_state_simulator(s0, a0, π::Function)
-	traj = [(s0,a0)]
-	rewards = Vector{Float64}()
-	function runsim(s, a)
-		if a == :right
-			push!(rewards, 0.0)
-			return traj, rewards
-		else
-			t = rand()
-			if t <= 0.1
-				push!(rewards, 1.0)
-				return traj, rewards
-			else
-				push!(rewards, 0.0)
-				anew = π(s)
-				push!(traj, (s, anew))
-				runsim(s, anew)
-			end
+	const one_state_actions = [Left(), Right()]
+	const one_state_action_lookup = Dict([Left() => 1, Right() => 2])
+	
+	one_state_step(::Right) = (0.0f0, true)
+	one_state_step(::Left) = rand() <= 0.1 ? (1.0f0, true) : (0.0f0, false)
+
+	
+
+	function one_state_simulator(s0, a0::OneStateAction, π)
+		state_history = [s0]
+		action_history = Vector{OneStateAction}([a0])
+
+		(r, term) = one_state_step(a0)
+		reward_history = [r]
+		
+		while !term
+			i_a = sample_action(π, 1)
+			a = one_state_actions[i_a]
+			push!(state_history, OneState())
+			push!(action_history, a)
+			(r, term) = one_state_step(a)
+			push!(reward_history, r)
 		end
+		return (state_history, action_history, reward_history)	
 	end
-	runsim(s0, a0)
+	const onestate_mdp = MDP_Opaque([OneState()], [Left(), Right()], () -> OneState(), one_state_simulator)
 end
 
 # ╔═╡ 61eb74eb-88e0-42e6-a14b-3730a800694d
-const onestate_π_target = Dict(0 => [1.0, 0.0])
+const onestate_π_target = reshape([1.0f0; 0.0f0], 2, 1)
 
 # ╔═╡ 82a1f11e-b1b3-4c7d-ab9d-9f6136ae8195
-const onestate_π_b = Dict(0 => [0.5, 0.5])
-
-# ╔═╡ a7c1e2ae-54ec-407f-8496-4f8a799f8759
-monte_carlo_pred(onestate_π_target, onestate_π_b, [0], one_state_actions, one_state_simulator, 1.0, 1000, gets0 = () -> 0, historystate = 0, samplemethod = Ordinary())
-
-# ╔═╡ 76877978-9a2b-48ba-aa4e-785622ac8c3d
-monte_carlo_pred(onestate_π_target, onestate_π_b, [0], one_state_actions, one_state_simulator, 1.0, 1000, gets0 = () -> 0, historystate = 0, samplemethod = Weighted())
+const onestate_π_b = make_random_policy(onestate_mdp)
 
 # ╔═╡ 5948f670-1203-4b75-8517-f8470f5d01aa
 function figure_5_4(expmax, nsims)
@@ -966,51 +1009,73 @@ function figure_5_4(expmax, nsims)
 	end
 
 	plotinds = makeplotinds(expmax)
-	
-	vhistnormal = [monte_carlo_pred(onestate_π_target, onestate_π_b, [0], one_state_actions, one_state_simulator, 1.0, nmax, gets0 = () -> 0, historystate = 0)[2][plotinds] for _ in 1:nsims]
 
-	vhistweighted = monte_carlo_pred(onestate_π_target, onestate_π_b, [0], one_state_actions, one_state_simulator, 1.0, nmax, gets0 = () -> 0, historystate = 0, samplemethod = Weighted())[2][plotinds]
+	vhistnormal = Vector{Vector{Float32}}(undef, nsims)
+	@threads for i in 1:nsims
+		vhistnormal[i] = monte_carlo_pred(onestate_π_target, onestate_π_b, onestate_mdp, 1.0f0; num_episodes = nmax, sampleinds = plotinds)[1]
+	end
+	# vhistnormal = [monte_carlo_pred(onestate_π_target, onestate_π_b, onestate_mdp, 1.0f0; num_episodes = nmax)[1][plotinds] for _ in 1:nsims]
+
+	vhistweighted = monte_carlo_pred(onestate_π_target, onestate_π_b, onestate_mdp, 1.0f0; num_episodes = nmax, samplemethod = Weighted(), sampleinds = plotinds)[1]
 
 	
-	plot(plotinds, vhistnormal, lab = "normal")
-	plot!(plotinds, vhistweighted, lab = "weighted", yaxis = [0, 3])
+	traces1 = [scatter(x = plotinds, y = vhist, showlegend = false) for vhist in vhistnormal]
+	trace2 = scatter(x = plotinds, y = vhistweighted, name = "Weighted Importance Sampling", line_dash = "dash", line_width = 4)
+	p = plot([traces1; trace2], Layout(yaxis_range = [0, 3], xaxis_type = "log", legend_orientation = "h", xaxis_title = "Episodes (log scale)", yaxis_title = attr(text = "Monte-Carlo estimate of <br> state value with <br> ordinary importance sampling ($nsims runs)", rotation = 90)))
+	md"""
+	### Figure 5.4
+	Ordinary importance sampling produces surprisingly unstable estimates on the one-state MDP shown in Example 5.5.  The correct estimate here is 1 ($\gamma = 1$), and, even through this is the expected value of a sample return (after importance sampling), the variance of the samples is infinite, and the estimates do not converge to this value.  In contrast weighted importance samping produces the correct value of 1 after the first episode that ends with the left action.
+	$p
+	"""
+	
+	# p2 = plot(histogram(x = [v[end] for v in vhistnormal], showlegend = false))
+
+	# [p p2]
+	# traces2 = [scatter(x = plotinds, y = vhist) for vhist in vhistweighted]
+	# p2 = plot(traces2, Layout(showlegend = false))
+	# md"""
+	# $p1
+	# $p2
+	# """
 end
 
 # ╔═╡ 830d6d61-7259-43e7-8d6d-09bc81818dd9
-# ╠═╡ disabled = true
-#=╠═╡
-figure_5_4(7, 3)
-  ╠═╡ =#
+figure_5_4(6, 10)
 
 # ╔═╡ 881ba6c3-0e6a-4bb8-bc14-2e0face560f2
 md"""
-> *Exercise 5.6* What is the equation analogous to (5.6) for *action* values $Q(s,a)$ instead of state values $V(s)$, again given returns generated using $b$?
+> ### *Exercise 5.6* 
+> What is the equation analogous to (5.6) for *action* values $Q(s,a)$ instead of state values $V(s)$, again given returns generated using $b$?
 
 Equation (5.6):
 
 $V(s) = \frac{\sum_{t \in \mathscr{T}(s)}\rho_{t:T(t)-1}G_t}{\sum_{t \in \mathscr{T}(s)} \rho_{t:T(t)-1}}$
 
-For $Q(s,a)$, there is no need to calculate the sampling ratio for the first action selected.  This also assumes that the trajectory used for $G$ and $\rho$ has the first action being the one specified by $Q(s,a)$.
+For $Q(s,a)$, there is no need to calculate the sampling ratio for the first action selected.  Here $\mathscr{T}(s, a)$ is the set of all time steps in which the state action pair $(s, a)$ is visited.
 
-$Q(s,a) = \frac{\sum_{t \in \mathscr{T}(s)}\rho_{t+1:T(t)-1}G_t}{\sum_{t \in \mathscr{T}(s)} \rho_{t+1:T(t)-1}}$
+$Q(s,a) = \frac{\sum_{t \in \mathscr{T}(s, a)}\rho_{t+1:T(t)-1}G_t}{\sum_{t \in \mathscr{T}(s, a)} \rho_{t+1:T(t)-1}}$
 """
 
 # ╔═╡ 6979db32-670d-466a-9a6e-97c2d8527f3d
 md"""
-> *Exercise 5.7* In learning curves such as those shown in Figure 5.3 error generally decreases with training, as indeed happened for the ordinary importance-sampling method.  But for the weighted importance-sampling method error first increased and then decreased.  Why do you think this happened?
+> ### *Exercise 5.7* 
+> In learning curves such as those shown in Figure 5.3 error generally decreases with training, as indeed happened for the ordinary importance-sampling method.  But for the weighted importance-sampling method error first increased and then decreased.  Why do you think this happened?
 
-If the initial trajectories sampled are similar to ones we'd expect from the target policy, then the error will start low.  Since the weighted method has bias which only converged to 0 with large episodes, we might expect to see the error rise as we sample trajectories which are less probable with the target policy.  This bias will only dissappear as we add samples.  In Figure 5.3, if the generator policy produces trajectories which are greater than 50% probable by the target policy, then early on our biased estimate will be low.  But as we add more episodes the average will include more unlikely trajectories and push up the bias until the large numbers of samples has it convering back to 0 again.
+In figure 5.3, the true value is about -.277 and we initialized the value function at zero.  For any given episode it is likely that the observed return will be -1.0 or 1.0 for a win or a loss.  Weighted importance sampling won't update the state value for trajectories which cannot occur in the target policy, so for some of the runs at this early state the state value is unchanged at the 0 initial value.  It is only after a certain number of episodes have occured that all of the values will be updated and produce an estimate which is worse than the initial value.  Once many samples with non zero weight are collected for each run, then the estimate starts to approach the true value again.  If instead we initialized the state value far away from the true value, then you would not see the initial increase in estimate error.  See below for an example using an initial value of 1.  In this case, no update from weighted importance sampling would produce an error larger than the initial value.
+
+$(figure5_3(;n = 1000, qinit = 1.0f0, episodes = 100, title = "Initial Value = 1.0"))
 """
 
 # ╔═╡ bf33230e-342b-4486-89ac-9667438de503
 md"""
-> *Exercise 5.8* The results with Example 5.5 and shown in Figure 5.4 used a first-visit MC method.  Suppose that instead an every-visit MC method was used on the same problem.  Would the variance of the estimator still be infinite?  Why or why not?
+> ### *Exercise 5.8* 
+> The results with Example 5.5 and shown in Figure 5.4 used a first-visit MC method.  Suppose that instead an every-visit MC method was used on the same problem.  Would the variance of the estimator still be infinite?  Why or why not?
 
-Terms for each episode length are as follows:
+The state value estimate can be computed by summing terms for all of the episode lengths just like for the first visit method.  Each episode has a reward of +1 from the terminal transition and we only need to consider episodes that take the left action.  $\frac{\pi(A_t|S_t)}{b(A_t|S_t)} = 2$ for all cases, so the importance sampling ratio is just $2^T$ where T is the total length of that episode.  The probabilities for each episode length is unchanged from Example 5.5 and is just 0.1 times 0.9 times the number of steps preceeding the terminal step.  Compared to the calculation in Example 5.5, the expected value calculation must also have the importance sampling ratio terms for all of N visits in the length N episode instead of just the first one:
 
 Length 1 episode
 
-$\frac{1}{2} \cdot 0.1 \cdot 2^2$
+$\frac{1}{2} \cdot 0.1 \cdot (2)^2$
 
 Length 2 episode, the term representing X is now an average of every visit along the trajectory.  The probability of the trajectory is unchanged from before.
 
@@ -1024,19 +1089,25 @@ Length N episode
 
 $=0.1 \left ( \frac{1}{2} \right ) ^N 0.9^{N-1} \left ( \frac{\sum_{i=1}^N 2^i}{N} \right ) ^2$
 
-So the expected value is the sum of these terms for every possible episode length
+So the expected value is the sum of these terms for every possible episode length:
+"""
 
-$=0.1 \sum_{k=1}^\infty \left ( \frac{1}{2} \right ) ^k 0.9^{k-1} \left ( \frac{\sum_{i=1}^k 2^i}{k} \right ) ^2$
+# ╔═╡ 09b67730-39e7-4209-8117-6bc3adfb342a
+md"""
+$\begin{flalign}
+	&=0.1 \sum_{N=1}^\infty \left ( \frac{1}{2} \right ) ^N 0.9^{N-1} \left ( \frac{\sum_{i=1}^N 2^i}{N} \right ) ^2 \\
+	&=\frac{0.1}{0.9} \sum_{N=1}^\infty 0.45^{N} N^{-2} \left ( \sum_{i=1}^N 2^i \right ) ^2 \\
+\end{flalign}$
 
-$=0.05 \sum_{k=1}^\infty .9^{k-1} \frac{1}{k^2}  2^{1-k} \left( \sum_{i=1}^k 2^i \right ) ^2$
+Consider the term: $\left ( \sum_{i=1}^N 2^i \right ) ^2 = (2 + 2^2 + 2^3 + \cdots + 2^N)^2 \gt 2^{2N}$ since all the other terms in the parentheses are positive.
 
-$>0.05 \sum_{k=1}^\infty .9^{k-1} \frac{1}{k^2}  2^{1-k} 2^{2k}$
+$\begin{flalign}
+	&\gt\frac{0.1}{0.9} \sum_{N=1}^\infty 0.45^{N} N^{-2} 2^{2N} \\
+	&= \frac{0.1}{0.9} \sum_{N=1}^\infty 0.45^{N} N^{-2} 4^{N} \\
+	&= \frac{0.1}{0.9} \sum_{N=1}^\infty \frac{1.8^{N}}{N^{2}} \\
+\end{flalign}$
 
-$=0.05 \sum_{k=1}^\infty .9^{k-1} \frac{1}{k^2}  2^{k+1}$
-
-$=0.2 \sum_{k=1}^\infty 1.8^{k-1} \frac{1}{k^2}$
-
-The expected value in question is greater than this expression, but as k approaches infinity, each term diverges so the expected value still diverges with every-visit MC.
+The question is then reduced to whether the following infinite sum diverges: $\sum_{N=1}^\infty \frac{1.8^{N}}{N^{2}}$.  Consider the logarithm of each term in the series $\log {\frac{1.8^N}{N^2}} = \log{1.8^N} - \log{N^2} = N \log{1.8} - 2 \log{N}$.  As N approaches infinity $N \gt \log{N}$ so the log of each term diverges as do the terms individually as does the series.  Therefore the variance diverges with ever-visit MC as it does with first visit MC.
 """
 
 # ╔═╡ fca388bd-eb8b-41e2-8da0-87b9386629c1
@@ -1046,14 +1117,16 @@ md"""
 
 # ╔═╡ b57462b6-8f9c-4553-9c05-134ff043b00d
 md"""
-> *Exercise 5.9* Modify the algorithm for first-visit MC policy evaluation (section 5.1) to use the incremental implementation for sample averages described in Section 2.4
+> ### *Exercise 5.9* 
+> Modify the algorithm for first-visit MC policy evaluation (section 5.1) to use the incremental implementation for sample averages described in Section 2.4
 
 Returns(s) will not maintain a list but instead be a list of single values for each state.  Additionally, another list Counts(s) should be initialized at 0 for each state.  When new G values are obtained for state, the Count(s) value should be incremented by 1.  Then Returns(s) can be updated with the following formula: $\text{Returns}(s) = \left [ \text{Returns}(s) \times (\text{Count}(s) - 1) + G \right ] / \text{Count}(s)$
 """
 
 # ╔═╡ fa49c253-e016-46a7-ba94-0e7448a7e0ae
 md"""
-> *Exercise 5.10* Derive the weighted-average update rule (5.8) from (5.7).  Follow the pattern of the derivation of the unweighted rule (2.3).
+> ### *Exercise 5.10* 
+> Derive the weighted-average update rule (5.8) from (5.7).  Follow the pattern of the derivation of the unweighted rule (2.3).
 
 Equation (5.7)
 
@@ -2114,20 +2187,29 @@ version = "17.4.0+2"
 # ╠═d16ac2a8-1a5a-4ded-9285-d2c6cd550066
 # ╠═70d9d39f-020d-4f25-810c-82a143a3335b
 # ╠═8faca500-b80d-4b50-88b6-683d18a1286b
+# ╠═892b5d8e-ac51-48f1-8288-65e9f68acd2d
+# ╠═a59d9c84-d35f-4a9b-9fb6-13e30cdd7c3a
+# ╠═217ecc59-d6e3-48fa-9d6d-700a3947b805
+# ╠═19e42f50-5301-41b9-becb-2368c26b6236
+# ╠═5b32bbc7-dc34-4fc3-bacc-92e55f26a98c
+# ╠═b6eac49e-6742-4594-87a5-821437846b0d
+# ╠═847a074c-1d23-4de3-a039-322aeb9f7613
+# ╠═496d4ae7-10b2-466d-a391-7cd56635691b
+# ╠═a091e411-64b4-4899-9ff5-fba56228d6ec
+# ╠═5a89cbff-07d2-4fe6-91f9-352b817130b5
+# ╠═46952a9f-60ba-4c7c-be2c-8d1e27d96439
 # ╠═00cd2194-af13-415a-b725-bb34832e5d9a
-# ╟─9ca72278-fff6-4b0f-b72c-e0d3768aff73
+# ╠═9ca72278-fff6-4b0f-b72c-e0d3768aff73
 # ╟─e10378eb-12b3-4468-9c22-1838107da450
 # ╠═f071b7e2-3f78-4132-8b84-f810f178c89d
-# ╠═ab2c27c8-122e-4e38-8aab-73291077b640
 # ╠═61eb74eb-88e0-42e6-a14b-3730a800694d
 # ╠═82a1f11e-b1b3-4c7d-ab9d-9f6136ae8195
-# ╠═a7c1e2ae-54ec-407f-8496-4f8a799f8759
-# ╠═76877978-9a2b-48ba-aa4e-785622ac8c3d
 # ╠═5948f670-1203-4b75-8517-f8470f5d01aa
-# ╠═830d6d61-7259-43e7-8d6d-09bc81818dd9
+# ╟─830d6d61-7259-43e7-8d6d-09bc81818dd9
 # ╟─881ba6c3-0e6a-4bb8-bc14-2e0face560f2
 # ╟─6979db32-670d-466a-9a6e-97c2d8527f3d
 # ╟─bf33230e-342b-4486-89ac-9667438de503
+# ╟─09b67730-39e7-4209-8117-6bc3adfb342a
 # ╟─fca388bd-eb8b-41e2-8da0-87b9386629c1
 # ╟─b57462b6-8f9c-4553-9c05-134ff043b00d
 # ╟─fa49c253-e016-46a7-ba94-0e7448a7e0ae
