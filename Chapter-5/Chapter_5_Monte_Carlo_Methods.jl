@@ -1738,6 +1738,7 @@ race_episode2 = race_track_episode((position = rand(track2.start), velocity = (0
 # ╔═╡ 2d36ebe3-1a86-4cad-a235-baec726da926
 md"""
 #### Example Random Trajectories on Each Track
+The black arrows represent the velocity of the car at that position, and the red arrows show the policy action to change the velocity.  Note that only non-negative values are allowed for velocity to some of the actions have no impact.  Also, the car is not allowed by be stopped so if an action were to reduce the velocity to 0, then a random velocity of +1 will be assigned to either the x or y direction.
 """
 
 # ╔═╡ ba044e4f-e2a6-4f96-8756-5b24b1bb5ca2
