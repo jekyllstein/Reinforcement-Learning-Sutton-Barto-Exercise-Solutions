@@ -4,12 +4,22 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+end
+
 # ╔═╡ a2412730-40b8-43c4-8ef8-02820a5285e7
 using PlutoProfile
 
 # ╔═╡ 77cf7fee-0ad8-4d22-b376-75833307db93
 begin
-	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads
+	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra
 
 	html"""
 	<style>
@@ -425,24 +435,35 @@ function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
 	return v
 end
 
+# ╔═╡ 1d3d509c-b11b-4c57-b100-9bcf0489af2b
+function create_greedy_policy(Q::Matrix{T}; c = 1000, π = copy(Q)) where T<:Real
+	vhold = zeros(T, size(Q, 1))
+	for j in 1:size(Q, 2)
+		vhold .= Q[:, j]
+		make_greedy_policy!(vhold; c = c)
+		π[:, j] .= vhold
+	end
+	return π
+end
+
 # ╔═╡ 13cc524c-d983-44f4-8731-0595249fb888
-function monte_carlo_ES(mdp::MDP_Opaque, π_init::Matrix{T}, Q_init::Matrix{T}, γ, num_episodes) where T <: Real
+function monte_carlo_ES(mdp::MDP_Opaque, π_init::Matrix{T}, Q_init::Matrix{T}, γ, num_episodes; override_state_init = false) where T <: Real
 	#initialize
 	π = copy(π_init)
 	Q = copy(Q_init)
 	counts = zeros(Int64, length(mdp.actions), length(mdp.states))
 	vhold = zeros(T, length(mdp.actions))
 	for i in 1:num_episodes
-		s0 = mdp.state_init()
+		s0 = override_state_init ? rand(mdp.states) : mdp.state_init()
 		a0 = rand(mdp.actions)
 		(states, actions, rewards) = mdp.simulator(s0, a0, π)
 
 		#there's no check here so this is equivalent to every-visit estimation
-		function updateQ!(states, actions, rewards; t = length(states), g_old = zero(T))		
-			#terminate at the end of a trajectory
-			t == 0 && return nothing
+		t = length(states)
+		g = zero(T)
+		for t in length(states):-1:1
 			#accumulate future discounted returns
-			g = γ*g_old + rewards[t]
+			g = γ*g + rewards[t]
 			i_s = mdp.statelookup[states[t]]
 			i_a = mdp.actionlookup[actions[t]]
 			#increment count by 1
@@ -451,15 +472,13 @@ function monte_carlo_ES(mdp::MDP_Opaque, π_init::Matrix{T}, Q_init::Matrix{T}, 
 			vhold .= Q[:, i_s]
 			make_greedy_policy!(vhold)
 			π[:, i_s] .= vhold
-			updateQ!(states, actions, rewards; t = t-1, g_old = g)
 		end
-		updateQ!(states, actions, rewards)
 	end
 	return π, Q
 end
 
 # ╔═╡ 1b78b25d-3942-4a6b-a2bd-7d97242da9fe
-monte_carlo_ES(mdp::MDP_Opaque, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T))) where T <: Real = monte_carlo_ES(mdp, π_init, Q_init, γ, num_episodes) 
+monte_carlo_ES(mdp::MDP_Opaque, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T)), override_state_init = false) where T <: Real = monte_carlo_ES(mdp, π_init, Q_init, γ, num_episodes; override_state_init = override_state_init) 
 
 # ╔═╡ 9618a093-cdb7-4589-a783-de8e9021b705
 md"""
@@ -561,12 +580,12 @@ Below is code implementing MC control for ϵ-soft policies.  It is mostly identi
 # ╔═╡ abdcbbad-747a-41ba-a95d-82404e735793
 function make_ϵsoft_policy!(v::AbstractVector{T}, ϵ::T) where T <: Real
 	vmax = maximum(v)
-	v .= isapprox.(v, vmax)
+	v .= T.(isapprox.(v, vmax))
 	s = sum(v)
 	c = ϵ / length(v)
-	d = 1/s - ϵ #value to add to actions that are maximizing
-	for (i, v) in enumerate(v)
-		if v == 1
+	d = one(T)/s - ϵ #value to add to actions that are maximizing
+	for i in eachindex(v)
+		if v[i] == 1
 			v[i] = d + c
 		else
 			v[i] = c
@@ -576,49 +595,52 @@ function make_ϵsoft_policy!(v::AbstractVector{T}, ϵ::T) where T <: Real
 end
 
 # ╔═╡ 334b4d77-8784-46be-b9e8-80c0a2244694
-function monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, π_init::Matrix{T}, Q_init::Matrix{T}, γ, num_episodes) where T <: Real
+function monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, π_init::Matrix{T}, Q_init::Matrix{T}, γ, num_episodes::Integer, quench_episode::Integer, decay_ϵ::Bool) where T <: Real
 	#initialize
 	π = copy(π_init)
 	Q = copy(Q_init)
 	counts = zeros(Int64, length(mdp.actions), length(mdp.states))
 	vhold = zeros(T, length(mdp.actions))
+	decayrate = decay_ϵ ? ϵ / num_episodes : zero(T)
 	for i in 1:num_episodes
 		s0 = mdp.state_init()
 		i_a0 = sample_action(π, mdp.statelookup[s0])
 		a0 = mdp.actions[i_a0]
 		(states, actions, rewards) = mdp.simulator(s0, a0, π)
 
-		#there's no check here so this is equivalent to every-visit estimation
-		function updateQ!(states, actions, rewards; t = length(states), g_old = zero(T))		
-			#terminate at the end of a trajectory
-			t == 0 && return nothing
+		g = zero(T)
+		for t in length(states):-1:1
 			#accumulate future discounted returns
-			g = γ*g_old + rewards[t]
+			g = γ*g + rewards[t]
 			i_s = mdp.statelookup[states[t]]
 			i_a = mdp.actionlookup[actions[t]]
 			#increment count by 1
 			counts[i_a, i_s] += 1
 			Q[i_a, i_s] += (g - Q[i_a, i_s])/counts[i_a, i_s] #update running average of Q
 			vhold .= Q[:, i_s]
-			make_ϵsoft_policy!(vhold)
+			#if desired at some point prior to the final episode the training can revert to using the greedy policy
+			if i > quench_episode
+				make_greedy_policy!(vhold)
+			else
+				make_ϵsoft_policy!(vhold, ϵ)
+			end
 			π[:, i_s] .= vhold
-			updateQ!(states, actions, rewards; t = t-1, g_old = g)
+			ϵ -= decayrate
 		end
-		updateQ!(states, actions, rewards)
 	end
 	return π, Q
 end
 
 # ╔═╡ 54f73eb8-dcea-4da0-83af-35720e56ccbc
-monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T))) where T <: Real = monte_carlo_ES(mdp, π_init, Q_init, γ, num_episodes) 
+monte_carlo_ϵsoft(mdp::MDP_Opaque, ϵ::T, γ::T, num_episodes; Q_init::Matrix{T} = initialize_state_action_value(mdp; qinit = zero(T)), π_init::Matrix{T} = make_random_policy(mdp; init = one(T)), quench_episode = num_episodes, decay_ϵ = false) where T <: Real = monte_carlo_ϵsoft(mdp, ϵ, π_init, Q_init, γ, num_episodes, quench_episode, decay_ϵ) 
 
 # ╔═╡ bf19e6cf-1fb5-49c9-974e-1613d90ef4cf
-(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjack_mdp, 1.0f0, 0.6f0, 5_000_000)
+(πstar_blackjack2, Qstar_blackjack2) = monte_carlo_ϵsoft(blackjack_mdp, 0.1f0, 1.0f0, 1_000_000)
 
 # ╔═╡ 3ee31af5-b19c-49dc-8fbf-f07e93d1f0c5
 md"""
 ### Figure 5.2b:
-Recreation of Figure 5.2 using an ϵ-soft MC control with $$\epsilon = 0.2$$
+Recreation of Figure 5.2 using an ϵ-soft MC control with $$\epsilon = 0.1$$
 """
 
 # ╔═╡ b040f245-b2d6-4ec6-aa7f-511c54aabd0d
@@ -1248,70 +1270,102 @@ md"""
 """
 
 # ╔═╡ 924f4e74-e3a0-42eb-89da-1f9836275588
-function off_policy_MC_control(states, actions, simulator, γ, nmax = 1000; gets0 = () -> rand(states))
-	#initialize
-	nact = length(actions)
-	avec = collect(actions)
-	π_b = Dict(s => ones(nact)./nact for s in states)
-	Q = Dict((s, a) => 0.0 for s in states for a in actions)
-	counts = Dict((s, a) => 0.0 for s in states for a in actions)
-	adict = Dict(a => i for (i, a) in enumerate(actions))
-	sample_b(s) = sample(avec, weights(π_b[s]))
-	π_star = Dict(s => rand(actions) for s in states)
-	for i in 1:nmax
-		s0 = gets0()
-		a0 = sample_b(s0)
-		(traj, rewards) = simulator(s0, a0, sample_b)
-		
-		#there's no check here so this is equivalent to every-visit estimation
-		function updatedicts!(t = length(traj); g = 0.0, w = 1.0)
-			t == 0 && return nothing
+function off_policy_MC_control(mdp::MDP_Opaque, γ::T; π_b::Matrix{T} = make_random_policy(mdp), num_episodes::Integer = 1000, qinit::T = zero(T)) where T<: AbstractFloat
+	Q = initialize_state_action_value(mdp; qinit = qinit)
+	counts = initialize_state_action_value(mdp; qinit = zero(T))
+	π_star = create_greedy_policy(Q)
+	vhold = zeros(T, length(mdp.actions))
+	for i in 1:num_episodes
+		s0 = mdp.state_init()
+		i_a0 = sample_action(π_b, mdp.statelookup[s0])
+		a0 = mdp.actions[i_a0]
+		(states, actions, rewards) = mdp.simulator(s0, a0, π_b)
+
+		g = zero(T)
+		w = one(T)
+		t = length(states)
+		for t = length(states):-1:1
 			g = γ*g + rewards[t]
-			(s,a) = traj[t]
-			counts[(s,a)] += w
-			Q[(s,a)] += (g - Q[(s,a)])*w/counts[(s,a)]
-			astar = argmax(a -> Q[(s,a)], actions)
-			π_star[s] = astar 
-			a != astar && return nothing
-			w /= π_b[s][adict[a]]
-			updatedicts!(t-1, g=g, w=w)
+			i_s = mdp.statelookup[states[t]]
+			i_a = mdp.actionlookup[actions[t]]
+			counts[i_a, i_s] += w
+			Q[i_a, i_s] += (w/counts[i_a, i_s])*(g - Q[i_a, i_s])
+			
+			#update the target policy to be greedy at state s
+			vhold .= Q[:, i_s]
+			make_greedy_policy!(vhold)
+			π_star[:, i_s] .= vhold
+			
+			#end episode if trajectory is no longer possible under target policy
+			π_star[i_a, i_s] == 0 && break
+			#note that here I replace the numerator with the probability under the target policy instead of 1.  That is because π_star here may be stochastic in the case of a tie
+			w *= (π_star[i_a, i_s] / π_b[i_a, i_s])
 		end
-		updatedicts!()
+		# #there's no check here so this is equivalent to every-visit estimation
+		# function update!(t = length(states); g = zero(T), w = one(T))
+		# 	t == 0 && return nothing
+		# 	g = γ*g + rewards[t]
+		# 	i_s = mdp.statelookup[states[t]]
+		# 	i_a = mdp.actionlookup[actions[t]]
+		# 	counts[i_a, i_s] += w
+		# 	Q[i_a, i_s] += (w/counts[i_a, i_s])*(g - Q[i_a, i_s])
+			
+		# 	#update the target policy to be greedy at state s
+		# 	vhold .= Q[:, i_s]
+		# 	make_greedy_policy!(vhold)
+		# 	π_star[:, i_s] .= vhold
+			
+		# 	#end episode if trajectory is no longer possible under target policy
+		# 	π_star[i_a, i_s] == 0 && return nothing
+		# 	w /= π_b[i_a, i_s]
+		# 	update!(t-1, g=g, w=w)
+		# end
+		# update!()
 	end
 	return π_star, Q
 end
 
 # ╔═╡ 39da4cf9-5265-41bc-83d4-311e86675db7
-# ╠═╡ disabled = true
-#=╠═╡
-(πstar_blackjack3, Qstar_blackjack3) = off_policy_MC_control(blackjackstates, blackjackactions, blackjackepisode, 1.0, 10_000_000)
-  ╠═╡ =#
+@plutoprofview (πstar_blackjack3, Qstar_blackjack3) = off_policy_MC_control(blackjack_mdp, 1.0f0; num_episodes = 3_000_000)
 
-# ╔═╡ 53487950-f5c4-4715-a4e4-1bf2fd91b213
-#=╠═╡
-#recreation of figure 5.2 using off-policy method
-plot_blackjack_policy(πstar_blackjack3)
-  ╠═╡ =#
+# ╔═╡ 0bd705cb-ad38-4cbb-b8fc-7e0617635282
+md"""
+### Optimal Blackjack Policy Found with Off-policy MC control (behavior policy is random)
+"""
+
+# ╔═╡ 418c045d-90c7-42d8-9126-90185f7e197b
+figure_5_2(πstar_blackjack3, Qstar_blackjack3)
 
 # ╔═╡ ab10ccd7-75ba-475c-af26-f8b36daaf880
 md"""
-> *Exercise 5.11* In the boxed algorithm for off-policy MC control, you may have been expecting the $W$ update to have involved the importance-sampling ratio $\frac{\pi(A_t|S_t)}{b(A_t|S_T)}$, but instead it involves $\frac{1}{b(A_t|S_t)}$.  Why is this nevertheless correct?
+> ### *Exercise 5.11* 
+> In the boxed algorithm for off-policy MC control, you may have been expecting the $W$ update to have involved the importance-sampling ratio $\frac{\pi(A_t|S_t)}{b(A_t|S_T)}$, but instead it involves $\frac{1}{b(A_t|S_t)}$.  Why is this nevertheless correct?
 
 The target policy $\pi(s)$ is always deterministic, only selecting a single action according to $\pi(s)=\text{argmax}_a Q(s,a)$.  Therefore the numerator in importance-sampling ratio will either be 1 when the trajectory action matches the one given by $\pi(s)$ or it will be 0.  The inner loop will exit if such as action is selected as it will result in zero values of W for the rest of the trajectory and thus no further updates to $Q(s,a)$ or $\pi(s)$.  The only value of $\pi(s)$ that would be encountered in the equation is therefore 1 which is why the numerator is a constant.
 """
 
 # ╔═╡ cebb79b7-c9d6-4b79-ba0e-b2f3c7587724
 md"""
-> *Exercise 5.12: Racetrack (programming)*  Consider driving a race car around a turn like those shown in Figure 5.5.  You want to go as fast as possible, but not so fast as to run off the track.  In our simplified racetrack, the car is at one of a discrete set of grid positions, the cells in the diagram.  The velocity is also discrete, a number of grid cells moved horizontally and vertically per time step.  The actions are increments to the velocity components.  Each may be changed by +1, -1, or 0 in each step, for a total of nine (3x3) actions.  Both velocity components are restricted to be nonnegative and less than 5, and they cannot both be zero except at the starting line.  Each episode begins in one of the randomly selected start states with both velocity components zero and ends when the car crosses the finish line.  The rewards are -1 for each step until the car crosses the finish line.  If the car hits the track boundry, it is moved back to a random position on the starting line, both velocity components are reduced to zero, and the episode continues.  Before updating the car's location at each time step, check to see if the projected path of the car intersects the track boundary.  If it intersects the finish line, the episode ends; if it intersects anywhere else, the car is considered to have hit the track boundary and is sent back to the starting line.  To make the task more challenging, with probality 0.1 at each time step the velocity increments are both zero, independently of the intended increments.  Apply a Monte Carlo control method to this task to compute the optimal policy from each starting state.  Exhibit several trajectories following the optimal policy (but turn the noise off for these trajectories).
+> ### *Exercise 5.12: Racetrack (programming)*  
+> Consider driving a race car around a turn like those shown in Figure 5.5.  You want to go as fast as possible, but not so fast as to run off the track.  In our simplified racetrack, the car is at one of a discrete set of grid positions, the cells in the diagram.  The velocity is also discrete, a number of grid cells moved horizontally and vertically per time step.  The actions are increments to the velocity components.  Each may be changed by +1, -1, or 0 in each step, for a total of nine (3x3) actions.  Both velocity components are restricted to be nonnegative and less than 5, and they cannot both be zero except at the starting line.  Each episode begins in one of the randomly selected start states with both velocity components zero and ends when the car crosses the finish line.  The rewards are -1 for each step until the car crosses the finish line.  If the car hits the track boundry, it is moved back to a random position on the starting line, both velocity components are reduced to zero, and the episode continues.  Before updating the car's location at each time step, check to see if the projected path of the car intersects the track boundary.  If it intersects the finish line, the episode ends; if it intersects anywhere else, the car is considered to have hit the track boundary and is sent back to the starting line.  To make the task more challenging, with probality 0.1 at each time step the velocity increments are both zero, independently of the intended increments.  Apply a Monte Carlo control method to this task to compute the optimal policy from each starting state.  Exhibit several trajectories following the optimal policy (but turn the noise off for these trajectories).
 """
 
 # ╔═╡ 67e535c7-437a-49ba-b5ab-9dfe63fe4aaa
 md"""
-See code below to create racetrack environment
+#### Racetrack Environment Setup
 """
 
 # ╔═╡ 63814164-f305-49b3-ab51-675c822d7b18
 const racetrack_velocities = [(vx, vy) for vx in 0:4 for vy in 0:4]
+
+# ╔═╡ 1cc46e33-6885-4d6f-805e-9ff928f1cf23
+const racetrackspeeds = unique(norm.(racetrack_velocities))
+
+# ╔═╡ f9f6c182-62f8-4a5a-8b43-8716db468427
+const maxspeed = maximum(racetrackspeeds)
+
+# ╔═╡ f506e8ba-b073-4f59-91b4-3fe99822d2a4
+const scalelookup = Dict(s => round(Int64, 150*(s / maxspeed)) for s in racetrackspeeds)
 
 # ╔═╡ bb617e58-2700-4f0d-b8c8-3a266142fb70
 const racetrack_actions = [(dx, dy) for dx in -1:1 for dy in -1:1]
@@ -1319,15 +1373,15 @@ const racetrack_actions = [(dx, dy) for dx in -1:1 for dy in -1:1]
 # ╔═╡ 6dc0de46-2164-4580-b186-a73cb5b5167d
 #given a position, velocity, and action takes a forward step in time and returns the new position, new velocity, and a set of points that represent the space covered in between
 function project_path(p, v, a)
-    (vx, vy) = v
+	(vx, vy) = v
     (dx, dy) = a
 
     vxnew = clamp(vx + dx, 0, 4)
     vynew = clamp(vy + dy, 0, 4)
 
-    #ensure that the updated velocities are not 0
-    if vxnew + vynew == 0
-        if iseven(p[1] + p[2])
+    #both velocity components cannot be zero except when the race starts
+    if (vxnew + vynew) == 0
+        if rand() < 0.5
             vxnew += 1
         else
             vynew += 1
@@ -1343,6 +1397,59 @@ function project_path(p, v, a)
     (pnew, (vxnew, vynew), pathsquares)
 end
 
+# ╔═╡ fd91d00a-f94f-40ff-88a7-9d85f05acc96
+make_row_set(xmin, xmax, y) = Set((x, y) for x in xmin:xmax)
+
+# ╔═╡ fff54c56-5afe-4d89-9dc5-502d08c89de9
+make_col_set(x, ymin, ymax) = Set((x, y) for y in ymin:ymax)
+
+# ╔═╡ 658ceeaa-1b45-47bd-a364-eaa1759d17ac
+#starting in state s0 and with policy π, complete a single episode on given track returning the trajectory and rewards
+function race_track_episode(s0::S, a0::A, π, track; maxsteps = Inf, failchance = 0.1) where {S, A}
+    # @assert in(s0.position, track.start)
+    # @assert s0.velocity == (0, 0)
+
+    #take a forward step from current state returning new state and whether or not the episode is over
+    function step(s, a)
+        pnew, vnew, psquare = project_path(s.position, s.velocity, a)
+		# setdiff!(psquare, track.body, track.start)
+        # fsquares = intersect(psquare, track.finish)
+		finish = any(square -> in(square, track.finish), psquare)
+        # outsquares = setdiff!(psquare, track.body, track.start)
+        # if !isempty(fsquares) #car finished race
+		if finish # care finished race
+            ((position = first(intersect!(psquare, track.finish)), velocity = (0, 0)), true)
+        elseif !isempty(setdiff!(psquare, track.body, track.start)) #car path went outside of track
+            ((position = rand(track.start), velocity = (0, 0)), false)
+        else
+            ((position = pnew, velocity = vnew), false)
+        end
+    end
+
+	states = [s0]
+	actions = [a0]
+    rewards = Vector{Float32}()
+
+    function get_traj(s, a, nstep = 1)
+        (snew, isdone) = step(s, a)
+		push!(rewards, -1.0f0)
+		while !isdone && (nstep < maxsteps)
+        	anew = π(snew)
+			push!(states, snew)
+			push!(actions, anew)
+			(snew, isdone) = step(snew, rand() > failchance ? anew : (0, 0))
+			push!(rewards, -1.0f0)
+			nstep += 1
+		end
+		return isdone
+    end
+
+    isdone = get_traj(s0, a0)
+	!isdone && length(states) >= maxsteps && return Vector{S}(), Vector{A}(), Vector{Float32}()
+
+    return states, actions, rewards
+end
+
 # ╔═╡ df3c4a33-45f1-4cc2-8c06-d500a0eecc8f
 #track is defined as a set of points for each of the start, body, and finish
 const track1 = (  start = Set((x, 0) for x in 0:5), 
@@ -1355,250 +1462,519 @@ const track1 = (  start = Set((x, 0) for x in 0:5),
                             Set((x, y) for x in -3:12 for y in 26:27),
                             Set((x, 28) for x in -2:12),
                             Set((x, y) for x in -1:12 for y in 29:30),
-                            Set((x, 31) for x in 0:12))
+                            Set((x, 31) for x in 0:12)),
         )
 
-# ╔═╡ b9ad0bd3-236c-4ca0-b057-b5f1e53f3e48
-#convert a track into a grid for plotting purposes
-function get_track_square(track)
-    trackpoints = union(track...)
+# ╔═╡ f7616806-97ab-4b09-accc-4e047691f879
+#track is defined as a set of points for each of the start, body, and finish
+const track2 = (  start = make_row_set(0, 22, 0), 
+            finish = make_col_set(31, 21, 29), 
+            body = union(   union((make_row_set(0, 22, y) for y in 1:2)...),
+                            union((make_row_set(i, 22, y) for (i, y) in zip(1:14, 3:16))...),
+							make_row_set(14, 23, 17),
+							make_row_set(14, 25, 18),
+							make_row_set(14, 26, 19),
+							make_row_set(14, 29, 20),
+							union((make_row_set(xstart, 31, y) for (xstart, y) in zip([13, 12, 11, 11, 11, 11, 12, 13, 16], 21:29))...))
+        )
+
+# ╔═╡ a0d61852-9942-42de-b554-572c4526a3a8
+function make_track_mdp(track; maxsteps = Inf)
+	states = [(position = p, velocity = v) for p in union(track.start, track.body) for v in racetrack_velocities]
+	state_init() = (position = rand(track.start), velocity = (0, 0))
+
+	statelookup = makelookup(states)
+	function take_action(π, s)
+		i_s = statelookup[s]
+		i_a = sample_action(π, i_s)
+		racetrack_actions[i_a]
+	end
+	
+	simulator(s0, a0, π) = race_track_episode(s0, a0, s -> take_action(π, s), track, maxsteps = maxsteps)
+	MDP_Opaque(states, racetrack_actions, state_init, simulator)
+end
+
+# ╔═╡ 9df79a71-e58a-497b-bb02-debb69144925
+const track1_mdp = make_track_mdp(track1)
+
+# ╔═╡ e7de31e8-ae95-4616-86a9-a115a5e24330
+const track2_mdp = make_track_mdp(track2)
+
+# ╔═╡ 5e2420fb-b2cc-49fc-91e3-3de80fba698b
+#run a single race episode from a valid starting position with a given policy and track
+function runrace(π; track = track1, maxsteps = 10_000)
+	s0 = (position = rand(track.start), velocity = (0, 0))
+	a0 = π(s0)
+	race_track_episode(s0, a0, π, track, maxsteps = maxsteps, failchance = 0.0)
+end
+
+# ╔═╡ d6e7cc6d-f397-4bdf-974e-9a16922393dd
+function create_policy_function(π, mdp)
+	function f(s)
+		i_s = mdp.statelookup[s]
+		i_a = sample_action(π, i_s)
+		mdp.actions[i_a]
+	end
+end
+
+# ╔═╡ 8f38a3e9-1872-4ea6-9a03-87112af4bf07
+#run n episodes of a race and measure the statistics of the time required to finish
+function sampleracepolicy(π; n = 1000, trackname = "Track 1", policyname = "", kwargs...)
+	trajs = [runrace(π; kwargs...)[1] for _ in 1:n]
+	randomtrajs = [runrace(s -> rand(racetrack_actions); kwargs...)[1] for _ in 1:n]
+	ls = filter(x -> x > 0, length.(trajs))
+	randomls = filter(x -> x > 0, length.(randomtrajs))
+	f1 = ecdf(ls)
+	f2 = ecdf(randomls)
+	t1 = scatter(x = f1.sorted_values, y = f1.(f1.sorted_values), name = "$policyname")
+	t2 = scatter(x = f2.sorted_values, y = f2.(f2.sorted_values), name = "Random Policy")
+	p = plot([t1, t2], Layout(xaxis_title = "Steps to Finish Race", yaxis_title = "Percent of Episodes", xaxis_type = "log"))
+	# p1 = plot(histogram(x = ls, showlegend=false), Layout(title = "$policyname", xaxis_title = "Steps to Finish Race", yaxis_title = "Number of Episodes", showlegend = false))
+	# p2 = plot(histogram(x = randomls, showlegend=false), Layout(title = "Random Policy", xaxis_title = "Steps to Finish Race", yaxis_title = "Number of Episodes", showlegend = false))
+
+	isempty(randomls) && return md"""Policy Unable to Complete race within 10,000 steps"""
+
+	parsestd(v) = isnan(std(v)) ? NaN : round(Int64, std(v))
+	
+	md"""
+	$(Markdown.parse("Statistics for Steps to Finish Race on $trackname"))
+	
+	| Statistic | $(Markdown.parse(policyname)) | Random Policy |
+	| --- | --- | --- |
+	|Mean | $(round(Int64, mean(ls))) | $(round(Int64, mean(randomls))) |
+	|Median | $(round(Int64, median(ls))) | $(round(Int64, median(randomls))) |
+	|Std| $(parsestd(ls)) | $(parsestd(randomls)) |
+	|Minimum| $(round(Int64, minimum(ls))) | $(round(Int64, minimum(randomls))) |
+	|Maximum| $(round(Int64, maximum(ls))) | $(round(Int64, maximum(randomls))) |
+
+	Cummulative Distribution Function of Steps to Finish Race
+	$p
+	"""
+end
+
+# ╔═╡ a0eb6939-11bb-458d-bee3-9ed763819f62
+md"""
+#### Racetrack Visualization Code
+"""
+
+# ╔═╡ 7ee4e17e-c1a9-4df0-a014-114bebcb4f52
+makegridsquare(x, y, vx, vy, dvx, dvy; class = "", xmin=0, ymin=0) = """<div class = "$class" vx = "$vx" vy = "$vy" dvx = "$dvx" dvy = "$dvy" style="grid-column-start: $(x - xmin + 1); grid-row-start: $(y - ymin + 1);"></div>"""
+
+# ╔═╡ c8be6951-b6ec-4444-8c7f-ca5db6681571
+makegridsquare(x, y; class="", xmin=0, ymin=0) = """<div class = "$class" style="grid-column-start: $(x - xmin + 1); grid-row-start: $(y - ymin + 1);"></div>"""
+
+# ╔═╡ a307e780-996a-485f-af59-b44982dfceb4
+function rendertrack(track; episode = ())
+	trajectory = if isempty(episode)
+		Dict()
+	else
+		states, actions, rewards = episode
+		Dict(begin
+			position, velocity = states[i]
+			action = actions[i]
+			position => (velocity = velocity, action = action)
+		end
+		for i in eachindex(first(episode)))
+	end
+	
+	function getvelocities(position)
+		!haskey(trajectory, position) && return ()
+		(vx, vy) = trajectory[position].velocity
+		(dvx, dvy) = trajectory[position].action
+		(vx = vx, vy = vy, dvx = dvx, dvy = dvy)
+	end
+	trackpoints = union(track...)
     xmin, xmax = extrema(p -> p[1], trackpoints)
     ymin, ymax = extrema(p -> p[2], trackpoints)
+	function makesquare(a; kwargs...) 
+		velocities = getvelocities(a)
+		isempty(velocities) && return makegridsquare(first(a), last(a); xmin = xmin, ymin = ymin, kwargs...)
+		makegridsquare(first(a), last(a), velocities.vx, velocities.vy, velocities.dvx, velocities.dvy; xmin = xmin, ymin = ymin, kwargs...)
+	end
+	startsquares = [makesquare(a; class="start") for a in track.start]
+	tracksquares = [makesquare(a) for a in track.body]
+	finishsquares = [makesquare(a; class = "finish") for a in track.finish]
+	squares = reduce(*, vcat(startsquares, tracksquares, finishsquares)) |> HTML
 
-    w = xmax - xmin + 1
-    l = ymax - ymin + 1
+	racemessage = isempty(episode) ? "" : "Race finished in $(length(first(episode))) steps"
 
-    trackgrid = Matrix{Int64}(undef, w, l)
-    for x in 1:w for y in 1:l
-            p = (x - 1 + xmin, y - 1 + ymin)
-            val = if in(p, track.start)
-                0
-            elseif in(p, track.finish)
-                2
-            elseif in(p, track.body)
-                1
-            else
-                -1
-            end
-            trackgrid[x, y] = val
-    end end
-
-    return trackgrid
-end 
-
-# ╔═╡ 82d8e3c7-a3ec-4293-864a-5226428a1803
-const track1grid = get_track_square(track1)
-
-# ╔═╡ 524cf31e-b08a-4d9d-b74b-788bc955bfba
-#visualization of first track in book with the starting line and finish line in purple and yellow respectively.
-heatmap(track1grid', legend = false, size = 20 .* (size(track1grid)))
-
-# ╔═╡ 658ceeaa-1b45-47bd-a364-eaa1759d17ac
-#starting in state s0 and with policy π, complete a single episode on given track returning the trajectory and rewards
-function race_track_episode(s0, a0, π, track; maxsteps = Inf, failchance = 0.1)
-    # @assert in(s0.position, track.start)
-    # @assert s0.velocity == (0, 0)
-
-    #take a forward step from current state returning new state and whether or not the episode is over
-    function step(s, a)
-        pnew, vnew, psquare = project_path(s.position, s.velocity, a)
-        fsquares = intersect(psquare, track.finish)
-        outsquares = setdiff(psquare, track.body, track.start)
-        if !isempty(fsquares) #car finished race
-            ((position = first(fsquares), velocity = (0, 0)), true)
-        elseif !isempty(outsquares) #car path went outside of track
-            ((position = rand(track1.start), velocity = (0, 0)), false)
-        else
-            ((position = pnew, velocity = vnew), false)
-        end
-    end
-	
-    traj = [(s0, a0)]
-    rewards = Vector{Float64}()
-
-    function get_traj(s, a, nstep = 1)
-        (snew, isdone) = step(s, a)
-		push!(rewards, -1.0)
-		while !isdone && (nstep < maxsteps)
-        	anew = π(snew)
-        	push!(traj, (snew, anew))
-			(snew, isdone) = step(snew, rand() > failchance ? anew : (0, 0))
-			push!(rewards, -1.0)
-			nstep += 1
-		end
-    end
-
-    isdone = get_traj(s0, a0)
-
-    return traj, rewards
+	@htl("""
+	<div>
+	$racemessage
+	<div style="background-color: white; color: black;">
+		<div style="display:flex; align-items: flex-start">
+		<div class = "track">
+			$squares
+		</div>
+		Finish <br> line
+		</div>
+		<div>Starting line</div>
+	</div>
+	</div>
+	""")
 end
+
+# ╔═╡ 154edd83-350d-4acf-adfb-6a2d20599b53
+function showrace(track, π)
+	@htl("""
+		<div style = "display: flex;">
+		$(rendertrack(track; episode = runrace(π; track = track)))
+		$(rendertrack(track; episode = runrace(π; track = track)))
+		</div>
+	""")
+end
+
+# ╔═╡ d2625507-4787-4b1c-9a91-108012e42cc7
+function make_rotation_style(vx, vy)
+	((vx==0) && (vy==0)) && return """"""
+	"""
+	[vx='$vx'][vy='$vy']::before {
+		content: '→';
+		transform: rotate($(atand(vy, vx))deg) scale($(scalelookup[norm([vx, vy])])%);
+	}
+	"""
+end
+
+# ╔═╡ ba8a5804-4be3-43fe-95d7-c957ce02a1d4
+function make_action_style(dvx, dvy)
+	((dvx==0) && (dvy==0)) && return """"""
+	"""
+	[dvx='$dvx'][dvy='$dvy']::after {
+		content: '→';
+		color: red;
+		transform: rotate($(atand(dvy, dvx))deg);
+	}
+	"""
+end
+
+# ╔═╡ 06297d75-121a-4178-b45b-83e167efd90d
+joinlines(x, y) = """
+$x
+$y
+"""
+
+# ╔═╡ e370dbb3-3bd9-4dc8-b8ca-8aad8711905c
+@htl("""
+<style>
+	.track {
+		display: grid;
+		grid-gap: 0px;
+		background-color: white;
+		transform: rotateX(180deg);
+	}
+
+	.track * {
+		width: 15px;
+		height: 15px;
+		border: 1px solid black;
+		box-sizing: content-box;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+
+	[vx][vy][dvx][dvy]::before {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: absolute;
+	}
+
+	[vx][vy][dvx][dvy]::after {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: absolute;
+	}
+
+	.start {
+		background-color: orange;
+	}
+	.finish {
+		background-color: green;
+	}
+
+	[vx='0'][vy='0']::before {
+		content: '•';
+	}
+
+	$(mapreduce(a -> make_rotation_style(a...), joinlines, racetrack_velocities)))
+	$(mapreduce(a -> make_action_style(a...), joinlines, racetrack_actions)))
+</style>
+""")
+
+# ╔═╡ cd928f87-2832-4595-8ce5-79b69cc56bd9
+md"""
+#### Figure 5.5
+A couple of right turns for the racetrack task.
+"""
+
+# ╔═╡ 8bcaa31b-8caf-43da-83a0-47e0c04c2a30
+@htl("""
+<div style="display: flex; justify-content: space-around;">
+<div>Track 1</div>
+<div>Track 2</div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: flex-end; background-color: gray;">
+$(rendertrack(track1))
+$(rendertrack(track2))
+</div>
+""")
+
+# ╔═╡ 1aaf3827-5851-4156-a7e6-14f5e4d00238
+md"""
+#### Random Policy Visualization
+"""
 
 # ╔═╡ 0dfd7afb-127c-4afd-8374-3c9a20a9ee76
 π_racetrack_rand(s) = rand(racetrack_actions)
 
 # ╔═╡ 3955d71a-3105-445a-868d-66ba0b3dc515
-race_episode = race_track_episode((position = rand(track1.start), velocity = (0, 0)), rand(racetrack_actions), π_racetrack_rand, track1)
+race_episode1 = race_track_episode((position = rand(track1.start), velocity = (0, 0)), rand(racetrack_actions), π_racetrack_rand, track1)
 
-# ╔═╡ 5e2420fb-b2cc-49fc-91e3-3de80fba698b
-#run a single race episode from a valid starting position with a given policy and track
-function runrace(π, track = track1)
-	s0 = (position = rand(track.start), velocity = (0, 0))
-	a0 = π(s0)
-	race_track_episode(s0, a0, π, track, maxsteps = 100000, failchance = 0.0)
-end
+# ╔═╡ ff9276eb-2151-4a6f-8257-8348047a9f4e
+race_episode2 = race_track_episode((position = rand(track2.start), velocity = (0, 0)), rand(racetrack_actions), π_racetrack_rand, track2)
 
-# ╔═╡ 8f38a3e9-1872-4ea6-9a03-87112af4bf07
-#run n episodes of a race and measure the statistics of the time required to finish
-function sampleracepolicy(π, n = 1000)
-	trajs = [runrace(π)[1] for _ in 1:n]
-	ls = length.(trajs)
-	extrema(ls), mean(ls), var(ls)
-end
+# ╔═╡ 2d36ebe3-1a86-4cad-a235-baec726da926
+md"""
+#### Example Random Trajectories on Each Track
+"""
 
-# ╔═╡ 7a2e6009-4370-4cb9-a4cd-9ee5aba8c09b
-# ╠═╡ disabled = true
-#=╠═╡
-#using a random policy, the mean time to finish on track 1 is ~2800 steps.  The best possible time when we get "lucky" with random decisions is ~12 steps with worst times ~15-30k steps
-sampleracepolicy(s -> rand(racetrack_actions), 10_000)
-  ╠═╡ =#
+# ╔═╡ ba044e4f-e2a6-4f96-8756-5b24b1bb5ca2
+#trajectory of a random episode, arrows indicate the velocity at each step
+@htl("""
+<div style = "display: flex; align-items: flex-end;">
+$(rendertrack(track1; episode = race_episode1))
+$(rendertrack(track2; episode = race_episode2))
+</div>
+""")
+#using a random policy on track 1, the mean time to finish on track 1 is ~2800 steps.  The best possible time when we get "lucky" with random decisions is ~12 steps with worst times ~15-30k steps
 
-# ╔═╡ 5b1d5d03-b7cf-42e0-bd5b-f3b4fff12df2
-const track1states = [(position = p, velocity = v) for p in union(track1.start, track1.body) for v in racetrack_velocities]
+#using a random policy on track 2, the mean time to finish on track 1 is ~300 steps.  The best possible time when we get "lucky" with random decisions is ~10 steps with worst times ~2k steps
+
+# ╔═╡ 6a96304b-add3-4135-8ccf-46cc23859d53
+md"""
+#### Off-policy MC Control Racetrack Solution
+"""
+
+# ╔═╡ b352d98e-0854-45e3-ac73-8ef434525563
+md"""
+##### Track 1
+"""
+
+# ╔═╡ 846ccb44-a18b-4d87-bbf8-fc59eaf87708
+md"""
+Number of Episodes: $(@bind opmc1 confirm(NumberField(1:10_000_000, default = 1_000)))
+"""
 
 # ╔═╡ dfc2d648-ec08-49cd-a55f-72a766cad728
-# ╠═╡ disabled = true
-#=╠═╡
-(πstar_racetrack1, Qstar_racetrack1) = off_policy_MC_control(track1states, racetrack_actions, (s, a, π) -> race_track_episode(s, a, π, track1), 1.0, 10_000)
-  ╠═╡ =#
+(πstar1_racetrack1, Qstar1_racetrack1) = off_policy_MC_control(track1_mdp, 1.0f0; num_episodes = opmc1)
+
+# ╔═╡ 833bb53c-bc2b-47fb-9429-d0f6d92efb42
+@bind run1_1 Button("Run race")
+
+# ╔═╡ 887de995-04e8-4d84-88d7-ad096a5747df
+md"""
+Example trajectories after training for $opmc1 episodes
+"""
 
 # ╔═╡ 9524a3f5-fca3-4ce9-b04d-0cb6c0cd0c90
-#=╠═╡
-#off policy control doesn't produce a policy that can finish the race.  A cutoff of 100k steps is used to ensure the system doesn't run forever
-runrace(s -> πstar_racetrack1[s])
-  ╠═╡ =#
+#off policy control learns very slowly because each episode from the random policy takes thousands of steps to even finish the race.  Even after 1_000 episodes almost no learning has occured. 
+begin
+	run1_1
+	showrace(track1, create_policy_function(πstar1_racetrack1, track1_mdp))
+end
+
+# ╔═╡ 1067fcc4-cbc6-453c-a996-d420c498619a
+sampleracepolicy(create_policy_function(πstar1_racetrack1, track1_mdp); policyname = "Off policy MC Control")
+
+# ╔═╡ e0d3d7d1-203f-42fa-8570-8d1d88bf17c2
+md"""
+##### Track 2
+"""
+
+# ╔═╡ 8668ffc3-6c8c-4c25-8d47-9977bef929d2
+md"""
+Number of Episodes: $(@bind opmc2 confirm(NumberField(1:10_000_000, default = 1_000)))
+"""
+
+# ╔═╡ da66b3be-1fe2-4edb-9560-71ce7c0bed12
+(πstar1_racetrack2, Qstar1_racetrack2) = off_policy_MC_control(track2_mdp, 1.0f0; num_episodes = opmc2)
+
+# ╔═╡ 7cdf4142-82fe-4aa6-9665-84a1eef5d038
+@bind race_1_2 Button("Run race")
+
+# ╔═╡ 1951fc4c-acc4-49a6-a907-7447ff0f430a
+md"""
+Example trajectories after training for $opmc2 episodes
+"""
+
+# ╔═╡ 66645f1a-b591-43e7-b931-8ed0cc7d6898
+begin
+	race_1_2
+	showrace(track2, create_policy_function(πstar1_racetrack2, track2_mdp))
+end
+
+# ╔═╡ 11f8290f-f589-49ff-9602-99ccc4192884
+sampleracepolicy(create_policy_function(πstar1_racetrack2, track2_mdp); track = track2, trackname = "Track 2", policyname = "Off policy MC Control")
+
+# ╔═╡ 14536b70-35f0-46ba-93fc-3365a1e8c15c
+md"""
+##### Results Summary
+Off policy MC control training is slow because the random behavior policy takes a very long time to complete a race (~2500 or ~300 steps).  Even after 1000 episodes performance is indistinguishable from the random policy.
+"""
+
+# ╔═╡ e89706f1-0c6a-4da4-82a1-ccf153f2e186
+md"""
+#### Monte Carlo Exploring Starts Solution Method
+"""
+
+# ╔═╡ 5834c5e0-8a04-47ea-aab8-881c73d8fd4f
+md"""
+##### Track 1
+"""
+
+# ╔═╡ 989ccacd-b410-4967-bf6a-9244e3be785d
+md"""
+Number of Episodes: $(@bind mces1 confirm(NumberField(1:10_000_000, default = 1_000)))
+"""
 
 # ╔═╡ 68f9e0d9-5c9d-4e89-b5ae-f24fd7544a09
-# ╠═╡ disabled = true
-#=╠═╡
-(πstar_racetrack2, Qstar_racetrack2) = monte_carlo_ES(track1states, racetrack_actions, (s, a, π) -> race_track_episode(s, a, π, track1), 1.0, 100_000)
-  ╠═╡ =#
+(πstar2_racetrack1, Qstar2_racetrack1) = monte_carlo_ES(track1_mdp, 1.0f0, mces1; override_state_init = true)
+
+# ╔═╡ 605b045d-fe5c-426b-9f55-b7dd1d037c50
+md"""
+Example trajectories after training for $mces1 episodes
+"""
+
+# ╔═╡ 7ce6e28e-acd7-46d1-87d6-a25f4656d79d
+@bind run2_1 Button("Run race")
 
 # ╔═╡ 3d10f89f-876e-4d25-b8d6-34ce5c99eb8c
-#=╠═╡
-#exploring starts on policy training also doesn't produce a policy that can finish the race
-runrace(s -> πstar_racetrack2[s])
-  ╠═╡ =#
+#Given there are 7300 states to the problem with track1, exploring starts would need to sample at least this many times to even explore all of them.  Using 100_000 episodes, it produces a policy that finishes the race between 16 and 100 steps usually, but the technique works with higher variance even as low as 1000 episodes.
+begin 
+	run2_1
+	showrace(track1, create_policy_function(πstar2_racetrack1, track1_mdp))
+end
+
+# ╔═╡ 0609ad22-0adc-4e4f-afed-b7a46d216576
+sampleracepolicy(create_policy_function(πstar2_racetrack1, track1_mdp); policyname = "Monte Carlo Exploring Starts")
+
+# ╔═╡ 2ed88aa5-fc42-4a57-924d-e918805e2208
+md"""
+##### Track 2
+"""
+
+# ╔═╡ 059b1c0f-eb21-4a4a-8aed-64e9ac07b541
+md"""
+Number of Episodes: $(@bind mces2 confirm(NumberField(1:10_000_000, default = 1_000)))
+"""
+
+# ╔═╡ f41dd3e6-81bf-43e4-afc2-fc549b77f610
+(πstar2_racetrack2, Qstar2_racetrack2) = monte_carlo_ES(track2_mdp, 1.0f0, mces2; override_state_init = true)
+
+# ╔═╡ 0d9c5d60-878a-45bb-8707-275cf10be41f
+@bind run2_2 Button("Run race")
+
+# ╔═╡ edb4ad06-5e6e-48c4-9ee4-ae0b92927a91
+md"""
+Example trajectories after $mces2 episodes of training
+"""
+
+# ╔═╡ 4481fa33-1ff3-4778-8486-d4d8a15775cd
+begin 
+	run2_2
+	showrace(track2, create_policy_function(πstar2_racetrack2, track2_mdp))
+end
+
+# ╔═╡ aa647f3e-a4b2-4825-bb2a-1c2469d2c0eb
+sampleracepolicy(create_policy_function(πstar2_racetrack2, track2_mdp); track = track2, trackname = "Track 2", policyname = "Monte Carlo Exploring Starts")
+
+# ╔═╡ ffd1e39d-e66b-40a3-8ad1-c9480d371fe8
+md"""
+##### Results Summary
+Each environment has 7300 and 12875 states respectively, so Monte Carlo Exploring starts would need to sample at least this many episodes to have a non zero probability of coverage.  Surprisingly, even after just 1000 episodes of training the results are quite an improvement over the random policy with the mean finish time of about 30 steps for both.  Although at the high end, some episodes still take over 100 steps to complete (still much better than the random policy).  If we allow training for 10-100 million episodes, which is necessary to get a reasonable sample size for each state, then the results are much improved with episode step lengths from 11 to 18 for track 1 and 9 to 16 for track2.
+"""
+
+# ╔═╡ f79d97bb-341a-46ad-bdfc-d080af13e2df
+md"""
+#### Monte Carlo ϵ-Soft Solution Method
+"""
+
+# ╔═╡ 6d6e8916-9b36-4af1-b77d-86cb6a416f88
+md"""
+##### Track 1
+"""
+
+# ╔═╡ acb270a1-e2b9-46bc-9a52-9f66f1cca17c
+@bind mcϵs1 confirm(PlutoUI.combine() do Child
+	md"""
+	| Number of Episodes | ϵ | Decay ϵ |
+	| :-: | :-: | :-: |
+	|$(Child(:episodes, NumberField(1:10_000_000, default = 1_000))) | $(Child(:ϵ, NumberField(0.001:0.001:1.0; default = 0.01))) | $(Child(:decay, CheckBox())) |
+	"""
+end)
 
 # ╔═╡ 1d6eccf0-2731-47fc-9a41-ea8649e290ef
-# ╠═╡ disabled = true
-#=╠═╡
-(πstar_racetrack3, Qstar_racetrack3) = monte_carlo_ϵsoft(track1states, racetrack_actions, (s, a, π) -> race_track_episode(s, a, π, track1), 1.0, 0.25, 10_000_000, gets0 = () -> (position = rand(track1.start), velocity = (0, 0)))
-  ╠═╡ =#
+(πstar3_racetrack1, Qstar3_racetrack1) = monte_carlo_ϵsoft(track1_mdp, Float32(mcϵs1.ϵ), 1.0f0, mcϵs1.episodes; decay_ϵ = mcϵs1.decay)
 
-# ╔═╡ 7212f887-5347-4ee1-90b8-43d282f0fa6e
-#=╠═╡
-runrace(s -> πstar_racetrack3[s])
-  ╠═╡ =#
+# ╔═╡ 772b4dd6-870c-4a16-937c-701d5bb5da44
+@bind run3_1 Button("Run Race")
+
+# ╔═╡ 648bfc3f-0649-4401-a97f-89e21057f7b7
+md"""
+Example trajectories after training for $(mcϵs1.episodes) episodes with ϵ= $(mcϵs1.ϵ)
+"""
+
+# ╔═╡ b7dfc031-6bf6-44cd-b814-05f693a0a27d
+#ϵ-soft training also produces a policy that can finish the race but results heavily depend on the value of ϵ.  A small ϵ around 2% seems to produce the best results that exceed that of even the exploring starts algorithm
+begin
+	run3_1
+	showrace(track1, create_policy_function(πstar3_racetrack1, track1_mdp))
+end
 
 # ╔═╡ 985f0537-2bbe-4dbb-a113-8ac98d2e0a5f
-#=╠═╡
-sampleracepolicy(s -> πstar_racetrack3[s], 10_000)
-  ╠═╡ =#
+sampleracepolicy(create_policy_function(πstar3_racetrack1, track1_mdp); policyname = "Monte Carlo ϵ-Soft")
 
-# ╔═╡ 84c28558-9d21-4393-8d5d-65ad9234aadd
-function plotpolicy(π)
-	x = [a[1] for a in union(track1...)]
-	y = [a[2] for a in union(track1...)]
-	dv = Dict(a => (0.0, 0.0) for a in union(track1...))
-	v = Dict(a => (0.0, 0.0) for a in union(track1...))
-	cv = Dict(a => 0 for a in union(track1...))
-	for a in keys(π)
-		(dx, dy) = π[a]
-		(vx, vy) = a.velocity
-		p = a.position
-		cv[p] += 1
-		dv[p] = ((dv[p][1] * (cv[p] - 1) + dx) / cv[p],  (dv[p][2] * (cv[p] - 1) + dy) / cv[p])
-		v[p] = ((v[p][1] * (cv[p] - 1) + vx) / cv[p],  (v[p][2] * (cv[p] - 1) + vy) / cv[p])
-	end
-	dx = [dv[a][1] for a in zip(x, y)]
-	dy = [dv[a][2] for a in zip(x, y)]
-	vx = [v[a][1] for a in zip(x,y)]
-	vy = [v[a][2] for a in zip(x,y)]
-	quiver(x, y, quiver = (dx, dy))
+# ╔═╡ 755be8f1-9d9e-4afd-8a70-07fab78e4333
+md"""
+##### Track 2
+"""
+
+# ╔═╡ 1117e6c3-2736-46a4-bac2-d3c99c1998b6
+@bind mcϵs2 confirm(PlutoUI.combine() do Child
+	md"""
+	| Number of Episodes | ϵ | Decay ϵ |
+	| :-: | :-: | :-: |
+	|$(Child(:episodes, NumberField(1:10_000_000, default = 1_000))) | $(Child(:ϵ, NumberField(0.001:0.001:1.0; default = 0.01))) | $(Child(:decay, CheckBox())) |
+	"""
+end)
+
+# ╔═╡ cde7be85-9344-4526-bcb2-c2c8b3322435
+(πstar3_racetrack2, Qstar3_racetrack2) = monte_carlo_ϵsoft(track2_mdp, Float32(mcϵs2.ϵ), 1.0f0, mcϵs2.episodes; decay_ϵ = mcϵs2.decay)
+
+# ╔═╡ e2fc1d47-2ee9-4844-a6b1-16f76531da86
+@bind run3_2 Button("Run Race")
+
+# ╔═╡ 8d7b9826-b52c-4d5a-8c63-e83a1229a0be
+md"""
+Example trajectories after training for $(mcϵs2.episodes) episodes with ϵ= $(mcϵs2.ϵ)
+"""
+
+# ╔═╡ 6f914006-1d8d-41f5-ae8a-fbe0b336946c
+begin
+	run3_2
+	showrace(track2, create_policy_function(πstar3_racetrack2, track2_mdp))
 end
 
-# ╔═╡ 666beaf1-366b-4338-acb9-750e203b2185
-function plotpolicy2(π)
-	positions = union(track1.start, track1.body)
-	x = [a[1] for a in positions]
-	y = [a[2] for a in positions]
-	dv = Dict(a => (0.0, 0.0) for a in positions)
-	cv = Dict(a => 0 for a in positions)
-	for p in positions
-		s = (position = p, velocity = (1, 0))
-		(dx, dy) = π[s]
-		dv[p] = (dx, dy)
-	end
-	dx = [dv[a][1] for a in zip(x, y)]
-	dy = [dv[a][2] for a in zip(x, y)]
-	quiver(x, y, quiver = (dx, dy))
-end
+# ╔═╡ 821ce23a-524b-4203-96d6-4d5b454fe1fd
+sampleracepolicy(create_policy_function(πstar3_racetrack2, track2_mdp); track = track2, trackname = "Track 2", policyname = "Monte Carlo ϵ-Soft")
 
-# ╔═╡ cc49451a-a3de-4341-ac4f-3897cbc321d6
-# ╠═╡ disabled = true
-#=╠═╡
-plotpolicy2(πstar_racetrack3)
-  ╠═╡ =#
-
-# ╔═╡ 3558d0be-f51b-472d-8fd7-6213a3f0c4af
-function visualize_policy_traj(π)
-	fig = heatmap(track1grid', legend = false, size = 20 .* (size(track1grid)))
-	for i in 0:4 #cycle through starting positions
-		s0 = (position = (i, 0), velocity = (0, 0))
-		a0 = π[s0]
-		race_episode_star = race_track_episode(s0, a0, s -> π[s], track1, maxsteps = 10000, failchance = 0.0)
-		plot!([t[1].position .+ (4, 1) for t in race_episode_star[1]], color = :green)
-	end
-	plot(fig)
-end
-
-# ╔═╡ 0a1ee6fb-b86d-4e82-a662-e31b4f55e3a9
-function visualize_policy_traj2(π)
-	fig = heatmap(track1grid', legend = false, size = 20 .* (size(track1grid)))
-	s0 = (position = (2, 0), velocity = (0, 0))
-	a0 = π[s0]
-	race_episode_star = race_track_episode(s0, a0, s -> π[s], track1, maxsteps = 100, failchance = 0.0)
-	x = [t[1].position[1] + 4 for t in race_episode_star[1]]
-	y = [t[1].position[2] + 1 for t in race_episode_star[1]]
-	vx = [t[1].velocity[1] for t in race_episode_star[1]]
-	vy = [t[1].velocity[2] for t in race_episode_star[1]]
-	dx = [t[2][1] for t in race_episode_star[1]]
-	dy = [t[2][2] for t in race_episode_star[1]]
-	quiver!(x, y, quiver = (vx, vy))
-	quiver!(x, y, quiver = (dx, dy), linecolor = :green)
-	plot(fig)
-end
-
-# ╔═╡ 7c81169f-5ac3-4660-8b0c-8ac737d86271
-#=╠═╡
-visualize_policy_traj2(πstar_racetrack1)
-  ╠═╡ =#
-
-# ╔═╡ 8645934b-a141-41e4-ae5b-6a0a86a94156
-#=╠═╡
-visualize_policy_traj2(πstar_racetrack2)
-  ╠═╡ =#
-
-# ╔═╡ 2a13fdd4-97b5-4b65-8cb5-a0124ecf3dac
-#=╠═╡
-visualize_policy_traj(πstar_racetrack3)
-  ╠═╡ =#
-
-# ╔═╡ 85205698-76a3-4901-8caf-e6e6fc5524ee
-#=╠═╡
-#trajectory of a successful race policy, black arrows indicate velocity, green arrows indicate action.  Note that negative velocities are forbidden so any arrow pointing left on a vertical trajectory will have no impact.
-visualize_policy_traj2(πstar_racetrack3)
-  ╠═╡ =#
+# ╔═╡ 1b02e593-d791-424c-b956-62cc480fcf40
+md"""
+##### Results Summary
+Unlike the other techniques, Monte Carlo ϵ-Soft requires selecting the parameter ϵ and the performance of each algorithm varies a lot with this parameter and the number of training episodes.  For a short training time of 1,000 episodes, small values of ϵ seem to perform better such as 0.01 or 0.02.  Under those conditions, performance of the policies is far better than random with mean episode lengths of 32 and 24 respectively.  Longer training improves the results but also requires changing ϵ and possibly introducing a decay rate so it can start high and approach 0 after a large number of episodes.
+"""
 
 # ╔═╡ 859354fe-7f40-4658-bf12-b5ee20a815a7
 md"""
@@ -1661,6 +2037,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -1682,7 +2059,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0"
 manifest_format = "2.0"
-project_hash = "a9f1e73cd347c9121e407e41bd5396e656cfac35"
+project_hash = "478f86fa7a2910471e89bd12f71822f0d00d1653"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2183,6 +2560,7 @@ version = "17.4.0+2"
 # ╟─2572e35c-e6a3-4562-aa0f-6a5ab32d39ea
 # ╟─47daf83b-8fe9-4491-b9ae-84bd269d5546
 # ╠═2d10281a-a4af-4ea8-b63b-e11f2d0893ed
+# ╠═1d3d509c-b11b-4c57-b100-9bcf0489af2b
 # ╠═13cc524c-d983-44f4-8731-0595249fb888
 # ╠═1b78b25d-3942-4a6b-a2bd-7d97242da9fe
 # ╟─9618a093-cdb7-4589-a783-de8e9021b705
@@ -2260,40 +2638,93 @@ version = "17.4.0+2"
 # ╟─7c9486cd-1916-4e13-b415-fb113bd9e04b
 # ╠═924f4e74-e3a0-42eb-89da-1f9836275588
 # ╠═39da4cf9-5265-41bc-83d4-311e86675db7
-# ╠═53487950-f5c4-4715-a4e4-1bf2fd91b213
+# ╟─0bd705cb-ad38-4cbb-b8fc-7e0617635282
+# ╟─418c045d-90c7-42d8-9126-90185f7e197b
 # ╟─ab10ccd7-75ba-475c-af26-f8b36daaf880
 # ╟─cebb79b7-c9d6-4b79-ba0e-b2f3c7587724
 # ╟─67e535c7-437a-49ba-b5ab-9dfe63fe4aaa
 # ╠═63814164-f305-49b3-ab51-675c822d7b18
+# ╠═1cc46e33-6885-4d6f-805e-9ff928f1cf23
+# ╠═f9f6c182-62f8-4a5a-8b43-8716db468427
+# ╠═f506e8ba-b073-4f59-91b4-3fe99822d2a4
 # ╠═bb617e58-2700-4f0d-b8c8-3a266142fb70
 # ╠═6dc0de46-2164-4580-b186-a73cb5b5167d
-# ╠═df3c4a33-45f1-4cc2-8c06-d500a0eecc8f
-# ╠═b9ad0bd3-236c-4ca0-b057-b5f1e53f3e48
-# ╠═82d8e3c7-a3ec-4293-864a-5226428a1803
-# ╠═524cf31e-b08a-4d9d-b74b-788bc955bfba
+# ╠═fd91d00a-f94f-40ff-88a7-9d85f05acc96
+# ╠═fff54c56-5afe-4d89-9dc5-502d08c89de9
 # ╠═658ceeaa-1b45-47bd-a364-eaa1759d17ac
+# ╠═df3c4a33-45f1-4cc2-8c06-d500a0eecc8f
+# ╠═f7616806-97ab-4b09-accc-4e047691f879
+# ╠═a0d61852-9942-42de-b554-572c4526a3a8
+# ╠═9df79a71-e58a-497b-bb02-debb69144925
+# ╠═e7de31e8-ae95-4616-86a9-a115a5e24330
+# ╠═5e2420fb-b2cc-49fc-91e3-3de80fba698b
+# ╠═d6e7cc6d-f397-4bdf-974e-9a16922393dd
+# ╠═8f38a3e9-1872-4ea6-9a03-87112af4bf07
+# ╟─a0eb6939-11bb-458d-bee3-9ed763819f62
+# ╠═7ee4e17e-c1a9-4df0-a014-114bebcb4f52
+# ╠═c8be6951-b6ec-4444-8c7f-ca5db6681571
+# ╠═a307e780-996a-485f-af59-b44982dfceb4
+# ╠═154edd83-350d-4acf-adfb-6a2d20599b53
+# ╠═d2625507-4787-4b1c-9a91-108012e42cc7
+# ╠═ba8a5804-4be3-43fe-95d7-c957ce02a1d4
+# ╠═06297d75-121a-4178-b45b-83e167efd90d
+# ╟─e370dbb3-3bd9-4dc8-b8ca-8aad8711905c
+# ╟─cd928f87-2832-4595-8ce5-79b69cc56bd9
+# ╟─8bcaa31b-8caf-43da-83a0-47e0c04c2a30
+# ╟─1aaf3827-5851-4156-a7e6-14f5e4d00238
 # ╠═0dfd7afb-127c-4afd-8374-3c9a20a9ee76
 # ╠═3955d71a-3105-445a-868d-66ba0b3dc515
-# ╠═5e2420fb-b2cc-49fc-91e3-3de80fba698b
-# ╠═8f38a3e9-1872-4ea6-9a03-87112af4bf07
-# ╠═7a2e6009-4370-4cb9-a4cd-9ee5aba8c09b
-# ╠═5b1d5d03-b7cf-42e0-bd5b-f3b4fff12df2
+# ╠═ff9276eb-2151-4a6f-8257-8348047a9f4e
+# ╟─2d36ebe3-1a86-4cad-a235-baec726da926
+# ╟─ba044e4f-e2a6-4f96-8756-5b24b1bb5ca2
+# ╟─6a96304b-add3-4135-8ccf-46cc23859d53
+# ╟─b352d98e-0854-45e3-ac73-8ef434525563
 # ╠═dfc2d648-ec08-49cd-a55f-72a766cad728
-# ╠═9524a3f5-fca3-4ce9-b04d-0cb6c0cd0c90
+# ╟─846ccb44-a18b-4d87-bbf8-fc59eaf87708
+# ╟─833bb53c-bc2b-47fb-9429-d0f6d92efb42
+# ╟─887de995-04e8-4d84-88d7-ad096a5747df
+# ╟─9524a3f5-fca3-4ce9-b04d-0cb6c0cd0c90
+# ╟─1067fcc4-cbc6-453c-a996-d420c498619a
+# ╟─e0d3d7d1-203f-42fa-8570-8d1d88bf17c2
+# ╠═da66b3be-1fe2-4edb-9560-71ce7c0bed12
+# ╟─8668ffc3-6c8c-4c25-8d47-9977bef929d2
+# ╟─7cdf4142-82fe-4aa6-9665-84a1eef5d038
+# ╟─1951fc4c-acc4-49a6-a907-7447ff0f430a
+# ╟─66645f1a-b591-43e7-b931-8ed0cc7d6898
+# ╟─11f8290f-f589-49ff-9602-99ccc4192884
+# ╟─14536b70-35f0-46ba-93fc-3365a1e8c15c
+# ╟─e89706f1-0c6a-4da4-82a1-ccf153f2e186
+# ╟─5834c5e0-8a04-47ea-aab8-881c73d8fd4f
 # ╠═68f9e0d9-5c9d-4e89-b5ae-f24fd7544a09
-# ╠═3d10f89f-876e-4d25-b8d6-34ce5c99eb8c
+# ╟─989ccacd-b410-4967-bf6a-9244e3be785d
+# ╟─605b045d-fe5c-426b-9f55-b7dd1d037c50
+# ╟─7ce6e28e-acd7-46d1-87d6-a25f4656d79d
+# ╟─3d10f89f-876e-4d25-b8d6-34ce5c99eb8c
+# ╟─0609ad22-0adc-4e4f-afed-b7a46d216576
+# ╟─2ed88aa5-fc42-4a57-924d-e918805e2208
+# ╠═f41dd3e6-81bf-43e4-afc2-fc549b77f610
+# ╟─059b1c0f-eb21-4a4a-8aed-64e9ac07b541
+# ╟─0d9c5d60-878a-45bb-8707-275cf10be41f
+# ╟─edb4ad06-5e6e-48c4-9ee4-ae0b92927a91
+# ╟─4481fa33-1ff3-4778-8486-d4d8a15775cd
+# ╟─aa647f3e-a4b2-4825-bb2a-1c2469d2c0eb
+# ╟─ffd1e39d-e66b-40a3-8ad1-c9480d371fe8
+# ╟─f79d97bb-341a-46ad-bdfc-d080af13e2df
+# ╟─6d6e8916-9b36-4af1-b77d-86cb6a416f88
 # ╠═1d6eccf0-2731-47fc-9a41-ea8649e290ef
-# ╠═7212f887-5347-4ee1-90b8-43d282f0fa6e
-# ╠═985f0537-2bbe-4dbb-a113-8ac98d2e0a5f
-# ╠═84c28558-9d21-4393-8d5d-65ad9234aadd
-# ╠═666beaf1-366b-4338-acb9-750e203b2185
-# ╠═cc49451a-a3de-4341-ac4f-3897cbc321d6
-# ╠═3558d0be-f51b-472d-8fd7-6213a3f0c4af
-# ╠═0a1ee6fb-b86d-4e82-a662-e31b4f55e3a9
-# ╠═7c81169f-5ac3-4660-8b0c-8ac737d86271
-# ╠═8645934b-a141-41e4-ae5b-6a0a86a94156
-# ╠═2a13fdd4-97b5-4b65-8cb5-a0124ecf3dac
-# ╠═85205698-76a3-4901-8caf-e6e6fc5524ee
+# ╟─acb270a1-e2b9-46bc-9a52-9f66f1cca17c
+# ╟─772b4dd6-870c-4a16-937c-701d5bb5da44
+# ╟─648bfc3f-0649-4401-a97f-89e21057f7b7
+# ╟─b7dfc031-6bf6-44cd-b814-05f693a0a27d
+# ╟─985f0537-2bbe-4dbb-a113-8ac98d2e0a5f
+# ╟─755be8f1-9d9e-4afd-8a70-07fab78e4333
+# ╠═cde7be85-9344-4526-bcb2-c2c8b3322435
+# ╟─1117e6c3-2736-46a4-bac2-d3c99c1998b6
+# ╟─e2fc1d47-2ee9-4844-a6b1-16f76531da86
+# ╟─8d7b9826-b52c-4d5a-8c63-e83a1229a0be
+# ╟─6f914006-1d8d-41f5-ae8a-fbe0b336946c
+# ╟─821ce23a-524b-4203-96d6-4d5b454fe1fd
+# ╟─1b02e593-d791-424c-b956-62cc480fcf40
 # ╟─859354fe-7f40-4658-bf12-b5ee20a815a7
 # ╟─88335fca-fd87-487b-9de2-ea7c779b54cf
 # ╟─abe70666-39f8-4f1d-a285-a3a99f696d10
