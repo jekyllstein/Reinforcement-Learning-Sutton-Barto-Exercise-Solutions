@@ -14,9 +14,6 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ a2412730-40b8-43c4-8ef8-02820a5285e7
-using PlutoProfile
-
 # ╔═╡ 77cf7fee-0ad8-4d22-b376-75833307db93
 begin
 	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra
@@ -803,7 +800,7 @@ function plot_fig5_1()
 
 	# plot(p1, p3, p2, p4, layout = (2, 2))
 	@htl("""
-	<div style = "display: flex; flex-wrap: wrap; flex-direction: row; width: 760; background-color: white; color: black; align-items: center; justify-content: center;">
+	<div style = "display: flex; flex-wrap: wrap; flex-direction: row; width: 800px; background-color: white; color: black; align-items: center; justify-content: center;">
 		<div style = "width: 50px;">Usable ace</div>
 		<div>$p1</div> 
 		<div>$p3</div>
@@ -1326,7 +1323,7 @@ function off_policy_MC_control(mdp::MDP_Opaque, γ::T; π_b::Matrix{T} = make_ra
 end
 
 # ╔═╡ 39da4cf9-5265-41bc-83d4-311e86675db7
-@plutoprofview (πstar_blackjack3, Qstar_blackjack3) = off_policy_MC_control(blackjack_mdp, 1.0f0; num_episodes = 3_000_000)
+(πstar_blackjack3, Qstar_blackjack3) = off_policy_MC_control(blackjack_mdp, 1.0f0; num_episodes = 3_000_000)
 
 # ╔═╡ 0bd705cb-ad38-4cbb-b8fc-7e0617635282
 md"""
@@ -2042,7 +2039,6 @@ HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
@@ -2051,7 +2047,6 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 HypertextLiteral = "~0.9.5"
 LaTeXStrings = "~1.3.1"
 PlutoPlotly = "~0.4.4"
-PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.50"
 StatsBase = "~0.33.21"
 """
@@ -2062,18 +2057,13 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0"
 manifest_format = "2.0"
-project_hash = "478f86fa7a2910471e89bd12f71822f0d00d1653"
+project_hash = "730401471128c5e7b825521be7e0d526c58b8aaf"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "8eaf9f1b4921132a4cff3f36a1d9ba923b14a481"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.1.4"
-
-[[deps.AbstractTrees]]
-git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
-uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
-version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -2167,12 +2157,6 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
-[[deps.FileIO]]
-deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "c5c28c245101bd59154f649e19b038d15901b5dc"
-uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.16.2"
-
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
@@ -2181,12 +2165,6 @@ deps = ["Statistics"]
 git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
-
-[[deps.FlameGraphs]]
-deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
-git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
-uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
-version = "0.2.10"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -2205,11 +2183,6 @@ deps = ["Logging", "Random"]
 git-tree-sha1 = "f7be53659ab06ddc986428d3a9dcc95f6fa6705a"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.2"
-
-[[deps.IndirectArrays]]
-git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
-uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
-version = "1.0.0"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -2230,12 +2203,6 @@ version = "0.21.4"
 git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.3.1"
-
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.1.3"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -2365,12 +2332,6 @@ version = "0.4.4"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.PlutoProfile]]
-deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
-git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
-uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
-version = "0.4.0"
-
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
 git-tree-sha1 = "5bb5129fdd62a2bbbe17c2756932259acf467386"
@@ -2392,16 +2353,6 @@ version = "1.3.0"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
-
-[[deps.Profile]]
-deps = ["Printf"]
-uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
-
-[[deps.ProfileCanvas]]
-deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
-git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
-uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
-version = "0.1.0"
 
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
@@ -2599,7 +2550,6 @@ version = "17.4.0+2"
 # ╠═02dd1e77-2a7e-4123-94db-d17b31a8b15a
 # ╠═04752549-ffca-4e31-869e-714f835d3e85
 # ╠═acb08e38-fc87-43f4-ac2d-6c6bf0f2e9e6
-# ╠═a2412730-40b8-43c4-8ef8-02820a5285e7
 # ╠═e293e184-5938-40b5-a04b-5306760a06ae
 # ╠═d16ac2a8-1a5a-4ded-9285-d2c6cd550066
 # ╠═70d9d39f-020d-4f25-810c-82a143a3335b
