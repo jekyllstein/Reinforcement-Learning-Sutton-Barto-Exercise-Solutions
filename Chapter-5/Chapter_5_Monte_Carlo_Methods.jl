@@ -1989,7 +1989,8 @@ md"""
 
 # ╔═╡ abe70666-39f8-4f1d-a285-a3a99f696d10
 md"""
-> *Exercise 5.13* Show the steps to derive (5.14) from (5.12)
+> ### *Exercise 5.13* 
+> Show the steps to derive (5.14) from (5.12)
 
 Starting at (5.12)
 
@@ -2012,7 +2013,8 @@ $\mathbb{E}[\rho_{t:T-1}R_{t+1}]=\mathbb{E} \left [ \frac{\pi(A_t|S_t)}{b(A_t|S_
 
 # ╔═╡ dc57a71f-e44c-4385-ad2a-e6c14d5e5201
 md"""
-> *Exercise 5.14* Modify the algorithm for off-policy Monte Carlo control (page 111) to use the idea of the truncated weighted-average estimator (5.10).  Note that you will first need to convert this equation to action values.
+> ### *Exercise 5.14* 
+> Modify the algorithm for off-policy Monte Carlo control (page 111) to use the idea of the truncated weighted-average estimator (5.10).  Note that you will first need to convert this equation to action values.
 
 Equation (5.10)
 
@@ -2022,7 +2024,7 @@ Converting this to action-value estimates:
 
 $Q(s,a) = \frac{\sum_{t \in \mathscr{T}(s,a)}\left( R_{t+1} + (1-\gamma)\sum_{h=t+2}^{T(t)-1}\gamma^{h-t-1} \rho_{t+1:h-1} \bar{G}_{t+1:h} + \gamma^{T(t)-t-1} \rho_{t+1:T(t)-1} \bar{G}_{t+1:T(t)} \right)}{\sum_{t \in \mathscr{T}(s,a)} \left( 1 + (1-\gamma) \sum_{h=t+2}^{T(t)-1} \gamma^{h-t-1} \rho_{t+1:h-1} + \gamma^{T(t)-t-1} \rho_{t+1:T(t)-1} \right)}$
 
-For the algorithm on page 111, need to add a variable in the loop to keep track of Ḡ both from the start of the episode forwards.  The inner loop should also start from the beginning of each episode and go forwards rather than starting at the end going backwards.  The term added to the numerator and denominator will be ready including Ḡ and ρ once the end of the episode is reached.  A γ accumulator can be initiazed at 1 and kept track of in the inner loop by repeatedly multiplying by γ each iteration.
+For the algorithm on page 111, need to add a variable in the loop to keep track of $\bar{G}$ both from the start of the episode forwards.  The inner loop should also start from the beginning of each episode and go forwards rather than starting at the end going backwards.  The term added to the numerator and denominator will be ready including $\bar{G}$ and $\rho$ once the end of the episode is reached.  A $\gamma$ accumulator can be initiazed at 1 and kept track of in the inner loop by repeatedly multiplying by γ each iteration.
 """
 
 # ╔═╡ 2e57e4b5-d228-4ce3-b9d8-cf4375bb7c50
