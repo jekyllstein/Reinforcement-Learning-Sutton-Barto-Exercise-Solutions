@@ -910,18 +910,6 @@ estimate_blackjack_state(blackjack_state1, π_rand_blackjack, 5_000_000) |> v ->
 # ╔═╡ 43f9b824-fd56-4d56-84c3-23e2a3a37178
 monte_carlo_pred_V(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  100000, historystateindex = blackjack_stateindex1, vinit = 0.0f0, override_state_init = true, samplemethod=Ordinary())[3] |> mean #mean weight is 2 and it stays this way as the number of episodes increases so the returns that are seen by the behavior are roughtly doubled and counted with the 0 returns
 
-# ╔═╡ 496d4ae7-10b2-466d-a391-7cd56635691b
-0.277^2
-
-# ╔═╡ a091e411-64b4-4899-9ff5-fba56228d6ec
-(1+.277)^2
-
-# ╔═╡ 5a89cbff-07d2-4fe6-91f9-352b817130b5
-0.077*.72 + .28*.52
-
-# ╔═╡ 46952a9f-60ba-4c7c-be2c-8d1e27d96439
-(-2+.277)^2
-
 # ╔═╡ 00cd2194-af13-415a-b725-bb34832e5d9a
 function figure5_3(;n = 100, vinit = 0.0f0, targetstart = true, episodes = 10_000, title = "", caption = "Figure 5.3")
 	#note that with targetstart = true, the episode will always begin with the action selected by the target policy.  Since we only care about the value estimate for this state, we only need the q value for actions taken by the target policy.  This way, every episode will produce relevant sample updates
@@ -1230,6 +1218,7 @@ monte_carlo_pred_Q(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_e
 [monte_carlo_pred_Q(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  1, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3][1:1] |> sum for i in 1:1000] |> v -> mean(filter(x -> x != 0, v))
 
 # ╔═╡ b6eac49e-6742-4594-87a5-821437846b0d
+#using ordinary importance sampling calculates statistics on weights observed after n episodes of training including what percentage of weights are 0, 1, 2 etc...
 function test(n)
 	[monte_carlo_pred_Q(π_blackjack1, π_rand_blackjack, blackjack_mdp, 1.0f0; num_episodes =  n, historystateindex = blackjack_stateindex1, qinit = 0.0f0, override_state_init = true, samplemethod=Ordinary(), use_target_initial_action = true)[3][1:n] |> v -> n - sum(v .== 0) for _ in 1:10000] |> v -> (mean(v), median(v), mode(v), mean(v .== 0), mean(v .== 1), mean(v .== 2))
 end
@@ -1877,6 +1866,9 @@ end
 
 # ╔═╡ aa647f3e-a4b2-4825-bb2a-1c2469d2c0eb
 sampleracepolicy(create_policy_function(πstar2_racetrack2, track2_mdp); track = track2, trackname = "Track 2", policyname = "Monte Carlo Exploring Starts")
+
+# ╔═╡ 780f2fd9-49c3-48bc-b790-dde5be1dc81b
+track1_mdp.states
 
 # ╔═╡ ffd1e39d-e66b-40a3-8ad1-c9480d371fe8
 md"""
@@ -2562,10 +2554,6 @@ version = "17.4.0+2"
 # ╠═5b32bbc7-dc34-4fc3-bacc-92e55f26a98c
 # ╠═b6eac49e-6742-4594-87a5-821437846b0d
 # ╠═847a074c-1d23-4de3-a039-322aeb9f7613
-# ╠═496d4ae7-10b2-466d-a391-7cd56635691b
-# ╠═a091e411-64b4-4899-9ff5-fba56228d6ec
-# ╠═5a89cbff-07d2-4fe6-91f9-352b817130b5
-# ╠═46952a9f-60ba-4c7c-be2c-8d1e27d96439
 # ╠═00cd2194-af13-415a-b725-bb34832e5d9a
 # ╟─9ca72278-fff6-4b0f-b72c-e0d3768aff73
 # ╟─e10378eb-12b3-4468-9c22-1838107da450
@@ -2661,6 +2649,7 @@ version = "17.4.0+2"
 # ╟─edb4ad06-5e6e-48c4-9ee4-ae0b92927a91
 # ╟─4481fa33-1ff3-4778-8486-d4d8a15775cd
 # ╟─aa647f3e-a4b2-4825-bb2a-1c2469d2c0eb
+# ╠═780f2fd9-49c3-48bc-b790-dde5be1dc81b
 # ╟─ffd1e39d-e66b-40a3-8ad1-c9480d371fe8
 # ╟─f79d97bb-341a-46ad-bdfc-d080af13e2df
 # ╟─6d6e8916-9b36-4af1-b77d-86cb6a416f88

@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.29
+# v0.19.36
 
 using Markdown
 using InteractiveUtils
@@ -832,9 +832,9 @@ $$q_\pi(s, \pi ^\prime(s)) \geq v_\pi(s) \tag{4.7}$$
 
 If this is true for all $s \in \mathcal{S}$ then the policy $\pi^\prime$ must be as good or better than $\pi$ meaning it has a greater or equal expected return at every state:
 
-$v_{\pi^\prime} \geq v_\pi(s) \tag{4.8}$
+$v_{\pi^\prime}(s) \geq v_\pi(s) \tag{4.8}$
 
-Starting wiht $\pi$ consider a new policy that chooses action $a$ at state $s$ instead of the usual action:  $\pi^\prime(s) = a \neq \pi(s)$.  If $q_\pi(s, a) > v_\pi(s)$, then this new policy is better than $\pi$ since $v_{\pi^\prime}(s) \geq q_\pi(s, a) > v_\pi(s)$.  This relationship is shown in the proof of the policy improvement theorem which relies upon expanding out the expression for $q_\pi$ and repeatedly applying the inequality (4.7).  
+Starting with $\pi$ consider a new policy that chooses action $a$ at state $s$ instead of the usual action:  $\pi^\prime(s) = a \neq \pi(s)$.  If $q_\pi(s, a) > v_\pi(s)$, then this new policy is better than $\pi$ since $v_{\pi^\prime}(s) \geq q_\pi(s, a) > v_\pi(s)$.  This relationship is shown in the proof of the policy improvement theorem which relies upon expanding out the expression for $q_\pi$ and repeatedly applying the inequality (4.7).  
 
 One way of creating such a policy is using action-value function of the original policy:
 
@@ -1863,7 +1863,7 @@ PlutoUI = "~0.7.52"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.0-rc1"
+julia_version = "1.10.0"
 manifest_format = "2.0"
 project_hash = "f98b95d413b2ec16c9a6d0f700b23b16b273630e"
 
@@ -2190,7 +2190,7 @@ uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 version = "1.10.0"
 
 [[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
+deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
 version = "7.2.1+1"
 
