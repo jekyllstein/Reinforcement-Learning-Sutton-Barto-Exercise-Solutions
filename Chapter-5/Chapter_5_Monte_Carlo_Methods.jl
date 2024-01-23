@@ -17,17 +17,7 @@ end
 # ╔═╡ 77cf7fee-0ad8-4d22-b376-75833307db93
 begin
 	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra
-
-	html"""
-	<style>
-		main {
-			margin: 0 auto;
-			max-width: 2000px;
-	    	padding-left: max(160px, 10%);
-	    	padding-right: max(160px, 10%);
-		}
-	</style>
-	"""
+	TableOfContents()
 end
 
 # ╔═╡ 826139cc-b52e-11ec-0d47-25ab689851fd
@@ -2029,8 +2019,18 @@ md"""
 # Dependencies and Settings
 """
 
-# ╔═╡ 1f2a62c0-b78d-4f9b-8c89-d610d168cb88
-TableOfContents()
+# ╔═╡ 4337b83f-b648-4b55-9d2a-4fffcf701111
+html"""
+	<style>
+		main {
+			margin: 0 auto;
+			max-width: min(2000px, 90%);
+	    	padding-left: max(10px, 5%);
+	    	padding-right: max(10px, 5%);
+			font-size: max(10px, min(18px, 2vw));
+		}
+	</style>
+	"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2684,6 +2684,6 @@ version = "17.4.0+2"
 # ╟─dc57a71f-e44c-4385-ad2a-e6c14d5e5201
 # ╟─2e57e4b5-d228-4ce3-b9d8-cf4375bb7c50
 # ╠═77cf7fee-0ad8-4d22-b376-75833307db93
-# ╠═1f2a62c0-b78d-4f9b-8c89-d610d168cb88
+# ╠═4337b83f-b648-4b55-9d2a-4fffcf701111
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
