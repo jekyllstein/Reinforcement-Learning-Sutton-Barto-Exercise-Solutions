@@ -4,6 +4,22 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+end
+
+# ╔═╡ 4a8d17a2-348b-4077-8071-708017daaf05
+using BenchmarkTools
+
+# ╔═╡ c6715072-a5a7-433f-90e1-7abbb221eb25
+using PlutoProfile
+
 # ╔═╡ 639840dc-976a-4e5c-987f-a92afb2d99d8
 begin
 	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra
@@ -47,17 +63,18 @@ end
 makelookup(v::Vector) = Dict(x => i for (i, x) in enumerate(v))
 
 # ╔═╡ 3e767962-7339-4f35-a039-b5521a098ed5
-struct MDP_TD{S, A, F<:Function, G<:Function}
+struct MDP_TD{S, A, F<:Function, G<:Function, H<:Function}
 	states::Vector{S}
 	statelookup::Dict{S, Int64}
 	actions::Vector{A}
 	actionlookup::Dict{A, Int64}
 	state_init::G #function that produces an initial state for an episode
 	step::F #function that produces reward and updated state given a state action pair
-	function MDP_TD(states::Vector{S}, actions::Vector{A}, state_init::G, step::F) where {S, A, F<:Function, G<:Function}
+	isterm::H #function that returns true if the state input is terminal
+	function MDP_TD(states::Vector{S}, actions::Vector{A}, state_init::G, step::F, isterm::H) where {S, A, F<:Function, G<:Function, H<:Function}
 		statelookup = makelookup(states)
 		actionlookup = makelookup(actions)
-		new{S, A, F, G}(states, statelookup, actions, actionlookup, state_init, step)
+		new{S, A, F, G, H}(states, statelookup, actions, actionlookup, state_init, step, isterm)
 	end
 end
 
@@ -67,7 +84,7 @@ function make_random_policy(mdp::MDP_TD; init::T = 1.0f0) where T <: AbstractFlo
 end
 
 # ╔═╡ 401831c3-3925-465c-a093-28686f0dad2e
-initialize_state_value(mdp::MDP_TD; vinit::T = 0.0f0) where T<:AbstractFloat = ones(length(mdp.states)) .* vinit
+initialize_state_value(mdp::MDP_TD; vinit::T = 0.0f0) where T<:AbstractFloat = ones(T, length(mdp.states)) .* vinit
 
 # ╔═╡ c5d32889-634b-4b00-8ba7-0d1ecaf94f05
 initialize_state_action_value(mdp::MDP_TD; qinit::T = 0.0f0) where T<:AbstractFloat = ones(T, length(mdp.actions), length(mdp.states)) .* qinit
@@ -85,55 +102,105 @@ end
 
 # ╔═╡ d5abd922-a8c2-4f5c-9a6e-d2490a8ad7dc
 #take a step in the environment from state s using policy π
-function takestep(mdp::MDP_TD{S, A, F, G}, π::Matrix{T}, s::S) where {S, A, F<:Function, G<:Function, T<:Real}
+function takestep(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}, s::S) where {S, A, F<:Function, G<:Function, H<:Function, T<:Real}
 	i_s = mdp.statelookup[s]
 	i_a = sample_action(π, i_s)
 	a = mdp.actions[i_a]
 	(r, s′) = mdp.step(s, a)
-	(i_s, i_s′, r, s′)
+	i_s′ = mdp.statelookup[s′]
+	return (i_s, i_s′, r, s′, a, i_a)
+end
+
+# ╔═╡ bfe71b40-3157-47df-8494-67f8eb8e4e93
+function runepisode(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}) where {S, A, F, G, H, T<:Real}
+	states = Vector{S}()
+	actions = Vector{A}()
+	rewards = Vector{T}()
+	s = mdp.state_init()
+	
+	while !mdp.isterm(s)
+		push!(states, s)
+		(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+		push!(actions, a)
+		push!(rewards, r)
+		s = s′
+	end
+	return states, actions, rewards
 end
 
 # ╔═╡ eb735ead-978b-409c-8990-b5fa7a027ebf
-function tabular_TD0_value_est(π::Matrix{T}, mdp::MDP_TD{S, A, F, G}, α::T, γ::T; num_episodes::Integer = 1000, vinit::T = zero(T), V::Vector{T} = initialize_state_value(mdp; vinit = vinit)) where {T <: AbstractFloat, S, A, F, G}
+function tabular_TD0_pred_V(π::Matrix{T}, mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes::Integer = 1000, vinit::T = zero(T), V::Vector{T} = initialize_state_value(mdp; vinit = vinit), save_states::Vector{S} = Vector{S}()) where {T <: AbstractFloat, S, A, F, G, H}
 	check_policy(π, mdp)
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
 	
 	#initialize
 	counts = zeros(Integer, length(mdp.states))
-	V[end] = zero(T) #terminal state must always have 0 value
-
+	V[terminds] .= zero(T) #terminal state must always have 0 value
+	v_saves = zeros(T, length(save_states), num_episodes+1)
+	function updatesaves!(ep)
+		for (i, s) in enumerate(save_states)
+			i_s = mdp.statelookup[s]
+			v_saves[i, ep] = V[i_s]
+		end
+	end
+	updatesaves!(1)
+	
 	#simulate and episode and update the value function every step
-	function runepisode!(V)
+	function runepisode!(V, j)
 		s = mdp.state_init()
-		while s != last(mdp.states) #by convention the last state is always terminal, note that the simulator and step function must respect this producing an update
-			(i_s, i_s′, r, s′) = takestep(mdp, π, s)
+		while !mdp.isterm(s)
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
 			V[i_s] += α * (r + γ*V[i_s′] - V[i_s])
 			s = s′
 		end
+		updatesaves!(j+1)
 		return V
 	end
 
-	for _ = 1:num_episodes;	runepisode!(V); end
-	return V
+	for i = 1:num_episodes;	runepisode!(V, i); end
+	
+	return V, v_saves
 end
 
-# ╔═╡ c3c43440-d8f5-4d16-8735-8d83981b9f15
-function tabular_TD0_value_est(π::Function, α, γ, states, sterm, actions, tr::Function, n = 1000; gets0 = () -> rand(states), v0 = 0.0)
-	V = Dict(s => v0 for s in states)
-	V[sterm] = 0.0
-	for i in 1:n
-		s0 = gets0()
-		a0 = π(s0)
-		function run_episode!(s0, a0)
-			(s, r, isterm) = tr(s0, a0)
-			V[s0] += α*(r + γ*V[s] - V[s0])
-			isterm && return nothing
-			a = π(s)
-			run_episode!(s, a)
+# ╔═╡ 415ea466-2038-48fe-9d24-39a90182f1eb
+function monte_carlo_pred_V(π::Matrix{T}, mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes::Integer = 1000, vinit::T = zero(T), V::Vector{T} = initialize_state_value(mdp; vinit=vinit), save_states = Vector{S}()) where {T <: AbstractFloat, S, A, F, G, H}
+	
+	check_policy(π, mdp)
+
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	
+	V[terminds] .= zero(T) #terminal state must always have 0 value
+	v_saves = zeros(T, length(save_states), num_episodes+1)
+	function updatesaves!(ep)
+		for (i, s) in enumerate(save_states)
+			i_s = mdp.statelookup[s]
+			v_saves[i, ep] = V[i_s]
 		end
-		run_episode!(s0, a0)
 	end
-	return V
-end		
+	updatesaves!(1)
+
+	#there's no check here so this is equivalent to every-visit estimation
+	function updateV!(states, actions, rewards; t = length(states), g = zero(T))		
+		t = length(states)
+		g = zero(T)
+		for t = length(states):-1:1
+			#accumulate future discounted returns
+			g = γ*g + rewards[t]
+			i_s = mdp.statelookup[states[t]]
+			i_a = mdp.actionlookup[actions[t]]
+			V[i_s] += α*(g - V[i_s]) #update running average of V
+		end
+	end
+
+	for j in 1:num_episodes
+		(states, actions, rewards) = runepisode(mdp, π)
+	
+		#update value function for each trajectory
+		updateV!(states, actions, rewards)
+		updatesaves!(j+1)
+	end
+	return V, v_saves
+end
 
 # ╔═╡ a0d2333f-e87b-4981-bb52-d436ec6481c1
 md"""
@@ -280,20 +347,19 @@ A simple way to view the operation of Mone Carlo methods is to plot hte predicte
 # plotly()
 
 # ╔═╡ bc8bad61-a49a-47d6-8fa6-7dcf6c221910
-function example_6_1()
+function example_6_1(;elapsed = [0, 5, 20, 30, 40, 43], predicted_ttg = [30, 35, 15, 10, 3, 0])
 	states = [:leaving, :reach_car, :exit_highway, :snd_rd, :home_st, :arrive]
-	elapsed = [0, 5, 20, 30, 40, 43]
-	predicted_ttg = [30, 35, 15, 10, 3, 0]
+	tt = last(elapsed)
 	predicted_tt = predicted_ttg .+ elapsed
-	actual_tt = fill(43, 6)
+	actual_tt = fill(tt, 6)
 
 	t1 = scatter(x = states, y = predicted_tt, line_color = "black", name = "actual outcome")
 	t1′ = scatter(x = states, y = predicted_tt, line_color = "black", name = "actual outcome", showlegend=false)
 	t2 = scatter(x = states, y = actual_tt, mode = "lines", line = attr(dash = "dash", color = "black"), name = "Monte Carlo Prediction")
-	errortraces = [scatter(x = [s, s], y = [e, 43], line = attr(color = "red"), marker = attr(symbol = "arrow-bar-up", angleref = "previous"), showlegend = false, name = "Mone Carlo Error") for (s, e) in zip(states, predicted_tt)]
+	errortraces = [scatter(x = [s, s], y = [e, tt], line = attr(color = "red"), marker = attr(symbol = "arrow-bar-up", angleref = "previous"), showlegend = false, name = "Mone Carlo Error") for (s, e) in zip(states, predicted_tt)]
 	p1 = plot([t1; t2; errortraces], Layout(xaxis_title = "State", yaxis_title = "Predicted total <br> travel time", xaxis_ticktext = ["leaving office", "reach car", "exiting highway", "2ndary road", "home street", "arrive home"], xaxis_tickvals = states, width = 600, legend_orientation = "h", legend_y = 1.1))
 
-	td_prediction = [predicted_tt[2:end]; 43]
+	td_prediction = [predicted_tt[2:end]; tt]
 	t3 = scatter(x = states, y = td_prediction, name = "TD(0) Prediction", mode = "lines", line = attr(dash = "dash", color = "black", shape = "hv"))
 	tderrors = [scatter(x = [states[i], states[i]], y = [predicted_tt[i], td_prediction[i]], line = attr(color = "red"), marker = attr(symbol = "arrow-bar-up", angleref = "previous"), showlegend = false, name = "TD(0) Error") for i in eachindex(states)]
 	p2 = plot([t1′; t3; tderrors], Layout(xaxis_title = "State", xaxis_ticktext = ["leaving office", "reach car", "exiting highway", "2ndary road", "home street", "arrive home"], xaxis_tickvals = states, width = 600, showlegend = false))
@@ -318,144 +384,324 @@ md"""
 
 Originally, from the starting state, the expected total time to reach home is 30 minutes.  Now if we change the route so that it now takes on average 5 more minutes to reach the car, but the expected elapsed time for every other leg of the journey is unchanged.  Now our total time estimate should be 35 minutes from the starting state on average.  Let's say we reach the car and nothing out of the ordinary is happening.  The predicted time to go will be 25 minutes and the predicted total time will be 35 minutes.  If nothing further out of the ordinary occurs, then only the first state will be corrected.  For the Monte Carlo method, the only state with an estimate error will be the first state, but this update will not occur until after we've arrived at our destination.  Either way, the next time we drive we will have a new, more accurate estimate reflecting the longer time required to reach the car.
 
+$(example_6_1(;elapsed = [0, 10, 20, 25, 32, 35], predicted_ttg = [30, 25, 15, 10, 3, 0]))
+
 In the example, during the drive several events occur during the journey that change the predicted and actual time from the average.  For simplicity let's assume that when we enter our home street there is a garbage truck blocking our path.  Normally it only takes 3 minutes to arrive at home, but with the truck present we estimate it will take 5 minutes (2 minutes longer).  Now the total predicted time will be increased from 35 minutes to 37 minutes.  In the case of Monte Carlo learning, this additional 2 minutes will propagate backwards to all of the previous states because we experienced a true travel time of 37 minutes rather than the 35 minutes predicted after the 2nd state and the 30 minutes predicted after the first state.  For TD(0) learning, however, this delay will only impact the previous state after a single update.  Effectively it will increase the predicted time spent on the final leg of the journey only.  The prediction from the starting state will only be increased by the 5 minute increase from the walk to the car, not the delay from the garbage truck.  Since we are actually starting from a new point, that feedback will be consistent and does reflect a true change in the expected time from the starting state.  The garbage truck, however, may be a rare occurence.  By the time this change propagates backwards through the states to the starting state, a lot more experience will be accummulated at all the other states and if α is some reasonable value, this delay will not be counted nearly as much as the updates from the first leg of the journey.  Since TD(0) only uses feedback from one step into the future immediately, if changes are made to the environment, those changes will only affect the most closely related states immediately.  In this example, all of the accurate predictions we still have about the later legs of the journey will be used to keep the predictions more stable.
 
+$(example_6_1(;elapsed = [0, 10, 20, 25, 32, 37], predicted_ttg = [30, 25, 15, 10, 5, 0]))
+
 The opposite extreme though could create a situation where the Monte Carlo updates were better.  Imagine instead that you moved houses in the same neighborhood such that once you enter the home street, it takes 5 minutes to reach your home instead of 3 minutes.  In this case, the Monte Carlo updates would move all of the state predictions up towards the 2 minute increase since all of the predictions would be too short.  The TD(0) update though would initially only increase the prediction for the final leg of the journey and we would have to wait for this change to propagate backwards to all the other states.  So the efficiency of updates for each method depends on where in the episode environmental changes occur.
+
+Actual environment change at the end of the route
+$(example_6_1(;elapsed = [0, 5, 15, 20, 27, 32], predicted_ttg = [30, 25, 15, 10, 3, 0]))
+
+Now there is a randomly experienced shorter leg at the start of the journey which won't affect most of the Monte Carlo updates.
+$(example_6_1(;elapsed = [0, 3, 13, 18, 25, 30], predicted_ttg = [30, 25, 15, 10, 3, 0]))
 """
 
 # ╔═╡ 5290ae65-6f56-4849-a842-fe347315c6dc
 md"""
 ## 6.2 Advantages of TD Prediction Methods
+TD methods can learn before an episode terminates, so this is an advantage in environments that have very long episodes.  Also, in continuing problems, Monte Carlo methods may not be suitable at all because there is no termination condition.  Furthermore, if we consider off-policy learning, Monte Carlo methods must ignore returns if exploratory actions (ones never taken by the target policy) are taken later in the episode whereas TD methods could learn from individual steps that are not exploratory regardless of what happens later on.  
+
+For any fixed policy $v_\pi$ TD(0) has been proved to converge to $v_\pi$ in the mean for a constant step-size parameter if it is sufficiently small, and with probability 1 if the step-size parameter decreases according to the usual stochastic approximation conditions (2.7).  Since both TD and Monte Carlo methods converge, one natural question is which converges faster, which makes more efficient use of limited data?  There is no mathematical proof to this question, nor is it clear how to even pose it formally; however, TD methods have usually been found to converge faster than constant-α MC methods on stochastic tasks, as illustrated in Example 6.2.
 """
 
 # ╔═╡ 47c2cbdd-f6db-4ce5-bae2-8141f30aacbc
 md"""
 ### Example 6.2 Random Walk
+
+In this example we empirically compare the prediction abilities of TD(0) and constant-α MC when applied to the following Markov reward process:
+
+In this MRP the agent's actions are irrelevant as each step the state transition occurs either to the left or the right with equal probability.  An episode ends when the transition terminates at the left or right side of the chain.  If the agent exits to the right, it receives a reward of 1.  Otherwise, all other transitions receive a reward of 0.  Below is an animation of the agent randomly moving through an episode.  Longer chains will have longer episode times on average growing roughly quadratically with the length of the chain.  Underneath the visualizations is the code.
 """
 
-# ╔═╡ d501f74b-c3a3-4591-b01f-5df5b71a85f2
-begin
-	abstract type MRP_State end
-	struct A <: MRP_State end
-	struct B <: MRP_State end
-	struct C <: MRP_State end
-	struct D <: MRP_State end
-	struct E <: MRP_State end
-	struct Term <: MRP_State end
-end
+# ╔═╡ 5455fc97-55cb-4b0e-a3be-9433ccc96fc0
+md"""
+Number of States: $(@bind nstates Slider(3:10, default = 5, show_value=true))
 
-# ╔═╡ ae182e8c-6fc0-4043-ac9f-cb6726d173e7
-function tabular_MC_value_est(π::Function, α, γ, states, sterm, actions, tr::Function, n = 1000; gets0 = () -> rand(states), v0 = 0.0)
-	V = Dict(s => v0 for s in states)
-	V[sterm] = 0.0
-	for i in 1:n
-		s0 = gets0()
-		a0 = π(s0)
-		traj = Vector{Tuple{T, Int64} where T <: MRP_State}()
-		push!(traj, (s0, a0))
-		rewards = Vector{Float64}()
-		function run_episode!(s0, a0)
-			(s, r, isterm) = tr(s0, a0)
-			push!(rewards, r)
-			isterm && return nothing
-			a = π(s)
-			push!(traj, (s, a))
-			run_episode!(s, a)
-		end
-		run_episode!(s0, a0)
+Animation Interval (s): $(@bind delay Slider(0.1:0.1:1.0, default = 0.2, show_value=true))
 
-		function updateV!(t = length(traj), g = 0.0)
-			t == 0 && return nothing
-			(s, a) = traj[t]
-			r = rewards[t]
-			g = γ*g + r
-			V[s] += α * (g - V[s])
-			updateV!(t - 1, g)
-		end
-		updateV!()
+$(@bind start_mrp Button("New Random Walk"))
+"""
+
+# ╔═╡ a9dda9b5-f568-481c-9e8f-9bb887468775
+md"""
+#### Random Walk MDP Setup
+"""
+
+# ╔═╡ 846720cc-550a-4a3c-a80e-40b99671f4e2
+const mrp_moves = [-1, 1]
+
+# ╔═╡ 4ddcd409-c31c-444c-8fcf-7cc45b68d93b
+function make_mrp(;l = (5))
+	function step(s, a)
+		x = s + rand(mrp_moves)
+		r = Float32(floor(x / (l+1)))
+		(r, mod(x, l+1)) #if a transition is terminal will return 0
 	end
-	return V
-end		
-
-# ╔═╡ a116f557-ca8f-4e28-bf8c-84e7e19b30da
-function random_walk_6_2()
-	left(::A) = (Term(), 0, true)
-	left(::B) = (A(), 0, false)
-	left(::C) = (B(), 0, false)
-	left(::D) = (C(), 0, false)
-	left(::E) = (D(), 0, false)
-
-	right(::A) = (B(), 0, false)
-	right(::B) = (C(), 0, false)
-	right(::C) = (D(), 0, false)
-	right(::D) = (E(), 0, false)
-	right(::E) = (Term(), 1, true)
-
-	tr(s0 , a0) = rand() < 0.5 ? left(s0) : right(s0)
-
-	states = [A(), B(), C(), D(), E(), Term()]
-	actions = [1]
-	(states = states, actions = actions, tr = tr)
+	MDP_TD(collect(0:l), [1], () -> ceil(Int64, l/2), step, s -> s == 0)
 end
+
+# ╔═╡ 4b0d96d0-25d1-4fed-b105-c65fa2883a61
+const mrp_6_2 = make_mrp(l = nstates)
+
+# ╔═╡ 64fe8336-d1c2-41fe-a522-1b6f63260fc9
+const π_mrp = make_random_policy(mrp_6_2)
+
+# ╔═╡ a5009785-64b4-489b-a967-f7840b4a9463
+md"""
+#### Random Walk Visualization
+"""
+
+# ╔═╡ de50f95f-984e-4387-958c-64e0265f5953
+function render_walk(id; l = 5)
+	l > 26 && error("Cannot render more than 26 states")
+	names = Iterators.take('A':'Z', l) |> collect
+	startstate = names[ceil(Int64, l/2)]
+
+	makestate(s) = """<div class = "circlestate $s"></div>"""
+
+	function combinestates(s1, s2)
+		"""
+		$s1
+		<div class = "arrow left right"><div>0</div></div>
+		$s2
+		"""
+	end
+	@htl("""
+	<div id = "$id" style="display: flex; flex-direction: column; align-items: space-around; font-size: 18px;">
+		<div class="randomwalk">
+			<div class = "term left"></div>
+			<div class="arrow left"><div>0</div></div>
+			$(HTML(mapreduce(makestate, combinestates, names)))
+			<div class="arrow right"><div>1</div></div>
+			<div class="term right"></div>
+		</div>
+	</div>
+	<style>
+		.circlestate.$startstate::after {
+			content: 'start';
+			transform: translateX(-12%) translateY(-15%);
+			position: absolute;
+		}
+	</style>
+	""")
+end
+
+# ╔═╡ e4c6456c-867d-4ade-a3c8-310c1e065f14
+render_walk("eg1", l = nstates)
+
+# ╔═╡ f841c4d8-5176-4007-b472-9e01a799d85c
+function addelements(e1, e2)
+	"""
+	$e1
+	$e2
+	"""
+end
+
+# ╔═╡ 889611fb-7dac-4769-9251-9a90e3a1422f
+function statestyle(s)
+	"""
+	.circlestate.$s::before {
+		content: '$s';
+	}
+	"""
+end
+
+# ╔═╡ 902738c3-2f7b-49cb-8580-29359c857027
+@htl("""
+<style>
+$(mapreduce(statestyle, addelements, 'A':'Z'))
+</style>
+""")
+
+# ╔═╡ 510761f6-66c7-4faf-937b-e1422ec829a6
+HTML("""
+<style>
+	.randomwalk {
+		margin: 5px;
+		background-color: gray;
+		height: 50px;
+	}
+	.randomwalk, .backup * {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		color: black;
+	}
+	.circlestate, .circleaction {
+		margin: 2px;
+	}
+
+	.circlestate * {
+		position: absolute;
+		top: 18px;
+		transform: translateX(5px);
+	}
+
+	.arrow * {
+		transform: translateY(-11px);
+	}
+
+	.circlestate::before {
+		content: '';
+		display: flex;
+		align-items:center;
+		justify-content: center;
+		border: 1px solid black;
+		border-radius: 50%;
+		height: 20px;
+		width: 20px;
+		background-color: white;
+	}
+	.circleaction::before {
+		content: '';
+		display: inline-block;
+		border: 1px solid black;
+		border-radius: 50%;
+		height: 10px;
+		width: 10px;
+		background-color: black;
+	}
+	.arrow {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 50px;
+		height: 2px;
+		background-color: black;
+	}
+
+	.arrow.left::before {
+		content: '';
+		display: inline-block;
+		width: 4px;
+		height: 4px;
+		border-bottom: 2px solid black;
+		border-right: 2px solid black;
+		transform: translateX(-16px) rotate(135deg);
+	}
+
+	.arrow.right::after {
+		content: '';
+		display: inline-block;
+		width: 4px;
+		height: 4px;
+		border-bottom: 2px solid black;
+		border-right: 2px solid black;
+		transform: translateX(16px) rotate(-45deg);
+	}
+
+	.arrow::after {
+	
+		display: inline-block;
+		width: 4px;
+		height: 4px;
+		border-bottom: 3px solid black;
+		border-right: 3px solid black;
+		transform: translateY(-5px) rotate(45deg);
+		position: relative;
+	}
+	.term::before {
+		content: '';
+		display: inline-block;
+		width: 20px;
+		height: 20px;
+		border: 2px solid black;
+		background-color: rgb(50, 50, 50);
+	}
+</style>
+""")
+
+# ╔═╡ 87fadfc0-2cdb-4be2-81ad-e8fdeffb690c
+function show_mrp_state(id, states, rewards, index)
+	reward = rewards[min(index, length(states))]
+	state = states[min(index, length(states))]
+	dir = reward== 0 ? "left" : "right"
+
+	termcolor = if index >= length(states)
+		"""
+		#$id .term.$dir::before {
+			background-color: red;
+		}
+		"""
+	else
+		""""""
+	end
+	activestate = collect('A':'Z')[state]
+	HTML("""
+	<style>
+		#$id .circlestate.$activestate::before {
+			background-color: green;
+		}
+		$termcolor
+	</style>
+	"""
+	)
+end
+
+# ╔═╡ 31e16315-f0e2-4781-a995-f5fcaad2c655
+begin
+	start_mrp
+	mrp_trajectory = runepisode(mrp_6_2, π_mrp)
+end
+
+# ╔═╡ 53145cc2-784c-468b-8e91-9bb7866db218
+@bind t PlutoUI.Clock(interval = delay, max_value = length(mrp_trajectory[1])+5, repeat=true, start_running=true)
+
+# ╔═╡ 54d97122-2d01-46ec-aafe-00bfc9f2d6d1
+md"""
+Step: $(min(length(first(mrp_trajectory)), t)) / $(length(first(mrp_trajectory)))
+"""
+
+# ╔═╡ 1dd1ba55-548a-41f6-903e-70742fd60e3d
+show_mrp_state("eg1", mrp_trajectory[1], mrp_trajectory[3], t)
 
 # ╔═╡ 2786101e-d365-4d6a-8de7-b9794499efb4
-function example_6_2()
-	(states, actions, tr) = random_walk_6_2()
-	π(s) = 1
-	nlist = [1, 10, 100]
+function example_6_2(;l = 5, max_episodes = 100, nruns = 100, vinit = 0.5f0)
+	mrp = make_mrp(l = l)
+	π = make_random_policy(mrp)
+	true_values = collect(1:l) ./ (l+1)
+	get_rw_names(l) = string.(Iterators.take('A':'Z', l) |> collect)
+	(_, td0_est) = tabular_TD0_pred_V(π, mrp, 0.1f0, 1.0f0; num_episodes = 100, vinit = 0.5f0, save_states = collect(1:l))
+	traces = [scatter(x = get_rw_names(l), y = td0_est[:, n], name = "$(n-1) episodes") for n in [1, 2, 11, 101]]
+	tv_trace = scatter(x = get_rw_names(l), y = true_values, name = "True values", line_color="black")
+	p1 = plot([tv_trace; traces], Layout(title = "Estimated Value with TD(0)", xaxis_title = "State"))
 
-	TD0_est(α, n) = tabular_TD0_value_est(π, α, 1.0, states, Term(), actions, tr, n, gets0 = () -> C(), v0 = 0.5)
+	calc_rms(v_saves) = [sqrt(mean((v .- true_values) .^2)) for v in eachcol(v_saves)]
 
-	MC_est(α, n) = tabular_MC_value_est(π, α, 1.0, states, Term(), actions, tr, n, gets0 = () -> C(), v0 = 0.5)
+	run_estimate(f, α, n) = f(π, mrp, α, 1.0f0; num_episodes = n, vinit = vinit, save_states = collect(1:l))
 
-	V_ests = [TD0_est(0.1, n) for n in nlist]
+	td_αs = [0.05f0, 0.1f0, 0.15f0]
+	mc_αs = 0.01f0:0.01f0:0.04f0 |> collect
+	td_est = [mean([calc_rms(last(run_estimate(tabular_TD0_pred_V, α, max_episodes))) for _ in 1:nruns]) for α in td_αs]
+	mc_est = [mean([calc_rms(last(run_estimate(monte_carlo_pred_V, α, max_episodes))) for _ in 1:nruns]) for α in mc_αs]
+	td_traces = [scatter(x = collect(1:max_episodes), y = td_est[i], name = "$(i == 1 ? "TD" : "") α = $(td_αs[i])", line_color = "rgba(0, 0, 255, $(i/3))") for i in eachindex(td_est)]
+	mc_traces = [scatter(x = collect(1:max_episodes), y = mc_est[i], name = "$(i == 1 ? "MC" : "") α = $(mc_αs[i])", line_color = "rgba(255, 0, 0, $(i/5))") for i in eachindex(mc_est)]
 
-	true_values = collect(1:5) ./ 6
-
-	x1 = ["A", "B", "C", "D", "E"]
-	y1 = [[V_ests[i][s] for s in states[1:end-1]] for i in 1:3]
-	p1 = plot(vcat([true_values], y1), xticks = (1:5, x1), lab = hcat("True values", ["$n ep est" for n in nlist']), xlabel="State")
-
-	MC_est(0.1, 1)
-
-	function rms_err(Vest)
-		sqrt(mean(([Vest[s] for s in states[1:end-1]] .- true_values) .^2))
-	end
-	
-	samples = 100
-	rms_TD0(n, α) = mean(rms_err(TD0_est(α, n)) for _ in 1:samples)
-	rms_MC(n, α) = mean(rms_err(MC_est(α, n)) for _ in 1:samples)
-	
-	maxepisodes = 100
-	
-	αlist1 = [0.05, 0.1, 0.15, 1.0]
-	αlist2 = [0.01, 0.02, 0.03, 0.04]
-	y2 = [[rms_TD0(n, α) for n in 1:maxepisodes] for α in αlist1]
-	y3 = [[rms_MC(n, α) for n in 1:maxepisodes] for α in αlist2]
-	p2 = plot(y2, lab = ["TD α = $α" for α in αlist1'], xlabel = "Episodes", title = "Empirical RMS error, averaged over states")
-	plot!(y3, lab = ["MC α = $α" for α in αlist2'])
-
-	plot(p1, p2, layout = (2, 1), size = (680, 700))
+	p2 = plot([td_traces; mc_traces], Layout(xaxis_title = "Walks / Episodes", title = "Empirical RMS error, averaged over states"))
+	@htl("""<div style = "display: flex;">
+	$p1
+	$p2
+	</div>
+	The right graph shows learning curves for the two methods for various values of α.  The performance measure shown is the root mean square (RMS) error between the vlue function learned and the true value function, averaged over the $l states, then averaged over $nruns runs.  In all cases the approximate value function was initialized to the intermediate value 0.5.  The TD method was consistently better than the MC method on this task.""")
 end		
 
 # ╔═╡ 9db7a268-1e6d-4366-a0ec-ebf54916d3b0
-# ╠═╡ disabled = true
-#=╠═╡
-example_6_2()
-  ╠═╡ =#
-
-# ╔═╡ b5d0def2-9b65-4e28-a910-d261a25e31f1
-sqrt(sum([(n/6)^2 for n in 1:5]))
+example_6_2(l = nstates)
 
 # ╔═╡ 0b9c6dbd-4eb3-4167-886e-64db9ec7ff04
 md"""
-> *Exercise 6.3* From the results shown in the left graph of the random walk example it appears that the first episode reuslts in a change only in $V(A)$.  What does this tell you about what happened on the first episode?  Why was only the estimate for this one state changed?  By exactly how much was it changed?
+> ### *Exercise 6.3* 
+> From the results shown in the left graph of the random walk example it appears that the first episode results in a change only in $V(A)$.  What does this tell you about what happened on the first episode?  Why was only the estimate for this one state changed?  By exactly how much was it changed?
 
-The update rule with TD0 learning is given by 
+The update rule with TD(0) learning is given by 
 
 $V(S_t) \leftarrow V(S_t) + \alpha[R_{t+1} + \gamma V(S_{t+1}) - V(S_t)]$
 
-All states, A, B, C, D, E are initialized at 0.5 with the terminal state initialized at 0.  During the first episode for all transitions before the end, the reward is 0 and the difference between adjacent states would be 0 resulting in no change to the value function.  Since the value estimate for state A decreases from the initial value, this teams that the first episode terminated to the far left.  For this final transition we have the following update.
+All states, A, B, C, D, E are initialized at 0.5 with the terminal state initialized at 0.  During the first episode for all transitions before the end, the reward is 0 and the difference between adjacent states would be 0 resulting in no change to the value function.  Since the value estimate for state A decreases from the initial value, this means that the first episode terminated to the left.  For this final transition we have the following update.
 
 $V(A) \leftarrow V(A) + \alpha[0 + \gamma V(\text{Term}) - V(A)]$
 
@@ -468,44 +714,69 @@ For this plot, $\alpha=0.1$, so the updated value for $V(A)$ is $0.5+0.1(-0.5)=0
 
 # ╔═╡ 52aebb7b-c2a9-443f-bc03-24cd25793b32
 md"""
-> *Exercise 6.4* The specific results shown in the right graph of the random walk example are dependent on the value of the step-size parameter α. Do you think the conclusions about which algorithm is better would be affected if a wider range of values were used? Is there a different, fixed value of α at which either algorithm would have performed significantly better than shown? Why or why not?
+> ### *Exercise 6.4* 
+> The specific results shown in the right graph of the random walk example are dependent on the value of the step-size parameter $\alpha$. Do you think the conclusions about which algorithm is better would be affected if a wider range of values were used? Is there a different, fixed value of $\alpha$ at which either algorithm would have performed significantly better than shown? Why or why not?
 
-Both algorithms should theoretically converge to the true values with a sufficiently small α and a large enough number of samples.  Over this limited window of 100 episodes, an α that is too small might result in convergence so slow that it does not reach error as low as a larger α.  For the MC method, the range of α's already show the case of too slow convergence and too large α with the best outcome at α=0.02.  For the TD method, the best results shown are for α=0.05, so a smaller α might result in even better performance OR it could result in a curve that converges too slowly to beat α=0.05 in 100 episodes.  Either way, there is no alternative combination of step sizes for either method that would result in TD learning appearing worse than MC learning over this number of episodes.
+Both algorithms should theoretically converge to the true values with a sufficiently small $\alpha$ and a large enough number of samples.  Over this limited window of 100 episodes, an $\alpha$ that is too small might result in convergence so slow that it does not reach error as low as a larger $\alpha$.  For the MC method, $\alpha=0.01$ is the smallest value and it has the slowest convergence over this range.  $\alpha=0.04$ is the largest value tested, and it results in approximately the same error after 100 episodes.  The intermediate values show better performance over this number of episodes indicating that the best possible performance is already captured in this interval. 
+
+For the TD method, the best results shown are for $\alpha=0.05$ which is already the smallest value with the slowest convergence rate.  An even smaller value might result in a better outcome over 100 episodes, but this performance is already better than anything observed for the MC method.
 """
 
 # ╔═╡ e6672866-c0a0-46f2-bb52-25fcc3352645
 md"""
-> *Exercise 6.5* In the right graph of the random walk example, the RMS error of the TD method seems to go down and then up again, particularly at high α’s. What could have caused this? Do you think this always occurs, or might it be a function of how the approximate value function was initialized?
+> ### *Exercise 6.5* 
+> In the right graph of the random walk example, the RMS error of the TD method seems to go down and then up again, particularly at high $\alpha$’s. What could have caused this? Do you think this always occurs, or might it be a function of how the approximate value function was initialized?
 
+Since the value function was initialized at the correct value for the center state, all of the values to the right must be increased and the values to the left must be decreased to reach the true values.  Episodes that terminate to the right will receive a reward of 1 and push up the rightmost estimate while episodes that terminate to the left will receive a reward of 0 and decrease the leftmost estimate.  The correct value for each of these estimates is $\frac{1}{6}$ and $\frac{5}{6}$ respectively.  Since there is an equal probability of exiting the walk on the right or the left, both ends of the value estimates will be updated at roughly the same rate.  That means that both ends of the chain will move towards the correct value at about the same time and if those updates stay someone synchronized, all of the states will move through correct values at a similar time.  At the time when the values are roughly accurate, what happens if $\alpha=0.15$?  In this case, consider an update for state E assuming the estimate is already the correct value.  $V(E) \leftarrow \frac{5}{6} + 0.15[1 - \frac{5}{6}] \approx 0.858 \gt \frac{5}{6}$.  A similar effect happens with state A pushing it below the correct value.  The larger $\alpha$ is, the more over-correction we have on future transitions and the feedback from the other neighboring states won't be enough to bring it back to the correct value.  Since we pass through or very close to the correct value on the way, we pass through a minimum error value before over or undershooting the value estimate.  
 
+If we had instead initialized the state values at 0, then the estimate at A would already be too low and would not get corrected until information from the right side propagated through.  State E, however, will receive large updates for each episode that exits to the right, but the values for the states to its left will be too low.  Since the state value estimates are not moving symmetrically, we won't have the same synchronized pass through the minimum error, since at the time the E estimate is correct, A will still be high error.  In this case, we are more likely to see error continue to fall as more updates occur.  Below is a visualization of the state estimates at different stages in the training with the original initialization and a 0 initialization.  In the 0 case, you can see the left-size estimates take a long time to reach the correct value, but in the original initialization, all the estimate approach the correct values roughly together. 
 """
+
+# ╔═╡ ddf3bb61-16c9-48c4-95d4-263260309762
+function exercise_6_5(;l = 5, max_episodes = 100, nruns = 100, α = 0.3f0, vinit = 0.5f0)
+	mrp = make_mrp(l = l)
+	π = make_random_policy(mrp)
+	true_values = collect(1:l) ./ (l+1)
+	get_rw_names(l) = string.(Iterators.take('A':'Z', l) |> collect)
+	(_, td0_est) = tabular_TD0_pred_V(π, mrp, α, 1.0f0; num_episodes = 100, vinit = vinit, save_states = collect(1:l))
+	traces = [scatter(x = get_rw_names(l), y = td0_est[:, n], name = "$(n-1) episodes") for n in [1, 2, 8, 16, 100]]
+	tv_trace = scatter(x = get_rw_names(l), y = true_values, name = "True values", line_color="black")
+	plot([tv_trace; traces], Layout(title = "Estimated Value with TD(0)", xaxis_title = "State"))
+end		
+
+# ╔═╡ e8f94345-9ad5-48d4-8709-d796fb55db3f
+exercise_6_5(α = 0.2f0)
+
+# ╔═╡ a72d07bf-e337-4bd4-af5c-44d74d163b6b
+exercise_6_5(α = 0.2f0, vinit = 0.0f0)
 
 # ╔═╡ 105c5c23-270d-437e-89dd-12297814c6e0
 md"""
-> *Exercise 6.6* In Example 6.2 we stated that the true values for the random walk example are 1/6 , 2/6 , 3/6 , 4/6 , and 5/6 , for states A through E. Describe at least two different ways that these could have been computed. Which would you guess we actually used? Why?
+> ### *Exercise 6.6* 
+> In Example 6.2 we stated that the true values for the random walk example are 1/6 , 2/6 , 3/6 , 4/6 , and 5/6 , for states A through E. Describe at least two different ways that these could have been computed. Which would you guess we actually used? Why?
 
-###### Method 1: Set up the following system of equations
-$V(A) = \frac{0+V(B)}{2} \implies 2V(A)=V(B)$
-$V(B) = \frac{V(A)+V(C)}{2} \implies 2V(B) = V(A)+V(C)$
-$V(C) = \frac{V(B)+V(D)}{2} \implies 2V(C)=V(B)+V(D)$
-$V(D) = \frac{V(C)+V(E)}{2} \implies 2V(D)=V(C)+V(E)$
-$V(E) = \frac{V(D)+1}{2} \implies 2V(E)=V(D)+1$
+###### Method 1: Set up the following system of equations that represent the relationship between state values
+$\begin{flalign}
+V(A) &= \frac{0+V(B)}{2} \implies 2V(A)=V(B) \\
+V(B) &= \frac{V(A)+V(C)}{2} \implies 2V(B) = V(A)+V(C)\\
+V(C) &= \frac{V(B)+V(D)}{2} \implies 2V(C)=V(B)+V(D)\\
+V(D) &= \frac{V(C)+V(E)}{2} \implies 2V(D)=V(C)+V(E)\\
+V(E) &= \frac{V(D)+1}{2} \implies 2V(E)=V(D)+1\\
+\end{flalign}$
 
-We can work down from the top equation expressing everything in terms of A.  For shorter expressions $V(A)$ will be written below as $A$:
+We can work down from the top equation expressing everything in terms of A.  For shorter expressions $V(A)$ will be written below as $A$ and likewise for other states:
 
-$B=2A$
-
-$2B=A+C \implies C = 3A$
-
-$2C=B+D \implies D = 6A-2A=4A$
-
-$2D=C+E \implies E = 8A-3A = 5A$
-
-$2E = D + 1 \implies 10A = 4A + 1 \implies A = \frac{1}{6}$
+$\begin{flalign}
+B&=2A \\
+2B&=A+C \implies C = 3A \\
+2C&=B+D \implies D = 6A-2A=4A \\
+2D&=C+E \implies E = 8A-3A = 5A \\
+2E &= D + 1 \implies 10A = 4A + 1 \implies A = \frac{1}{6}
+\end{flalign}$
 
 Now that we have the value for A, all the others are trivial multiplications of it from 2 to 5.
 
-###### Method 2: Calculate each value from probabilities
+###### Method 2: Calculate each value from probability of each trajectory
 With this method to get $V(A)$ we would write down every possible trajectory to a terminal state with the associated probability of each.  Since trajectories terminating to the left have a value of 0, we only need to add up the trajectories that terminate to the right.  Below are some examples for state A.
 
 $V(A) = 0.5^5 + 4 \times 0.5^7 + \cdots$
@@ -1300,7 +1571,7 @@ html"""
 			max-width: min(2000px, 90%);
 	    	padding-left: max(10px, 5%);
 	    	padding-right: max(10px, 5%);
-			font-size: max(10px, min(18px, 2vw));
+			font-size: max(10px, min(24px, 2vw));
 		}
 	</style>
 	"""
@@ -1308,18 +1579,22 @@ html"""
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
+PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
+BenchmarkTools = "~1.4.0"
 HypertextLiteral = "~0.9.5"
 LaTeXStrings = "~1.3.1"
 PlutoPlotly = "~0.4.4"
+PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.55"
 StatsBase = "~0.34.2"
 """
@@ -1330,13 +1605,18 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0"
 manifest_format = "2.0"
-project_hash = "1b4a7be52516c0c16bdbb93d24709764b67fafc3"
+project_hash = "fe2252dfe7eee84e810c7f5f83aff791b8218574"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "c278dfab760520b8bb7e9511b968bf4ba38b7acc"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.2.3"
+
+[[deps.AbstractTrees]]
+git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -1352,6 +1632,12 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 git-tree-sha1 = "4b41ad09c2307d5f24e36cd6f92eb41b218af22c"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
 version = "1.2.1"
+
+[[deps.BenchmarkTools]]
+deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "f1f03a9fa24271160ed7e73051fba3c1a759b53f"
+uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+version = "1.4.0"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
@@ -1430,6 +1716,12 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "c5c28c245101bd59154f649e19b038d15901b5dc"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.16.2"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
@@ -1438,6 +1730,12 @@ deps = ["Statistics"]
 git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
+
+[[deps.FlameGraphs]]
+deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
+git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
+uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
+version = "0.2.10"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -1456,6 +1754,11 @@ deps = ["Logging", "Random"]
 git-tree-sha1 = "8b72179abc660bfab5e28472e019392b97d0985c"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.4"
+
+[[deps.IndirectArrays]]
+git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
+uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
+version = "1.0.0"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -1476,6 +1779,12 @@ version = "0.21.4"
 git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.3.1"
+
+[[deps.LeftChildRightSiblingTrees]]
+deps = ["AbstractTrees"]
+git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
+uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
+version = "0.1.3"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -1605,6 +1914,12 @@ version = "0.4.4"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
+[[deps.PlutoProfile]]
+deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
+git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
+uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
+version = "0.4.0"
+
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
 git-tree-sha1 = "68723afdb616445c6caaef6255067a8339f91325"
@@ -1626,6 +1941,16 @@ version = "1.4.1"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[[deps.Profile]]
+deps = ["Printf"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+
+[[deps.ProfileCanvas]]
+deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
+version = "0.1.0"
 
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
@@ -1764,8 +2089,9 @@ version = "17.4.0+2"
 # ╠═c5d32889-634b-4b00-8ba7-0d1ecaf94f05
 # ╠═24a441c8-7aaf-4642-b245-5e1201456d67
 # ╠═d5abd922-a8c2-4f5c-9a6e-d2490a8ad7dc
+# ╠═bfe71b40-3157-47df-8494-67f8eb8e4e93
 # ╠═eb735ead-978b-409c-8990-b5fa7a027ebf
-# ╠═c3c43440-d8f5-4d16-8735-8d83981b9f15
+# ╠═415ea466-2038-48fe-9d24-39a90182f1eb
 # ╟─a0d2333f-e87b-4981-bb52-d436ec6481c1
 # ╟─3b16cbb7-f859-4871-9a63-8b40eb4191be
 # ╟─d4e39164-9833-4deb-84ca-22f49a1c33d8
@@ -1782,15 +2108,34 @@ version = "17.4.0+2"
 # ╟─9017093c-a9c3-40ea-a9c6-881ee62fc379
 # ╟─5290ae65-6f56-4849-a842-fe347315c6dc
 # ╟─47c2cbdd-f6db-4ce5-bae2-8141f30aacbc
-# ╠═d501f74b-c3a3-4591-b01f-5df5b71a85f2
-# ╠═ae182e8c-6fc0-4043-ac9f-cb6726d173e7
-# ╠═a116f557-ca8f-4e28-bf8c-84e7e19b30da
+# ╟─5455fc97-55cb-4b0e-a3be-9433ccc96fc0
+# ╟─53145cc2-784c-468b-8e91-9bb7866db218
+# ╟─54d97122-2d01-46ec-aafe-00bfc9f2d6d1
+# ╟─e4c6456c-867d-4ade-a3c8-310c1e065f14
+# ╟─9db7a268-1e6d-4366-a0ec-ebf54916d3b0
+# ╟─a9dda9b5-f568-481c-9e8f-9bb887468775
+# ╠═846720cc-550a-4a3c-a80e-40b99671f4e2
+# ╠═4ddcd409-c31c-444c-8fcf-7cc45b68d93b
+# ╠═4b0d96d0-25d1-4fed-b105-c65fa2883a61
+# ╠═64fe8336-d1c2-41fe-a522-1b6f63260fc9
+# ╟─a5009785-64b4-489b-a967-f7840b4a9463
+# ╠═de50f95f-984e-4387-958c-64e0265f5953
+# ╠═f841c4d8-5176-4007-b472-9e01a799d85c
+# ╠═902738c3-2f7b-49cb-8580-29359c857027
+# ╠═889611fb-7dac-4769-9251-9a90e3a1422f
+# ╟─510761f6-66c7-4faf-937b-e1422ec829a6
+# ╠═87fadfc0-2cdb-4be2-81ad-e8fdeffb690c
+# ╠═4a8d17a2-348b-4077-8071-708017daaf05
+# ╠═1dd1ba55-548a-41f6-903e-70742fd60e3d
+# ╠═c6715072-a5a7-433f-90e1-7abbb221eb25
+# ╠═31e16315-f0e2-4781-a995-f5fcaad2c655
 # ╠═2786101e-d365-4d6a-8de7-b9794499efb4
-# ╠═9db7a268-1e6d-4366-a0ec-ebf54916d3b0
-# ╠═b5d0def2-9b65-4e28-a910-d261a25e31f1
 # ╟─0b9c6dbd-4eb3-4167-886e-64db9ec7ff04
 # ╟─52aebb7b-c2a9-443f-bc03-24cd25793b32
 # ╟─e6672866-c0a0-46f2-bb52-25fcc3352645
+# ╟─e8f94345-9ad5-48d4-8709-d796fb55db3f
+# ╟─a72d07bf-e337-4bd4-af5c-44d74d163b6b
+# ╠═ddf3bb61-16c9-48c4-95d4-263260309762
 # ╟─105c5c23-270d-437e-89dd-12297814c6e0
 # ╟─48b557e3-e239-45e9-ab15-105bcca96492
 # ╠═620a6426-cb29-4010-997b-aa4f9d5f8fb0
