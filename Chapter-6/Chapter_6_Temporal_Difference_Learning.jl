@@ -117,7 +117,8 @@ function runepisode(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}) where {S, A, F, G
 	actions = Vector{A}()
 	rewards = Vector{T}()
 	s = mdp.state_init()
-	
+
+	#note that the terminal state will not be added to the state list
 	while !mdp.isterm(s)
 		push!(states, s)
 		(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
@@ -788,8 +789,23 @@ This equation represents the single trajectory that takes 5 steps to the right e
 md"""
 ## 6.3 Optimality of TD(0)
 
+Suppose there is available only a finite amount of experience, say 10 episodes or 100 time steps.  In this case, a common approach with incremental learning methods is to present the experience repeatedly until the method converges upon an answer.  Given an approximate value function $V$, the increments specified by (6.1) or (6.2) are computed for every time step $t$ at which a nonterminal state is visited, but the value function is changed only once, by the sum of all the increments.  Then all the available experience is processed again with the new value function to produce a new overall increment, and so on, until the value function converged.  We call this *batch updating* because updates are made only after processing each complete *batch* of training data.  
+
+Under batch updating, TD(0) converges deterministically to a single answer independent of the step-size parameter, $\alpha$, as long as $\alpha$ is chosen to be sufficiently small.  The constant $\alpha$ MC method also converges deterministically under the same conditions, but to a difference answer.  Understanding these two answers will help us understand the difference between the two methods.  Under normal updating the methods do not move all the way to their respective batch answers, but in some sense they take steps in these directions.  Before trying to understand the two answers in general, for all possible tasks, we first look at a few examples.
+
 ### Example 6.3: Random walk under batch updating
 
+Batch-updating versions of TD(0) and constant-$\alpha$ MC were applied as follows to the random walk prediction example (Example 6.2).  After each new episode, all episodes seen so far were treated as a batch.  They were repeatedly presented to the algorithm, either TD(0) or constant-$\alpha$ MC, with $\alpha$ sufficiently small that the value function converged.  The resulting value function was then compared with $v_\pi$, and the average root mean square error across the five states (and accross 100 independent repetitions of the whole experiment) was plotted to obtain the learning curves shown in Figure 6.2.  Note that the batch TD method was consistently better than the batch Monte Caro method.  
+
+Under batch training, constant-$\alpha$ MC converges to the values, $V(s)$, that are sample averages of the actual returns experienced after visiting each state $s$.  These are optimal estimates in the sense that they minimize the mean square error from the actual returns in the training set.  In this sense it is surprising that the batch TD method was able to perform better according to the root mean square error measure shown in figure 6.2.  How is it that batch TD was able to perform better than this optimal method?  The answer is that the Monte Carlo method is optimal only in a limited way, and that TD is optimal in a way that is more relevant to predicting returns.
+
+Below is code implementing both batch methods in general for arbitrary MDPs.
+
+"""
+
+# ╔═╡ 0a4ed8c7-27ca-45cb-af15-70ddd86240fb
+md"""
+#### Batch Method Estimation Implementation
 """
 
 # ╔═╡ 620a6426-cb29-4010-997b-aa4f9d5f8fb0
@@ -799,144 +815,152 @@ begin
 	struct MC <: BatchMethod end
 end
 
-# ╔═╡ 6f185046-dfdb-41ca-bf3f-e2f90e2e4bc0
-function batch_value_est(π::Function, α, γ, states::Vector{S}, sterm, actions::Vector{A}, tr::Function, n = 1000; gets0 = () -> rand(states), v0 = 0.0, ϵ = 0.01, Vref = Dict(s => v0 for s in states), estmethod = TD0()) where {S, A}
-	V = Dict(s => v0 for s in states)
-	V[sterm] = 0.0
-	errs = Vector{Float64}()
+# ╔═╡ 3d8b1ccd-9bb3-42f2-a77a-6afdb72c1ff8
+#calculate the percentage error for a value update handling cases of zero values
+function calc_error(v_old::T, v_new::T) where T<:AbstractFloat
+	d = v_new - v_old
+	return abs(d)
+	f(x) = x <= eps(one(T))
+	f(d) && f(v_old) && return zero(T)
+	f(v_old) && return typemax(T)
+	abs(d) / abs(v_old)
+end
 
-	#store all episodes
-	episodes = Vector{Vector{Tuple{S, A, S, Float64}}}()
-
-	#add a new episode to the list
-	function add_episode!()
-		s0 = gets0()
-		a0 = π(s0)
-		traj = Vector{Tuple{S, A, S, Float64}}()
-		function run_episode!(s0, a0)
-			(s, r, isterm) = tr(s0, a0)
-			push!(traj, (s0, a0, s, r))
-			isterm && return nothing
-			a = π(s)
-			run_episode!(s, a)
-		end
-		run_episode!(s0, a0)
-		push!(episodes, traj)
+# ╔═╡ 209881b3-3ac8-490e-97bd-fa5ae24a39f5
+#update the value function with the TD0 method using a single episode
+function update_value!(V::Vector{T}, ::TD0, α::T, γ::T, mdp::MDP_TD{S, A, F, G, H}, states::Vector{S}, actions::Vector{A}, rewards::Vector{T}) where {T<:AbstractFloat, S, A, F<:Function, G<:Function, H<:Function}
+	l = length(states)
+	err = zero(T)
+	for i in 1:l-1
+		s = states[i]
+		s′ = states[i+1]
+		i_s = mdp.statelookup[s]
+		v_old = V[i_s]
+		i_s′ = mdp.statelookup[s′]
+		v_new = v_old + α*(rewards[i] + γ*V[i_s′] - v_old)
+		err = max(err, calc_error(v_old, v_new))
+		V[i_s] = v_new
 	end
+	#perform update for terminal state
+	s = last(states)
+	i_s = mdp.statelookup[s]
+	v_old = V[i_s]
+	v_new = v_old + α*(rewards[l] - v_old)
+	err = max(err, calc_error(v_old, v_new))
+	V[i_s] = v_new
+	return err
+end
 
-	#use existing episode list to update value estimates
-	function update_value!(::TD0, episodes)
-		maxpctdelt = 0.0
-		for traj in episodes
-			for (s0, a0, s, r) in traj
-				v0 = V[s0]
-				delt = α*(r + γ*V[s] - V[s0])
-				V[s0] += delt
-				pctdelt = if v0 == 0
-					if delt == 0
-						0.0
-					else
-						Inf
-					end
-				else
-					abs(delt/v0)
-				end
-				maxpctdelt = max(maxpctdelt, pctdelt)
+# ╔═╡ 72b4d8d5-464c-4561-8c69-28ef3f59630b
+#update the value function with the MC method using a single episode
+function update_value!(V::Vector{T}, ::MC, α::T, γ::T, mdp::MDP_TD{S, A, F, G, H}, states::Vector{S}, actions::Vector{A}, rewards::Vector{T}) where {T<:AbstractFloat, S, A, F<:Function, G<:Function, H<:Function}
+	l = length(states)
+	g = zero(T)
+	err = zero(T)
+	for i in l:-1:1
+		g = γ*g + rewards[i]
+		s = states[i]
+		i_s = mdp.statelookup[s]
+		v_old = V[i_s]
+		v_new = v_old + α*(g-v_old)
+		err = max(err, calc_error(v_old, v_new))
+		V[i_s] = v_new
+	end
+	return err
+end
+
+# ╔═╡ 3f3ebc9b-b070-4d73-8be9-823b399c664c
+#compute the value function for a policy π on an mdp with a constant step size parameter α and a discount rate of γ.  Must provide a tolerance ϵ which is the maximum difference observed when updating the value function that can be tollerated to consider the value function to be converged.
+function batch_value_est(π::Matrix{T}, mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T, ϵ::T; num_episodes::Integer = 1000, vinit::T = zero(T), save_states::Vector{S} = Vector{S}(), V::Vector{T} = initialize_state_value(mdp; vinit = vinit), estimation_method::BatchMethod = TD0(), maxcount = typemax(T)) where {T<:AbstractFloat, S, A, F, G, H} 
+	check_policy(π, mdp)
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	V[terminds] .= zero(T)
+	v_saves = zeros(T, length(save_states), num_episodes+1)
+	errors = zeros(T, num_episodes)
+	function update_saves!(v_saves, ep)
+		for (i, s) in enumerate(save_states)
+			i_s = mdp.statelookup[s]
+			v_saves[i, ep] = V[i_s]
+		end
+	end
+	
+	update_saves!(v_saves, 1)
+
+	#each tuple in this vector matches an output from the runepisode function
+	saved_episodes = Vector{Tuple{Vector{S}, Vector{A}, Vector{T}}}()
+
+	for n in 1:num_episodes
+		push!(saved_episodes, runepisode(mdp, π))
+		err = typemax(T)
+		#wait until the error has converged
+		count = zero(T)
+		while (count < maxcount) && (err > ϵ)
+			worst_error = zero(T)
+			#update values for entire batch of episodes
+			for ep in saved_episodes
+				#update values for each episode in a batch and update the worst error
+				worst_error = max(worst_error, update_value!(V, estimation_method, α, γ, mdp, ep...))
 			end
+			err = worst_error
+			count += 1
 		end
-		return maxpctdelt
+		errors[n] = err
+		#only update saves after the value function has converged for this batch
+		update_saves!(v_saves, n+1)
 	end
-	
-	function update_value!(::MC, episodes)
-		maxpctdelt = 0.0
-		for traj in episodes
-			g = 0.0
-			for (s0, a0, s, r) in reverse(traj)
-				g = γ*g + r
-				v0 = V[s0]
-				delt = α*(g - V[s0])
-				V[s0] += delt
-				pctdelt = if v0 == 0
-					if delt == 0
-						0.0
-					else
-						Inf
-					end
-				else
-					abs(delt/v0)
-				end
-				maxpctdelt = max(maxpctdelt, pctdelt)
-			end
-		end
-		return maxpctdelt
+	return V, v_saves, errors
+end
+
+# ╔═╡ 1e3d231a-4065-48ce-a74e-018066fb232a
+function example_6_3(;l = 5, max_episodes = 100, nruns = 100, vinit = 0.5f0, α = 0.05f0, ϵ = α, kwargs...)
+	#note that for this task the error tolerance is set to the step size because the only reward experienced is 1, so the smallest possible maximum value update is α anyway
+	mrp = make_mrp(l = l)
+	π = make_random_policy(mrp)
+	true_values = collect(1:l) ./ (l+1)
+
+	function get_errors(method)
+		(v, v_saves, errors) = batch_value_est(π, mrp, α, 1.0f0, ϵ; num_episodes = max_episodes, vinit=vinit, save_states = collect(1:l), estimation_method = method, kwargs...)
+		sqrt.(mean((v_saves .- true_values) .^2, dims = 1))
 	end
 
-	#use existing episode list to update value estimates until convergence
-	function update_value!()
-		i = 1
-		maxpctdelt = Inf
-		while (maxpctdelt > ϵ) && (i < 100)
-			maxpctdelt = update_value!(estmethod, episodes)
-			i += 1
-		end
-		return maxpctdelt
-	end
+	mc_errors = mean([get_errors(MC()) for _ in 1:nruns])[:]
+	td0_errors = mean([get_errors(TD0()) for _ in 1:nruns])[:]
 
-	function rms_err()
-		mean(sqrt.(([V[s] for s in states[1:end-1]] .- [Vref[s] for s in states[1:end-1]]) .^2))
-	end
+	t1 = scatter(x = 0:max_episodes, y = mc_errors, name = "MC")
+	t2 = scatter(x = 0:max_episodes, y = td0_errors, name = "TD")
+
+	p = plot([t1, t2], Layout(xaxis_title = "Walks / Episodes", yaxis_title = "RMS error, averaged over states", title = "Batch Training"))
+
+	md"""
+	#### Figure 6.2
 	
-	for i in 1:n
-		add_episode!()
-		pctdelt = update_value!()
-		# println("On episode $i, value function converged with a maximum percent change of $pctdelt")
-		push!(errs, rms_err())
-	end
-	return V, errs
-end	
+	$p
 
-# ╔═╡ 0ad7b475-6394-4780-908e-849c0684a966
-function example_6_3()
-	(states, actions, tr) = random_walk_6_2()
-	π(s) = 1
-
-	true_values = collect(1:5) ./ 6
-	Vref = Dict(zip(states[1:end-1], true_values))
-
-	TD0_est(α, n) = batch_value_est(π, α, 1.0, states, Term(), actions, tr, n, gets0 = () -> C(), v0 = 0.5, Vref = Vref, estmethod = TD0())
-
-	MC_est(α, n) = batch_value_est(π, α, 1.0, states, Term(), actions, tr, n, gets0 = () -> C(), v0 = 0.5, Vref = Vref, estmethod = MC())
-
-	# x1 = ["A", "B", "C", "D", "E"]
-	# y1 = [[V_ests[i][s] for s in states[1:end-1]] for i in 1:3]
-	# p1 = plot(vcat([true_values], y1), xticks = (1:5, x1), lab = hcat("True values", ["$n ep est" for n in nlist']), xlabel="State")
-
-	# MC_est(0.1, 1)
-
-	# function rms_err(Vest)
-	# 	sqrt(mean(([Vest[s] for s in states[1:end-1]] .- true_values) .^2))
-	# end
+	Performance of TD(0) and constant-α MC under batch training on the random walk task with $l states
+	"""
 	
-	samples = 100
-	rms_TD0(n, α) = mean(reduce(hcat, (TD0_est(α, n)[2] for _ in 1:samples)), dims = 2)
-	rms_MC(n, α) =mean(reduce(hcat, (MC_est(α, n)[2] for _ in 1:samples)), dims = 2)
-	
-	maxepisodes = 25
-	
-	y2 = rms_TD0(maxepisodes, 0.05)
-	y3 = rms_MC(maxepisodes, 0.02)
-	p2 = plot(y2, xlabel = "Episodes", title = "Empirical RMS error, averaged over states", lab = "TD0")
-	plot!(y3, lab = "MC")
-
-	# plot(p1, p2, layout = (2, 1), size = (680, 700))
 end		
 
+# ╔═╡ 187fc682-2282-46ca-b988-c9de438f36fd
+@bind params_6_2 confirm(PlutoUI.combine() do Child
+	md"""
+	Batch Training of Random Walk Task
+	
+	|||
+	|:-:|:-:|
+	|$\alpha$| $(Child(:α, Slider(0.001:0.001:0.1, default = 0.01, show_value=true)))|
+	|Number of States | $(Child(:l, Slider(3:10, default = 5, show_value=true)))|
+	|Maximum Episodes | $(Child(:ep, Slider(100:1000, default = 100, show_value=true)))|
+		"""
+end)
+
 # ╔═╡ 22c2213e-5b9b-410f-a0ef-8f1e3db3c532
-example_6_3()
+example_6_3(;l = params_6_2.l, max_episodes = params_6_2.ep, α = Float32(params_6_2.α), vinit=0.5f0)
 
 # ╔═╡ 0e59e813-3d48-4a24-b5b3-9a9de7c500c2
 md"""
-> *Exercise 6.7* Design an off-policy version of the TD(0) update that can be used with arbitrary target policy $\pi$ and convering behavior policy $b$, using each step $t$ the importance sampling ratio $\rho_{t:t}$ (5.3).
+> ### *Exercise 6.7* 
+> Design an off-policy version of the TD(0) update that can be used with arbitrary target policy $\pi$ and convering behavior policy $b$, using each step $t$ the importance sampling ratio $\rho_{t:t}$ (5.3).
 
 Recall that equation 5.3 defines:
 
@@ -2138,10 +2162,15 @@ version = "17.4.0+2"
 # ╠═ddf3bb61-16c9-48c4-95d4-263260309762
 # ╟─105c5c23-270d-437e-89dd-12297814c6e0
 # ╟─48b557e3-e239-45e9-ab15-105bcca96492
+# ╟─0a4ed8c7-27ca-45cb-af15-70ddd86240fb
 # ╠═620a6426-cb29-4010-997b-aa4f9d5f8fb0
-# ╠═6f185046-dfdb-41ca-bf3f-e2f90e2e4bc0
-# ╠═0ad7b475-6394-4780-908e-849c0684a966
-# ╠═22c2213e-5b9b-410f-a0ef-8f1e3db3c532
+# ╠═3d8b1ccd-9bb3-42f2-a77a-6afdb72c1ff8
+# ╠═209881b3-3ac8-490e-97bd-fa5ae24a39f5
+# ╠═72b4d8d5-464c-4561-8c69-28ef3f59630b
+# ╠═3f3ebc9b-b070-4d73-8be9-823b399c664c
+# ╠═1e3d231a-4065-48ce-a74e-018066fb232a
+# ╟─187fc682-2282-46ca-b988-c9de438f36fd
+# ╟─22c2213e-5b9b-410f-a0ef-8f1e3db3c532
 # ╟─0e59e813-3d48-4a24-b5b3-9a9de7c500c2
 # ╟─0d6a11af-b146-4bbc-997e-a11b897269a7
 # ╟─1ae30f5d-b25b-4dcb-800f-45c463641ec5
