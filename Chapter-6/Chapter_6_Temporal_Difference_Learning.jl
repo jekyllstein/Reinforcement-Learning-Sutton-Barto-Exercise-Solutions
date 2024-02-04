@@ -129,6 +129,9 @@ function runepisode(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}) where {S, A, F, G
 	return states, actions, rewards
 end
 
+# ╔═╡ 7035c082-6e50-4df5-919f-5f09d2011b4a
+runepisode(mdp::MDP_TD) = runepisode(mdp, make_random_policy(mdp))
+
 # ╔═╡ eb735ead-978b-409c-8990-b5fa7a027ebf
 function tabular_TD0_pred_V(π::Matrix{T}, mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes::Integer = 1000, vinit::T = zero(T), V::Vector{T} = initialize_state_value(mdp; vinit = vinit), save_states::Vector{S} = Vector{S}()) where {T <: AbstractFloat, S, A, F, G, H}
 	check_policy(π, mdp)
@@ -982,15 +985,114 @@ $V(S_t) \leftarrow V(S_t) + \alpha [\rho_{t:t}R_{t+1} + \gamma V(S_{t+1}) - V(S_
 # ╔═╡ 0d6a11af-b146-4bbc-997e-a11b897269a7
 md"""
 ## 6.4 Sarsa: On-policy TD Control
+"""
 
+# ╔═╡ a925534e-f9b8-471a-9d86-c9212129b630
+md"""
+The following represents a trajectory taken by a policy in an environment.  We week to estimate $q_\pi(s, a)$ for the current behavior policy $\pi$ using the same TD method we introduced above.  The update rule now, however, estimates the value of state action pairs rather than the states themselves.
+"""
+
+# ╔═╡ 62a9a36a-bedb-4f5a-80a4-2d4111a65c12
+@htl("""
+<div style = "display: flex; justify-content: center; align-items: center; background-color: gray; height: 100px; font-size: .75em; color: black;">
+<div>$(md"""$\cdots \:$""")</div>
+<div class = "link1"></div>
+<div class = "state"><div>$(md"""$S_t$""")</div></div>
+<div class = "link1"></div>
+<div class = "action">$(md"""$A_t$""")</div>
+<div class = "link2"><div>$(md"""$R_{t+1}$""")</div></div>
+<div class = "state">$(md"""$S_{t+1}$""")</div>
+<div class = "link1"></div>
+<div class = "action">$(md"""$A_{t+1}$""")</div>
+<div class = "link2"><div>$(md"""$R_{t+2}$""")</div></div>
+<div class = "state">$(md"""$S_{t+2}$""")</div>
+<div class = "link1"></div>
+<div class = "action">$(md"""$A_{t+2}$""")</div>
+<div class = "link2"><div>$(md"""$R_{t+3}$""")</div></div>
+<div class = "state">$(md"""$S_{t+3}$""")</div>
+<div class = "link1"></div>
+<div>$(md"""$\:\cdots$""")</div>
+</div>
+
+<style>
+	.state {
+		color: black;
+		background-color: white;
+		width: 40px;
+		height: 40px;
+		border: 2px solid black;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.link1 {
+		width: 40px;
+		height: 2px;
+		background-color: black;
+	}
+
+	.link2 {
+		width: 40px;
+		height: 2px;
+		background-color: black;
+	}
+
+	.link2 * {
+		position: relative;
+		color: black;
+		top: -9px;
+	}
+
+	.action {
+		color: black;
+		width: 10px;
+		height: 10px;
+		background-color: black;
+		border: 2px solid black;
+		border-radius: 50%;
+	}
+
+	.action * {
+		color: black;
+		position: relative;
+		top: -3px;
+	}
+</style>
+
+""")
+
+# ╔═╡ b35264b0-ac5b-40ce-95e4-9b2bc4cb106f
+md"""
 TD(0) update rule for action values:
 
 $Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \alpha [R_{t+1} + \gamma Q(S_{t+1}, A_{t+1})-Q(S_t, A_t)]$
+
+This update is done after every transition from a nonterminal state $S_t$.  If $S_{t+1}$ is terminal, then $Q(S_{t+1}, A_{t+1})$ is defined as zero.  This rule uses every element of the quintuple of events, $(S_t, A_t, R_{t+1}, S_{t+1}, A_{t+1})$, that make up a transition from one state-action pair to the next.  This quintuple gives rise to the name *Sarsa* for the algorithm.  Each update only uses the immediate reward and the value of the state-action pair in the subsequent state as illustrated in the backup diagram shown below.
+"""
+
+# ╔═╡ 4d7619ee-933f-452a-9202-e95a8f3da20f
+@htl("""
+Sarsa backup diagram.  Black circles represent actions and white circles represent states.
+<div style="display: flex; align-items: center; justify-content: center; background-color: gray;">
+<div class = "action"></div>
+<div class="arrow right"></div>
+<div class = "state"></div>
+<div class = "arrow right"></div>
+<div class = "action"></div>
+</div>
+""")
+
+# ╔═╡ fe2ebf39-4ab3-4aa8-abbd-23389eaf400e
+md"""
+Sarsa converges with probability 1 to an optimal policy and action-value function, under the usual conditions on step sizes (2.7), as long as all state-action pairs are visited an infinite number of times and the policy converges in the limit to the greedy policy (which can be arranged, for example, with $\epsilon$-greedy policies by setting $\epsilon = 1/t$).  Below is code that implements Sarsa using the $\epsilon$-greedy method for exploration.
 """
 
 # ╔═╡ 1ae30f5d-b25b-4dcb-800f-45c463641ec5
 md"""
-> *Exercise 6.8* Show that an action-value version of (6.6) holds for the action-value form of the TD error $\delta_t=R_{t+1}+\gamma Q(S_{t+1}, A_{t+1}) - Q(S_t, A_t)$, again assuming that the values don't change from step to step.
+> ### *Exercise 6.8* 
+> Show that an action-value version of (6.6) holds for the action-value form of the TD error $\delta_t=R_{t+1}+\gamma Q(S_{t+1}, A_{t+1}) - Q(S_t, A_t)$, again assuming that the values don't change from step to step.
 
 The derivation in (6.6) starts with the definition in (3.9):
 
@@ -998,71 +1100,134 @@ $G_t = R_{t+1} + \gamma G_{t+1}$
 
 and derives the following:
 
-$\delta_t \dot = R_{t+1} + \gamma V(S_{t+1}) - V(S_t)$
+$\delta_t \doteq R_{t+1} + \gamma V(S_{t+1}) - V(S_t)$
 $G_t - V(S_t) = \sum_{k=t}^{T-1} \gamma^{k-t} \delta_k$
 
 Now we have the action-value form of the TD error:
 
-$\delta_t=R_{t+1}+\gamma Q(S_{t+1}, A_{t+1}) - Q(S_t, A_t)$
+$\delta_t \doteq R_{t+1}+\gamma Q(S_{t+1}, A_{t+1}) - Q(S_t, A_t)$
 
 Let us transform (3.9) in a similar manner to derive the rule:
 
-$G_t - Q(S_t, A_t) = R_{t+1} + \gamma G_{t+1} - Q(S_t, A_t) + \gamma Q(S_{t+1}, A_{t+1}) - \gamma Q(S_{t+1}, A_{t+1})$
-$= \delta_t + \gamma (G_{t+1} - Q(S_{t+1}, A_{t+1}))$
-$= \delta_t + \gamma \delta_{t+1} + \gamma^2 (G_{t+2} - Q(S_{t+2}, A_{t+2}))$
-$= \delta_t + \gamma \delta_{t+1} + \gamma^2 \delta_{t+1} + \cdots + \gamma^{T-t-1} \delta_{T-1} + \gamma^{T-t}(G_T - Q(S_T, A_T))$
-
-The action value is defined to be 0 whenever the state is terminal
-
-$= \delta_t + \gamma \delta_{t+1} + \gamma^2 \delta_{t+1} + \cdots + \gamma^{T-t-1} \delta_{T-1} + \gamma^{T-t}(0-0)$
-$=\sum_{k=t}^{T-1}\gamma^{k-t}\delta_k$
+$\begin{flalign}
+G_t - Q(S_t, A_t) &= R_{t+1} + \gamma G_{t+1} - Q(S_t, A_t) + \gamma Q(S_{t+1}, A_{t+1}) - \gamma Q(S_{t+1}, A_{t+1}) \\
+&= \delta_t + \gamma (G_{t+1} - Q(S_{t+1}, A_{t+1})) \\
+&= \delta_t + \gamma \delta_{t+1} + \gamma^2 (G_{t+2} - Q(S_{t+2}, A_{t+2})) \tag{using recursion} \\
+&= \delta_t + \gamma \delta_{t+1} + \gamma^2 \delta_{t+1} + \cdots + \gamma^{T-t-1} \delta_{T-1} + \gamma^{T-t}(G_T - Q(S_T, A_T)) \\
+&= \delta_t + \gamma \delta_{t+1} + \gamma^2 \delta_{t+1} + \cdots + \gamma^{T-t-1} \delta_{T-1} + \gamma^{T-t}(0-0) \tag{terminal value} \\
+&= \sum_{k=t}^{T-1}\gamma^{k-t}\delta_k
+\end{flalign}$
 """
 
-# ╔═╡ 61bbf9db-49a0-4709-83f4-44f228be09c0
-function sarsa_onpolicy(α, γ, states, sterm, actions, tr::Function, n = 1000; gets0 = () -> rand(states), q0 = 0.0, ϵ = 0.1)
-	Q = Dict((s, a) => q0 for s in states for a in actions)
-	nact = length(actions)
-	π = Dict(s => fill(1.0 / nact, nact) for s in states) #create policy sampling
-	sampleπ(s) = sample(actions, weights(π[s]))
-	otherv = ϵ / nact #probability weight given to random actions
-	topv = 1.0 - ϵ + otherv #probability weight given to the top action in the distribution
-	
-	for a in actions
-		Q[(sterm, a)] = 0.0
-	end
-	steps = zeros(Int64, n)
-	rewardsums = zeros(n)
-	#update policy with epsilon greedy strategy following Q
-	function updateπ!()
-		for s in states
-			aind = argmax(Q[(s, a)] for a in actions) #index of selected action
-			π[s] .= otherv
-			π[s][aind] = topv
+# ╔═╡ 6a1503c6-c77b-4e3a-9f07-74b2af1a5ff7
+md"""
+### Sarsa Implementation
+"""
+
+# ╔═╡ 6b496582-cc0e-4195-87ef-94792b0fff54
+function make_ϵ_greedy_policy!(v::AbstractVector{T}, ϵ::T) where T <: Real
+	vmax = maximum(v)
+	v .= T.(isapprox.(v, vmax))
+	s = sum(v)
+	c = ϵ / length(v)
+	d = one(T)/s - ϵ #value to add to actions that are maximizing
+	for i in eachindex(v)
+		if v[i] == 1
+			v[i] = d + c
+		else
+			v[i] = c
 		end
 	end
-
-	for i in 1:n
-		updateπ!()
-		s0 = gets0()
-		a0 = sampleπ(s0)
-
-		function updateq!(s0, a0, l = 1; rsum = 0.0)
-			(s, r, isterm) = tr(s0, a0)
-			rsum += r
-			a = sampleπ(s)
-			Q[(s0, a0)] += α*(r + γ*Q[(s, a)] - Q[(s0, a0)])
-			updateπ!()
-			isterm && return (l, rsum)
-			updateq!(s, a, l+1, rsum = rsum)
-		end
-		l, rsum = updateq!(s0, a0)
-		steps[i] = l
-		rewardsums[i] = rsum
-	end
-
-	π_det = Dict(s => actions[argmax(π[s])] for s in states)
-	return Q, π_det, steps, rewardsums
+	return v
 end
+
+# ╔═╡ cb07a6a5-c50a-4900-9e5b-a17dc7ee5710
+function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
+	(vmin, vmax) = extrema(v)
+	if vmin == vmax
+		v .= one(T) / length(v)
+	else
+		v .= (v .- vmax) ./ abs(vmin - vmax)
+		v .= exp.(c .* v)
+		v .= v ./ sum(v)
+	end
+	return v
+end
+
+# ╔═╡ 4d4577b5-3753-450d-a247-ebd8c3e8f799
+function create_ϵ_greedy_policy(Q::Matrix{T}, ϵ::T; π = copy(Q)) where T<:Real
+	vhold = zeros(T, size(Q, 1))
+	for j in 1:size(Q, 2)
+		vhold .= Q[:, j]
+		make_ϵ_greedy_policy!(vhold, ϵ)
+		π[:, j] .= vhold
+	end
+	return π
+end
+
+# ╔═╡ 12aac612-758b-4655-8ede-daddd4af6d3e
+#take a step in the environment from state s using policy π and generate the subsequent action selection as well
+function sarsa_step(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}, s::S, a::A) where {S, A, F<:Function, G<:Function, H<:Function, T<:Real}
+	(r, s′) = mdp.step(s, a)
+	i_s′ = mdp.statelookup[s′]
+	i_a′ = sample_action(π, i_s′)
+	a′ = mdp.actions[i_a′]
+	return (s′, i_s′, r, a′, i_a′)
+end
+
+# ╔═╡ 3ed12c33-ab0a-49b1-b9e7-c4305ba35767
+#take a step in the environment from state s using policy π and generate the subsequent action selection as well
+function init_step(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}, s::S) where {S, A, F<:Function, G<:Function, H<:Function, T<:Real}
+	i_s = mdp.statelookup[s]
+	i_a = sample_action(π, i_s)
+	a = mdp.actions[i_a]
+	return (i_s, i_a, a)
+end
+
+# ╔═╡ 61bbf9db-49a0-4709-83f4-44f228be09c0
+function sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false) where T<:AbstractFloat
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(T)
+	π = create_ϵ_greedy_policy(Q, ϵinit)
+	vhold = zeros(T, length(mdp.actions))
+	#keep track of rewards and steps per episode as a proxy for training speed
+	rewards = zeros(T, num_episodes)
+	steps = zeros(Int64, num_episodes)
+	
+	for ep in 1:num_episodes
+		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
+		s = mdp.state_init()
+		(i_s, i_a, a) = init_step(mdp, π, s)
+		rtot = zero(T)
+		l = 0
+		while !mdp.isterm(s)
+			(s′, i_s′, r, a′, i_a′) = sarsa_step(mdp, π, s, a)
+			Q[i_a, i_s] += α * (r + γ*Q[i_a′, i_s′] - Q[i_a, i_s])
+			
+			#update terms for next step
+			vhold .= Q[:, i_s]
+			make_ϵ_greedy_policy!(vhold, ϵ)
+			π[:, i_s] .= vhold
+			s = s′
+			a = a′
+			i_s = i_s′
+			i_a = i_a′
+			
+			l+=1
+			rtot += r
+		end
+		steps[ep] = l
+		rewards[ep] = rtot
+	end
+
+	return Q, π, steps, rewards
+end
+
+# ╔═╡ 8d05403a-adeb-40ac-a98a-87586d5a5170
+md"""
+### Example 6.5: Windy Gridworld
+"""
 
 # ╔═╡ e19db54c-4b3c-42d1-b016-9620daf89bfb
 begin
@@ -1072,35 +1237,93 @@ begin
 	struct Left <: GridworldAction end
 	struct Right <: GridworldAction end
 
-	wind_actions1 = [Up(), Down(), Left(), Right()]
+	struct GridworldState
+		x::Int64
+		y::Int64
+	end
+
+	rook_actions = [Up(), Down(), Left(), Right()]
 	
 	move(::Up, x, y) = (x, y+1)
 	move(::Down, x, y) = (x, y-1)
 	move(::Left, x, y) = (x-1, y)
 	move(::Right, x, y) = (x+1, y)
 
-	applywind(w, x, y) = (x, y+w)
+	apply_wind(w, x, y) = (x, y+w)
+	const wind_vals = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
 end
 
-# ╔═╡ 56f794c3-8e37-48b4-b953-7ad0a45aadd6
-function gridworld_sarsa_solve(gridworld; α=0.5, ϵ=0.1)
-	states, sterm, actions, tr, episode, gets0 = gridworld
-	tr(gets0(), Up())
-	(Qstar, πstar, steps, rsum) = sarsa_onpolicy(α, 1.0, states, sterm, actions, tr, 250, gets0 = gets0, q0 = 0.0, ϵ = ϵ)
-	path = episode(s -> πstar[s])
-	p1 = plot(path, legend = false, title = "Finished in $(length(path)-1) steps")
-	p2 = plot(steps, legend = false, xlabel = "episodes", ylabel = "Steps")
-	p3 = plot([minimum(steps[1:i]) for i in eachindex(steps)], yaxis = :log, legend = false, ylabel = "Min Path So Far")
-	p4 = plot(cumsum(steps), 1:length(steps), legend = false)
-	l = @layout [
-    a{0.4w} [grid(3,1)]
-]
-	plot(p1, p2, p3, p4, layout = l, size = (680, 400))
+# ╔═╡ 500d8dd4-fc53-4021-b797-114224ca4deb
+const rook_action_display = @htl("""
+<div style = "display: flex; flex-direction: column; align-items: center; justify-content: center; color: black; background-color: rgba(100, 100, 100, 0.1);">
+	<div style = "display: flex; align-items: center; justify-content: center;">
+	<div class = "downarrow" style = "transform: rotate(90deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(180deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(270deg);"></div>
+	<div class = "downarrow" style = "position: absolute;"></div>
+	</div>
+	<div>Actions</div>
+</div>
+""")
+
+# ╔═╡ 136d1d96-b590-4f03-9e42-2337efc560cc
+HTML("""
+<style>
+	.downarrow {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		flex-direction: column;
+	}
+
+	.downarrow::before {
+		content: '';
+		width: 2px;
+		height: 40px;
+		background-color: black;
+	}
+	.downarrow::after {
+		content: '';
+		width: 0px;
+		height: 0px;
+		border-left: 5px solid transparent;
+		border-right: 5px solid transparent;
+		border-top: 10px solid black;
+	}
+</style>
+""")
+
+# ╔═╡ 4556cf44-4a1c-4ca4-bfb8-4841301a2ce6
+function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
+	@htl("""
+		<div style = "display: flex; align-items: center; justify-content: center; transform: scale($scale);">
+		<div class = "downarrow" style = "position: absolute; transform: rotate(180deg); opacity: $(v[1]);"></div>	
+		<div class = "downarrow" style = "position: absolute; opacity: $(v[2])"></div>
+		<div class = "downarrow" style = "position: absolute; transform: rotate(90deg); opacity: $(v[3])"></div>
+		<div class = "downarrow" style = "transform: rotate(-90deg); opacity: $(v[4])"></div>
+		</div>
+	""")
+end
+
+# ╔═╡ c36065c2-71a3-4812-b456-f30a2742d7e1
+display_rook_policy([0.0, 0.0, 0.0, 1.0])
+
+# ╔═╡ 9f28772c-9afe-4253-ab3b-055b0f48be6e
+function plot_path(mdp, π)
+	eg = runepisode(mdp, π)
+	
+	start_trace = scatter(x = [1.5], y = [4.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
+	finish_trace = scatter(x = [8.5], y = [4.5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+	path_traces = [scatter(x = [eg[1][i].x + 0.5, eg[1][i+1].x + 0.5], y = [eg[1][i].y + 0.5, eg[1][i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(eg[1])-1]
+	finalpath = scatter(x = [eg[1][end].x + 0.5, 8.5], y = [eg[1][end].y + 0.5, 4.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
+
+	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:10, ticktext = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0], range = [1, 11], title = "Wind Values"), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:7, ticktext = fill("", 7), range = [1, 8]), width = 300, height = 210, autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = "Optimal policy <br> path example", font_size = 14, x = 0.5)))
 end
 
 # ╔═╡ 0ad739c9-8aca-4b82-bf20-c73584d29535
 md"""
-> *Exercise 6.9 Windy Gridworld with King's Moves (programming)* Re-solve the windy gridworld assuming eight possible actions, including the diagonal moves, rather than four.  How much better can you do with the extra actions?  Can you do even better by including a ninth action that causes no movement at all other than that caused by the wind?
+> ### *Exercise 6.9 Windy Gridworld with King's Moves (programming)* 
+> Re-solve the windy gridworld assuming eight possible actions, including the diagonal moves, rather than four.  How much better can you do with the extra actions?  Can you do even better by including a ninth action that causes no movement at all other than that caused by the wind?
 """
 
 # ╔═╡ 031e1106-7408-4c7e-b78e-b713c19123d1
@@ -1110,7 +1333,8 @@ begin
 	struct UpLeft <: GridworldAction end
 	struct DownLeft <: GridworldAction end
 
-	wind_actions2 = [UpRight(), UpLeft(), DownRight(), DownLeft()]
+	const diagonal_actions = [UpRight(), UpLeft(), DownRight(), DownLeft()]
+	const king_actions = [rook_actions; diagonal_actions]
 	
 	move(::UpRight, x, y) = (x+1, y+1)
 	move(::UpLeft, x, y) = (x-1, y+1)
@@ -1118,74 +1342,149 @@ begin
 	move(::DownLeft, x, y) = (x-1, y-1)
 end
 
+# ╔═╡ cdedd35e-52b8-40a5-938d-2d36f6f93217
+const king_action_display = @htl("""
+<div style = "display: flex; flex-direction: column; align-items: center; justify-content: center; color: black; background-color: rgba(100, 100, 100, 0.1);">
+	<div style = "display: flex; align-items: center; justify-content: center;">
+	<div class = "downarrow" style = "transform: rotate(90deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(180deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(45deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(-45deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(135deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(-135deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(270deg);"></div>
+	<div class = "downarrow" style = "position: absolute;"></div>
+	</div>
+	<div>Actions</div>
+</div>
+""")
+
+# ╔═╡ 9651f823-e1cd-4e6e-9ce0-be9ea1c3f0a4
+function display_king_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
+	@htl("""
+		<div style = "display: flex; align-items: center; justify-content: center; transform: scale($scale);">
+		<div class = "downarrow" style = "position: absolute; transform: rotate(180deg); opacity: $(v[1]);"></div>	
+		<div class = "downarrow" style = "position: absolute; opacity: $(v[2])"></div>
+		<div class = "downarrow" style = "position: absolute; transform: rotate(90deg); opacity: $(v[3])"></div>
+		<div class = "downarrow" style = "transform: rotate(-90deg); opacity: $(v[4])"></div>
+		<div class = "downarrow" style = "position: absolute; transform: rotate(-135deg); opacity: $(v[5])"></div>
+		<div class = "downarrow" style = "position: absolute; transform: rotate(135deg); opacity: $(v[6])"></div>
+		<div class = "downarrow" style = "position: absolute; transform: rotate(-45deg); opacity: $(v[7])"></div>
+		<div class = "downarrow" style = "position: absolute; transform: rotate(45deg); opacity: $(v[8])"></div>
+		</div>
+	""")
+end
+
+# ╔═╡ 2155adfa-7a93-4960-950e-1b123da9eea4
+king_actions
+
+# ╔═╡ d259ecca-0249-4b28-a4d7-6880d4d84495
+const action3_display = @htl("""
+<div style = "display: flex; flex-direction: column; align-items: center; justify-content: center; color: black; background-color: rgba(100, 100, 100, 0.1);">
+	<div style = "display: flex; align-items: center; justify-content: center;">
+	<div class = "downarrow" style = "transform: rotate(90deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(180deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(45deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(-45deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(135deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(-135deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(270deg);"></div>
+	<div class = "downarrow" style = "position: absolute;"></div>
+	<div style = "width: 15px; height: 15px; background-color: black; position: absolute; border-radius: 50%;"></div>
+	</div>
+	<div>Actions</div>
+</div>
+""")
+
 # ╔═╡ 39470c74-e554-4f6c-919d-97bec1eec0f3
 md"""
 Adding king's move actions, the optimal policy can finish in 7 steps vs 15 for the original actions.  What happens after adding a 9th action that causes no movement?
 """
 
+# ╔═╡ e1943e4a-edd4-48ce-ab81-243d376e5d99
+@bind kingbutton Button()
+
 # ╔═╡ e9359ca3-4d11-4365-bc6e-7babc6fcc7de
 begin
 	struct Stay <: GridworldAction end
 	move(::Stay, x, y) = (x, y)
-	wind_actions3 = [Stay()]
 end
 
 # ╔═╡ ec285c96-4a75-4af6-8898-ec3176fa34c6
-function windy_gridworld(actions, applywind = applywind)
-	xmax = 10
-	ymax = 7
-	states = [(x, y) for x in 1:xmax for y in 1:ymax]
-	sterm = (8, 4)
-	gets0 = () -> (1, 4)
-
-	#wind values at each x value
-	winds = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
-
-	# applywind(w, x, y) = (x, y+w)
-
+function make_windy_gridworld(;actions = rook_actions, apply_wind = apply_wind, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, winds = wind_vals, step_reward = -1f0)
+	
+	states = [GridworldState(x, y) for x in 1:xmax for y in 1:ymax]
+	
 	boundstate(x::Int64, y::Int64) = (clamp(x, 1, xmax), clamp(y, 1, ymax))
 	
-	function step(s::Tuple{Int64, Int64}, a::GridworldAction)
-		w = winds[s[1]]
-		(x, y) = s
-		(x1, y1) = move(a, x, y)
-		(x2, y2) = applywind(w, x1, y1)
-		boundstate(x2, y2)
+	function step(s::GridworldState, a::GridworldAction)
+		w = winds[s.x]
+		(x1, y1) = move(a, s.x, s.y)
+		(x2, y2) = apply_wind(w, x1, y1)
+		GridworldState(boundstate(x2, y2)...)
 	end
 
-	function tr(s0::Tuple{Int64, Int64}, a0::GridworldAction)
-		snew = step(s0, a0)
-		r = -1
-		isterm = (snew == sterm)
-		(snew, r, isterm)
-	end
+	tr(s0::GridworldState, a0::GridworldAction) = (step_reward, step(s0, a0))
+	isterm(s::GridworldState) = s == sterm
 
-	function episode(π, lmax = 1000)
-		s = gets0()
-		path = [s]
-		a = π(s)
-		isterm = false
-		l = 1
-		while !isterm && (l < lmax)
-			(s, r, isterm) = tr(s, a)
-			push!(path, s)
-			a = π(s)
-			l += 1
-		end
-		return path
-	end
 			
-	return states, sterm, actions, tr, episode, gets0
+	MDP_TD(states, actions, () -> start, tr, isterm)
 end	
 
-# ╔═╡ 331d0b67-c00d-46fd-a175-b8412f6a93c5
-gridworld_sarsa_solve(windy_gridworld(wind_actions1))
+# ╔═╡ ab331778-f892-4690-8bb3-26464e3fc05f
+const windy_gridworld = make_windy_gridworld()
 
-# ╔═╡ 1abefc8c-5be0-42b4-892e-14c0c47c16f0
-gridworld_sarsa_solve(windy_gridworld(vcat(wind_actions1, wind_actions2)))
+# ╔═╡ b5ecf1c7-29e0-44b6-a0ee-e8a6cbb30c72
+windy_gridworld.actions
+
+# ╔═╡ d299d800-a64e-4ba2-9603-efa833343405
+function example_6_5(;mdp = windy_gridworld, num_episodes = 170, action_display = rook_action_display)
+	(Qstar, πstar, steps, rewards) = sarsa(mdp, 0.5f0, 1.0f0; ϵinit = 0.1f0, num_episodes = num_episodes, decay_ϵ = false)
+	# eg = runepisode(mdp, create_greedy_policy(Qstar))
+	eg = runepisode(mdp, πstar)
+	
+	start_trace = scatter(x = [1.5], y = [4.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
+	finish_trace = scatter(x = [8.5], y = [4.5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+	path_traces = [scatter(x = [eg[1][i].x + 0.5, eg[1][i+1].x + 0.5], y = [eg[1][i].y + 0.5, eg[1][i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(eg[1])-1]
+	finalpath = scatter(x = [eg[1][end].x + 0.5, 8.5], y = [eg[1][end].y + 0.5, 4.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
+	p1 = plot(scatter(x = cumsum(steps), y = 1:num_episodes, line_color = "red"), Layout(xaxis_title = "Time steps", yaxis_title = "Episodes"))
+	
+	p2 = plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:10, ticktext = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0], range = [1, 11], title = "Wind Values"), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:7, ticktext = fill("", 7), range = [1, 8]), width = 300, height = 210, autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = "Optimal policy <br> path example", font_size = 14, x = 0.5)))
+	
+	p3 = plot(scatter(x = 1:num_episodes, y = steps), Layout(xaxis_title = "Time steps", yaxis_title = "Steps Per Episode", yaxis_type = "log"))
+
+	@htl("""
+	<div>
+	$p1
+	<div style = "position: absolute; top: 0px; left: 10%;">$p2</div>
+	<div style = "position: absolute; top: 30px; left: 40%;">$action_display</div>
+	</div>
+	$p3
+
+	
+	""")
+end
+
+# ╔═╡ 04a0be81-ee5f-4eeb-963a-ad930392d50b
+example_6_5()
+
+# ╔═╡ dda222ef-8178-40bb-bf20-d242924c4fab
+const king_gridworld = make_windy_gridworld(;actions=king_actions)
+
+# ╔═╡ f0f9d3d5-e76a-4472-bfb1-da29d73a7916
+example_6_5(;mdp = king_gridworld, num_episodes = 400, action_display = king_action_display)
+
+# ╔═╡ a88368a1-6d31-42ee-b174-fe8a3e74559f
+qking, πking = sarsa(king_gridworld, 0.5f0, 1.0f0; decay_ϵ=false, ϵinit = 0.1f0, num_episodes = 400)
+
+# ╔═╡ 440c9ab5-709e-4f52-9a34-09d53b8a9491
+begin
+	kingbutton
+	plot_path(king_gridworld, πking)
+end
 
 # ╔═╡ dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
-gridworld_sarsa_solve(windy_gridworld(vcat(wind_actions1, wind_actions2, wind_actions3)))
+example_6_5(;mdp = make_windy_gridworld(actions = [king_actions; Stay()]), num_episodes = 400, action_display = action3_display)
 
 # ╔═╡ db31579e-3e56-4271-8fc3-eb13bc95ac27
 md"""
@@ -1194,24 +1493,184 @@ Adding the no-movement action doesn't seem to change the shortest path of 7 step
 
 # ╔═╡ b59eacf8-7f78-4015-bf2c-66f89bf0e24e
 md"""
-> *Exercise 6.10: Stochastic Wind (programming)* Re-solve the windy gridworld task with King's moves, assuming the effect of the wind, if there is any, is stochastic, sometimes varying by 1 from the mean values given for each column.  That is, a third of the time you move exactly according to these values, as in the previous exercise, but also a third of the time you move one cell above that, and another third of the time you move one cell below that.  For example, if you are one cell to the right of the goal and you move left, then one-third of the time you move one cell above the goal, one-third of the time you move two cells above the goal, and one-third of the time you move to the goal.
+> ### *Exercise 6.10: Stochastic Wind (programming)* 
+> Re-solve the windy gridworld task with King's moves, assuming the effect of the wind, if there is any, is stochastic, sometimes varying by 1 from the mean values given for each column.  That is, a third of the time you move exactly according to these values, as in the previous exercise, but also a third of the time you move one cell above that, and another third of the time you move one cell below that.  For example, if you are one cell to the right of the goal and you move left, then one-third of the time you move one cell above the goal, one-third of the time you move two cells above the goal, and one-third of the time you move to the goal.
 """
 
+# ╔═╡ 02f34da1-551f-4ce5-a588-7f3a14afd716
+const wind_var = [-1, 0, 1]
+
 # ╔═╡ aa0791a5-8cf1-499b-9900-4d0c59be808c
-# ╠═╡ disabled = true
-#=╠═╡
 function stochastic_wind(w, x, y)
 	w == 0 && return (x, y)
 	
-	v = rand([-1, 0, 1])
+	v = rand(wind_var)
 	(x, y+w+v)
 end
-  ╠═╡ =#
 
-# ╔═╡ ced61b99-9073-4dee-afbf-82531e59c7d8
-#=╠═╡
-gridworld_sarsa_solve(windy_gridworld(vcat(wind_actions1, wind_actions2), stochastic_wind))
-  ╠═╡ =#
+# ╔═╡ 4ddc7d99-0b79-4689-bd93-8798b105c0a2
+const stochastic_gridworld = make_windy_gridworld(actions = king_actions, apply_wind = stochastic_wind)
+
+# ╔═╡ ed4e863b-22dd-4d2b-88d0-b3a56d6713b7
+example_6_5(;mdp = stochastic_gridworld, num_episodes = 400, action_display = king_action_display)
+
+# ╔═╡ f06268f6-c771-48bc-ab3f-14ca39173c95
+qstar, πstar = sarsa(stochastic_gridworld, 0.5f0, 1.0f0; ϵinit = 0.1f0, decay_ϵ=false, num_episodes = 400)
+
+# ╔═╡ 2d881aa9-1da3-4d1e-8d05-245956dbaf33
+HTML("""
+	<style>
+		.gridcell {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			border: 1px solid black;
+		}
+
+		.windbox {
+			height: 40px;
+			width: 40px;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			transform: rotate(180deg);
+			background-color: green;
+		}
+
+		.windbox * {
+			background-color: green;
+			color: green;
+		}
+
+		.windbox[w="0"] {
+			opacity: 0.0; 
+		}
+
+		.windbox[w="1"] {
+			opacity: 0.5;
+		}
+
+		.windbox[w="2"] {
+			opacity: 1.0;
+		}
+	</style>
+""")
+
+# ╔═╡ 3ec521e5-a501-4ce3-aa28-84c42c0b2264
+@bind testbutton Button()
+
+# ╔═╡ ac7d6729-1b07-4bf9-94e0-81edc063babf
+begin
+	testbutton
+	plot_path(stochastic_gridworld, πstar)
+end
+
+# ╔═╡ 2486545c-e8ba-4840-973f-304c786c12cf
+show_grid_value(mdp, V::Vector, wind::Vector, name; kwargs...) = show_grid_value(mdp, reshape(V, 1, length(V)), wind, name; kwargs...)
+
+# ╔═╡ 8bc54c94-9c92-4904-b3a6-13ff3f0110bb
+function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = king_action_display)
+	width = maximum(s.x for s in mdp.states)
+	height = maximum(s.y for s in mdp.states)
+	start = mdp.state_init()
+	termind = findfirst(mdp.isterm, mdp.states)
+	sterm = mdp.states[termind]
+	ngrid = width*height
+	@htl("""
+		<div style = "display: flex;">
+			<div>
+				<div class = "gridworld $name value">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 20px; color: black;">$(round(maximum(Q[:, i]), sigdigits = 3))</div>""", *, eachindex(mdp.states))))
+				</div>
+				<div class = "windrow" style = "display: grid; grid-template-columns: repeat($width, 40px)">
+					$(HTML(mapreduce(i -> """<div class="windbox downarrow" w = "$(wind[i])"><div style = "transform: rotate(180deg); color: black;">$(wind[i])</div></div>""", *, 1:width)))
+				</div>
+			</div>
+			<div style = "display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
+				$(action_display)
+				Wind Values
+			</div>
+		</div>
+	
+		<style>
+			.$name.value.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, 40px);
+				grid-template-rows: repeat($height, 40px);
+				background-color: white;
+
+			.$name.value[x="$(start.x)"][y="$(start.y)"] {
+				content: '';
+				background-color: rgba(0, 255, 0, 0.5);
+				
+			}
+
+			.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
+				content: '';
+				background-color: rgba(255, 0, 0, 0.5);
+				
+			}
+
+		</style>
+	""")
+
+end
+
+# ╔═╡ a52713aa-bbb5-4e56-832c-6e18e148a08f
+show_grid_value(stochastic_gridworld, qstar, wind_vals, "stochastic_wind_value")
+
+# ╔═╡ 9da5fd84-800d-4b3e-8627-e90ce8f20297
+function show_grid_policy(mdp, π, wind::Vector, display_function, name)
+	width = maximum(s.x for s in mdp.states)
+	height = maximum(s.y for s in mdp.states)
+	start = mdp.state_init()
+	termind = findfirst(mdp.isterm, mdp.states)
+	sterm = mdp.states[termind]
+	ngrid = width*height
+	@htl("""
+		<div style = "display: flex;">
+			<div>
+				<div class = "gridworld $name">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x);">$(display_function(π[:, i], scale =0.8))</div>""", *, eachindex(mdp.states))))
+				</div>
+				<div class = "windrow" style = "display: grid; grid-template-columns: repeat($width, 40px)">
+					$(HTML(mapreduce(i -> """<div class="windbox downarrow" w = "$(wind[i])"><div style = "transform: rotate(180deg); color: black;">$(wind[i])</div></div>""", *, 1:width)))
+				</div>
+			</div>
+			<div style = "display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
+				$(king_action_display)
+				Wind Values
+			</div>
+		</div>
+	
+		<style>
+			.$name.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, 40px);
+				grid-template-rows: repeat($height, 40px);
+				background-color: white;
+
+			.$name[x="$(start.x)"][y="$(start.y)"]::before {
+				content: 'S';
+				position: absolute;
+				color: green;
+				opacity: 1.0;
+			}
+
+			.$name[x="$(sterm.x)"][y="$(sterm.y)"]::before {
+				content: 'G';
+				position: absolute;
+				color: red;
+				opacity: 1.0;
+			}
+
+		</style>
+	""")
+
+end
+
+# ╔═╡ 5073ada7-dce5-4e40-a01e-0dad28141197
+show_grid_policy(stochastic_gridworld, πstar, wind_vals, display_king_policy, "stochastic_wind")
 
 # ╔═╡ 44c49006-e210-4f97-916e-fe62f36c593f
 md"""
@@ -1222,51 +1681,41 @@ One of the early breakthroughs in reinforcement learning was the development of 
 $Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \alpha [R_{t+1} + \gamma \text{max}_a Q(S_{t+1}, a) - Q(S_t, A_t)]$
 """
 
-# ╔═╡ f90263de-1053-48cb-8240-56112d6dc67f
-function Q_learning(α, γ, states, sterm, actions, tr::Function, n = 1000; gets0 = () -> rand(states), q0 = 0.0, ϵ = 0.1)
-	#initialize Q(s,a) and set Q(terminal, a) = 0 for all actions
-	Q = Dict((s, a) => q0 for s in states for a in actions)
-	for a in actions
-		Q[(sterm, a)] = 0.0
-	end
+# ╔═╡ 2034fd1e-5171-4eda-85d5-2de62d7a1e8b
+function q_learning(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false) where T<:AbstractFloat
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(T)
+	π = create_ϵ_greedy_policy(Q, ϵinit)
+	vhold = zeros(T, length(mdp.actions))
+	#keep track of rewards and steps per episode as a proxy for training speed
+	rewards = zeros(T, num_episodes)
+	steps = zeros(Int64, num_episodes)
 	
-	nact = length(actions)
-	π = Dict(s => fill(1.0 / nact, nact) for s in states) #create policy sampling
-	sampleπ(s) = sample(actions, weights(π[s]))
-	otherv = ϵ / nact #probability given to a random action
-	topv = 1.0 - ϵ + otherv #probability weight given to the top action in the distribution
-	
-	steps = zeros(Int64, n) #keep track of length of each episode
-	rewardsums = zeros(n)
-	
-	#update policy with epsilon greedy strategy following Q
-	function updateπ!()
-		for s in states
-			aind = argmax(Q[(s, a)] for a in actions) #index of selected action
-			π[s] .= otherv
-			π[s][aind] = topv
+	for ep in 1:num_episodes
+		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
+		s = mdp.state_init()
+		rtot = zero(T)
+		l = 0
+		while !mdp.isterm(s)
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+			qmax = maximum(Q[i, i_s′] for i in eachindex(mdp.actions))
+			Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
+			
+			#update terms for next step
+			vhold .= Q[:, i_s]
+			make_ϵ_greedy_policy!(vhold, ϵ)
+			π[:, i_s] .= vhold
+			s = s′
+			
+			l+=1
+			rtot += r
 		end
+		steps[ep] = l
+		rewards[ep] = rtot
 	end
 
-	function updateq!(s0, l = 1; rsum = 0.0)
-		a0 = sampleπ(s0)
-		(s, r, isterm) = tr(s0, a0)
-		rsum += r
-		Q[(s0, a0)] += α*(r + γ*maximum(Q[(s, a)] for a in actions) - Q[(s0, a0)])
-		updateπ!()
-		isterm && return (l, rsum)
-		updateq!(s, l+1, rsum=rsum)
-	end
-
-	for i in 1:n
-		s0 = gets0()
-		l, rsum = updateq!(s0)
-		steps[i] = l
-		rewardsums[i] = rsum
-	end
-
-	π_det = Dict(s => actions[argmax(π[s])] for s in states)
-	return Q, π_det, steps, rewardsums
+	return Q, π, steps, rewards
 end
 
 # ╔═╡ 8224b808-5778-458b-b683-ea2603c82117
@@ -1599,6 +2048,211 @@ html"""
 		}
 	</style>
 	"""
+
+# ╔═╡ 22c4ce8c-bd82-4eb3-8af5-55342018edff
+md"""
+# Dynamic Programming Code
+"""
+
+# ╔═╡ 393cd9d2-dd97-496e-b260-ec6e8b1c13b5
+begin
+	struct FiniteMDP{T<:Real, S, A} 
+		states::Vector{S}
+		actions::Vector{A}
+		rewards::Vector{T}
+		# ptf::Dict{Tuple{S, A}, Matrix{T}}
+		ptf::Array{T, 4}
+		action_scratch::Vector{T}
+		state_scratch::Vector{T}
+		reward_scratch::Vector{T}
+		state_index::Dict{S, Int64}
+		action_index::Dict{A, Int64}
+		function FiniteMDP{T, S, A}(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A}
+			new(states, actions, rewards, ptf, Vector{T}(undef, length(actions)), Vector{T}(undef, length(states)+1), Vector{T}(undef, length(rewards)), Dict(zip(states, eachindex(states))), Dict(zip(actions, eachindex(actions))))
+		end	
+	end
+	FiniteMDP(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A} = FiniteMDP{T, S, A}(states, actions, rewards, ptf)
+end
+
+# ╔═╡ 0748902c-ffc0-4634-9a1b-e642b3dfb77b
+#forms a random policy for a generic finite state mdp.  The policy is a matrix where the rows represent actions and the columns represent states.  Each column is a probability distribution of actions over that state.
+form_random_policy(mdp::FiniteMDP{T, S, A}) where {T, S, A} = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
+
+# ╔═╡ c4919d14-8cba-43e6-9369-efc52bcb9b23
+function make_greedy_policy!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, V::Vector{T}, γ::T) where {T<:Real,S,A}
+	for i_s in eachindex(mdp.states)
+		maxv = -Inf
+		for i_a in eachindex(mdp.actions)
+			x = zero(T)
+			for i_r in eachindex(mdp.rewards)
+				for i_s′ in eachindex(V)
+					x += mdp.ptf[i_s′, i_r, i_a, i_s] * (mdp.rewards[i_r] + γ * V[i_s′])
+				end
+			end
+			maxv = max(maxv, x)
+			π[i_a, i_s] = x
+		end
+		π[:, i_s] .= (π[:, i_s] .≈ maxv)
+		π[:, i_s] ./= sum(π[:, i_s])
+	end
+	return π
+end
+
+# ╔═╡ 84a71bf8-0d66-42cd-ac7b-589d63a16eda
+function create_greedy_policy(Q::Matrix{T}; c = 1000, π = copy(Q)) where T<:Real
+	vhold = zeros(T, size(Q, 1))
+	for j in 1:size(Q, 2)
+		vhold .= Q[:, j]
+		make_greedy_policy!(vhold; c = c)
+		π[:, j] .= vhold
+	end
+	return π
+end
+
+# ╔═╡ 160d85d1-7584-40ce-bb0a-b29794ba7090
+begin
+	qrook, πrook = sarsa(windy_gridworld, 0.5f0, 1.0f0; decay_ϵ=false, ϵinit = 0.1f0, num_episodes = 200)
+	show_grid_policy(windy_gridworld, create_greedy_policy(qrook), wind_vals, display_rook_policy, "rook_moves")
+end
+
+# ╔═╡ 8bb2dc07-8350-44b8-920a-f165e698500e
+show_grid_value(windy_gridworld, qrook, wind_vals, "rook_value")
+
+# ╔═╡ 87c8cc7e-5b90-4fe9-9ef8-23138b3a97e9
+show_grid_policy(king_gridworld, create_greedy_policy(qking), wind_vals, display_king_policy, "king_moves")
+
+# ╔═╡ 04e9aead-2398-4851-bf72-2960a8e5672e
+q_learning(windy_gridworld, 0.3f0, 1.0f0; num_episodes = 300)[1] |> create_greedy_policy |> π -> show_grid_policy(windy_gridworld, π, wind_vals, display_rook_policy, "rook_q")
+
+# ╔═╡ 6376ce3d-12d1-4035-af83-9e0a424e6a26
+q_learning(king_gridworld, 0.5f0, 1.0f0; num_episodes = 400)[1] |> create_greedy_policy |> π -> show_grid_policy(king_gridworld, π, wind_vals, display_king_policy, "king_q")
+
+# ╔═╡ 9334a528-8264-4d0c-8d08-819f4d9160cb
+q_learning(stochastic_gridworld, 0.3f0, 1.0f0; num_episodes = 300)[1] |> create_greedy_policy |> π -> show_grid_policy(stochastic_gridworld, π, wind_vals, display_king_policy, "stochastic_q")
+
+# ╔═╡ 07c57f37-22be-4c39-8279-d80addcea0c5
+function create_gridworld_mdp(width, height, start, goal, wind, actions, step_reward)
+	mdp = make_windy_gridworld(;actions = actions, apply_wind = apply_wind, sterm = goal, start = start, xmax = width, ymax = height, winds = wind_vals, step_reward = step_reward)
+	
+	ptf = zeros(Float32, length(mdp.states), 2, length(mdp.actions), length(mdp.states))
+	for s in mdp.states
+		i_s = mdp.statelookup[s]
+		if mdp.isterm(s)
+			ptf[i_s, 1, :, i_s] .= 1.0f0
+		else
+			for a in mdp.actions
+				(r, s′) = mdp.step(s, a)
+				i_a = mdp.actionlookup[a]
+				i_s′ = mdp.statelookup[s′]
+				i_s = mdp.statelookup[s]
+				ptf[i_s′, 2, i_a, i_s] = 1.0f0
+			end
+		end
+	end
+			
+	FiniteMDP(mdp.states, mdp.actions, [0.0f0, step_reward], ptf)	
+end
+
+# ╔═╡ 71774d5f-7841-403f-bc6b-1a0cbbb72d6d
+const windy_gridworld_mdp_dp = create_gridworld_mdp(10, 7, GridworldState(1, 4), GridworldState(8, 4), wind_vals, rook_actions, -1.0f0)
+
+# ╔═╡ 2f4e2da2-b1a1-41b1-8904-39b59f426da4
+const king_gridworld_mdp_dp = create_gridworld_mdp(10, 7, GridworldState(1, 4), GridworldState(8, 4), wind_vals, king_actions, -1.0f0)
+
+# ╔═╡ 0e488135-49e5-4e71-83b1-05d8e61f0510
+const kingplus_gridworld_mdp_dp = create_gridworld_mdp(10, 7, GridworldState(1, 4), GridworldState(8, 4), wind_vals, [king_actions; Stay()], -1.0f0)
+
+# ╔═╡ dea61907-d4fb-492d-b2bb-c037c7f785cb
+function bellman_optimal_value!(V::Vector{T}, mdp::FiniteMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	delt = zero(T)
+	@inbounds @fastmath @simd for i_s in eachindex(mdp.states)
+		maxvalue = typemin(T)
+		@inbounds @fastmath @simd for i_a in eachindex(mdp.actions)
+			x = zero(T)
+			for (i_r, r) in enumerate(mdp.rewards)
+				@inbounds @fastmath @simd for i_s′ in eachindex(V)
+					x += mdp.ptf[i_s′, i_r, i_a, i_s] * (r + γ * V[i_s′])
+				end
+			end
+			maxvalue = max(maxvalue, x)
+		end
+		delt = max(delt, abs(maxvalue - V[i_s]) / (eps(abs(V[i_s])) + abs(V[i_s])))
+		V[i_s] = maxvalue
+	end
+	return delt
+end
+
+# ╔═╡ 45213165-11c8-40fe-acee-99331852c2a7
+function value_iteration_v(θ::Real, mdp::NamedTuple, γ::Real, V::Dict, delt::Real, nmax::Real, valuelist)
+	(p, sa_keys) = mdp
+	if nmax <= 0 || delt <= θ
+		(πstar, πraw) = calculatepolicy(mdp, γ, V)
+		return (valuelist, πstar, πraw)
+	else 
+		newV = deepcopy(V)
+		delt = bellman_optimal_value!(newV, p, sa_keys, γ)
+		value_iteration_v(θ, mdp, γ, newV, delt, nmax - 1, vcat(valuelist, newV))	
+	end
+end
+
+# ╔═╡ 8787a5fd-d0ab-46b5-a7df-e7bc103a7378
+function value_iteration_v!(V::Vector{T}, θ::Real, mdp::FiniteMDP{T, S, A}, γ::T, nmax::Real, valuelist) where {T<:Real, S, A}
+	nmax <= 0 && return valuelist
+	
+	#update value function
+	delt = bellman_optimal_value!(V, mdp, γ)
+	
+	#add copy of value function to results list
+	push!(valuelist, copy(V))
+
+	#halt when value function is no longer changing
+	delt <= θ && return valuelist
+	
+	value_iteration_v!(V, θ, mdp, γ, nmax - 1, valuelist)	
+end
+
+# ╔═╡ 4019c974-dcaa-46c8-ac90-e6566a376ea1
+function begin_value_iteration_v(mdp::FiniteMDP{T,S,A}, γ::T, V::Vector{T}; θ = eps(0.0), nmax=typemax(Int64)) where {T<:Real,S,A}
+	valuelist = [copy(V)]
+	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
+
+	π = form_random_policy(mdp)
+	make_greedy_policy!(π, mdp, V, γ)
+	return (valuelist, π)
+end
+
+# ╔═╡ 3134e913-1e86-495d-a558-c3ec4828bf7b
+begin_value_iteration_v(mdp::FiniteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, size(mdp.ptf, 1)); kwargs...)
+
+# ╔═╡ 7dcf462c-f06f-4a7f-a575-d87066f20d27
+(_, π_dp) = begin_value_iteration_v(windy_gridworld_mdp_dp, 1.0f0)
+
+# ╔═╡ a07f32e0-3e62-4d29-b0c2-246d9e0cfd44
+show_grid_policy(windy_gridworld, π_dp, wind_vals, display_rook_policy, "rook_moves_dp")
+
+# ╔═╡ c85a8386-8055-4971-81de-7375d645fac6
+plot_path(windy_gridworld, π_dp)
+
+# ╔═╡ 850f46b9-1af5-4242-91cd-1d095d779435
+(vking, π_king_dp) = begin_value_iteration_v(king_gridworld_mdp_dp, 1.0f0)
+
+# ╔═╡ 10fc16d7-3204-4848-8c4a-bcbf98793e6d
+show_grid_policy(king_gridworld, π_king_dp, wind_vals, display_king_policy, "king_moves_dp")
+
+# ╔═╡ cb5dd2da-7dda-4ce1-8c4b-ee50a20787ea
+plot_path(king_gridworld, π_king_dp)
+
+# ╔═╡ c1348bf8-1d4e-42e2-ba41-b0d7b7a117ae
+show_grid_policy(king_gridworld, π_king_dp, wind_vals, display_king_policy, "king_dp")
+
+# ╔═╡ 1d899a3a-cb85-480b-a72d-9af91fd7ade3
+show_grid_value(king_gridworld, vking[end], wind_vals, "king_dp_value")
+
+# ╔═╡ 5139f690-b059-41da-b801-3d995ce2ce72
+(vkingplus, π_kingplus_dp) = begin_value_iteration_v(kingplus_gridworld_mdp_dp, 1.0f0)
+
+# ╔═╡ 8ea50207-1787-418b-8dff-038ed395374f
+show_grid_value(make_windy_gridworld(actions = [king_actions; Stay()]), vkingplus[end], wind_vals, "kingplus_dp_value"; action_display = action3_display)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2114,6 +2768,7 @@ version = "17.4.0+2"
 # ╠═24a441c8-7aaf-4642-b245-5e1201456d67
 # ╠═d5abd922-a8c2-4f5c-9a6e-d2490a8ad7dc
 # ╠═bfe71b40-3157-47df-8494-67f8eb8e4e93
+# ╠═7035c082-6e50-4df5-919f-5f09d2011b4a
 # ╠═eb735ead-978b-409c-8990-b5fa7a027ebf
 # ╠═415ea466-2038-48fe-9d24-39a90182f1eb
 # ╟─a0d2333f-e87b-4981-bb52-d436ec6481c1
@@ -2173,24 +2828,74 @@ version = "17.4.0+2"
 # ╟─22c2213e-5b9b-410f-a0ef-8f1e3db3c532
 # ╟─0e59e813-3d48-4a24-b5b3-9a9de7c500c2
 # ╟─0d6a11af-b146-4bbc-997e-a11b897269a7
+# ╟─a925534e-f9b8-471a-9d86-c9212129b630
+# ╟─62a9a36a-bedb-4f5a-80a4-2d4111a65c12
+# ╟─b35264b0-ac5b-40ce-95e4-9b2bc4cb106f
+# ╟─4d7619ee-933f-452a-9202-e95a8f3da20f
+# ╟─fe2ebf39-4ab3-4aa8-abbd-23389eaf400e
 # ╟─1ae30f5d-b25b-4dcb-800f-45c463641ec5
+# ╟─6a1503c6-c77b-4e3a-9f07-74b2af1a5ff7
+# ╠═6b496582-cc0e-4195-87ef-94792b0fff54
+# ╠═cb07a6a5-c50a-4900-9e5b-a17dc7ee5710
+# ╠═84a71bf8-0d66-42cd-ac7b-589d63a16eda
+# ╠═4d4577b5-3753-450d-a247-ebd8c3e8f799
+# ╠═12aac612-758b-4655-8ede-daddd4af6d3e
+# ╠═3ed12c33-ab0a-49b1-b9e7-c4305ba35767
 # ╠═61bbf9db-49a0-4709-83f4-44f228be09c0
+# ╟─8d05403a-adeb-40ac-a98a-87586d5a5170
 # ╠═e19db54c-4b3c-42d1-b016-9620daf89bfb
 # ╠═ec285c96-4a75-4af6-8898-ec3176fa34c6
-# ╠═56f794c3-8e37-48b4-b953-7ad0a45aadd6
-# ╠═331d0b67-c00d-46fd-a175-b8412f6a93c5
+# ╠═ab331778-f892-4690-8bb3-26464e3fc05f
+# ╟─500d8dd4-fc53-4021-b797-114224ca4deb
+# ╟─136d1d96-b590-4f03-9e42-2337efc560cc
+# ╠═4556cf44-4a1c-4ca4-bfb8-4841301a2ce6
+# ╠═c36065c2-71a3-4812-b456-f30a2742d7e1
+# ╠═b5ecf1c7-29e0-44b6-a0ee-e8a6cbb30c72
+# ╠═9f28772c-9afe-4253-ab3b-055b0f48be6e
+# ╠═d299d800-a64e-4ba2-9603-efa833343405
+# ╟─04a0be81-ee5f-4eeb-963a-ad930392d50b
+# ╟─160d85d1-7584-40ce-bb0a-b29794ba7090
+# ╠═a07f32e0-3e62-4d29-b0c2-246d9e0cfd44
+# ╠═8bb2dc07-8350-44b8-920a-f165e698500e
+# ╠═c85a8386-8055-4971-81de-7375d645fac6
 # ╟─0ad739c9-8aca-4b82-bf20-c73584d29535
 # ╠═031e1106-7408-4c7e-b78e-b713c19123d1
-# ╠═1abefc8c-5be0-42b4-892e-14c0c47c16f0
+# ╟─cdedd35e-52b8-40a5-938d-2d36f6f93217
+# ╠═9651f823-e1cd-4e6e-9ce0-be9ea1c3f0a4
+# ╠═2155adfa-7a93-4960-950e-1b123da9eea4
+# ╟─d259ecca-0249-4b28-a4d7-6880d4d84495
+# ╠═dda222ef-8178-40bb-bf20-d242924c4fab
+# ╟─f0f9d3d5-e76a-4472-bfb1-da29d73a7916
 # ╟─39470c74-e554-4f6c-919d-97bec1eec0f3
+# ╠═a88368a1-6d31-42ee-b174-fe8a3e74559f
+# ╠═87c8cc7e-5b90-4fe9-9ef8-23138b3a97e9
+# ╟─e1943e4a-edd4-48ce-ab81-243d376e5d99
+# ╠═440c9ab5-709e-4f52-9a34-09d53b8a9491
+# ╠═10fc16d7-3204-4848-8c4a-bcbf98793e6d
+# ╟─cb5dd2da-7dda-4ce1-8c4b-ee50a20787ea
 # ╠═e9359ca3-4d11-4365-bc6e-7babc6fcc7de
-# ╠═dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
+# ╟─dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
 # ╟─db31579e-3e56-4271-8fc3-eb13bc95ac27
 # ╟─b59eacf8-7f78-4015-bf2c-66f89bf0e24e
+# ╠═02f34da1-551f-4ce5-a588-7f3a14afd716
 # ╠═aa0791a5-8cf1-499b-9900-4d0c59be808c
-# ╠═ced61b99-9073-4dee-afbf-82531e59c7d8
+# ╠═4ddc7d99-0b79-4689-bd93-8798b105c0a2
+# ╠═ed4e863b-22dd-4d2b-88d0-b3a56d6713b7
+# ╠═f06268f6-c771-48bc-ab3f-14ca39173c95
+# ╠═2d881aa9-1da3-4d1e-8d05-245956dbaf33
+# ╠═5073ada7-dce5-4e40-a01e-0dad28141197
+# ╠═a52713aa-bbb5-4e56-832c-6e18e148a08f
+# ╟─3ec521e5-a501-4ce3-aa28-84c42c0b2264
+# ╟─ac7d6729-1b07-4bf9-94e0-81edc063babf
+# ╠═2486545c-e8ba-4840-973f-304c786c12cf
+# ╠═8bc54c94-9c92-4904-b3a6-13ff3f0110bb
+# ╠═9da5fd84-800d-4b3e-8627-e90ce8f20297
 # ╟─44c49006-e210-4f97-916e-fe62f36c593f
-# ╠═f90263de-1053-48cb-8240-56112d6dc67f
+# ╠═2034fd1e-5171-4eda-85d5-2de62d7a1e8b
+# ╟─04e9aead-2398-4851-bf72-2960a8e5672e
+# ╟─6376ce3d-12d1-4035-af83-9e0a424e6a26
+# ╟─c1348bf8-1d4e-42e2-ba41-b0d7b7a117ae
+# ╟─9334a528-8264-4d0c-8d08-819f4d9160cb
 # ╟─8224b808-5778-458b-b683-ea2603c82117
 # ╠═6556dafb-04fa-434c-868a-8d7bb7b5b196
 # ╠═6bffb08c-704a-4b7c-bfce-b3d099cf35c0
@@ -2213,5 +2918,23 @@ version = "17.4.0+2"
 # ╟─f36822d7-9ea8-4f5c-9925-dc2a466a68ba
 # ╠═639840dc-976a-4e5c-987f-a92afb2d99d8
 # ╠═14b456f9-5fd1-4340-a3c7-ab9b91b4e3e0
+# ╟─22c4ce8c-bd82-4eb3-8af5-55342018edff
+# ╠═393cd9d2-dd97-496e-b260-ec6e8b1c13b5
+# ╠═0748902c-ffc0-4634-9a1b-e642b3dfb77b
+# ╠═c4919d14-8cba-43e6-9369-efc52bcb9b23
+# ╠═07c57f37-22be-4c39-8279-d80addcea0c5
+# ╠═71774d5f-7841-403f-bc6b-1a0cbbb72d6d
+# ╠═2f4e2da2-b1a1-41b1-8904-39b59f426da4
+# ╠═0e488135-49e5-4e71-83b1-05d8e61f0510
+# ╠═dea61907-d4fb-492d-b2bb-c037c7f785cb
+# ╠═45213165-11c8-40fe-acee-99331852c2a7
+# ╠═8787a5fd-d0ab-46b5-a7df-e7bc103a7378
+# ╠═4019c974-dcaa-46c8-ac90-e6566a376ea1
+# ╠═3134e913-1e86-495d-a558-c3ec4828bf7b
+# ╠═7dcf462c-f06f-4a7f-a575-d87066f20d27
+# ╠═850f46b9-1af5-4242-91cd-1d095d779435
+# ╟─1d899a3a-cb85-480b-a72d-9af91fd7ade3
+# ╟─8ea50207-1787-418b-8dff-038ed395374f
+# ╠═5139f690-b059-41da-b801-3d995ce2ce72
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
