@@ -1309,7 +1309,7 @@ end
 display_rook_policy([0.0, 0.0, 0.0, 1.0])
 
 # ╔═╡ 9f28772c-9afe-4253-ab3b-055b0f48be6e
-function plot_path(mdp, π)
+function plot_path(mdp, π; title = "Optimal policy <br> path example")
 	eg = runepisode(mdp, π)
 	
 	start_trace = scatter(x = [1.5], y = [4.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
@@ -1317,7 +1317,7 @@ function plot_path(mdp, π)
 	path_traces = [scatter(x = [eg[1][i].x + 0.5, eg[1][i+1].x + 0.5], y = [eg[1][i].y + 0.5, eg[1][i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(eg[1])-1]
 	finalpath = scatter(x = [eg[1][end].x + 0.5, 8.5], y = [eg[1][end].y + 0.5, 4.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
 
-	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:10, ticktext = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0], range = [1, 11], title = "Wind Values"), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:7, ticktext = fill("", 7), range = [1, 8]), width = 300, height = 210, autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = "Optimal policy <br> path example", font_size = 14, x = 0.5)))
+	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:10, ticktext = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0], range = [1, 11], title = "Wind Values"), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:7, ticktext = fill("", 7), range = [1, 8]), width = 300, height = 210, autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
 end
 
 # ╔═╡ 0ad739c9-8aca-4b82-bf20-c73584d29535
@@ -1401,9 +1401,6 @@ md"""
 Adding king's move actions, the optimal policy can finish in 7 steps vs 15 for the original actions.  What happens after adding a 9th action that causes no movement?
 """
 
-# ╔═╡ e1943e4a-edd4-48ce-ab81-243d376e5d99
-@bind kingbutton Button()
-
 # ╔═╡ e9359ca3-4d11-4365-bc6e-7babc6fcc7de
 begin
 	struct Stay <: GridworldAction end
@@ -1437,54 +1434,8 @@ const windy_gridworld = make_windy_gridworld()
 # ╔═╡ b5ecf1c7-29e0-44b6-a0ee-e8a6cbb30c72
 windy_gridworld.actions
 
-# ╔═╡ d299d800-a64e-4ba2-9603-efa833343405
-function example_6_5(;mdp = windy_gridworld, num_episodes = 170, action_display = rook_action_display)
-	(Qstar, πstar, steps, rewards) = sarsa(mdp, 0.5f0, 1.0f0; ϵinit = 0.1f0, num_episodes = num_episodes, decay_ϵ = false)
-	# eg = runepisode(mdp, create_greedy_policy(Qstar))
-	eg = runepisode(mdp, πstar)
-	
-	start_trace = scatter(x = [1.5], y = [4.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
-	finish_trace = scatter(x = [8.5], y = [4.5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
-	path_traces = [scatter(x = [eg[1][i].x + 0.5, eg[1][i+1].x + 0.5], y = [eg[1][i].y + 0.5, eg[1][i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(eg[1])-1]
-	finalpath = scatter(x = [eg[1][end].x + 0.5, 8.5], y = [eg[1][end].y + 0.5, 4.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
-	p1 = plot(scatter(x = cumsum(steps), y = 1:num_episodes, line_color = "red"), Layout(xaxis_title = "Time steps", yaxis_title = "Episodes"))
-	
-	p2 = plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:10, ticktext = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0], range = [1, 11], title = "Wind Values"), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:7, ticktext = fill("", 7), range = [1, 8]), width = 300, height = 210, autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = "Optimal policy <br> path example", font_size = 14, x = 0.5)))
-	
-	p3 = plot(scatter(x = 1:num_episodes, y = steps), Layout(xaxis_title = "Time steps", yaxis_title = "Steps Per Episode", yaxis_type = "log"))
-
-	@htl("""
-	<div>
-	$p1
-	<div style = "position: absolute; top: 0px; left: 10%;">$p2</div>
-	<div style = "position: absolute; top: 30px; left: 40%;">$action_display</div>
-	</div>
-	$p3
-
-	
-	""")
-end
-
-# ╔═╡ 04a0be81-ee5f-4eeb-963a-ad930392d50b
-example_6_5()
-
 # ╔═╡ dda222ef-8178-40bb-bf20-d242924c4fab
 const king_gridworld = make_windy_gridworld(;actions=king_actions)
-
-# ╔═╡ f0f9d3d5-e76a-4472-bfb1-da29d73a7916
-example_6_5(;mdp = king_gridworld, num_episodes = 400, action_display = king_action_display)
-
-# ╔═╡ a88368a1-6d31-42ee-b174-fe8a3e74559f
-qking, πking = sarsa(king_gridworld, 0.5f0, 1.0f0; decay_ϵ=false, ϵinit = 0.1f0, num_episodes = 400)
-
-# ╔═╡ 440c9ab5-709e-4f52-9a34-09d53b8a9491
-begin
-	kingbutton
-	plot_path(king_gridworld, πking)
-end
-
-# ╔═╡ dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
-example_6_5(;mdp = make_windy_gridworld(actions = [king_actions; Stay()]), num_episodes = 400, action_display = action3_display)
 
 # ╔═╡ db31579e-3e56-4271-8fc3-eb13bc95ac27
 md"""
@@ -1510,9 +1461,6 @@ end
 
 # ╔═╡ 4ddc7d99-0b79-4689-bd93-8798b105c0a2
 const stochastic_gridworld = make_windy_gridworld(actions = king_actions, apply_wind = stochastic_wind)
-
-# ╔═╡ ed4e863b-22dd-4d2b-88d0-b3a56d6713b7
-example_6_5(;mdp = stochastic_gridworld, num_episodes = 400, action_display = king_action_display)
 
 # ╔═╡ f06268f6-c771-48bc-ab3f-14ca39173c95
 qstar, πstar = sarsa(stochastic_gridworld, 0.5f0, 1.0f0; ϵinit = 0.1f0, decay_ϵ=false, num_episodes = 400)
@@ -1556,20 +1504,8 @@ HTML("""
 	</style>
 """)
 
-# ╔═╡ 3ec521e5-a501-4ce3-aa28-84c42c0b2264
-@bind testbutton Button()
-
-# ╔═╡ ac7d6729-1b07-4bf9-94e0-81edc063babf
-begin
-	testbutton
-	plot_path(stochastic_gridworld, πstar)
-end
-
-# ╔═╡ 2486545c-e8ba-4840-973f-304c786c12cf
-show_grid_value(mdp, V::Vector, wind::Vector, name; kwargs...) = show_grid_value(mdp, reshape(V, 1, length(V)), wind, name; kwargs...)
-
 # ╔═╡ 8bc54c94-9c92-4904-b3a6-13ff3f0110bb
-function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = king_action_display)
+function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = king_action_display, scale = 1.0)
 	width = maximum(s.x for s in mdp.states)
 	height = maximum(s.y for s in mdp.states)
 	start = mdp.state_init()
@@ -1577,7 +1513,7 @@ function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = ki
 	sterm = mdp.states[termind]
 	ngrid = width*height
 	@htl("""
-		<div style = "display: flex;">
+		<div style = "display: flex; transform: scale($scale); background-color: white;">
 			<div>
 				<div class = "gridworld $name value">
 					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 20px; color: black;">$(round(maximum(Q[:, i]), sigdigits = 3))</div>""", *, eachindex(mdp.states))))
@@ -1586,9 +1522,9 @@ function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = ki
 					$(HTML(mapreduce(i -> """<div class="windbox downarrow" w = "$(wind[i])"><div style = "transform: rotate(180deg); color: black;">$(wind[i])</div></div>""", *, 1:width)))
 				</div>
 			</div>
-			<div style = "display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
+			<div style = "display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; color: black; font-size: 18px; width: 5em; margin-left: 1em;">
 				$(action_display)
-				Wind Values
+				<div>Wind Values</div>
 			</div>
 		</div>
 	
@@ -1613,14 +1549,10 @@ function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = ki
 
 		</style>
 	""")
-
 end
 
-# ╔═╡ a52713aa-bbb5-4e56-832c-6e18e148a08f
-show_grid_value(stochastic_gridworld, qstar, wind_vals, "stochastic_wind_value")
-
 # ╔═╡ 9da5fd84-800d-4b3e-8627-e90ce8f20297
-function show_grid_policy(mdp, π, wind::Vector, display_function, name)
+function show_grid_policy(mdp, π, wind::Vector, display_function, name; action_display = king_action_display, scale = 1.0)
 	width = maximum(s.x for s in mdp.states)
 	height = maximum(s.y for s in mdp.states)
 	start = mdp.state_init()
@@ -1628,7 +1560,7 @@ function show_grid_policy(mdp, π, wind::Vector, display_function, name)
 	sterm = mdp.states[termind]
 	ngrid = width*height
 	@htl("""
-		<div style = "display: flex;">
+		<div style = "display: flex; transform: scale($scale); background-color: white;">
 			<div>
 				<div class = "gridworld $name">
 					$(HTML(mapreduce(i -> """<div class = "gridcell $name" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x);">$(display_function(π[:, i], scale =0.8))</div>""", *, eachindex(mdp.states))))
@@ -1637,9 +1569,9 @@ function show_grid_policy(mdp, π, wind::Vector, display_function, name)
 					$(HTML(mapreduce(i -> """<div class="windbox downarrow" w = "$(wind[i])"><div style = "transform: rotate(180deg); color: black;">$(wind[i])</div></div>""", *, 1:width)))
 				</div>
 			</div>
-			<div style = "display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
-				$(king_action_display)
-				Wind Values
+			<div style = "display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; color: black; font-size: 18px; width: 5em; margin-left: 1em;">
+				$(action_display)
+				<div>Wind Values</div>
 			</div>
 		</div>
 	
@@ -1666,11 +1598,7 @@ function show_grid_policy(mdp, π, wind::Vector, display_function, name)
 
 		</style>
 	""")
-
 end
-
-# ╔═╡ 5073ada7-dce5-4e40-a01e-0dad28141197
-show_grid_policy(stochastic_gridworld, πstar, wind_vals, display_king_policy, "stochastic_wind")
 
 # ╔═╡ 44c49006-e210-4f97-916e-fe62f36c593f
 md"""
@@ -1717,6 +1645,9 @@ function q_learning(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero
 
 	return Q, π, steps, rewards
 end
+
+# ╔═╡ c1348bf8-1d4e-42e2-ba41-b0d7b7a117ae
+show_grid_policy(king_gridworld, π_king_dp, wind_vals, display_king_policy, "king_dp")
 
 # ╔═╡ 8224b808-5778-458b-b683-ea2603c82117
 md"""
@@ -2109,18 +2040,6 @@ function create_greedy_policy(Q::Matrix{T}; c = 1000, π = copy(Q)) where T<:Rea
 	return π
 end
 
-# ╔═╡ 160d85d1-7584-40ce-bb0a-b29794ba7090
-begin
-	qrook, πrook = sarsa(windy_gridworld, 0.5f0, 1.0f0; decay_ϵ=false, ϵinit = 0.1f0, num_episodes = 200)
-	show_grid_policy(windy_gridworld, create_greedy_policy(qrook), wind_vals, display_rook_policy, "rook_moves")
-end
-
-# ╔═╡ 8bb2dc07-8350-44b8-920a-f165e698500e
-show_grid_value(windy_gridworld, qrook, wind_vals, "rook_value")
-
-# ╔═╡ 87c8cc7e-5b90-4fe9-9ef8-23138b3a97e9
-show_grid_policy(king_gridworld, create_greedy_policy(qking), wind_vals, display_king_policy, "king_moves")
-
 # ╔═╡ 04e9aead-2398-4851-bf72-2960a8e5672e
 q_learning(windy_gridworld, 0.3f0, 1.0f0; num_episodes = 300)[1] |> create_greedy_policy |> π -> show_grid_policy(windy_gridworld, π, wind_vals, display_rook_policy, "rook_q")
 
@@ -2134,6 +2053,28 @@ q_learning(stochastic_gridworld, 0.3f0, 1.0f0; num_episodes = 300)[1] |> create_
 function create_gridworld_mdp(width, height, start, goal, wind, actions, step_reward)
 	mdp = make_windy_gridworld(;actions = actions, apply_wind = apply_wind, sterm = goal, start = start, xmax = width, ymax = height, winds = wind_vals, step_reward = step_reward)
 	
+	ptf = zeros(Float32, length(mdp.states), 2, length(mdp.actions), length(mdp.states))
+	for s in mdp.states
+		i_s = mdp.statelookup[s]
+		if mdp.isterm(s)
+			ptf[i_s, 1, :, i_s] .= 1.0f0
+		else
+			for a in mdp.actions
+				(r, s′) = mdp.step(s, a)
+				i_a = mdp.actionlookup[a]
+				i_s′ = mdp.statelookup[s′]
+				i_s = mdp.statelookup[s]
+				ptf[i_s′, 2, i_a, i_s] = 1.0f0
+			end
+		end
+	end
+			
+	FiniteMDP(mdp.states, mdp.actions, [0.0f0, step_reward], ptf)	
+end
+
+# ╔═╡ 7ac99619-5232-4db8-8553-d79ea5415d29
+function create_gridworld_mdp(mdp::MDP_TD, step_reward)
+	#this only works when the mdp is deterministic.  add a version for the stochastic wind example
 	ptf = zeros(Float32, length(mdp.states), 2, length(mdp.actions), length(mdp.states))
 	for s in mdp.states
 		i_s = mdp.statelookup[s]
@@ -2224,35 +2165,65 @@ end
 # ╔═╡ 3134e913-1e86-495d-a558-c3ec4828bf7b
 begin_value_iteration_v(mdp::FiniteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, size(mdp.ptf, 1)); kwargs...)
 
-# ╔═╡ 7dcf462c-f06f-4a7f-a575-d87066f20d27
-(_, π_dp) = begin_value_iteration_v(windy_gridworld_mdp_dp, 1.0f0)
+# ╔═╡ d299d800-a64e-4ba2-9603-efa833343405
+function example_6_5(;mdp = windy_gridworld, num_episodes = 170, action_display = rook_action_display, policy_display = display_rook_policy)
+	(Qstar, πstar, steps, rewards) = sarsa(mdp, 0.5f0, 1.0f0; ϵinit = 0.1f0, num_episodes = num_episodes, decay_ϵ = false)
+	# eg = runepisode(mdp, create_greedy_policy(Qstar))
+	eg = runepisode(mdp, πstar)
 
-# ╔═╡ a07f32e0-3e62-4d29-b0c2-246d9e0cfd44
-show_grid_policy(windy_gridworld, π_dp, wind_vals, display_rook_policy, "rook_moves_dp")
+	mdp_dp = create_gridworld_mdp(mdp, -1.0f0)
+	v_dp, π_dp = begin_value_iteration_v(mdp_dp, 1.0f0)
+	path_dp = plot_path(mdp, π_dp; title = "Value Iteration Policy <br> Path Example")
 
-# ╔═╡ c85a8386-8055-4971-81de-7375d645fac6
-plot_path(windy_gridworld, π_dp)
+	policy_display_dp = show_grid_policy(mdp, π_dp, wind_vals, policy_display, String(rand('A':'Z', 10)); action_display = action_display, scale = .8)
+	value_display_dp = show_grid_value(mdp, v_dp[end], wind_vals, String(rand('A':'Z', 10)); action_display = action_display, scale = .8)
+	
+	start_trace = scatter(x = [1.5], y = [4.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
+	finish_trace = scatter(x = [8.5], y = [4.5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+	path_traces = [scatter(x = [eg[1][i].x + 0.5, eg[1][i+1].x + 0.5], y = [eg[1][i].y + 0.5, eg[1][i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(eg[1])-1]
+	finalpath = scatter(x = [eg[1][end].x + 0.5, 8.5], y = [eg[1][end].y + 0.5, 4.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
+	p1 = plot(scatter(x = cumsum(steps), y = 1:num_episodes, line_color = "red"), Layout(xaxis_title = "Time steps", yaxis_title = "Episodes"))
+	
+	p2 = plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:10, ticktext = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0], range = [1, 11], title = "Wind Values"), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:7, ticktext = fill("", 7), range = [1, 8]), width = 300, height = 210, autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = "Sarsa policy <br> Path Example", font_size = 14, x = 0.5)))
+	
+	p3 = plot(scatter(x = 1:num_episodes, y = steps), Layout(xaxis_title = "Time steps", yaxis_title = "Steps Per Episode", yaxis_type = "log"))
 
-# ╔═╡ 850f46b9-1af5-4242-91cd-1d095d779435
-(vking, π_king_dp) = begin_value_iteration_v(king_gridworld_mdp_dp, 1.0f0)
+	policy_display = show_grid_policy(mdp, πstar, wind_vals, policy_display, String(rand('A':'Z', 10)); action_display = action_display, scale = .8)
+	value_display = show_grid_value(mdp, Qstar, wind_vals, String(rand('A':'Z', 10)); action_display = action_display, scale = .8)
 
-# ╔═╡ 10fc16d7-3204-4848-8c4a-bcbf98793e6d
-show_grid_policy(king_gridworld, π_king_dp, wind_vals, display_king_policy, "king_moves_dp")
+	
+	return @htl("""
+	<div>
+	$p1
+	<div style = "position: absolute; top: 0px; left: 5%;">$p2</div>
+	<div style = "position: absolute; top: 0px; left: 30%;">$path_dp</div>
+	</div>
+	$p3
 
-# ╔═╡ cb5dd2da-7dda-4ce1-8c4b-ee50a20787ea
-plot_path(king_gridworld, π_king_dp)
+	Sarsa Solution
+	<div style = "display: flex; background-color: white; justify-content: space-around;">
+	$policy_display
+	$value_display
+	</div>
+	Value Iteration Solution
+	<div style = "display: flex; background-color: white; justify-content: space-around;">
+	$policy_display_dp
+	$value_display_dp
+	</div>
+	""")
+end
 
-# ╔═╡ c1348bf8-1d4e-42e2-ba41-b0d7b7a117ae
-show_grid_policy(king_gridworld, π_king_dp, wind_vals, display_king_policy, "king_dp")
+# ╔═╡ 04a0be81-ee5f-4eeb-963a-ad930392d50b
+example_6_5()
 
-# ╔═╡ 1d899a3a-cb85-480b-a72d-9af91fd7ade3
-show_grid_value(king_gridworld, vking[end], wind_vals, "king_dp_value")
+# ╔═╡ f0f9d3d5-e76a-4472-bfb1-da29d73a7916
+example_6_5(;mdp = king_gridworld, num_episodes = 400, action_display = king_action_display, policy_display = display_king_policy)
 
-# ╔═╡ 5139f690-b059-41da-b801-3d995ce2ce72
-(vkingplus, π_kingplus_dp) = begin_value_iteration_v(kingplus_gridworld_mdp_dp, 1.0f0)
+# ╔═╡ dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
+example_6_5(;mdp = make_windy_gridworld(actions = [king_actions; Stay()]), num_episodes = 400, action_display = action3_display, policy_display = display_king_policy)
 
-# ╔═╡ 8ea50207-1787-418b-8dff-038ed395374f
-show_grid_value(make_windy_gridworld(actions = [king_actions; Stay()]), vkingplus[end], wind_vals, "kingplus_dp_value"; action_display = action3_display)
+# ╔═╡ ed4e863b-22dd-4d2b-88d0-b3a56d6713b7
+example_6_5(;mdp = stochastic_gridworld, num_episodes = 400, action_display = king_action_display, policy_display = display_king_policy)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2854,10 +2825,6 @@ version = "17.4.0+2"
 # ╠═9f28772c-9afe-4253-ab3b-055b0f48be6e
 # ╠═d299d800-a64e-4ba2-9603-efa833343405
 # ╟─04a0be81-ee5f-4eeb-963a-ad930392d50b
-# ╟─160d85d1-7584-40ce-bb0a-b29794ba7090
-# ╠═a07f32e0-3e62-4d29-b0c2-246d9e0cfd44
-# ╠═8bb2dc07-8350-44b8-920a-f165e698500e
-# ╠═c85a8386-8055-4971-81de-7375d645fac6
 # ╟─0ad739c9-8aca-4b82-bf20-c73584d29535
 # ╠═031e1106-7408-4c7e-b78e-b713c19123d1
 # ╟─cdedd35e-52b8-40a5-938d-2d36f6f93217
@@ -2867,12 +2834,6 @@ version = "17.4.0+2"
 # ╠═dda222ef-8178-40bb-bf20-d242924c4fab
 # ╟─f0f9d3d5-e76a-4472-bfb1-da29d73a7916
 # ╟─39470c74-e554-4f6c-919d-97bec1eec0f3
-# ╠═a88368a1-6d31-42ee-b174-fe8a3e74559f
-# ╠═87c8cc7e-5b90-4fe9-9ef8-23138b3a97e9
-# ╟─e1943e4a-edd4-48ce-ab81-243d376e5d99
-# ╠═440c9ab5-709e-4f52-9a34-09d53b8a9491
-# ╠═10fc16d7-3204-4848-8c4a-bcbf98793e6d
-# ╟─cb5dd2da-7dda-4ce1-8c4b-ee50a20787ea
 # ╠═e9359ca3-4d11-4365-bc6e-7babc6fcc7de
 # ╟─dee6b500-0ba1-4bbc-b217-cbb9ad47ad06
 # ╟─db31579e-3e56-4271-8fc3-eb13bc95ac27
@@ -2880,14 +2841,9 @@ version = "17.4.0+2"
 # ╠═02f34da1-551f-4ce5-a588-7f3a14afd716
 # ╠═aa0791a5-8cf1-499b-9900-4d0c59be808c
 # ╠═4ddc7d99-0b79-4689-bd93-8798b105c0a2
-# ╠═ed4e863b-22dd-4d2b-88d0-b3a56d6713b7
+# ╟─ed4e863b-22dd-4d2b-88d0-b3a56d6713b7
 # ╠═f06268f6-c771-48bc-ab3f-14ca39173c95
 # ╠═2d881aa9-1da3-4d1e-8d05-245956dbaf33
-# ╠═5073ada7-dce5-4e40-a01e-0dad28141197
-# ╠═a52713aa-bbb5-4e56-832c-6e18e148a08f
-# ╟─3ec521e5-a501-4ce3-aa28-84c42c0b2264
-# ╟─ac7d6729-1b07-4bf9-94e0-81edc063babf
-# ╠═2486545c-e8ba-4840-973f-304c786c12cf
 # ╠═8bc54c94-9c92-4904-b3a6-13ff3f0110bb
 # ╠═9da5fd84-800d-4b3e-8627-e90ce8f20297
 # ╟─44c49006-e210-4f97-916e-fe62f36c593f
@@ -2923,6 +2879,7 @@ version = "17.4.0+2"
 # ╠═0748902c-ffc0-4634-9a1b-e642b3dfb77b
 # ╠═c4919d14-8cba-43e6-9369-efc52bcb9b23
 # ╠═07c57f37-22be-4c39-8279-d80addcea0c5
+# ╠═7ac99619-5232-4db8-8553-d79ea5415d29
 # ╠═71774d5f-7841-403f-bc6b-1a0cbbb72d6d
 # ╠═2f4e2da2-b1a1-41b1-8904-39b59f426da4
 # ╠═0e488135-49e5-4e71-83b1-05d8e61f0510
@@ -2931,10 +2888,5 @@ version = "17.4.0+2"
 # ╠═8787a5fd-d0ab-46b5-a7df-e7bc103a7378
 # ╠═4019c974-dcaa-46c8-ac90-e6566a376ea1
 # ╠═3134e913-1e86-495d-a558-c3ec4828bf7b
-# ╠═7dcf462c-f06f-4a7f-a575-d87066f20d27
-# ╠═850f46b9-1af5-4242-91cd-1d095d779435
-# ╟─1d899a3a-cb85-480b-a72d-9af91fd7ade3
-# ╟─8ea50207-1787-418b-8dff-038ed395374f
-# ╠═5139f690-b059-41da-b801-3d995ce2ce72
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
