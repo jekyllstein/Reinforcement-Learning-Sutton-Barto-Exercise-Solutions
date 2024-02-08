@@ -1136,13 +1136,13 @@ md"""
 """
 
 # ╔═╡ 6b496582-cc0e-4195-87ef-94792b0fff54
-function make_ϵ_greedy_policy!(v::AbstractVector{T}, ϵ::T) where T <: Real
-	vmax = maximum(v)
+function make_ϵ_greedy_policy!(v::AbstractVector{T}, ϵ::T; valid_inds = eachindex(v)) where T <: Real
+	vmax = maximum(view(v, valid_inds))
 	v .= T.(isapprox.(v, vmax))
 	s = sum(v)
-	c = ϵ / length(v)
+	c = s * ϵ / length(valid_inds)
 	d = one(T)/s - ϵ #value to add to actions that are maximizing
-	for i in eachindex(v)
+	for i in valid_inds
 		if v[i] == 1
 			v[i] = d + c
 		else
@@ -1156,6 +1156,7 @@ end
 function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
 	(vmin, vmax) = extrema(v)
 	if vmin == vmax
+		v .= zero(T)
 		v .= one(T) / length(v)
 	else
 		v .= (v .- vmax) ./ abs(vmin - vmax)
@@ -1166,11 +1167,11 @@ function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
 end
 
 # ╔═╡ 4d4577b5-3753-450d-a247-ebd8c3e8f799
-function create_ϵ_greedy_policy(Q::Matrix{T}, ϵ::T; π = copy(Q)) where T<:Real
+function create_ϵ_greedy_policy(Q::Matrix{T}, ϵ::T; π = copy(Q), get_valid_inds = j -> 1:size(Q, 1)) where T<:Real
 	vhold = zeros(T, size(Q, 1))
 	for j in 1:size(Q, 2)
 		vhold .= Q[:, j]
-		make_ϵ_greedy_policy!(vhold, ϵ)
+		make_ϵ_greedy_policy!(vhold, ϵ; valid_inds = get_valid_inds(j))
 		π[:, j] .= vhold
 	end
 	return π
@@ -1196,7 +1197,7 @@ function init_step(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}, s::S) where {S, A,
 end
 
 # ╔═╡ 61bbf9db-49a0-4709-83f4-44f228be09c0
-function sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false) where T<:AbstractFloat
+function sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), history_state::S = first(mdp.states), save_history = false, decay_ϵ = false) where {S, A, F, G, H, T<:AbstractFloat}
 	terminds = findall(mdp.isterm(s) for s in mdp.states)
 	Q = copy(Qinit)
 	Q[:, terminds] .= zero(T)
@@ -1205,7 +1206,11 @@ function sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), 
 	#keep track of rewards and steps per episode as a proxy for training speed
 	rewards = zeros(T, num_episodes)
 	steps = zeros(Int64, num_episodes)
-	
+
+	if save_history
+		action_history = Vector{A}(undef, num_episodes)
+	end
+
 	for ep in 1:num_episodes
 		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
 		s = mdp.state_init()
@@ -1214,6 +1219,9 @@ function sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), 
 		l = 0
 		while !mdp.isterm(s)
 			(s′, i_s′, r, a′, i_a′) = sarsa_step(mdp, π, s, a)
+			if save_history && (s == history_state)
+				action_history[ep] = a
+			end
 			Q[i_a, i_s] += α * (r + γ*Q[i_a′, i_s′] - Q[i_a, i_s])
 			
 			#update terms for next step
@@ -1232,7 +1240,9 @@ function sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), 
 		rewards[ep] = rtot
 	end
 
-	return Q, π, steps, rewards
+	default_return =  Q, π, steps, rewards
+	save_history && return (default_return..., action_history)
+	return default_return
 end
 
 # ╔═╡ 8d05403a-adeb-40ac-a98a-87586d5a5170
@@ -1664,15 +1674,19 @@ $Q(S_t, A_t) \leftarrow Q(S_t, A_t) + \alpha [R_{t+1} + \gamma \text{max}_a Q(S_
 """
 
 # ╔═╡ 2034fd1e-5171-4eda-85d5-2de62d7a1e8b
-function q_learning(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false) where T<:AbstractFloat
+function q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), decay_ϵ = false, history_state::S = first(mdp.states), save_history = false, update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ)) where {S, A, F, G, H, T<:AbstractFloat}
 	terminds = findall(mdp.isterm(s) for s in mdp.states)
 	Q = copy(Qinit)
 	Q[:, terminds] .= zero(T)
-	π = create_ϵ_greedy_policy(Q, ϵinit)
+	π = copy(πinit)
 	vhold = zeros(T, length(mdp.actions))
 	#keep track of rewards and steps per episode as a proxy for training speed
 	rewards = zeros(T, num_episodes)
 	steps = zeros(Int64, num_episodes)
+	
+	if save_history
+		history_actions = Vector{A}(undef, num_episodes)
+	end
 	
 	for ep in 1:num_episodes
 		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
@@ -1681,12 +1695,15 @@ function q_learning(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero
 		l = 0
 		while !mdp.isterm(s)
 			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+			if save_history && (s == history_state)
+				history_actions[ep] = a
+			end
 			qmax = maximum(Q[i, i_s′] for i in eachindex(mdp.actions))
 			Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
 			
 			#update terms for next step
 			vhold .= Q[:, i_s]
-			make_ϵ_greedy_policy!(vhold, ϵ)
+			update_policy!(vhold, ϵ, s)
 			π[:, i_s] .= vhold
 			s = s′
 			
@@ -1697,6 +1714,7 @@ function q_learning(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero
 		rewards[ep] = rtot
 	end
 
+	save_history && return Q, π, steps, rewards, history_actions
 	return Q, π, steps, rewards
 end
 
@@ -1891,7 +1909,7 @@ function figure_6_3(mdp)
 		return out
 	end
 
-	interim_data(estimator) = generate_data(estimator, 100, 1_000)
+	interim_data(estimator) = generate_data(estimator, 100, 100)
 	asymp_data(estimator) = generate_data(estimator, 100_000, 1)
 
 	estimators = [expected_sarsa, sarsa, q_learning]
@@ -1903,56 +1921,87 @@ function figure_6_3(mdp)
 end
 
 # ╔═╡ cafedde8-be94-4697-a511-510a5fea0155
+# ╠═╡ disabled = true
+#=╠═╡
 figure_6_3(cliffworld)
+  ╠═╡ =#
 
-# ╔═╡ 4a152053-9ed6-46e4-8034-84b1c18fa16c
+# ╔═╡ 29b0a2d5-9629-46cd-b57c-6f3ef797de66
 md"""
 ## 6.7 Maximization Bias and Double Learning
+All the control algorithms that we have discussed so far involve maximization in the construction of the target policies.  For example, in Q-learning the target policy is the greedy policy given the current action values, which is defined with a max, and in Sarsa the policy is often $\epsilon$-greedy, which also involves a maximization operation.  In these algorithms, a maximum over estimated values is used implicitely as an estimate of the maximum value, which can lead to significant positive bias.  To see why, consider a isngle state $s$ where there are many actions $a$ whose true values $q(s, a)$, are all zero, but whose estimated values, $Q(s, a)$, are uncertain and thus distributed above and some below zero.  The maximum of the true values is zero, but the maximum of the estimates is positive, a positive bias.  We call this *maximization bias*.
 
-### Example 6.7: Maximization Bias Example
+To elaborate on the bias, consider just two random variables $X \sim \mathcal{N}(\theta_1, 1)$ and $Y \sim \mathcal{N}(\theta_2, 1)$.  We would like to estimate $\text{max}(\theta_1, \theta_2)$ and using the approach analogous to our learning algorithms we would calculate $\text{max} \left ( \mathbb{E}[X], \mathbb{E}[Y] \right )$ which we could calculate with sample averages as follows: $\text{max} \left ( \sum_{i=1}^N \frac{x_i}{N}, \sum_{i=1}^M \frac{y_i}{M} \right )$.  The problem with this approach is that for small numbers of samples, the variance of our estimator is high and we are using this estimator both to select which random variable has the higher expected value and what that value is.  Empirically, this results in a positive bias which gets worse the more variables we are considering as illustrated in the plot below.
 """
 
-# ╔═╡ 69eedbfd-396f-4461-b7a1-c36abc094581
-function example_6_7_mdp()
-	states = [:A, :B, :term]
-	actions = [:left, :right]; 
-	sterm = Term()
+# ╔═╡ 4862942b-d1e2-4ac8-8e88-65205e91a070
+@bind max_visual_params PlutoUI.combine() do Child
+	md"""
+	Number of Variables: $(Child(:nvars, NumberField(2:100, default = 2)))
+	"""
+end |> confirm
 
-	gets0() = A()
-	
-	# tr(::A, ::Right) = (sterm, 0.0, true)
-	# tr(::A, ::Left) = (B(), 0.0, false)
-	# tr(::B, a) = (sterm, randn(-0.1, 1.0), true)
+# ╔═╡ 15dc58b8-8532-4b5a-b161-591852979ae5
+md"""
+To understand the origin of the bias, consider a case where we only have a single sample from each variable which follows a standard normal distribution.  In this case our expected value estimate is just this value and it has variance 1.  What is the expected value of our maximum estimate in this case?  
 
-	function episode(π, lmax = 1000)
-		s = gets0()
-		path = [s]
-		a = π(s)
-		isterm = false
-		l = 1
-		while !isterm && (l < lmax)
-			(s, r, isterm) = tr(s, a)
-			push!(path, s)
-			a = π(s)
-			l += 1
-		end
-		return path
+$\mathbb{E} \left [ \text{max}\left( \mathbb{E}[X], \mathbb{E}[Y] \right ) \right ] = \mathbb{E} \left [ \text{max}\left( x, y \right ) \right ]$ where $x,y$ are single samples from the distributions.  This expected value can be calculated using the distribution of the maximum of two standard normal random variables:  
+
+$\mathbb{E}\left [ \text{max}(\mathcal{N}(0, 1), \mathcal{N}(0, 1)) \right ] = \frac{1}{\sqrt{\pi}} \approx 0.564$
+
+So apparantly our estimate has a positive bias.  If we had more samples for each variable then we would use the distribution of the sample average rather than a single sample and that distribution has a variance proportional to the inverse of the number of smaples.  So the bias will converge to zero in the limit of infinite samples, and in the graph the bias does in fact converge to zero over more samples.  Could we instead use an estimator that avoids some or all of this initial bias?
+
+Consider a multivariate random variable $\boldsymbol{X} = [X_1, X_2, \cdots, X_N]$ which has some true expected value $\mathbb{E}[\boldsymbol{X}] = [\theta_1, \theta_2, \cdots, \theta_N]$.  We would like to know the true value for $\text{maximum}(\mathbb{E}[\boldsymbol{X}]) = \theta_{i_{max}} \geq \theta_i \forall i$.  If we take the maximum of the sample average, this is not an unbiased estimator $\text{maximum} ( \overline{\boldsymbol{X}})$ since the sample averages themselves have non-zero variance.  $\mathbb{E}[\boldsymbol{X}_{i_{max}}] = \sum_{i=1}^N \left [ P\{i = i_{max} \} \times \overline{\boldsymbol{X}}_i \right ]$ where $i_{max}$ is defined above but not known to us at the time of estimation.  We do not know apriori though what these probabilities are.  So an alternative solution is to lower the bias of our estimators some other way.  One suggestion from the book is to use one set of samples to estimate which variable is maximizing and then another set of samples to estimate the average of that variable.  On the plot is also shown a method where the samples are separated into two halves.  One half is used to estimate which variable is maximizing and the other half is used to calculate the maximum.  The process is reversed as well and the two estimates are averaged for the final answer.  This method completely removes the bias and all of the estiamtes have an expected value of 0 regardless of how few samples there are.    
+"""
+
+# ╔═╡ 3f4f078a-9fc4-4b02-b499-a805fd5f1071
+function max_bias_visualization(;nvars = 2, nmax = 100, nruns = 10_000)
+	nlist = collect(2:2:nmax)
+	vars = [randn(nmax, nruns) for _ in 1:nvars]
+	max_estimate = [begin
+	mapreduce(j -> begin
+	means1 = [mean(view(x, 1:2:n, j)) for x in vars]
+	means2 = [mean(view(x, 2:2:n, j)) for x in vars]
+	max1 = maximum(means1 .+ means2) / 2
+	max2 = (means2[argmax(means1)] + means1[argmax(means2)]) / 2
+	return (max1, max2)
+	end, (a, b) -> (a[1]+b[1], a[2]+b[2]), 1:nruns) 
 	end
-	(Qstar, πstar, steps, rsum) = Q_learning(0.1, 1.0, states, sterm, actions, tr, 300, gets0 = gets0)
+	for n in nlist]
+	estimate1 = [a[1] for a in max_estimate] ./ (nruns .* nlist)
+	estimate2 = [a[2] for a in max_estimate] ./ (nruns .* nlist)
+	t1 = scatter(x = 2:2:nmax, y = estimate1, name = "Max of Means Estimate")
+	t2 = scatter(x = 2:2:nmax, y = estimate2, name = "Double Max Estimate")
+	plot([t1, t2], Layout(xaxis_title = "Number of Samples Per Variable", yaxis_title = "Estimate of Maximum Mean", title = "Maximization Bias for $nvars Variables with Zero Mean"))
 end
 
-# ╔═╡ 31acdb5f-5aa1-43a2-a08b-93208d0fae04
+# ╔═╡ ff5d051e-5de1-48a9-9578-5dbafd71afd1
+max_bias_visualization(;nvars = max_visual_params.nvars, nmax = 30)
+
+# ╔═╡ e039a5be-4b59-4023-be97-2d1de970be27
 md"""
-$\begin{align}
-H(x) = \begin{cases} 1 \quad \mathrm{if}; x \geq 0 \\
-0 \quad \mathrm{otherwise} 
-\end{cases}
-\end{align}$
+### Double Learning Implementation
 """
+
+# ╔═╡ 223055df-7d5c-4d99-bc8d-fbc9702f906f
+md"""
+### Example 6.7: Maximization Bias Example
+
+Consider an MDP with two non-terminal states A and B.  Episodes always start in state A and there are two actions, left and right.  Choosing right will always result in a reward of 0 and the episode terminating.  Choosing left will transition into state B from which there are many actions, all of which result in a terminal transition with random rewards.  The distribution of rewards for each of these actions is $\mathcal{N}(-0.1, 1)$.  The estimated value of (A, right) will always be 0 since that is the only possible sample to be collected.  The estimated value of (A, left) however will have higher variance but an expected value of -0.1.  The problem with Q-learning is that, due to the maximization bias, (A, left) will have a higher value estimate when few samples have been collected since it is very likely that one of the state-action pairs from B will produce a reward greater than 0.  The more of these actions exist, the worse the bias and the more samples needed to be collected to remove it.  If we employ Double Q-learning instead, however, we can eliminate the bias completely.
+"""
+
+# ╔═╡ 4382928c-6325-4ecd-b7cf-282525a270ab
+begin
+	abstract type MaxBiasStates end
+	struct A <: MaxBiasStates end
+	struct B <: MaxBiasStates end
+	struct Term <: MaxBiasStates end
+end
 
 # ╔═╡ 42799973-9884-4a0e-b29a-039890e92d21
 md"""
-> *Exercise 6.13* What are the update equations for Double Expected Sarsa with an ϵ-greedy target policy?
+> ### *Exercise 6.13* 
+> What are the update equations for Double Expected Sarsa with an ϵ-greedy target policy?
 
 For Q-learning the action-value update equation is:
 
@@ -1968,11 +2017,19 @@ $Q_1(S_t, A_t) = Q_1(S_t, A_t) + \alpha [ R_{t+1} + \gamma Q_2(S_{t+1}, \text{ar
 
 $Q_2(S_t, A_t) = Q_2(S_t, A_t) + \alpha [ R_{t+1} + \gamma Q_1(S_{t+1}, \text{argmax}_a Q_2(S_{t+1}, a)) - Q_2(S_t, A_t)]$
 
-For double expected sarsa, we have two action-value estimates but they are calculated using a deterministic expected value calculation rather than sampling:
+For double expected sarsa, we have two action-value estimates like in Double Q-learining, but the bootstrap calculation is an expected value calculation using each value function's target policy.  In this case that target is the $\epsilon$-greedy policy rather than the greedy policy in Q-learning.  The expected value uses the probabilities from the matching value function but the values from the other one:
 
-$Q_1(S_t, A_t) = Q_1(S_t, A_t) + \alpha [ R_{t+1} + \gamma \sum_a \pi(a|S_{t+1}) Q_2(S_{t+1}, a) - Q_1(S_t, A_t)]$
+With 50% probability:
 
-$Q_2(S_t, A_t) = Q_2(S_t, A_t) + \alpha [ R_{t+1} + \gamma \sum_a \pi(a|S_{t+1}) Q_1(S_{t+1}, a) - Q_2(S_t, A_t)]$
+$Q_1(S_t, A_t) = Q_1(S_t, A_t) + \alpha [ R_{t+1} + \gamma \sum_a \pi_1(a|S_{t+1}) Q_2(S_{t+1}, a) - Q_1(S_t, A_t)]$ 
+
+and make $\pi_1$ $\epsilon$-greedy with respect to $Q_1$
+
+With 50% probability:
+
+$Q_2(S_t, A_t) = Q_2(S_t, A_t) + \alpha [ R_{t+1} + \gamma \sum_a \pi_2(a|S_{t+1}) Q_1(S_{t+1}, a) - Q_2(S_t, A_t)]$
+
+and make $\pi_2$ $\epsilon$-greedy with respect to $Q_2$
 
 """
 
@@ -2152,6 +2209,157 @@ end
 
 # ╔═╡ 667666b9-3ab6-4836-953d-9878208103c9
 gridworld_Q_vs_sarsa_vs_expected_sarsa_solve(cliffworld)
+
+# ╔═╡ 3756a3f8-18e8-4d62-afa1-cfeb4183820c
+function double_expected_sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit::Matrix{T} = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false, target_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), behavior_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), πinit_target::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), πinit_behavior::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), save_state::S = first(mdp.states), save_history = false) where {S, A, F, G, H, T<:AbstractFloat}
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	
+	Q1 = copy(Qinit)
+	Q2 = copy(Qinit) 
+	Q1[:, terminds] .= zero(T)
+	Q2[:, terminds] .= zero(T)
+	π_target1 = copy(πinit_target)
+	π_target2 = copy(πinit_target)
+	π_behavior = copy(πinit_behavior)
+	vhold1 = zeros(T, length(mdp.actions))
+	vhold2 = zeros(T, length(mdp.actions))
+	vhold3 = zeros(T, length(mdp.actions))
+	#keep track of rewards and steps per episode as a proxy for training speed
+	rewards = zeros(T, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_history
+		action_history = Vector{A}(undef, num_episodes)
+	end
+	
+	for ep in 1:num_episodes
+		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
+		s = mdp.state_init()
+		rtot = zero(T)
+		l = 0
+		while !mdp.isterm(s)
+			
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π_behavior, s)
+			if save_history && (s == save_state)
+				action_history[ep] = a
+			end
+			
+			# q_expected = sum(π_target[i, i_s′]*(Q1[i, i_s′]*toggle + Q2[i, i_s′]*(1-toggle)) for i in eachindex(mdp.actions))
+			toggle = rand() < 0.5
+			q_expected = if toggle 
+				sum(π_target2[i, i_s′]*Q1[i, i_s′] for i in eachindex(mdp.actions))
+			else
+				sum(π_target1[i, i_s′]*Q2[i, i_s′] for i in eachindex(mdp.actions))
+			end
+
+			if toggle
+				Q2[i_a, i_s] += α*(r + γ*q_expected - Q2[i_a, i_s])
+			else
+				Q1[i_a, i_s] += α*(r + γ*q_expected - Q1[i_a, i_s])
+			end
+			
+			#update terms for next step
+			if toggle
+				vhold2 .= Q2[:, i_s]
+				target_policy_function!(vhold2, ϵ, s)
+				π_target2[:, i_s] .= vhold2
+			else
+				vhold1 .= Q1[:, i_s]
+				target_policy_function!(vhold1, ϵ, s)
+				π_target1[:, i_s] .= vhold1
+			end
+			
+			vhold3 .= vhold1 .+ vhold2
+			behavior_policy_function!(vhold3, ϵ, s)
+			π_behavior[:, i_s] .= vhold3
+			
+			s = s′
+
+			l+=1
+			rtot += r
+		end
+		steps[ep] = l
+		rewards[ep] = rtot
+	end
+
+	Q1 .+= Q2
+	Q1 ./= 2
+	plain_return = Q1, create_greedy_policy(Q1), steps, rewards
+
+	save_history && return (plain_return..., action_history)
+	return plain_return
+end
+
+# ╔═╡ d526a3a4-63cc-4f94-8f55-98c9a4a9d134
+function double_q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; 
+	num_episodes = 1000, 
+	qinit = zero(T), 
+	ϵinit = one(T)/10, 
+	Qinit::Matrix{T} = initialize_state_action_value(mdp; qinit=qinit), 
+	decay_ϵ = false, 
+	target_policy_function! = (v, ϵ, s) -> make_greedy_policy!(v), 
+	behavior_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), 
+	πinit_target::Matrix{T} = create_greedy_policy(Qinit), 
+	πinit_behavior::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), 
+	save_state::S = first(mdp.states), 
+	save_history = false) where {S, A, F, G, H, T<:AbstractFloat} 
+	
+	double_expected_sarsa(mdp, α, γ; num_episodes = num_episodes, qinit = qinit, ϵinit = ϵinit, Qinit = Qinit, decay_ϵ = decay_ϵ, target_policy_function! = target_policy_function!, behavior_policy_function! = behavior_policy_function!, πinit_target = πinit_target, πinit_behavior = πinit_behavior, save_state = save_state, save_history = save_history)
+end
+
+# ╔═╡ 69eedbfd-396f-4461-b7a1-c36abc094581
+function example_6_7_mdp(;num_actions::Integer = 10, num_episodes = 300, nruns = 10_000, α = 0.1f0, ϵ = 0.1f0)
+	states = [A(), B(), Term()]
+	actions = collect(1:num_actions)
+	function step(::A, a)
+		a == 1 && return (0.0f0, B())
+		a == 2 && return (0.0f0, Term())
+		return (-100f0, Term())
+	end
+
+	step(::B, a) = (randn(Float32) - 0.1f0, Term())
+	state_init() = A()
+	
+	isterm(::Term) = true
+	isterm(s) = false
+
+	mdp = MDP_TD(states, actions, state_init, step, isterm)
+
+	function get_valid_inds(i_s)
+		i_s == 1 && return 1:2
+		return 1:num_actions
+	end
+
+	update_behavior!(v, ϵ, ::A) = make_ϵ_greedy_policy!(v, ϵ; valid_inds = 1:2)
+	update_behavior!(v, ϵ, s) = make_ϵ_greedy_policy!(v, ϵ)
+
+	Qinit = [[[0.0f0, 0.0f0]; fill(-100f0, num_actions-2)] zeros(Float32, num_actions) zeros(Float32, num_actions)]
+	πinit = create_ϵ_greedy_policy(Qinit, ϵ; get_valid_inds = get_valid_inds)
+	
+	
+	
+	# sarsa_results = mean(last(sarsa(mdp, 0.1f0, 1.0f0; num_episodes = num_episodes, save_history = true, ϵinit = ϵ, Qinit = Qinit, πinit = πinit, update_policy! = update_behavior!)) .== 1 for _ in 1:nruns)
+	
+	q_learning_results = mean(last(q_learning(mdp, 0.1f0, 1.0f0; num_episodes = num_episodes, save_history = true, ϵinit = ϵ, Qinit = Qinit, πinit = πinit, update_policy! = update_behavior!)) .== 1 for _ in 1:nruns)
+	
+	
+	double_q_learning_results = mean(last(double_q_learning(mdp, 0.1f0, 1.0f0; num_episodes = num_episodes, save_history = true, ϵinit = ϵ, Qinit = Qinit, πinit_behavior = πinit, behavior_policy_function! = update_behavior!)) .== 1 for _ in 1:nruns)
+	
+	# double_expected_sarsa_results = mean(last(double_expected_sarsa(mdp, 0.1f0, 1.0f0; ϵinit = ϵ, num_episodes = num_episodes, save_history = true, Qinit = Qinit, πinit_behavior = πinit, behavior_policy_function! = update_behavior!)) .== 1 for _ in 1:nruns)
+
+	optimal_trace = scatter(x = 1:num_episodes, y = fill(ϵ / 2, num_episodes), name = "optimal", line_dash = "dash")
+
+	# t0 = scatter(x = 1:num_episodes, y = sarsa_results, name = "Sarsa")
+	t1 = scatter(x = 1:num_episodes, y = q_learning_results, name = "Q-learning")
+	t2 = scatter(x = 1:num_episodes, y = double_q_learning_results, name = "Double Q-learning")
+	# t3 = scatter(x = 1:num_episodes, y = double_expected_sarsa_results, name = "Double Expected Sarsa")
+	# plot([t0, t1, t2, t3])
+	traces = [t1, t2, optimal_trace]
+	plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "% left actions from A"))
+end
+
+# ╔═╡ 00d67a93-437c-4cda-899a-9daa1102e1f2
+example_6_7_mdp(;num_episodes = 300, nruns = 10_000, num_actions = 10)
 
 # ╔═╡ 95245673-2c29-401e-bb4b-a39dc8172297
 function create_gridworld_mdp(width, height, start, goal, wind, actions, step_reward)
@@ -3005,13 +3213,22 @@ version = "17.4.0+2"
 # ╠═292d9018-b550-4278-a8e0-78dd6a6853f1
 # ╟─047a8881-c2ec-4dd1-8778-e3acf9beba2e
 # ╟─667666b9-3ab6-4836-953d-9878208103c9
-# ╠═cafedde8-be94-4697-a511-510a5fea0155
+# ╟─cafedde8-be94-4697-a511-510a5fea0155
 # ╟─c8500b89-644d-407f-881a-bcbd7da23502
 # ╠═84584793-8274-4aa1-854f-b167c7434548
 # ╠═6d9ae541-cf8c-4687-9f0a-f008944657e3
-# ╟─4a152053-9ed6-46e4-8034-84b1c18fa16c
+# ╟─29b0a2d5-9629-46cd-b57c-6f3ef797de66
+# ╟─4862942b-d1e2-4ac8-8e88-65205e91a070
+# ╟─ff5d051e-5de1-48a9-9578-5dbafd71afd1
+# ╟─15dc58b8-8532-4b5a-b161-591852979ae5
+# ╠═3f4f078a-9fc4-4b02-b499-a805fd5f1071
+# ╟─e039a5be-4b59-4023-be97-2d1de970be27
+# ╠═3756a3f8-18e8-4d62-afa1-cfeb4183820c
+# ╠═d526a3a4-63cc-4f94-8f55-98c9a4a9d134
+# ╟─223055df-7d5c-4d99-bc8d-fbc9702f906f
+# ╠═4382928c-6325-4ecd-b7cf-282525a270ab
 # ╠═69eedbfd-396f-4461-b7a1-c36abc094581
-# ╟─31acdb5f-5aa1-43a2-a08b-93208d0fae04
+# ╟─00d67a93-437c-4cda-899a-9daa1102e1f2
 # ╟─42799973-9884-4a0e-b29a-039890e92d21
 # ╟─35dc0d94-145a-4292-b0df-9e84a286c036
 # ╟─f95ceb98-f12e-4650-9ad3-0609b7ecd0f3
