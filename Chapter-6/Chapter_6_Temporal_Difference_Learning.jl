@@ -22,7 +22,7 @@ using PlutoProfile
 
 # ╔═╡ 639840dc-976a-4e5c-987f-a92afb2d99d8
 begin
-	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra
+	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra, Serialization
 	TableOfContents()
 end
 
@@ -1197,11 +1197,11 @@ function init_step(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}, s::S) where {S, A,
 end
 
 # ╔═╡ 61bbf9db-49a0-4709-83f4-44f228be09c0
-function sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), history_state::S = first(mdp.states), save_history = false, decay_ϵ = false) where {S, A, F, G, H, T<:AbstractFloat}
+function sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), history_state::S = first(mdp.states), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), save_history = false, decay_ϵ = false) where {S, A, F, G, H, T<:AbstractFloat}
 	terminds = findall(mdp.isterm(s) for s in mdp.states)
 	Q = copy(Qinit)
 	Q[:, terminds] .= zero(T)
-	π = create_ϵ_greedy_policy(Q, ϵinit)
+	π = copy(πinit)
 	vhold = zeros(T, length(mdp.actions))
 	#keep track of rewards and steps per episode as a proxy for training speed
 	rewards = zeros(T, num_episodes)
@@ -1226,7 +1226,7 @@ function sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qi
 			
 			#update terms for next step
 			vhold .= Q[:, i_s]
-			make_ϵ_greedy_policy!(vhold, ϵ)
+			update_policy!(vhold, ϵ, s)
 			π[:, i_s] .= vhold
 			s = s′
 			a = a′
@@ -1339,7 +1339,7 @@ function plot_path(mdp, π; title = "Optimal policy <br> path example", windtext
 	finalpath = scatter(x = [eg[1][end].x + 0.5, goal.x + .5], y = [eg[1][end].y + 0.5, goal.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
 
 	h1 = 30*ymax
-	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = windtext, range = [1, xmax+1], title = xtitle), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = 30*xmax, height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
+	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = windtext, range = [1, xmax+1], title = xtitle), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
 end
 
 # ╔═╡ 0ad739c9-8aca-4b82-bf20-c73584d29535
@@ -1430,7 +1430,7 @@ begin
 end
 
 # ╔═╡ ec285c96-4a75-4af6-8898-ec3176fa34c6
-function make_windy_gridworld(;actions = rook_actions, apply_wind = apply_wind, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, winds = wind_vals, step_reward = -1f0)
+function make_windy_gridworld(;actions = rook_actions, apply_wind = apply_wind, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, winds = wind_vals, get_step_reward = () -> -1f0)
 	
 	states = [GridworldState(x, y) for x in 1:xmax for y in 1:ymax]
 	
@@ -1443,7 +1443,7 @@ function make_windy_gridworld(;actions = rook_actions, apply_wind = apply_wind, 
 		GridworldState(boundstate(x2, y2)...)
 	end
 
-	tr(s0::GridworldState, a0::GridworldAction) = (step_reward, step(s0, a0))
+	tr(s0::GridworldState, a0::GridworldAction) = (get_step_reward(), step(s0, a0))
 	isterm(s::GridworldState) = s == sterm
 
 			
@@ -1719,17 +1719,17 @@ function q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 100
 end
 
 # ╔═╡ c34678f6-53bb-4f2a-96f0-a7b16f894ddd
-function show_gridworld_policy_value(mdp, results; action_display = rook_action_display, policy_display = display_rook_policy)
-	Q, π, steps, rewards = results
-	policy_display = show_grid_policy(mdp, π, wind_vals, policy_display, String(rand('A':'Z', 10)); action_display = action_display, scale = 0.9)
-	value_display = show_grid_value(mdp, Q, wind_vals, String(rand('A':'Z', 10)); action_display = action_display, scale = 0.9)
+function show_gridworld_policy_value(mdp, results; winds = wind_vals, action_display = rook_action_display, policy_display = display_rook_policy)
+	Q, π = results
+	policy_display = show_grid_policy(mdp, π, winds, policy_display, String(rand('A':'Z', 10)); action_display = action_display, scale = .8)
+	value_display = show_grid_value(mdp, Q, winds, String(rand('A':'Z', 10)); action_display = action_display, scale = .8)
 	path = plot_path(mdp, π)
 	@htl("""
-	<div style="display:flex; justify-content: center;">	
-		$policy_display 
-		$value_display
+	<div style="display:flex; justify-content: center; flex-wrap: wrap; background-color: white;">	
+		<div>$policy_display</div> 
+		<div>$value_display</div>
+		<div>$path</div>
 	</div>
-	$path
 	""")
 end
 
@@ -1846,15 +1846,18 @@ In general Expected Sarsa might use a policy different from the target policy π
 """
 
 # ╔═╡ 292d9018-b550-4278-a8e0-78dd6a6853f1
-function expected_sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false) where T<:AbstractFloat
+function expected_sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), decay_ϵ = false, save_history = false, save_state = first(mdp.states)) where {S, A, F, G, H, T<:AbstractFloat}
 	terminds = findall(mdp.isterm(s) for s in mdp.states)
 	Q = copy(Qinit)
 	Q[:, terminds] .= zero(T)
-	π = create_ϵ_greedy_policy(Q, ϵinit)
+	π = copy(πinit)
 	vhold = zeros(T, length(mdp.actions))
 	#keep track of rewards and steps per episode as a proxy for training speed
 	rewards = zeros(T, num_episodes)
 	steps = zeros(Int64, num_episodes)
+	if save_history
+		action_history = Vector{A}(undef, num_episodes)
+	end
 	
 	for ep in 1:num_episodes
 		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
@@ -1863,12 +1866,15 @@ function expected_sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = 
 		l = 0
 		while !mdp.isterm(s)
 			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+			if save_history && (s == save_state)
+				action_history[ep] = a
+			end
 			q_expected = sum(π[i, i_s′]*Q[i, i_s′] for i in eachindex(mdp.actions))
 			Q[i_a, i_s] += α*(r + γ*q_expected - Q[i_a, i_s])
 			
 			#update terms for next step
 			vhold .= Q[:, i_s]
-			make_ϵ_greedy_policy!(vhold, ϵ)
+			update_policy!(vhold, ϵ, s)
 			π[:, i_s] .= vhold
 			s = s′
 			
@@ -1879,13 +1885,21 @@ function expected_sarsa(mdp::MDP_TD, α::T, γ::T; num_episodes = 1000, qinit = 
 		rewards[ep] = rtot
 	end
 
-	return Q, π, steps, rewards
+	base_return = (Q, π, steps, rewards)
+	save_history && return (base_return..., action_history)
+	return base_return
 end
 
 # ╔═╡ 047a8881-c2ec-4dd1-8778-e3acf9beba2e
 md"""
 #### Sarsa vs Q-learning vs Expected Sarsa Performance on Cliff Walking Example
 """
+
+# ╔═╡ cafedde8-be94-4697-a511-510a5fea0155
+# ╠═╡ disabled = true
+#=╠═╡
+figure_6_3(cliffworld)
+  ╠═╡ =#
 
 # ╔═╡ c8500b89-644d-407f-881a-bcbd7da23502
 md"""
@@ -1920,42 +1934,193 @@ function figure_6_3(mdp)
 	plot([interim_traces; asymp_traces], Layout(axis_title = "α", yaxis_title = "Sum of rewards per episode", yaxis_range = [-150, 0]))
 end
 
-# ╔═╡ cafedde8-be94-4697-a511-510a5fea0155
-# ╠═╡ disabled = true
-#=╠═╡
-figure_6_3(cliffworld)
-  ╠═╡ =#
-
 # ╔═╡ 29b0a2d5-9629-46cd-b57c-6f3ef797de66
 md"""
 ## 6.7 Maximization Bias and Double Learning
 All the control algorithms that we have discussed so far involve maximization in the construction of the target policies.  For example, in Q-learning the target policy is the greedy policy given the current action values, which is defined with a max, and in Sarsa the policy is often $\epsilon$-greedy, which also involves a maximization operation.  In these algorithms, a maximum over estimated values is used implicitely as an estimate of the maximum value, which can lead to significant positive bias.  To see why, consider a isngle state $s$ where there are many actions $a$ whose true values $q(s, a)$, are all zero, but whose estimated values, $Q(s, a)$, are uncertain and thus distributed above and some below zero.  The maximum of the true values is zero, but the maximum of the estimates is positive, a positive bias.  We call this *maximization bias*.
 
-To elaborate on the bias, consider just two random variables $X \sim \mathcal{N}(\theta_1, 1)$ and $Y \sim \mathcal{N}(\theta_2, 1)$.  We would like to estimate $\text{max}(\theta_1, \theta_2)$ and using the approach analogous to our learning algorithms we would calculate $\text{max} \left ( \mathbb{E}[X], \mathbb{E}[Y] \right )$ which we could calculate with sample averages as follows: $\text{max} \left ( \sum_{i=1}^N \frac{x_i}{N}, \sum_{i=1}^M \frac{y_i}{M} \right )$.  The problem with this approach is that for small numbers of samples, the variance of our estimator is high and we are using this estimator both to select which random variable has the higher expected value and what that value is.  Empirically, this results in a positive bias which gets worse the more variables we are considering as illustrated in the plot below.
+To elaborate on the bias, consider just two random variables $X \sim \mathcal{N}(\theta_1, 1)$ and $Y \sim \mathcal{N}(\theta_2, 1)$.  We would like to estimate $\text{max} \left ( \mathbb{E}[X], \mathbb{E}[Y] \right ) = \text{max}(\theta_1, \theta_2)$ and using the approach analogous to our learning algorithms we would calculate $\max(\overline{X}, \overline{Y}) = \text{max} \left ( \sum_{i=1}^N \frac{x_i}{N}, \sum_{i=1}^M \frac{y_i}{M} \right )$.  The problem with this approach is that for small numbers of samples, the variance each estimator is high and we are using this estimator both to select which random variable has the higher expected value and what that value is.  Empirically, this results in a positive bias which gets worse the more variables we are considering as illustrated in the plot below.
+"""
+
+# ╔═╡ 01582b3b-c4d0-4691-9edf-f77e6d8be2c9
+md"""
+### Maximization Bias Visualization for a Single Estimator
 """
 
 # ╔═╡ 4862942b-d1e2-4ac8-8e88-65205e91a070
 @bind max_visual_params PlutoUI.combine() do Child
 	md"""
+	|||
+	|---|---|
+	|Maximum Number of Variables:|$(Child(:nvars, NumberField(2:100, default = 4)))|
+	|Maxinum Number of Samples Per Variable:| $(Child(:nmax, NumberField(10:1000, default = 100)))|
+	|Number of Runs:| $(Child(:nruns, NumberField(100:1_000_000, default = 10_000)))|
+	"""
+end |> confirm
+
+# ╔═╡ f474fcbd-e3c3-49fd-a6b7-6d6a8a7dda09
+md"""
+### Informal Proof for Bias
+"""
+
+# ╔═╡ 2c49900b-3c57-4d9a-b3dc-ef9cc20c30c1
+md"""
+To understand the origin of the bias, consider a case where we only have a single sample from each variable which follows a standard normal distribution.  In this case our estimate of the maximum expected value is just $\max(x, y)$ where $x$ and $y$ are samples from $X$ and $Y$ respectively.  The expected value of this estimator can be calculated using the distribution of the maximum of two standard normal random variables:  
+
+$\mathbb{E}\left [ \text{max}(\mathcal{N}(0, 1), \mathcal{N}(0, 1)) \right ] = \frac{1}{\sqrt{\pi}} \approx 0.564$
+
+Indeed, on the plot for 2 variables after 1 sample collected for each, this average observed value is 0.56 and the value increase the more variables in our list.  So apparantly our estimate has a positive bias despite the fact that every underlying variables have exactly the same distribution.  If we had more samples for each variable then we would use the distribution of the sample average rather than a single sample and that distribution has a variance proportional to the inverse of the number of samples.  So the bias will converge to zero in the limit of infinite samples, and in the graph the bias does in fact converge to zero over more samples.  
+
+There is a method of eliminating this positive bias using a so-called *double estimator*, and this method was first introduced by Hado van Hasselt in a paper published during NIPS 2010.  Below is a more thorough overview of the paper, but first I will provide a conceptual sketch of the proof.
+
+First consider a set of $M$ random variables $X = \{X_1, \dots, X_M \}$ and our goal is to estimate: $\max_i \mathbb{E} \{ X_i \}$.  
+
+In the single estimator case, we will draw samples from each variable and construct some unbiased estimator for each mean: $\mu_i$.  After we have collected some set of samples, using this method, we make the assumption that which ever estimator or set of estimators have the maximum value are the true variables with the maximum expected value.  If there is zero overlap in the distribution of each random variable, then these estimators will always be ranked in the same order as the true expected values and our estimate will be unbiased.  However, if there is any overlap in the underlying distributions (this also includes the case where all distributions are identical), then there is some non-zero probability that the true maximum index is NOT in the set of indices for the maximum estimators.  Let's say the apparent maximizing index from the sample is $s^*$ while one of the true maximizing indices is $j \neq s^*$.  So our final estimate for the maximum expected value will be $\mu_{s^*}$.  We already know that $\mathbb{E} \{ X_j \} = \max_i \mathbb{E} \{X_i \}$ by assumption.  We also know that $\mu_{s^*} > \mu_j$ in the sample and $\mathbb{E} \{ \mu_j\} = \max_i \mathbb{E} \{X_i \}$ which is the true value that we want.  So we would always expect this estimator to be larger than the true answer or equal to it in the case where the selected index is correct.  This is even true if all the variables share the same distribution, because every estimate has the same expected value which is the true answer, yet the one estimate we use to calculate the maximum is guaranteed to be larger than all of those unbiased alternatives.  The underlying reason why this will tend to overestimate is because in any finite sample, we are not guaranteed to know the correct maximizing index and any variable that produces samples high enough to exceed the true maximum will always be selected to represent that maximum.
+
+In the double estimator case, we split the samples into two sets $\mathcal{A}$ and $\mathcal{B}$ such that $\mathcal{A} \bigcap \mathcal{B} = \emptyset$ and have a set of estimators for each set $\mu_i^\mathcal{A}$ and $\mu_i^\mathcal{B}$.  Let $a^*$ be in the set of indices with the maximum estimated values in set $\mathcal{A}$.  Again, if the underlying distributions overlap at all, then there is some probability that this index is not in the set of true maximizing indices.  However, now if all the distributions are equal, then whichever index we pick is still guaranteed to be correct.  To estimate the actual value of the maximum, we take $\mu_{i_{a*}^\mathcal{B}$ which is the estimate from set $\mathcal{B}$ at the maximizing index from set $\mathcal{A}$.  Just like in the single estimator case, if this happens to be a correct index, then we have an unbiased estimate for the true value.  However, if the index is wrong, we are estimating the expected value of a non-maximizing index from a new set of samples.  By the definition of the maximizing indices, we know that in this case $\mathbb{E} \{ \mu_{a^*}^\mathcal{B} \} \lt \max_i \mathbb{E} \{ X_i \}$ resulting in a negative bias for our estimate.  Just like in the single estimator case, this estimate will be unbiased if there is no overlap in the underlying probability distributions for each variable.  Unlike the single estimator case, this estimate will also be unbiased if all the underlying distributions are equal.
+
+See below for a visualization of the bias removal for the iid case as well as the more formal proof for both methods.
+"""
+
+# ╔═╡ 0163763b-a15f-447e-b3d2-32d4bf9d2605
+@bind max_visual_params2 PlutoUI.combine() do Child
+	md"""
 	Number of Variables: $(Child(:nvars, NumberField(2:100, default = 2)))
 	"""
 end |> confirm
 
-# ╔═╡ 15dc58b8-8532-4b5a-b161-591852979ae5
+# ╔═╡ 3e367811-247b-4bd6-b8fe-63f8996fb9e8
 md"""
-To understand the origin of the bias, consider a case where we only have a single sample from each variable which follows a standard normal distribution.  In this case our expected value estimate is just this value and it has variance 1.  What is the expected value of our maximum estimate in this case?  
-
-$\mathbb{E} \left [ \text{max}\left( \mathbb{E}[X], \mathbb{E}[Y] \right ) \right ] = \mathbb{E} \left [ \text{max}\left( x, y \right ) \right ]$ where $x,y$ are single samples from the distributions.  This expected value can be calculated using the distribution of the maximum of two standard normal random variables:  
-
-$\mathbb{E}\left [ \text{max}(\mathcal{N}(0, 1), \mathcal{N}(0, 1)) \right ] = \frac{1}{\sqrt{\pi}} \approx 0.564$
-
-So apparantly our estimate has a positive bias.  If we had more samples for each variable then we would use the distribution of the sample average rather than a single sample and that distribution has a variance proportional to the inverse of the number of smaples.  So the bias will converge to zero in the limit of infinite samples, and in the graph the bias does in fact converge to zero over more samples.  Could we instead use an estimator that avoids some or all of this initial bias?
-
-Consider a multivariate random variable $\boldsymbol{X} = [X_1, X_2, \cdots, X_N]$ which has some true expected value $\mathbb{E}[\boldsymbol{X}] = [\theta_1, \theta_2, \cdots, \theta_N]$.  We would like to know the true value for $\text{maximum}(\mathbb{E}[\boldsymbol{X}]) = \theta_{i_{max}} \geq \theta_i \forall i$.  If we take the maximum of the sample average, this is not an unbiased estimator $\text{maximum} ( \overline{\boldsymbol{X}})$ since the sample averages themselves have non-zero variance.  $\mathbb{E}[\boldsymbol{X}_{i_{max}}] = \sum_{i=1}^N \left [ P\{i = i_{max} \} \times \overline{\boldsymbol{X}}_i \right ]$ where $i_{max}$ is defined above but not known to us at the time of estimation.  We do not know apriori though what these probabilities are.  So an alternative solution is to lower the bias of our estimators some other way.  One suggestion from the book is to use one set of samples to estimate which variable is maximizing and then another set of samples to estimate the average of that variable.  On the plot is also shown a method where the samples are separated into two halves.  One half is used to estimate which variable is maximizing and the other half is used to calculate the maximum.  The process is reversed as well and the two estimates are averaged for the final answer.  This method completely removes the bias and all of the estiamtes have an expected value of 0 regardless of how few samples there are.    
+### Formal Proof for Bias
 """
 
+# ╔═╡ 4c1b286c-2ba9-4293-81e1-bf360baa75fa
+md"""
+The following argument is taken from ["Double Q-learning"](https://papers.nips.cc/paper_files/paper/2010/file/091d584fced301b442654dd8c23b3fc9-Paper.pdf) by Hado van Hasselt published in _Advances in Neural Information Processing Systems 23 (NIPS 2010)_:
+
+Consider a set of $M$ random variables $X=\{X_1, \dots, X_M\}$.  We would like to calculate:
+
+$$\max_i \mathbb{E} \{X_i\} \tag{a}$$ 
+
+Without any knowledge of the underlying distribution of each $X_i$ it is impossible to determine $(\star)$ exactly.  Most often we would approximate it by first constructing approximations for $\mathbb{E} \{ X_i \} \: \forall \: i$.  Let $S = \bigcup_{i=1}^M S_i$ denote the set of samples where $S_i$ is the subset containing samples for the variable $X_i$.  We assume that the samples in $S_i$ are independent and identically distributed (iid).  Unbiased estimates for the expected values can be obtained by computing hte sample average for each variable: $\mathbb{E} \{ X_i \} = \mathbb{E} \{ \mu_i \} \approx \mu_i(S) \doteq \frac{1}{\vert S_i \vert } \sum_{s \in S_i} s$ where $\mu_i$ is an estimator for the variable $X_i$.  This approximation is unbiased since very sample $s in S_i$ is an unbiased estimat for the value of $\mathbb{E} \{ X_i \}$.  The error in approximation thus consists soley of the variance in the estimator and decreases when we obtain more samples.  We use the following notations: $f_i$ denotes the probability density function (PDF) of the $i^{th}$ variable $X_i$ and $F_i(x) = \int_{-\infty}^{x} f_i(x)dx$ is the cumulative distribution function (CDF) of this PDF.  Similarly, the PDF and CDF of the $i^{th}$ estimator are denoted $f_i^\mu$ and $F_i^\mu$.  The maximum expected value cna be expressed in terms of the underlying PDFs as $\max_i \mathbb{E} \{ X_i \} = \max_i \int_{-\infty}^\infty x f_i(x)dx$.
+
+An obvious way to approximate the value of $(a)$ is to use the value of the maximal estimator: 
+
+$$\max_i \mathbb{E} \{ X_i \} = \max_i \mathbb{E} \{ \mu_i \} \approx \max_i \mu_i(S) \tag{b}$$
+
+and this is the estimator employed in ordinary Q-learning.  This estimator is distributed according to some PDF $f_{max}^\mu$ that is dependent on the PDFs of the estimators $f_i^\mu$.  To determine this PDF, consider the CDF $F_{\max}^\mu(x)$, which gives the probability that the maximum estimate is lower or equal to $x$.  This probability is equal to the probability that all the estimates are lower or equal to $x: F_{\max}^\mu(x) \doteq P(\max_i \mu_i \leq x) = \prod_{i=1}^M P(\mu_i\leq x) \doteq \prod_{i=1}^M F_i ^\mu (x)$.  The value $\max_i \mu_i(S)$ is an unbiased estimate for $\mathbb{E} \{ \max_j \mu_j \} = \int_{-\infty}^{\infty} x f_{\max}^\mu(x)dx$ which can thus be given by:
+
+$$\mathbb{E} \{ \max_j \mu_j \} = \int_{-\infty}^{\infty} x \frac{d}{dx} \prod_{i=1}^M F_i ^ \mu (x) dx = \sum_{j=1}^M \int_{-\infty}^{\infty}x f_j ^ \mu (x) \prod_{i \neq j}^M F_i ^ \mu(x) dx \tag{c}$$
+
+However in $(a)$ the order of the max operator and the expectation operator are the other way around.  The following illustrates why $(c)$ has a positive bias.  
+"""
+
+# ╔═╡ c5718459-2323-4615-b2c4-f92a0fa189d9
+md"""
+Let $\mathcal{M}$ be the set of labels of estimators that maximize the expcted values of $X$:
+
+$$\mathcal{M} \doteq \left \{ j \mid \mathbb{E} \{ X_j \} = \max_i \mathbb{E} \{ X_i \} \right \}$$
+
+Let $Max(S)$ be the set of labels of estimators that yield the maximum estimate for some set of samples S:
+
+$$Max(S) \doteq \left \{ j \mid \mu_j(S) = \max_i \mu_i(S) \right \}$$
+
+The claim is that for all $j \in \mathcal{M}$
+
+$$\mathbb{E} \{ \max_i \mu_i \} \geq \mathbb{E} \{ \mu_j \} = \mathbb{E} \{ X_j \} \doteq \max_i \mathbb{E} \{ X_i \} \tag{d}$$
+
+*Proof*.  Assume $j \in \mathcal{M}$, i.e. $\mu_j$ is any estimator whose expected value is the maximal. Then
+
+$$\begin{flalign}
+\mathbb{E} \{ \max_i \mu_i \} &= P(j \in Max) \mathbb{E} \{ \max_i \mu_i \} + P(j \notin Max) \mathbb{E} \{ \max_i \mu_i \} \\
+&= P(j \in Max) \mathbb{E} \{\mu_j \vert j \in Max \} + P(j \notin Max) \mathbb{E} \{ \max_i \mu_i \} \\
+&\geq P(j \in Max) \mathbb{E} \{\mu_j \vert j \in Max \} + P(j \notin Max) \mathbb{E} \{ \mu_j \vert j \notin Max \} \\
+&=\mathbb{E} \{ \mu_j \} = \mathbb{E} \{X_j\} \doteq \max_i \mathbb{E} \{ X_i \}
+\end{flalign}$$
+
+The third line in the proof follows from the definition of $Max$ which implies $\mathbb{E} \{ \max_i \mu_i \} \gt \mathbb{E} \{ \mu_j \vert j \notin Max \}$, for any $j$.  Therefore the inequality is strict if and only if $P(j \notin Max) \gt 0$, for some $j \in \mathcal{M}$.  If we do not know whether this is the case, we do not know if the inequality in $(d)$ is strict and theremore in general we write $\mathbb{E} \{ \max_i \mu_i \} \geq \max_i \mathbb{E} \{ \mu_i \}$ so the claim has been proven.  
+
+Recall that $j$ is assumed to be in the set $\mathcal{M}$ meaning it has a maximizing expected value while the set $Max(S)$ contains the variables that produce the maximum estimate over some sample $S$.  So, intuitively, the proof says that calculating the expected value of the maximum of the estimators will always have a positive bias, unless there is 0 probability that the variables that produces the highest estimates over a given sample are different than the true set of maximizing variables.  This means that unless the underlying distribution of the variables have zero overlap (in this case the ranking of estimates will match the ranking of true expected values), there is always an expected positive bias.
+"""
+
+# ╔═╡ 03a06e10-f68a-403c-97bf-7a7627f2c5d6
+md"""
+Hasselt, in his paper proposes an alternative **Double Estimator** to correct this bias in approximating $\max_i \mathbb{E} \{ X_i \}$ which uses two sets of estimators: $\mu^A = \{ \mu_1^A, \dots, \mu_M^A \}$ and $\mu^B = \{ \mu_1^B, \dots, \mu_M^B \}$.
+
+Both sets of estimators are updated with a subset of samples we draw, such that $S = S^A \cup S^B$ and $S^A \cap S^B = \emptyset$ and $\mu_i^A(S) = \frac{1}{\vert S_i^A \vert } \sum_{s \in S_i^A} s$ and $\mu_i^B(S) = \frac{1}{\vert S_i^B \vert } \sum_{s \in S_i^B} s$.  Like the single estimator $\mu_i$, both $\mu_i^A$ and $\mu_i^B$ are unbiased if we assume that samples are split in a proper manner, for instance randomly over the two sets of estimators.  Let $Max^A (S) \doteq \{ j \mid \mu_j^A (S) = \max_i \mu_i^A (S) \}$ be the set of maximal estimates in $\mu^A(S)$.  Since $\mu^B$ is an independent, unbiased set of estimators, we have $\mathbb{E} \{ \mu_j^B \} = \mathbb{E} \{ X_j \}$ for all $j$, including all $j \in Max^A$.  Let $a^*$ be an estimator that maximizes $\mu^A:\mu_{a^*}^A(S) \doteq \max_i \mu_i ^A (S)$.  If there are multiple estimators that maximize $\mu^A$, we can for instance pick one at random.  Then we can use $\mu_{a^*}^B$ as an estimate for $\max_i \mathbb{E} \{ \mu_i^B \}$ and therefore also for $\max_i \mathbb{E} \{ X_i \}$ and we obtain the approximation
+
+$$\max_i \mathbb{E} \{ X_i \} = \max_i \mathbb{E} \{ \mu_i^B \} \approx \mu_{a^*}^B \tag{e}$$
+
+As we gain more samples the variance of the estimators decreases.  In the limit, $\mu_i^A(S) = \mu_i^B(S) = \mathbb{E} \{ X_i \}$ for all $i$ and the approximation in $(e)$ converges to the correct result.
+
+Assume that hte underlying PDFs are continuous.  The probability $P(j = a^*)$ for any $j$ is then equal to the probability that all $i \neq j$ give lower estimates.  Thus $\mu_j^A(S) = x$ is maximal for some value $x$ with probability $\prod_{i \neq j}^M P(\mu_i ^A \lt x)$.  Integrating out $x$ gives $P(j = a^*) = \int_{-\infty}^\infty P(\mu_j^A = x) \prod_{i \neq j}^M P(\mu_i^A < x)dx \doteq \int_{-\infty}^\infty f_j^A(x) \prod_{i \neq j}^M F_i^A(x) dx$, where $f_i^A$ and $F_i^A$ are the PDF and CDF of $\mu_i^A$.  The expected value of the approximation by the double estimator can thus be givne by
+
+$$\sum_j^M P(j = a^*) \mathbb{E} \{ \mu_j^B \} = \sum_j^M \mathbb{E} \{ \mu_j ^B \} \int_{-\infty}^\infty f_j^A(x) \prod_{i \neq j} F_i^A(x)dx \tag{f}$$
+
+For discrete PDFs the probability that two or more estimators are equal should be taken into account and the integrals should be replaced with sums.
+
+Comparing (f) to (c), we see the difference is that the double estimator uses $\mathbb{E} \{ \mu_j^B \}$ in place of $x$.  The single estimator overestimates, because $x$ is within the integral and therefore correlates with the monotonically increasing product $\prod_{i \neq j} F_i^\mu(x)$.  The double estimator underestimates because the probabilities $P(j = a^*)$ sum to one and therefore the approximation is a weighted estimate of unbiased expected values, which must be lower or equal to the maximum expected value.  In the following lemma, which holds in both discrete and the continuous case, we prove in general that hte estimate $\mathbb{E} \{ \mu_{a^*}^B \}$ is not an unbiased estimate of $\max_i \mathbb{E} \{ X_i \}$.
+"""
+
+# ╔═╡ 573a9919-bd7e-4a56-b830-4e40e91288ef
+md"""
+Let $X = \{ X_1, \dots, X_M \}$ be a set of random variables and let $\mu^A = \{\mu_1^A, \dots, \mu_M^A \}$ and $\mu^B = \{\mu_1^B, \dots, \mu_M^B\}$ be two sets of unbiased estimators such that $\mathbb{E} \{ \mu_i^A \} = \mathbb{E} \{ \mu_i^B \} = \mathbb{E} \{ X_i \}$ for all $i$.  Let $$\mathcal{M} \doteq \left \{ j \mid \mathbb{E} \{ X_j \} = \max_i \mathbb{E} \{ X_i \} \right \}$$ be the set of labels of estimators that maximize the expcted values of $X$.  Let $a^*$ be an element that maximizes $\mu^A:\mu_{a^*}^A = \max_i \mu_i^A$.  The claim is that:
+
+$$\mathbb{E} \{ \mu_{a^*}^B \} = \mathbb{E} \{ X_{a^*} \} \leq \max_i \mathbb{E} \{ X_i \}$$.  Furthermore, the inequality is strict if and only if $P(a^* \notin \mathcal{M}) \gt 0$.
+
+*Proof*.  Assume $a^* \in \mathcal{M}$.  Then $\mathbb{E} \{ \mu_{a^*}^B\} = \mathbb{E} \{ X_{a^*}\} \doteq \max_i \mathbb{E} \{ X_i \}.  Now assume $a^* \notin \mathcal{M}$ and choose $j \in \mathcal{M}$.  Then $\mathbb{E} \{ \mu_{a^*} \} = \mathbb{E} \{ X_{a^*}\} \lt \mathbb{E} \{ X_j \} \doteq \max_i \mathbb{E} \{ X_i \}$.  These two possibilities are mutually exclusive, so the combined expression can be written as: 
+
+$$\begin{flalign}
+\mathbb{E} \{ \mu_{a^*}^B \} &= P(a^* \in \mathcal{M}) \mathbb{E} \{ \mu_{a^*}^B \vert a^* \in \mathcal{M} \} + P(a^* \notin \mathcal{M}) \mathbb{E} \{ \mu_{a^*}^B \vert a^* \notin \mathcal{M} \} \\
+&= P(a^* \in \mathcal{M}) \max_i \mathbb{E} \{X_i \} + P(a^* \notin \mathcal{M}) \mathbb{E} \{ \mu_{a^*}^B \vert a^* \notin \mathcal{M} \} \\
+&\leq P(a^* \in \mathcal{M}) \max_i \mathbb{E} \{X_i \} + P(a^* \notin \mathcal{M}) \max_i \mathbb{E} \{ X_i \} \\
+&=\max_i \mathbb{E} \{ X_i \}
+\end{flalign}$$
+
+The inequality is strict only if $P(a^* \notin \mathcal{M}) \gt 0$ where $\mathcal{M}$ is the true set of maximizing variables.  This happens when variables have different expected values, but their distributions overlap.  In contrast with the simple estimator, the double estimator is unbiased when the variables are iid, since then all expected values are equal and $P(a^* \in \mathcal{M}) = 1$.
+"""
+
+# ╔═╡ bce6e4ab-58ec-4e00-be34-bc4caf51f57d
+function cum_mean(v::AbstractVector{T}) where T<:Real
+	out = zeros(length(v))
+	s = zero(T)
+	for (i, x) in enumerate(v)
+		s += x
+		out[i] = s / i
+	end
+	return out
+end
+
+# ╔═╡ 7d3be915-9092-4261-8435-dd546a7db144
+function cum_max(v::AbstractVector{T}) where T<:Real
+	out = similar(v)
+	m = first(v)
+	for (i, x) in enumerate(v)
+		m = max(m, x)
+		out[i] = m
+	end
+	return out
+end
+
+# ╔═╡ fa04d20f-6e3f-46f8-b3f7-a543d1fa360a
+function max_bias_visualization(;nvars_min = 2, nvars_max = 10, nmax = 10, nruns = 10_000)
+	varlist = collect(nvars_min:nvars_max)
+	estimates = mapreduce(+, 1:nruns) do _
+		data = randn(nmax, nvars_max)
+		means = reduce(hcat, [cum_mean(c) for c in eachcol(data)])
+		maxes = reduce(vcat, [cum_max(r)[2:end]' for r in eachrow(means)])
+	end ./ nruns
+	
+	traces = [scatter(x = 1:nmax, y = c, name = "$(varlist[i]) variables") for (i, c) in enumerate(eachcol(estimates))]
+	true_trace = scatter(x = 1:nmax, y = fill(0.0, nmax), name = "True Value", line_dash = "dash", mode = "lines", line_color = "black")
+	plot([true_trace; traces], Layout(xaxis_title = "Number of Samples Per Variable", yaxis_title = "Estimate of Maximum Mean", title = "Maximization Bias for IID Variables with Zero Mean"))
+end
+
+# ╔═╡ ff5d051e-5de1-48a9-9578-5dbafd71afd1
+max_bias_visualization(;nvars_max = max_visual_params.nvars, nmax = max_visual_params.nmax, nruns = max_visual_params.nruns)
+
 # ╔═╡ 3f4f078a-9fc4-4b02-b499-a805fd5f1071
-function max_bias_visualization(;nvars = 2, nmax = 100, nruns = 10_000)
+function max_bias_visualization_comp(;nvars = 2, nmax = 100, nruns = 10_000)
 	nlist = collect(2:2:nmax)
 	vars = [randn(nmax, nruns) for _ in 1:nvars]
 	max_estimate = [begin
@@ -1975,8 +2140,8 @@ function max_bias_visualization(;nvars = 2, nmax = 100, nruns = 10_000)
 	plot([t1, t2], Layout(xaxis_title = "Number of Samples Per Variable", yaxis_title = "Estimate of Maximum Mean", title = "Maximization Bias for $nvars Variables with Zero Mean"))
 end
 
-# ╔═╡ ff5d051e-5de1-48a9-9578-5dbafd71afd1
-max_bias_visualization(;nvars = max_visual_params.nvars, nmax = 30)
+# ╔═╡ 2651af2d-56a8-4f7e-a56a-45cabd665c72
+ max_bias_visualization_comp(;max_visual_params2...)
 
 # ╔═╡ e039a5be-4b59-4023-be97-2d1de970be27
 md"""
@@ -1990,6 +2155,21 @@ md"""
 Consider an MDP with two non-terminal states A and B.  Episodes always start in state A and there are two actions, left and right.  Choosing right will always result in a reward of 0 and the episode terminating.  Choosing left will transition into state B from which there are many actions, all of which result in a terminal transition with random rewards.  The distribution of rewards for each of these actions is $\mathcal{N}(-0.1, 1)$.  The estimated value of (A, right) will always be 0 since that is the only possible sample to be collected.  The estimated value of (A, left) however will have higher variance but an expected value of -0.1.  The problem with Q-learning is that, due to the maximization bias, (A, left) will have a higher value estimate when few samples have been collected since it is very likely that one of the state-action pairs from B will produce a reward greater than 0.  The more of these actions exist, the worse the bias and the more samples needed to be collected to remove it.  If we employ Double Q-learning instead, however, we can eliminate the bias completely.
 """
 
+# ╔═╡ 926ec37d-b969-4dc9-99b2-a6b29c6d880c
+md"""
+#### Figure 6.5:
+"""
+
+# ╔═╡ c1d6532c-38a4-488f-9789-07d63fe6f125
+md"""
+Load Existing File if Present: $(@bind load_file CheckBox(default = true))
+"""
+
+# ╔═╡ 84d81413-6334-4965-8632-8a763cd3f28a
+md"""
+Comparison of all learning methods with their double estimator counterparts and the simple MDP described in 6.7.  Q-learning initially learns to take the left action much more often than the right atcion, and always takes it significantly more often than the 5% minimum probability encorced by $\epsilon$-greedy action selection with $\epsilon$=0.1.  In contrast, Double Q-learning is essentially unaffected by maximization bias as is Double Expected Sarsa.  Sarsa and Expected Sarsa also exhibit maximization bias as well.  All of the sarsa methods eventually take the left action more than Q-learning even though the behavior policy should be the same for both.  Even Double Expected Sarsa without maximization bias shows the same tendancy.  The only difference between this method and Double Q-learning is the use of the $\epsilon$-greedy policy in the value calculation.  So the action value estimates are for the $\epsilon$-greedy policy rather than for the greedy policy under Double Q-learning.  Under this policy, sometimes the right action selection goes left and visa versa.  Even under the $\epsilon$-greedy policy, the optimal policy would be to select right, but due to the variance in value estimates introduced by $\epsilon$, it will take longer for the behavior policy based on the Q values to converge to the correct values.  That slower convergence is apparent in the graph above.
+"""
+
 # ╔═╡ 4382928c-6325-4ecd-b7cf-282525a270ab
 begin
 	abstract type MaxBiasStates end
@@ -1997,6 +2177,58 @@ begin
 	struct B <: MaxBiasStates end
 	struct Term <: MaxBiasStates end
 end
+
+# ╔═╡ 8fe856ec-5f0a-4483-bb7d-3f6fe270b6f3
+md"""
+### Example 6.8: Noisy Gridworld
+"""
+
+# ╔═╡ f11dca8f-5557-49fc-9720-35034eadba57
+md"""
+Consider a square gridworld in which the rewards for each step are -1.2 or 1.0 with equal probability.  There is no wind and the allowed moves are just up, down, left, and right.  The start is the lower left corner and the finish is the upper right corner.  It is obvious that the expected reward for a step is -0.1, so the optimal policy is to move to the goal as quickly as possible which will take $(l-1) \times 2$ steps.  For a 3x3 grid, this would be 4 steps, so $\mathbb{E} \{ G_0 \} = 4 \times -0.1 = -0.4$.  
+
+Because the positive reward is so much larger than the expected value, we might expect a large maximization bias to confuse the training method and favor long episodes with expected values that are positive.  Below are example solutions after thousands of episodes for each of the previously discussed methods.  The first solution shown is the correct optimal policy and value function using value iteration
+"""
+
+# ╔═╡ d83ff60f-8973-4dc1-9358-5ad109ea5490
+md"""
+### Solutions on Noisy Gridworld
+Load Existing Results if Present: $(@bind ex_6_8_load CheckBox(default=true))
+
+If file does not load correctly, uncheck this box to produce new results.
+"""
+
+# ╔═╡ e26f788e-f602-403e-929e-6c98a6e6bf79
+md"""
+The double estimator methods are the only ones that don't show an initial increase in the number of episodes.  After enough time though, every methodstarts to converge to the policy that takes a direct path.  If $\alpha$ is not low enough, Q-learning fails to converge towards the optimal policy and has diverging value estimates.  Both double methods are very stable and correctly estimate every state to have a negative value.
+"""
+
+# ╔═╡ 943b6d7e-14a4-4532-90c7-dd5080be0c6e
+const noisy_rewards = [-1.2f0, 1.0f0]
+
+# ╔═╡ 0c0b875e-69f8-46ed-ad06-df9c36088fbe
+const gridsize = 3
+
+# ╔═╡ 64b210e8-223f-41f7-a6b7-8af6183ddf87
+function make_noisy_gridworld(;actions = rook_actions, l = 3)
+	xmax = l
+	ymax = l
+	make_windy_gridworld(;actions = actions, apply_wind = (w, x, y) -> (x, y), xmax = xmax, ymax = ymax, sterm = GridworldState(xmax, ymax), start = GridworldState(1, 1), winds = fill(0, xmax), get_step_reward = () -> rand(noisy_rewards))
+end
+
+# ╔═╡ 98bec66e-d8f3-4d4d-b4ec-5838489164e5
+const noisy_gridworld = make_noisy_gridworld(l = gridsize)
+
+# ╔═╡ c9f7646a-ec01-4d90-9215-5027b7c1c885
+md"""
+### Q-learning Instability at Higher Learning Rate
+Learning Rate $\alpha$ $(@bind α_6_8 Slider(0.01f0:0.01f0:0.5f0, default = 0.1f0, show_value=true))
+"""
+
+# ╔═╡ 0201ae9f-4a31-497e-86ab-62b454ca85de
+md"""
+Notice that about about $\alpha = 0.25$, Q-learning sometimes has diverging values and therefore episodes that avoid termination whereas Double Q-learning avoids that problem even at large learning rates.
+"""
 
 # ╔═╡ 42799973-9884-4a0e-b29a-039890e92d21
 md"""
@@ -2181,11 +2413,17 @@ function gridworld_Q_vs_sarsa_vs_expected_sarsa_solve(mdp; α=0.5f0, ϵ=0.1f0, n
 	expected_sarsa_results = mapreduce(addtuple, 1:nruns) do _
 		expected_sarsa(mdp, α, 1.0f0; num_episodes = num_episodes, ϵinit = ϵ)
 	end
+
+	# double_expected_sarsa_results = mapreduce(addtuple, 1:nruns) do _
+	# 	double_q_learning(mdp, α, 1.0f0; num_episodes = num_episodes, ϵinit = ϵ)
+	# end
 	
 	# qlearning_results = [q_learning(mdp, α, 1.0f0; num_episodes = num_episodes, ϵinit = ϵ) for _ in 1:nruns]
 	p1 = plot_path(mdp, create_greedy_policy(sarsa_results[1] ./ nruns); windtext = fill("", 12), xtitle = "", title = "Cliff Walking Sarsa Path")
 	p2 = plot_path(mdp, qlearning_results[2] ./ nruns; windtext = fill("", 12), xtitle = "", title = "Cliff Walking Q Learning Path")
 	expected_sarsa_path = plot_path(mdp, create_greedy_policy(expected_sarsa_results[1] ./ nruns); windtext = fill("", 12), xtitle = "", title = "Cliff Walking Expected Sarsa Path")
+
+	# double_expected_sarsa_path = plot_path(mdp, create_greedy_policy(double_expected_sarsa_results[1] ./ nruns); windtext = fill("", 12), xtitle = "", title = "Cliff Walking Double Expected Sarsa Path")
 
 	traces = [scatter(x = 1:num_episodes, y = results[4] ./ nruns, name = name) for (results, name) in zip([sarsa_results, qlearning_results, expected_sarsa_results], ["Sarsa", "Q-learning", "Expected Sarsa"])]
 	p3 = plot(traces, Layout(xaxis_title = "Episodes", yaxis = attr(title = "Sum of rewards during episode", range = [-100, -15])))
@@ -2308,7 +2546,12 @@ function double_q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T;
 end
 
 # ╔═╡ 69eedbfd-396f-4461-b7a1-c36abc094581
-function example_6_7_mdp(;num_actions::Integer = 10, num_episodes = 300, nruns = 10_000, α = 0.1f0, ϵ = 0.1f0)
+function example_6_7_mdp(;num_actions::Integer = 10, num_episodes = 300, nruns = 10_000, α = 0.1f0, ϵ = 0.1f0, load_file = true, fname = "figure_6_5.bin")
+	load_file && isfile(fname) && begin
+		p = deserialize(fname)
+		return p
+	end
+	
 	states = [A(), B(), Term()]
 	actions = collect(1:num_actions)
 	function step(::A, a)
@@ -2330,40 +2573,52 @@ function example_6_7_mdp(;num_actions::Integer = 10, num_episodes = 300, nruns =
 		return 1:num_actions
 	end
 
+	#in state A don't include actions other than left and right as random choices
 	update_behavior!(v, ϵ, ::A) = make_ϵ_greedy_policy!(v, ϵ; valid_inds = 1:2)
 	update_behavior!(v, ϵ, s) = make_ϵ_greedy_policy!(v, ϵ)
 
 	Qinit = [[[0.0f0, 0.0f0]; fill(-100f0, num_actions-2)] zeros(Float32, num_actions) zeros(Float32, num_actions)]
 	πinit = create_ϵ_greedy_policy(Qinit, ϵ; get_valid_inds = get_valid_inds)
 	
-	
-	
-	# sarsa_results = mean(last(sarsa(mdp, 0.1f0, 1.0f0; num_episodes = num_episodes, save_history = true, ϵinit = ϵ, Qinit = Qinit, πinit = πinit, update_policy! = update_behavior!)) .== 1 for _ in 1:nruns)
+	sarsa_results = mean(last(sarsa(mdp, 0.1f0, 1.0f0; num_episodes = num_episodes, save_history = true, ϵinit = ϵ, Qinit = Qinit, πinit = πinit, update_policy! = update_behavior!)) .== 1 for _ in 1:nruns)
 	
 	q_learning_results = mean(last(q_learning(mdp, 0.1f0, 1.0f0; num_episodes = num_episodes, save_history = true, ϵinit = ϵ, Qinit = Qinit, πinit = πinit, update_policy! = update_behavior!)) .== 1 for _ in 1:nruns)
 	
 	
 	double_q_learning_results = mean(last(double_q_learning(mdp, 0.1f0, 1.0f0; num_episodes = num_episodes, save_history = true, ϵinit = ϵ, Qinit = Qinit, πinit_behavior = πinit, behavior_policy_function! = update_behavior!)) .== 1 for _ in 1:nruns)
+
+	expected_sarsa_results = mean(last(expected_sarsa(mdp, 0.1f0, 1.0f0; ϵinit = ϵ, num_episodes = num_episodes, save_history = true, Qinit = Qinit, πinit = πinit, update_policy! = update_behavior!)) .== 1 for _ in 1:nruns)
 	
-	# double_expected_sarsa_results = mean(last(double_expected_sarsa(mdp, 0.1f0, 1.0f0; ϵinit = ϵ, num_episodes = num_episodes, save_history = true, Qinit = Qinit, πinit_behavior = πinit, behavior_policy_function! = update_behavior!)) .== 1 for _ in 1:nruns)
+	double_expected_sarsa_results = mean(last(double_expected_sarsa(mdp, 0.1f0, 1.0f0; ϵinit = ϵ, num_episodes = num_episodes, save_history = true, Qinit = Qinit, πinit_behavior = πinit, behavior_policy_function! = update_behavior!, target_policy_function! = update_behavior!)) .== 1 for _ in 1:nruns)
 
 	optimal_trace = scatter(x = 1:num_episodes, y = fill(ϵ / 2, num_episodes), name = "optimal", line_dash = "dash")
 
-	# t0 = scatter(x = 1:num_episodes, y = sarsa_results, name = "Sarsa")
+	t0 = scatter(x = 1:num_episodes, y = sarsa_results, name = "Sarsa")
 	t1 = scatter(x = 1:num_episodes, y = q_learning_results, name = "Q-learning")
 	t2 = scatter(x = 1:num_episodes, y = double_q_learning_results, name = "Double Q-learning")
-	# t3 = scatter(x = 1:num_episodes, y = double_expected_sarsa_results, name = "Double Expected Sarsa")
+	t4 = scatter(x = 1:num_episodes, y = double_expected_sarsa_results, name = "Double Expected Sarsa")
+	t3 = scatter(x = 1:num_episodes, y = expected_sarsa_results, name = "Expected Sarsa")
 	# plot([t0, t1, t2, t3])
-	traces = [t1, t2, optimal_trace]
-	plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "% left actions from A"))
+	traces = [t0, t1, t2, t3, t4, optimal_trace]
+	p = plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "% left actions from A"))
+	serialize(fname, p)
+	return p
 end
 
 # ╔═╡ 00d67a93-437c-4cda-899a-9daa1102e1f2
-example_6_7_mdp(;num_episodes = 300, nruns = 10_000, num_actions = 10)
+example_6_7_mdp(;num_episodes = 300, nruns = 10_000, num_actions = 10, load_file=load_file)
+
+# ╔═╡ b5e06f59-33b5-414e-9a81-43e8abd07aa3
+md"""
+Q-learning Solution
+$(show_gridworld_policy_value(noisy_gridworld, q_learning(noisy_gridworld, α_6_8, 1.0f0, num_episodes = 5_000); winds = fill(0, gridsize)))
+Double Q-learning Solution
+$(show_gridworld_policy_value(noisy_gridworld, double_q_learning(noisy_gridworld, α_6_8, 1.0f0, num_episodes = 5_000); winds = fill(0, gridsize)))
+"""
 
 # ╔═╡ 95245673-2c29-401e-bb4b-a39dc8172297
 function create_gridworld_mdp(width, height, start, goal, wind, actions, step_reward)
-	mdp = make_windy_gridworld(;actions = actions, apply_wind = apply_wind, sterm = goal, start = start, xmax = width, ymax = height, winds = wind_vals, step_reward = step_reward)
+	mdp = make_windy_gridworld(;actions = actions, apply_wind = apply_wind, sterm = goal, start = start, xmax = width, ymax = height, winds = wind_vals, get_step_reward = () -> step_reward)
 	ptf = zeros(Float32, length(mdp.states), 2, length(mdp.actions), length(mdp.states))
 	for s in mdp.states
 		i_s = mdp.statelookup[s]
@@ -2386,7 +2641,7 @@ end
 
 # ╔═╡ 07c57f37-22be-4c39-8279-d80addcea0c5
 function create_stochastic_gridworld_mdp(width, height, start, goal, wind, actions, step_reward)
-	mdp = make_windy_gridworld(;actions = actions, apply_wind = apply_wind, sterm = goal, start = start, xmax = width, ymax = height, winds = wind_vals, step_reward = step_reward)
+	mdp = make_windy_gridworld(;actions = actions, apply_wind = apply_wind, sterm = goal, start = start, xmax = width, ymax = height, winds = wind_vals, get_step_reward = () -> step_reward)
 	ptf = zeros(Float32, length(mdp.states), 2, length(mdp.actions), length(mdp.states))
 	for s in mdp.states
 		i_s = mdp.statelookup[s]
@@ -2438,6 +2693,32 @@ function create_gridworld_mdp(mdp::MDP_TD, step_reward)
 			
 	FiniteMDP(mdp.states, mdp.actions, [0.0f0, step_reward], ptf)	
 end
+
+# ╔═╡ 8ddf6b9d-d76d-401f-96ad-2a0b5c114fa4
+function create_noisy_gridworld_mdp(mdp::MDP_TD, min_reward, max_reward)
+	#this only works when the mdp is deterministic.  add a version for the stochastic wind example
+	ptf = zeros(Float32, length(mdp.states), 3, length(mdp.actions), length(mdp.states))
+	for s in mdp.states
+		i_s = mdp.statelookup[s]
+		if mdp.isterm(s)
+			ptf[i_s, 1, :, i_s] .= 1.0f0
+		else
+			for a in mdp.actions
+				(r, s′) = mdp.step(s, a)
+				i_a = mdp.actionlookup[a]
+				i_s′ = mdp.statelookup[s′]
+				i_s = mdp.statelookup[s]
+				ptf[i_s′, 2, i_a, i_s] = 0.5f0
+				ptf[i_s′, 3, i_a, i_s] = 0.5f0
+			end
+		end
+	end
+			
+	FiniteMDP(mdp.states, mdp.actions, [0.0f0, min_reward, max_reward], ptf)	
+end
+
+# ╔═╡ 297f1606-4ec2-4075-9f81-926dc517b76f
+const noisy_gridworld_dp = create_noisy_gridworld_mdp(noisy_gridworld, first(noisy_rewards), last(noisy_rewards))
 
 # ╔═╡ 71774d5f-7841-403f-bc6b-1a0cbbb72d6d
 const windy_gridworld_mdp_dp = create_gridworld_mdp(10, 7, GridworldState(1, 4), GridworldState(8, 4), wind_vals, rook_actions, -1.0f0)
@@ -2575,6 +2856,49 @@ example_6_5(;mdp = make_windy_gridworld(actions = [king_actions; Stay()]), num_e
 # ╔═╡ ed4e863b-22dd-4d2b-88d0-b3a56d6713b7
 example_6_5(;mdp = stochastic_gridworld, num_episodes = 400, action_display = king_action_display, policy_display = display_king_policy, use_stochastic_dp=true)
 
+# ╔═╡ 33d69db9-fa2b-40a3-bbed-21d5fd60f302
+function example_6_8(;loadfile = true)
+	loadfile && isfile("example_6_8.bin") && return deserialize("example_6_8.bin")
+	methods = [sarsa, expected_sarsa, double_expected_sarsa, q_learning, double_q_learning]
+	names = ["Sarsa", "Expected Sarsa", "Double Expected Sarsa", "Q-learning", "Double Q-learning"]
+	results1 = [f(noisy_gridworld, 0.01f0, 1.0f0, num_episodes = 10_000) for f in methods]
+	displays = [show_gridworld_policy_value(noisy_gridworld, a; winds = fill(0, gridsize)) for a in results1]
+	value_iteration_solution = begin_value_iteration_v(noisy_gridworld_dp, 1.0f0)
+	v_true = last(first(value_iteration_solution))
+	value_iteration_display = show_gridworld_policy_value(noisy_gridworld, (v_true, last(value_iteration_solution)))
+
+
+	max_episodes = 20
+	steps = [mean(f(noisy_gridworld, 0.01f0, 1.0f0, num_episodes = max_episodes)[3] for _ in 1:10_000) for f in methods]
+	step_traces = [scatter(x = 1:max_episodes, y = v, name = names[i]) for (i, v) in enumerate(steps)]
+
+	step_plot = plot(step_traces, Layout(title = "Episode Length for Noisy Gridworld", xaxis_title = "Episodes", yaxis_title = "Steps per Episode", yaxis_type = "log"))
+	
+	out = @htl("""
+	<div>
+		<div>
+		Value Iteration Solution
+		$value_iteration_display
+		</div>
+	$(HTML(mapreduce(*, eachindex(displays)) do i
+		"""
+		<div>
+		$(names[i]) Solution
+		
+		$(displays[i])
+		</div>
+		"""
+	end))
+	</div>
+	$(step_plot)
+	""")
+	serialize("example_6_8.bin", out)
+	return out
+end
+
+# ╔═╡ e4e80015-40ce-4f8a-aac7-4a9584da4baa
+example_6_8(;loadfile = ex_6_8_load)
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -2585,6 +2909,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
@@ -2604,7 +2929,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.0"
 manifest_format = "2.0"
-project_hash = "fe2252dfe7eee84e810c7f5f83aff791b8218574"
+project_hash = "d906ab5e9d4500ce342caa28d2281654aa6cf110"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -3212,23 +3537,52 @@ version = "17.4.0+2"
 # ╟─6e06bd39-486f-425a-bbca-bf363b58988c
 # ╠═292d9018-b550-4278-a8e0-78dd6a6853f1
 # ╟─047a8881-c2ec-4dd1-8778-e3acf9beba2e
-# ╟─667666b9-3ab6-4836-953d-9878208103c9
+# ╠═667666b9-3ab6-4836-953d-9878208103c9
 # ╟─cafedde8-be94-4697-a511-510a5fea0155
 # ╟─c8500b89-644d-407f-881a-bcbd7da23502
 # ╠═84584793-8274-4aa1-854f-b167c7434548
 # ╠═6d9ae541-cf8c-4687-9f0a-f008944657e3
 # ╟─29b0a2d5-9629-46cd-b57c-6f3ef797de66
+# ╟─01582b3b-c4d0-4691-9edf-f77e6d8be2c9
 # ╟─4862942b-d1e2-4ac8-8e88-65205e91a070
 # ╟─ff5d051e-5de1-48a9-9578-5dbafd71afd1
-# ╟─15dc58b8-8532-4b5a-b161-591852979ae5
+# ╟─f474fcbd-e3c3-49fd-a6b7-6d6a8a7dda09
+# ╟─2c49900b-3c57-4d9a-b3dc-ef9cc20c30c1
+# ╟─0163763b-a15f-447e-b3d2-32d4bf9d2605
+# ╟─2651af2d-56a8-4f7e-a56a-45cabd665c72
+# ╟─3e367811-247b-4bd6-b8fe-63f8996fb9e8
+# ╟─4c1b286c-2ba9-4293-81e1-bf360baa75fa
+# ╟─c5718459-2323-4615-b2c4-f92a0fa189d9
+# ╟─03a06e10-f68a-403c-97bf-7a7627f2c5d6
+# ╟─573a9919-bd7e-4a56-b830-4e40e91288ef
+# ╠═bce6e4ab-58ec-4e00-be34-bc4caf51f57d
+# ╠═7d3be915-9092-4261-8435-dd546a7db144
+# ╠═fa04d20f-6e3f-46f8-b3f7-a543d1fa360a
 # ╠═3f4f078a-9fc4-4b02-b499-a805fd5f1071
 # ╟─e039a5be-4b59-4023-be97-2d1de970be27
 # ╠═3756a3f8-18e8-4d62-afa1-cfeb4183820c
 # ╠═d526a3a4-63cc-4f94-8f55-98c9a4a9d134
 # ╟─223055df-7d5c-4d99-bc8d-fbc9702f906f
+# ╟─926ec37d-b969-4dc9-99b2-a6b29c6d880c
+# ╟─c1d6532c-38a4-488f-9789-07d63fe6f125
+# ╟─00d67a93-437c-4cda-899a-9daa1102e1f2
+# ╟─84d81413-6334-4965-8632-8a763cd3f28a
 # ╠═4382928c-6325-4ecd-b7cf-282525a270ab
 # ╠═69eedbfd-396f-4461-b7a1-c36abc094581
-# ╟─00d67a93-437c-4cda-899a-9daa1102e1f2
+# ╟─8fe856ec-5f0a-4483-bb7d-3f6fe270b6f3
+# ╟─f11dca8f-5557-49fc-9720-35034eadba57
+# ╟─d83ff60f-8973-4dc1-9358-5ad109ea5490
+# ╟─e4e80015-40ce-4f8a-aac7-4a9584da4baa
+# ╟─e26f788e-f602-403e-929e-6c98a6e6bf79
+# ╠═943b6d7e-14a4-4532-90c7-dd5080be0c6e
+# ╠═0c0b875e-69f8-46ed-ad06-df9c36088fbe
+# ╠═64b210e8-223f-41f7-a6b7-8af6183ddf87
+# ╠═98bec66e-d8f3-4d4d-b4ec-5838489164e5
+# ╠═297f1606-4ec2-4075-9f81-926dc517b76f
+# ╟─c9f7646a-ec01-4d90-9215-5027b7c1c885
+# ╟─b5e06f59-33b5-414e-9a81-43e8abd07aa3
+# ╟─0201ae9f-4a31-497e-86ab-62b454ca85de
+# ╠═33d69db9-fa2b-40a3-bbed-21d5fd60f302
 # ╟─42799973-9884-4a0e-b29a-039890e92d21
 # ╟─35dc0d94-145a-4292-b0df-9e84a286c036
 # ╟─f95ceb98-f12e-4650-9ad3-0609b7ecd0f3
@@ -3242,6 +3596,7 @@ version = "17.4.0+2"
 # ╠═95245673-2c29-401e-bb4b-a39dc8172297
 # ╠═07c57f37-22be-4c39-8279-d80addcea0c5
 # ╠═7ac99619-5232-4db8-8553-d79ea5415d29
+# ╠═8ddf6b9d-d76d-401f-96ad-2a0b5c114fa4
 # ╠═71774d5f-7841-403f-bc6b-1a0cbbb72d6d
 # ╠═2f4e2da2-b1a1-41b1-8904-39b59f426da4
 # ╠═0e488135-49e5-4e71-83b1-05d8e61f0510
