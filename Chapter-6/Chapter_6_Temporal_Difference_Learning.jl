@@ -1919,11 +1919,10 @@ md"""
 #### Sarsa vs Q-learning vs Expected Sarsa Performance on Cliff Walking Example
 """
 
-# ╔═╡ cafedde8-be94-4697-a511-510a5fea0155
-# ╠═╡ disabled = true
-#=╠═╡
-figure_6_3(cliffworld)
-  ╠═╡ =#
+# ╔═╡ 21fbdc3b-4444-4f56-9934-fb58e184d685
+md"""
+Load existing figure: $(@bind fig_6_3_load CheckBox(default = true))
+"""
 
 # ╔═╡ c8500b89-644d-407f-881a-bcbd7da23502
 md"""
@@ -1931,7 +1930,9 @@ md"""
 """
 
 # ╔═╡ 6d9ae541-cf8c-4687-9f0a-f008944657e3
-function figure_6_3(mdp)
+function figure_6_3(mdp; load_file=true)
+	fname = "figure_6_3.bin"
+	load_file && isfile(fname) && return deserialize(fname)
 	αlist = 0.1f0:0.05f0:1.0f0
 	function generate_data(estimator, nep, nruns)
 		out = zeros(length(αlist))
@@ -1947,16 +1948,21 @@ function figure_6_3(mdp)
 		return out
 	end
 
-	interim_data(estimator) = generate_data(estimator, 100, 100)
-	asymp_data(estimator) = generate_data(estimator, 100_000, 1)
+	interim_data(estimator) = generate_data(estimator, 100, 50_000)
+	asymp_data(estimator) = generate_data(estimator, 100_000, 10)
 
 	estimators = [expected_sarsa, sarsa, q_learning]
 	names = ["Expected Sarsa", "Sarsa", "Q-learning"]
 
 	interim_traces = [scatter(x = αlist, y = interim_data(estimator), name = "Intermim $name", mode = "lines+markers", line = attr(dash = "dash")) for (estimator, name) in zip(estimators, names)]
 	asymp_traces = [scatter(x = αlist, y = asymp_data(estimator), name = "Asymptotic $name", mode = "lines+markers", line = attr(dash = "dot")) for (estimator, name) in zip(estimators, names)]
-	plot([interim_traces; asymp_traces], Layout(axis_title = "α", yaxis_title = "Sum of rewards per episode", yaxis_range = [-150, 0]))
+	p = plot([interim_traces; asymp_traces], Layout(axis_title = "α", yaxis_title = "Sum of rewards per episode", yaxis_range = [-150, 0]))
+	serialize(fname, p)
+	return p
 end
+
+# ╔═╡ cafedde8-be94-4697-a511-510a5fea0155
+figure_6_3(cliffworld; load_file = fig_6_3_load)
 
 # ╔═╡ 29b0a2d5-9629-46cd-b57c-6f3ef797de66
 md"""
@@ -3920,7 +3926,7 @@ version = "17.4.0+2"
 # ╠═9f28772c-9afe-4253-ab3b-055b0f48be6e
 # ╠═bd1029f9-d6a8-4c68-98cd-8af94297b521
 # ╠═d299d800-a64e-4ba2-9603-efa833343405
-# ╟─04a0be81-ee5f-4eeb-963a-ad930392d50b
+# ╠═04a0be81-ee5f-4eeb-963a-ad930392d50b
 # ╟─0ad739c9-8aca-4b82-bf20-c73584d29535
 # ╠═031e1106-7408-4c7e-b78e-b713c19123d1
 # ╟─cdedd35e-52b8-40a5-938d-2d36f6f93217
@@ -3962,8 +3968,9 @@ version = "17.4.0+2"
 # ╟─6e06bd39-486f-425a-bbca-bf363b58988c
 # ╠═292d9018-b550-4278-a8e0-78dd6a6853f1
 # ╟─047a8881-c2ec-4dd1-8778-e3acf9beba2e
-# ╠═667666b9-3ab6-4836-953d-9878208103c9
-# ╟─cafedde8-be94-4697-a511-510a5fea0155
+# ╟─667666b9-3ab6-4836-953d-9878208103c9
+# ╟─21fbdc3b-4444-4f56-9934-fb58e184d685
+# ╠═cafedde8-be94-4697-a511-510a5fea0155
 # ╟─c8500b89-644d-407f-881a-bcbd7da23502
 # ╠═84584793-8274-4aa1-854f-b167c7434548
 # ╠═6d9ae541-cf8c-4687-9f0a-f008944657e3
