@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.36
+# v0.19.40
 
 using Markdown
 using InteractiveUtils
@@ -19,7 +19,8 @@ using BenchmarkTools
 
 # ╔═╡ f5809bd3-64d4-47ee-9e41-e491f8c09719
 begin
-	using PlutoPlotly, PlutoUI, HypertextLiteral, Random, LaTeXStrings, Latexify, LinearAlgebra, LinearAlgebra.BLAS
+	using PlutoPlotly, PlutoUI, LinearAlgebra, LinearAlgebra.BLAS, Random, HypertextLiteral, Latexify
+# 	using PlutoPlotly, PlutoUI, HypertextLiteral, Random, LinearAlgebra, LinearAlgebra.BLAS
 	TableOfContents()
 end
 
@@ -380,11 +381,12 @@ md"""
 """
 
 # ╔═╡ e4370697-e6a7-40f0-974a-ed219102c13f
-linejoin(a, b) = 
+function linejoin(a, b) 
 """
 $a
 $b
 """
+end
 
 # ╔═╡ 6844dff1-bc0b-47c5-8496-efe46dafbb5b
 function makehtmlgrid(n)
@@ -1202,7 +1204,7 @@ function create_car_rental_mdp(;nmax=20, λs::@NamedTuple{request_A::T, request_
 end
 
 # ╔═╡ 871d78a4-cc74-4866-896b-027a6c626676
-car_rental_mdp_v2 = create_car_rental_mdp()
+const car_rental_mdp_v2 = create_car_rental_mdp()
 
 # ╔═╡ eb8fa5e6-c18d-41ba-a78e-cceccc90d9b6
 function car_rental_policy_iteration_v2(mdp, nmax=10; θ=eps(0f0), γ=0.9f0)
@@ -1250,12 +1252,13 @@ function makepolicyvalueplots(mdp::FiniteMDP, v::Vector{T}, π::Matrix{T}, iter:
 	policyplot = relayout(makeplot(policymap, policycolorscale), (title = attr(text =  latexify("π_$(iter-1)"), x = 0.5, xanchor = "center", font_size = 20, automargin = true, yref = "paper", yanchor = "bottom", pad_b = 10)))
 	valueplot = relayout(makeplot(valuemap, valuecolorscale), (title = attr(text = vtitle, x = 0.5, xanchor = "center", font_size = 20, automargin = true, yref = "paper", yanchor = "bottom", pad_b = 10)))
 	
-	(π = relayout(policyplot, kwargs), v = relayout(valueplot, kwargs))
+	# (π = relayout(policyplot, kwargs), v = relayout(valueplot, kwargs))
+	(π = relayout(policyplot, kwargs), v = makeplot(valuemap, valuecolorscale))
 end
 
 # ╔═╡ e7f3cc36-56a7-4592-b3f6-05001675cc14
 function plotcariterations(mdp, resultslist; kwargs...)
-	[makepolicyvalueplots(mdp, value, policy, i; kwargs...) for (i, (value, policy)) in enumerate(resultslist)] 
+	[makepolicyvalueplots(mdp, value, policy, i; kwargs...) for (i, (value, policy)) in enumerate(resultslist)]
 end
 
 # ╔═╡ e94c14ac-9583-4b31-a392-996dcb6d79b7
@@ -1263,15 +1266,20 @@ carplots = plotcariterations(car_rental_mdp_v2, example4_2_results[4]);
 
 # ╔═╡ 26566af8-152f-4553-b26b-303dff3d2f24
 function figure4_2(carplots)
-	joinlines(a, b) = """$a\n$b"""
 	l = L"\pi"
-	cardivs = mapreduce(p ->@htl("""<div>$p</div>"""), joinlines, [a.π for a in carplots])
-	valuediv = @htl("""<div>$(last(carplots).v)</div>""")
-	HTML(
+	function htljoin(a, b)
+		@htl("""
+		$a
+		$b
+		""")
+	end
+	cardivs = mapreduce(p -> @htl("""<div>$p</div>"""), htljoin, [a.π for a in carplots])
+	
+	@htl(
 	"""
 	<div class = "carplots">
 		$cardivs
-		$valuediv
+		<div>$(last(carplots).v)</div>
 	</div>
 	<style>
 		.carplots {
@@ -1838,12 +1846,24 @@ md"""
 # Dependencies and Settings
 """
 
+# ╔═╡ 494c78f2-ae05-411b-a75d-1468be057449
+html"""
+	<style>
+		main {
+			margin: 0 auto;
+			max-width: min(2000px, 90%);
+	    	padding-left: max(10px, 5%);
+	    	padding-right: max(10px, 5%);
+			font-size: max(10px, min(18px, 2vw));
+		}
+	</style>
+	"""
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
@@ -1852,26 +1872,25 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [compat]
 BenchmarkTools = "~1.3.2"
-HypertextLiteral = "~0.9.4"
-LaTeXStrings = "~1.3.0"
-Latexify = "~0.16.1"
-PlutoPlotly = "~0.4.1"
-PlutoUI = "~0.7.52"
+HypertextLiteral = "~0.9.5"
+Latexify = "~0.16.2"
+PlutoPlotly = "~0.4.5"
+PlutoUI = "~0.7.58"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.0"
+julia_version = "1.10.2"
 manifest_format = "2.0"
-project_hash = "f98b95d413b2ec16c9a6d0f700b23b16b273630e"
+project_hash = "0785e3c85560030238c49c8380ed313ca3820d7b"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
-git-tree-sha1 = "91bd53c39b9cbfb5ef4b015e8b582d344532bd0a"
+git-tree-sha1 = "0f748c81756f2e5e6854298f11ad8b2dfae6911a"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.2.0"
+version = "1.3.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -1884,9 +1903,9 @@ uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
 [[deps.BaseDirs]]
-git-tree-sha1 = "1c9b6f39f40dba0ef22244a175e2d4e42c8f6ee7"
+git-tree-sha1 = "3e93fcd95fe8db4704e98dbda14453a0bfc6f6c3"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
-version = "1.2.0"
+version = "1.2.3"
 
 [[deps.BenchmarkTools]]
 deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
@@ -1927,7 +1946,7 @@ version = "0.12.10"
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.5+1"
+version = "1.1.0+0"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -1959,29 +1978,28 @@ git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
 
-[[deps.Formatting]]
-deps = ["Printf"]
-git-tree-sha1 = "8339d61043228fdd3eb658d86c926cb282ae72a8"
-uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
-version = "0.4.2"
+[[deps.Format]]
+git-tree-sha1 = "f3cf88025f6d03c194d73f5d13fee9004a108329"
+uuid = "1fa38f19-a742-5d3f-a2b9-30dd87b9d5f8"
+version = "1.3.6"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
-git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
+git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
 uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
-version = "0.0.4"
+version = "0.0.5"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
-git-tree-sha1 = "c47c5fa4c5308f27ccaac35504858d8914e102f9"
+git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
 uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.4"
+version = "0.9.5"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
-git-tree-sha1 = "d75853a0bdbfb1ac815478bacd89cd27b550ace6"
+git-tree-sha1 = "8b72179abc660bfab5e28472e019392b97d0985c"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "0.2.3"
+version = "0.2.4"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -1994,15 +2012,15 @@ uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.4"
 
 [[deps.LaTeXStrings]]
-git-tree-sha1 = "f2355693d6778a178ade15952b7ac47a4ff97996"
+git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-version = "1.3.0"
+version = "1.3.1"
 
 [[deps.Latexify]]
-deps = ["Formatting", "InteractiveUtils", "LaTeXStrings", "MacroTools", "Markdown", "OrderedCollections", "Printf", "Requires"]
-git-tree-sha1 = "f428ae552340899a935973270b8d98e5a31c49fe"
+deps = ["Format", "InteractiveUtils", "LaTeXStrings", "MacroTools", "Markdown", "OrderedCollections", "Requires"]
+git-tree-sha1 = "cad560042a7cc108f5a4c24ea1431a9221f22c1b"
 uuid = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
-version = "0.16.1"
+version = "0.16.2"
 
     [deps.Latexify.extensions]
     DataFramesExt = "DataFrames"
@@ -2053,9 +2071,9 @@ version = "0.1.4"
 
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]
-git-tree-sha1 = "9ee1618cbf5240e6d4e0371d6f24065083f60c48"
+git-tree-sha1 = "2fa9ee3e63fd3a4f7a9a4f4744a52f4856de82df"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
-version = "0.5.11"
+version = "0.5.13"
 
 [[deps.Markdown]]
 deps = ["Base64"]
@@ -2080,12 +2098,12 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+2"
+version = "0.3.23+4"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "2e73fe17cac3c62ad1aebe70d44c963c3cfdc3e3"
+git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.6.2"
+version = "1.6.3"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -2112,9 +2130,9 @@ version = "0.8.19"
 
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "BaseDirs", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "Reexport", "TOML"]
-git-tree-sha1 = "9fefc3bfea24f08474e86e86743ee7f8f1bf12a0"
+git-tree-sha1 = "fbf637823ec24c5669b1a66f3771c2306f60857c"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-version = "0.4.1"
+version = "0.4.5"
 
     [deps.PlutoPlotly.extensions]
     PlotlyKaleidoExt = "PlotlyKaleido"
@@ -2126,9 +2144,9 @@ version = "0.4.1"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "e47cd150dbe0443c3a3651bc5b9cbd5576ab75b7"
+git-tree-sha1 = "71a22244e352aa8c5f0f2adde4150f62368a3f2e"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.52"
+version = "0.7.58"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
@@ -2220,9 +2238,9 @@ uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.8"
 
 [[deps.URIs]]
-git-tree-sha1 = "b7a5e99f24892b6824a954199a45e9ffcc1c70f0"
+git-tree-sha1 = "67db6cc7b3821e19ebe75791a9dd19c9b1188f2b"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.5.0"
+version = "1.5.1"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -2288,7 +2306,7 @@ version = "17.4.0+2"
 # ╠═17ff2d94-aea9-4a15-98b3-97437e2b70ab
 # ╠═4c0872f8-0fd5-4a44-9587-28cb04697d25
 # ╟─0297a007-5898-4936-ae2f-386a725700e4
-# ╟─e4370697-e6a7-40f0-974a-ed219102c13f
+# ╠═e4370697-e6a7-40f0-974a-ed219102c13f
 # ╟─6844dff1-bc0b-47c5-8496-efe46dafbb5b
 # ╟─34f0f670-483f-4add-bf25-34993d646e5e
 # ╟─1d098de3-592e-401b-a493-2728e8a6ffe9
@@ -2296,7 +2314,7 @@ version = "17.4.0+2"
 # ╟─2c23c4ec-f332-4e05-a730-06fa20a0227a
 # ╠═aa19ffd4-69a0-44a9-8109-d6be003ae7b1
 # ╟─39f4c75c-43f7-476f-bbc9-c704e5dee300
-# ╠═e76bd134-f4ac-4382-b56a-fca8f3ca27cd
+# ╟─e76bd134-f4ac-4382-b56a-fca8f3ca27cd
 # ╠═f4fce267-78a2-4fd3-aad5-a8298783c015
 # ╠═7539da6f-1fb7-4a63-98ba-52b81bb27eca
 # ╠═c078f6c3-7576-4933-bc95-d33e8193ee93
@@ -2405,5 +2423,6 @@ version = "17.4.0+2"
 # ╟─b59756bc-d268-45cf-8fe9-1981d7af1cb6
 # ╟─64f22fbb-5c6c-4e8f-bd79-3c9eb19bedca
 # ╠═f5809bd3-64d4-47ee-9e41-e491f8c09719
+# ╠═494c78f2-ae05-411b-a75d-1468be057449
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
