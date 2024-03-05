@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.36
+# v0.19.40
 
 using Markdown
 using InteractiveUtils
@@ -14,15 +14,9 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 4a8d17a2-348b-4077-8071-708017daaf05
-using BenchmarkTools
-
-# ╔═╡ c6715072-a5a7-433f-90e1-7abbb221eb25
-using PlutoProfile
-
 # ╔═╡ 639840dc-976a-4e5c-987f-a92afb2d99d8
 begin
-	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra, Serialization
+	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra, Serialization, Latexify
 	TableOfContents()
 end
 
@@ -420,7 +414,7 @@ In this MRP the agent's actions are irrelevant as each step the state transition
 md"""
 Number of States: $(@bind nstates Slider(3:10, default = 5, show_value=true))
 
-Animation Interval (s): $(@bind delay Slider(0.1:0.1:1.0, default = 0.2, show_value=true))
+Animation Interval (s): $(@bind delay Slider(0.1:0.1:1.0, default = 0.5, show_value=true))
 
 $(@bind start_mrp Button("New Random Walk"))
 """
@@ -456,7 +450,7 @@ begin
 end
 
 # ╔═╡ 53145cc2-784c-468b-8e91-9bb7866db218
-@bind t PlutoUI.Clock(interval = delay, max_value = length(mrp_trajectory[1])+5, repeat=true, start_running=true)
+@bind t PlutoUI.Clock(interval = delay, max_value = length(mrp_trajectory[1])+5, repeat=true, start_running=false)
 
 # ╔═╡ 54d97122-2d01-46ec-aafe-00bfc9f2d6d1
 md"""
@@ -465,7 +459,7 @@ Step: $(min(length(first(mrp_trajectory)), t)) / $(length(first(mrp_trajectory))
 
 # ╔═╡ a5009785-64b4-489b-a967-f7840b4a9463
 md"""
-#### Random Walk Visualization
+#### Random Walk Visualization Code
 """
 
 # ╔═╡ de50f95f-984e-4387-958c-64e0265f5953
@@ -732,6 +726,16 @@ Since the value function was initialized at the correct value for the center sta
 If we had instead initialized the state values at 0, then the estimate at A would already be too low and would not get corrected until information from the right side propagated through.  State E, however, will receive large updates for each episode that exits to the right, but the values for the states to its left will be too low.  Since the state value estimates are not moving symmetrically, we won't have the same synchronized pass through the minimum error, since at the time the E estimate is correct, A will still be high error.  In this case, we are more likely to see error continue to fall as more updates occur.  Below is a visualization of the state estimates at different stages in the training with the original initialization and a 0 initialization.  In the 0 case, you can see the left-size estimates take a long time to reach the correct value, but in the original initialization, all the estimate approach the correct values roughly together. 
 """
 
+# ╔═╡ f2115666-86ce-4c80-9eb7-490cc7a7715c
+md"""
+With the original value initialization, the error passes through a minimum early on due to the symmetry of the value updates created by the initial value.
+"""
+
+# ╔═╡ c360945e-f8b2-4c6f-a70c-6ab4ddcf5b54
+md"""
+By changing the initialization to 0, the RMS error monotonically converges to the minimum since the state values never pass through the correct values on their way to overshooting.
+"""
+
 # ╔═╡ ddf3bb61-16c9-48c4-95d4-263260309762
 function exercise_6_5(;l = 5, max_episodes = 100, nruns = 100, α = 0.3f0, vinit = 0.5f0)
 	mrp = make_mrp(l = l)
@@ -739,9 +743,18 @@ function exercise_6_5(;l = 5, max_episodes = 100, nruns = 100, α = 0.3f0, vinit
 	true_values = collect(1:l) ./ (l+1)
 	get_rw_names(l) = string.(Iterators.take('A':'Z', l) |> collect)
 	(_, td0_est) = tabular_TD0_pred_V(π, mrp, α, 1.0f0; num_episodes = 100, vinit = vinit, save_states = collect(1:l))
+
+	calc_rms(v_saves) = [sqrt(mean((v .- true_values) .^2)) for v in eachcol(v_saves)]
+
+	run_estimate(f, α, n) = f(π, mrp, α, 1.0f0; num_episodes = n, vinit = vinit, save_states = collect(1:l))
+	rms = mean([calc_rms(last(run_estimate(tabular_TD0_pred_V, α, max_episodes))) for _ in 1:nruns])
+	
 	traces = [scatter(x = get_rw_names(l), y = td0_est[:, n], name = "$(n-1) episodes") for n in [1, 2, 8, 16, 100]]
 	tv_trace = scatter(x = get_rw_names(l), y = true_values, name = "True values", line_color="black")
-	plot([tv_trace; traces], Layout(title = "Estimated Value with TD(0)", xaxis_title = "State"))
+	p1 = plot([tv_trace; traces], Layout(title = "Estimated Value with TD(0) <br> with α = $α", xaxis_title = "State"))
+	rmstrace = scatter(x = 1:max_episodes, y = rms, showlegend=false, name = "RMS error")
+	p2 = plot(rmstrace, Layout(xaxis_title = "Walks / Episodes", title = "Empirical RMS error, averaged over states"))
+	[p1 p2]
 end		
 
 # ╔═╡ e8f94345-9ad5-48d4-8709-d796fb55db3f
@@ -801,6 +814,19 @@ Under batch training, constant-$\alpha$ MC converges to the values, $V(s)$, that
 Below is code implementing both batch methods in general for arbitrary MDPs.
 
 """
+
+# ╔═╡ 187fc682-2282-46ca-b988-c9de438f36fd
+@bind params_6_2 confirm(PlutoUI.combine() do Child
+	md"""
+	Batch Training of Random Walk Task
+	
+	|||
+	|:-:|:-:|
+	|$\alpha$| $(Child(:α, Slider(0.001:0.001:0.1, default = 0.01, show_value=true)))|
+	|Number of States | $(Child(:l, Slider(3:10, default = 5, show_value=true)))|
+	|Maximum Episodes | $(Child(:ep, Slider(100:1000, default = 100, show_value=true)))|
+		"""
+end)
 
 # ╔═╡ 0a4ed8c7-27ca-45cb-af15-70ddd86240fb
 md"""
@@ -939,19 +965,6 @@ function example_6_3(;l = 5, max_episodes = 100, nruns = 100, vinit = 0.5f0, α 
 	"""
 	
 end		
-
-# ╔═╡ 187fc682-2282-46ca-b988-c9de438f36fd
-@bind params_6_2 confirm(PlutoUI.combine() do Child
-	md"""
-	Batch Training of Random Walk Task
-	
-	|||
-	|:-:|:-:|
-	|$\alpha$| $(Child(:α, Slider(0.001:0.001:0.1, default = 0.01, show_value=true)))|
-	|Number of States | $(Child(:l, Slider(3:10, default = 5, show_value=true)))|
-	|Maximum Episodes | $(Child(:ep, Slider(100:1000, default = 100, show_value=true)))|
-		"""
-end)
 
 # ╔═╡ 22c2213e-5b9b-410f-a0ef-8f1e3db3c532
 example_6_3(;l = params_6_2.l, max_episodes = params_6_2.ep, α = Float32(params_6_2.α), vinit=0.5f0)
@@ -1342,6 +1355,9 @@ function plot_path(mdp, π; title = "Optimal policy <br> path example", windtext
 	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = windtext, range = [1, xmax+1], title = xtitle), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
 end
 
+# ╔═╡ bd1029f9-d6a8-4c68-98cd-8af94297b521
+plot_path(mdp; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, make_random_policy(mdp); title = title, kwargs...)
+
 # ╔═╡ 0ad739c9-8aca-4b82-bf20-c73584d29535
 md"""
 > ### *Exercise 6.9 Windy Gridworld with King's Moves (programming)* 
@@ -1452,6 +1468,14 @@ end
 
 # ╔═╡ ab331778-f892-4690-8bb3-26464e3fc05f
 const windy_gridworld = make_windy_gridworld()
+
+# ╔═╡ 75bfe913-8757-4789-b708-7d400c225218
+@htl("""
+<div style = "background-color: white; color: black; display: flex; align-items: center; justify-content: center;">
+<div>$(plot_path(windy_gridworld))</div>
+<div>$rook_action_display</div>
+</div>
+""")
 
 # ╔═╡ dda222ef-8178-40bb-bf20-d242924c4fab
 const king_gridworld = make_windy_gridworld(;actions=king_actions)
@@ -1977,7 +2001,7 @@ First consider a set of $M$ random variables $X = \{X_1, \dots, X_M \}$ and our 
 
 In the single estimator case, we will draw samples from each variable and construct some unbiased estimator for each mean: $\mu_i$.  After we have collected some set of samples, using this method, we make the assumption that which ever estimator or set of estimators have the maximum value are the true variables with the maximum expected value.  If there is zero overlap in the distribution of each random variable, then these estimators will always be ranked in the same order as the true expected values and our estimate will be unbiased.  However, if there is any overlap in the underlying distributions (this also includes the case where all distributions are identical), then there is some non-zero probability that the true maximum index is NOT in the set of indices for the maximum estimators.  Let's say the apparent maximizing index from the sample is $s^*$ while one of the true maximizing indices is $j \neq s^*$.  So our final estimate for the maximum expected value will be $\mu_{s^*}$.  We already know that $\mathbb{E} \{ X_j \} = \max_i \mathbb{E} \{X_i \}$ by assumption.  We also know that $\mu_{s^*} > \mu_j$ in the sample and $\mathbb{E} \{ \mu_j\} = \max_i \mathbb{E} \{X_i \}$ which is the true value that we want.  So we would always expect this estimator to be larger than the true answer or equal to it in the case where the selected index is correct.  This is even true if all the variables share the same distribution, because every estimate has the same expected value which is the true answer, yet the one estimate we use to calculate the maximum is guaranteed to be larger than all of those unbiased alternatives.  The underlying reason why this will tend to overestimate is because in any finite sample, we are not guaranteed to know the correct maximizing index and any variable that produces samples high enough to exceed the true maximum will always be selected to represent that maximum.
 
-In the double estimator case, we split the samples into two sets $\mathcal{A}$ and $\mathcal{B}$ such that $\mathcal{A} \bigcap \mathcal{B} = \emptyset$ and have a set of estimators for each set $\mu_i^\mathcal{A}$ and $\mu_i^\mathcal{B}$.  Let $a^*$ be in the set of indices with the maximum estimated values in set $\mathcal{A}$.  Again, if the underlying distributions overlap at all, then there is some probability that this index is not in the set of true maximizing indices.  However, now if all the distributions are equal, then whichever index we pick is still guaranteed to be correct.  To estimate the actual value of the maximum, we take $\mu_{i_{a*}^\mathcal{B}$ which is the estimate from set $\mathcal{B}$ at the maximizing index from set $\mathcal{A}$.  Just like in the single estimator case, if this happens to be a correct index, then we have an unbiased estimate for the true value.  However, if the index is wrong, we are estimating the expected value of a non-maximizing index from a new set of samples.  By the definition of the maximizing indices, we know that in this case $\mathbb{E} \{ \mu_{a^*}^\mathcal{B} \} \lt \max_i \mathbb{E} \{ X_i \}$ resulting in a negative bias for our estimate.  Just like in the single estimator case, this estimate will be unbiased if there is no overlap in the underlying probability distributions for each variable.  Unlike the single estimator case, this estimate will also be unbiased if all the underlying distributions are equal.
+In the double estimator case, we split the samples into two sets $\mathcal{A}$ and $\mathcal{B}$ such that $\mathcal{A} \bigcap \mathcal{B} = \emptyset$ and have a set of estimators for each set $\mu_i^\mathcal{A}$ and $\mu_i^\mathcal{B}$.  Let $a^*$ be in the set of indices with the maximum estimated values in set $\mathcal{A}$.  Again, if the underlying distributions overlap at all, then there is some probability that this index is not in the set of true maximizing indices.  However, now if all the distributions are equal, then whichever index we pick is still guaranteed to be correct.  To estimate the actual value of the maximum, we take $\mu_{i_{a*}}^\mathcal{B}$ which is the estimate from set $\mathcal{B}$ at the maximizing index from set $\mathcal{A}$.  Just like in the single estimator case, if this happens to be a correct index, then we have an unbiased estimate for the true value.  However, if the index is wrong, we are estimating the expected value of a non-maximizing index from a new set of samples.  By the definition of the maximizing indices, we know that in this case $\mathbb{E} \{ \mu_{a^*}^\mathcal{B} \} \lt \max_i \mathbb{E} \{ X_i \}$ resulting in a negative bias for our estimate.  Just like in the single estimator case, this estimate will be unbiased if there is no overlap in the underlying probability distributions for each variable.  Unlike the single estimator case, this estimate will also be unbiased if all the underlying distributions are equal.
 
 See below for a visualization of the bias removal for the iid case as well as the more formal proof for both methods.
 """
@@ -2203,6 +2227,17 @@ md"""
 The double estimator methods are the only ones that don't show an initial increase in the number of episodes.  After enough time though, every methodstarts to converge to the policy that takes a direct path.  If $\alpha$ is not low enough, Q-learning fails to converge towards the optimal policy and has diverging value estimates.  Both double methods are very stable and correctly estimate every state to have a negative value.
 """
 
+# ╔═╡ c9f7646a-ec01-4d90-9215-5027b7c1c885
+md"""
+### Q-learning Instability at Higher Learning Rate
+Learning Rate $\alpha$ $(@bind α_6_8 Slider(0.01f0:0.01f0:0.5f0, default = 0.1f0, show_value=true))
+"""
+
+# ╔═╡ 0201ae9f-4a31-497e-86ab-62b454ca85de
+md"""
+Notice that about about $\alpha = 0.25$, Q-learning sometimes has diverging values and therefore episodes that avoid termination whereas Double Q-learning avoids that problem even at large learning rates.
+"""
+
 # ╔═╡ 943b6d7e-14a4-4532-90c7-dd5080be0c6e
 const noisy_rewards = [-1.2f0, 1.0f0]
 
@@ -2218,17 +2253,6 @@ end
 
 # ╔═╡ 98bec66e-d8f3-4d4d-b4ec-5838489164e5
 const noisy_gridworld = make_noisy_gridworld(l = gridsize)
-
-# ╔═╡ c9f7646a-ec01-4d90-9215-5027b7c1c885
-md"""
-### Q-learning Instability at Higher Learning Rate
-Learning Rate $\alpha$ $(@bind α_6_8 Slider(0.01f0:0.01f0:0.5f0, default = 0.1f0, show_value=true))
-"""
-
-# ╔═╡ 0201ae9f-4a31-497e-86ab-62b454ca85de
-md"""
-Notice that about about $\alpha = 0.25$, Q-learning sometimes has diverging values and therefore episodes that avoid termination whereas Double Q-learning avoids that problem even at large learning rates.
-"""
 
 # ╔═╡ 42799973-9884-4a0e-b29a-039890e92d21
 md"""
@@ -2268,15 +2292,106 @@ and make $\pi_2$ $\epsilon$-greedy with respect to $Q_2$
 # ╔═╡ 35dc0d94-145a-4292-b0df-9e84a286c036
 md"""
 ## 6.8 Games, Afterstates, and Other Special Cases 
+
+In the tic-tac-toe example we considered learning a value function for a state after the player's move but before the opponent's response.  This type of state is called an *afterstate*, and it is useful in situations when we know a portion of the dynamics in an environment, but then a portion of it is stochastic or unknown.  For example, we typically know the immediate effect of our moves, but not necessarily what happens after that.
+
+It can be more efficient to learn based on afterstates because there are fewer values to represent than if we need to learn the full action value function.  Any state-action pair that maps to the same afterstate would be represented by a single value.  These afterstate value functions can also be learned with generalized policy iteration.
+"""
+
+# ╔═╡ 6029990b-eb31-45ae-a869-b789fba673a6
+md"""
+To use afterstates with generalized policy iteration, we need to modify our MDP framework by considering the following trajectory:
+
+$$(S, A) \longrightarrow (Y, P) \longrightarrow (S^\prime, R) \longrightarrow \cdots \longrightarrow (S_T, R_T)$$
+
+where $(S, A, R)$ are the usual state, action, and reward.  We introduce $(Y, P)$ to indicate the afterstate and any intermediate reward that is received from the afterstate transition.
+
+The probability transition function for a normal MDP is written as $p(s^\prime, r \vert s, a)$ and represents the probability of transitioning to state $s$ with reward $r$ under the condition that an agent takes action $a$ from state $s$.
+
+When using afterstates, transitions can be represented with two functions:  
+
+$p(y, \rho \vert s, a) \tag{a}$ is the probability of transitioning to afterstate $y$ with intermediate reward $\rho$ given an agent takes action $a$ from state $s$ 
+
+$p(s^\prime, r \vert y) \tag{b}$ is the probability of transitioning to state $s^\prime$ with reward $r$ given an agent starts in afterstate $y$.  
+
+Moreover, when an environment is modified to use afterstates, usually there are known deterministic dynamics that follow actions followed by some stochastic behavior after that.  A good example is tic-tac-toe where we fully know the dynamics after making a move, but there could be some unknown behavior from the opponent.  In this situation, the afterstate probability transition (a) is deterministic, so it could instead be represented by a mapping function that returns an afterstate and an intermediate reward given a state action pair.
+
+$$f_1(s, a) = y \tag{b1′}$$
+
+$$f_2(s, a) = \rho \tag{b2′}$$ 
+
+where $y$ and $\rho$ are the afterstate and reward respectively after taking action $a$ in state $s$.  Now all of the stochastic dynamics of the environment are captured in (b) and the function only has 3 arguments instead of the usual 4.  We can now apply all of the previous techniques to the afterstate example and even combine dynamic programming and trajectory sampling.  
+"""
+
+# ╔═╡ b37f2395-1480-4c7c-b6c0-eba391e969d7
+md"""
+Let's first consider the problem of prediction problem for afterstates and see how to compute the afterstate value function and how it could be used for policy improvement.  We will use the terminology $W(y)$ to represent the value of afterstate $y$ while $V(s)$ still means the value of state $s$.  From the earlier definitions, we can show the relationship between the state and afterstate value functions.
+
+Recall that: 
+
+$\begin{flalign} 
+G_t &\doteq R_t + \gamma R_{t+1} + \cdots \\
+V_\pi(s) &\doteq \mathbb{E}_\pi[G_t \mid S_t = s] \\
+& = \mathbb{E}_\pi[R_t + \gamma V_\pi(S_{t+1}) \mid S_t = s] \\
+&= \sum_a \pi(a \vert s) \sum_{r, s^\prime} p(r, s^\prime \vert s, a) \left ( r + \gamma V(s^\prime) \right )
+\end{flalign}$
+
+Representing the trajectory with afterstates and only considering the reward following an afterstate, we also know that: 
+
+$\begin{flalign} 
+G_t &\doteq R_t + \gamma(P_{t+1} + R_{t+1} + \gamma(P_{t+2} + R_{t+1} + \cdots))\\
+W_\pi(y) &\doteq \mathbb{E}_\pi[G_t \mid Y_t = y] \\
+& = \mathbb{E}_\pi[R_t + \gamma \left (P_{t+1} + W_\pi(Y_{t+1}) \right ) \mid Y_t = y] \\
+&= \sum_{r, s^\prime} p(r, s^\prime \vert y) \left [r + \gamma \sum_{a^\prime} \left [ \pi(a \vert s^\prime) \left ( f_2(s^\prime, a^\prime) + W_\pi(f_1(s^\prime, a^\prime) \right ) \right ] \right ]
+\end{flalign}$
+
+Notice that compared to the value function, the policy only matters for this expected value when we consider the action taken from the transition state.  The initial transition from the afterstate to $s^\prime$ only depends on our new transition function which only conditioned on the afterstate.
+
+Recall that to improve a policy $\pi$ for which we have a value function $V_\pi$, we must select the greedy policy with respect to $V_\pi$ meaning $\pi^{\prime} (s) = \mathrm{argmax}_a \sum_{r, s^\prime} p(r, s^\prime \vert s, a)(r + \gamma V(s^\prime))$.  If we do have access to the full probability transition function, we cannot compute this explicitely.  Furthermore, we cannot estimate this either from a single trajectory because from each state we would just have a single transition based on the behavior policy at the time.  That's why for MDPs that do not provide the full transition function, we prefer to estimate the state action value function $Q(s, a)$ because using that function policy improvement is much more trivial: $\pi^{\prime} (s) = \mathrm{argmax}_a Q(s, a)$.
+"""
+
+# ╔═╡ c306867b-f137-44f2-97dd-3d10c226ca5c
+md"""
+Consider instead policy improvement with afterstate value estimates $W_\pi(y)$ where we seek to choose a policy that is greedy with respect to the afterstate values:
+
+$\pi^\prime(s) = \mathrm{argmax}_a (f_2(s, a) + W_\pi(f_1(s, a))$
+
+where $f_1$ and $f_2$ are the deterministic functions defined above that determine which afterstate is reached from $(s, a)$ and whether any intermediate reward is received.  This looks much closer to the policy improvement that occurs with $Q(s, a)$ and that is because $Q_\pi(s, a) = f_2(s, a) + W_\pi(f_1(s, a))$.  So, if we use afterstates, we can have the benefits of learning the state action value function while only saving values for the afterstates.  The functions $f_1$ and $f_2$ provide all the extra information needed to recover those values.
+
+Continuing the comparison to value iteration, recall that we adapted the Bellman optimality equation for the state value function to have a single update rule to estimate $V^*(s)$:
+
+$$V^*(s) = \max_a Q^*(s, a) = \max_a \sum_{r, s^\prime} p(r, s^\prime \vert s, a) (r + \gamma V^*(s^\prime))$$
+
+We can only apply this update rule if we have $p(r, s^\prime \vert s, a)$ or if we instead estimate $Q^*$ and sample the transitions from the environment.  To estimate $W^*(y)$, we need to represent the Bellman optimality equation for the afterstate value function instead of the state value function:
+
+$\begin{flalign}
+W^*(y) &= \sum_{r, s^\prime} p(r, s^\prime \vert y)(r + \gamma \max_a(f_2(s^\prime, a) + W^*(f_1(s^\prime, a)))) \\
+&= \sum_{r, s^\prime} p(r, s^\prime \vert y)r + \gamma \sum_{s^\prime}  p(s^\prime \vert y) \max_a(f_2(s^\prime, a) + W^*(f_1(s^\prime, a)))
+\end{flalign}$
+
+where $p(s^\prime \vert y) = \sum_r p(r, s^\prime \vert y)$
+
+The outer sum is just represents an expected value based on the transition out of $y$, so if we don't have access to $p(r, s^\prime \vert y)$, we could sample the transitions from the environment.  The $\max_a$ term can now be calculated explicitely and will involve finding the maximum index of a vector for each transition state and does not depend on the reward.  Using state values, the maximization step involves evaluating a double sum every time, so each update with afterstates is less costly.  Also, the afterstates themselves might be more informative in the sense that they all have distinct values.  If many of the actions from a given state, lead to the same afterstate, this method will immediately treat them all as equal, whereas with usual value iterationthat equivalence would have to be calculated with the probability transition function.  The benefits of using an afterstate value function depend entirely on how effectively the environment transitions can be separated into informative deterministic steps and limited stochastic dynamics.  
+"""
+
+# ╔═╡ a3d10753-2ec3-4252-9629-834145678b6a
+md"""
+### Afterstate Implementation
 """
 
 # ╔═╡ f95ceb98-f12e-4650-9ad3-0609b7ecd0f3
 md"""
-> *Exercise 6.14* Describe how the task of Jack's Car Rental (Example 4.2) could be reformulated in terms of afterstates.  Why, in terms of this specific task, would such a reformulation be likely to speed convergence?
+> ### *Exercise 6.14* 
+> Describe how the task of Jack's Car Rental (Example 4.2) could be reformulated in terms of afterstates.  Why, in terms of this specific task, would such a reformulation be likely to speed convergence?
 
 In the original problem the state is the number of cars at each location at the end of the day.  The actions are the net numbers of cars moved between the two locations overnight.  With an afterstate approach, the value function would only consider the number of cars after the movement is performed.  This would be equivalent to valuing the state the following morning when customers begin to return and rent new cars.
 
-The random processes that occur the following day will have a good/bad outcome based on the cars available at each location at the start of the day.  This approach would likely converge faster because we are only modeling the value of the state that is directly related to whether or not cars will be available.  Similar to the tic-tac-toe example, many actions will result in the same afterstate, but equivalent afterstates should have the same value.
+The random processes that occur the following day will have a good/bad outcome based on the cars available at each location at the start of the day.  This approach would likely converge faster because we are only modeling the value of the state that is directly related to whether or not cars will be available.  Similar to the tic-tac-toe example, many actions will result in the same afterstate, but equivalent afterstates should have the same value.  See below for code that creates the car rental MDP and solves it using value iteration with afterstates.
+"""
+
+# ╔═╡ d5b612d8-82a1-4586-b721-1baaea2101cf
+md"""
+Value iteration with afterstates converged in 10 fewer steps than state value iteration, but the total runtime is less than 25%.  So as expected the afterstate method converges in fewer steps each of which is more efficient to compute than using the state value function.
 """
 
 # ╔═╡ f36822d7-9ea8-4f5c-9925-dc2a466a68ba
@@ -2302,9 +2417,10 @@ md"""
 # Dynamic Programming Code
 """
 
-# ╔═╡ 393cd9d2-dd97-496e-b260-ec6e8b1c13b5
+# ╔═╡ d7566d1b-8938-4e2c-8c54-124f790e72ae
 begin
-	struct FiniteMDP{T<:Real, S, A} 
+	abstract type CompleteMDP{T<:Real} end
+	struct FiniteMDP{T<:Real, S, A} <: CompleteMDP{T} 
 		states::Vector{S}
 		actions::Vector{A}
 		rewards::Vector{T}
@@ -2322,9 +2438,75 @@ begin
 	FiniteMDP(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A} = FiniteMDP{T, S, A}(states, actions, rewards, ptf)
 end
 
+# ╔═╡ 393cd9d2-dd97-496e-b260-ec6e8b1c13b5
+begin
+	struct FiniteAfterstateMDP{T<:Real, S1, S2, A} <: CompleteMDP{T}
+		states::Vector{S1}
+		afterstates::Vector{S2}
+		actions::Vector{A}
+		rewards::Vector{T}
+		#probability transition function now has probabilities for each state/reward transition from each afterstate
+		ptf::Array{T, 3}
+		#each column contains the index of the afterstate reached from the state represented by the column index while taking the action represented by the row index
+		afterstate_map::Matrix{Int64}
+		#each column contains the reward value received from the state represented by the column index while taking the action represented by the row index
+		reward_interim_map::Matrix{T}
+		state_index::Dict{S1, Int64}
+		afterstate_index::Dict{S2, Int64}
+		action_index::Dict{A, Int64}
+		function FiniteAfterstateMDP{T, S1, S2, A}(states::Vector{S1}, afterstates::Vector{S2}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 3}, afterstate_map::Matrix{Int64}, reward_interim_map::Matrix{T}) where {T <: Real, S1, S2, A}
+			new(states, afterstates, actions, rewards, ptf, afterstate_map, reward_interim_map, makelookup(states), makelookup(afterstates), makelookup(actions))
+		end	
+	end
+	FiniteAfterstateMDP(states::Vector{S1}, afterstates::Vector{S2}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 3}, afterstate_map::Matrix{Int64}, reward_interim_map::Matrix{T}) where {T <: Real, S1, S2, A} = FiniteAfterstateMDP{T, S1, S2, A}(states, afterstates, actions, rewards, ptf, afterstate_map, reward_interim_map)
+	#if a reward map is not provided, assume that there are no intermediate rewards
+	FiniteAfterstateMDP(states::Vector{S1}, afterstates::Vector{S2}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 3}, afterstate_map::Matrix{Int64}) where {T <: Real, S1, S2, A} = FiniteAfterstateMDP{T, S1, S2, A}(states, afterstates, actions, rewards, ptf, afterstate_map, zeros(T, length(actions), length(states)))
+end
+
+# ╔═╡ 18e60b1d-97ec-432c-a388-003e7fae415f
+function bellman_optimal_value!(V::Vector{T}, mdp::FiniteAfterstateMDP{T, S1, S2, A}, γ::T) where {T <: Real, S1, S2, A}
+	delt = zero(T)
+	q_vec = zeros(T, length(mdp.actions))
+	@inbounds @fastmath @simd for i_y in eachindex(mdp.afterstates)
+		q_total = zero(T)
+		r_total = zero(T)
+		@inbounds @fastmath @simd for i_s′ in eachindex(mdp.states)
+			p_total = zero(T)
+			q_vec .= mdp.reward_interim_map[:, i_s′] .+ V[mdp.afterstate_map[:, i_s′]]
+			q_max = maximum(q_vec)
+			@inbounds @fastmath for (i_r, r) in enumerate(mdp.rewards)
+				p = mdp.ptf[i_s′, i_r, i_y]
+				r_total += p*r
+				p_total += p
+			end
+			q_total += q_max*p_total
+		end
+		v_new = r_total + γ*q_total
+		delt = max(delt, abs(v_new - V[i_y]) / (eps(abs(V[i_y])) + abs(V[i_y])))
+		V[i_y] = v_new
+	end
+	return delt
+end
+
+# ╔═╡ 685a7ba3-0f94-4663-a68a-73fa03bd9445
+function make_greedy_policy!(π::Matrix{T}, mdp::FiniteAfterstateMDP{T, S1, S2, A}, V::Vector{T}, γ::T) where {T<:Real,S1,S2,A}
+	for i_s in eachindex(mdp.states)
+		maxv = -Inf
+		π[:, i_s] .= mdp.reward_interim_map[:, i_s] .+ V[mdp.afterstate_map[:, i_s]]
+		maxv = maximum(π[:, i_s])
+		π[:, i_s] .= (π[:, i_s] .≈ maxv)
+		π[:, i_s] ./= sum(π[:, i_s])
+	end
+	return π
+end
+
+# ╔═╡ e947f86e-8dc3-4ce7-a9d4-0a7b675a9fa9
+#the value function in this case represents the value of each afterstate.  the afterstates are listed in mdp.afterstates while the states are listed in mdp.states
+begin_value_iteration_v(mdp::FiniteAfterstateMDP{T,S1, S2, A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S1,S2,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, length(mdp.afterstates)); kwargs...)
+
 # ╔═╡ 0748902c-ffc0-4634-9a1b-e642b3dfb77b
 #forms a random policy for a generic finite state mdp.  The policy is a matrix where the rows represent actions and the columns represent states.  Each column is a probability distribution of actions over that state.
-form_random_policy(mdp::FiniteMDP{T, S, A}) where {T, S, A} = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
+form_random_policy(mdp::CompleteMDP{T}) where T = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
 
 # ╔═╡ c4919d14-8cba-43e6-9369-efc52bcb9b23
 function make_greedy_policy!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, V::Vector{T}, γ::T) where {T<:Real,S,A}
@@ -2752,21 +2934,8 @@ function bellman_optimal_value!(V::Vector{T}, mdp::FiniteMDP{T, S, A}, γ::T) wh
 	return delt
 end
 
-# ╔═╡ 45213165-11c8-40fe-acee-99331852c2a7
-function value_iteration_v(θ::Real, mdp::NamedTuple, γ::Real, V::Dict, delt::Real, nmax::Real, valuelist)
-	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		(πstar, πraw) = calculatepolicy(mdp, γ, V)
-		return (valuelist, πstar, πraw)
-	else 
-		newV = deepcopy(V)
-		delt = bellman_optimal_value!(newV, p, sa_keys, γ)
-		value_iteration_v(θ, mdp, γ, newV, delt, nmax - 1, vcat(valuelist, newV))	
-	end
-end
-
 # ╔═╡ 8787a5fd-d0ab-46b5-a7df-e7bc103a7378
-function value_iteration_v!(V::Vector{T}, θ::Real, mdp::FiniteMDP{T, S, A}, γ::T, nmax::Real, valuelist) where {T<:Real, S, A}
+function value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
 	nmax <= 0 && return valuelist
 	
 	#update value function
@@ -2782,7 +2951,7 @@ function value_iteration_v!(V::Vector{T}, θ::Real, mdp::FiniteMDP{T, S, A}, γ:
 end
 
 # ╔═╡ 4019c974-dcaa-46c8-ac90-e6566a376ea1
-function begin_value_iteration_v(mdp::FiniteMDP{T,S,A}, γ::T, V::Vector{T}; θ = eps(0.0), nmax=typemax(Int64)) where {T<:Real,S,A}
+function begin_value_iteration_v(mdp::M, γ::T, V::Vector{T}; θ = eps(zero(T)), nmax=typemax(Int64)) where {T<:Real, M <: CompleteMDP{T}}
 	valuelist = [copy(V)]
 	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
 
@@ -2826,17 +2995,17 @@ function example_6_5(;mdp = windy_gridworld, num_episodes = 170, action_display 
 	<div>
 	$p1
 	<div style = "position: absolute; top: 0px; left: 5%;">$p2</div>
-	<div style = "position: absolute; top: 0px; left: 30%;">$path_dp</div>
+	<div style = "position: absolute; top: 0px; left: 35%;">$path_dp</div>
 	</div>
 	$p3
 
 	Sarsa Solution
-	<div style = "display: flex; background-color: white; justify-content: space-around; transform: scale(0.85);">
+	<div style = "display: flex; background-color: white; justify-content: space-around; transform: scale(0.7);">
 	$policy_display
 	$value_display
 	</div>
 	Value Iteration Solution
-	<div style = "display: flex; background-color: white; justify-content: space-around; transform: scale(0.85);">
+	<div style = "display: flex; background-color: white; justify-content: space-around; transform: scale(0.7);">
 	$policy_display_dp
 	$value_display_dp
 	</div>
@@ -2899,26 +3068,304 @@ end
 # ╔═╡ e4e80015-40ce-4f8a-aac7-4a9584da4baa
 example_6_8(;loadfile = ex_6_8_load)
 
+# ╔═╡ dd167494-99d6-45c6-99e4-c36fde5e2d3f
+md"""
+## Jack's Car Rental Code
+"""
+
+# ╔═╡ b3d4117f-7db4-43a6-8427-c08f3542d71f
+poisson(n, λ) = exp(-λ) * (λ^n) / factorial(n)
+
+# ╔═╡ ad03500a-bd42-4216-a9cb-3f923152af79
+function create_car_rental_afterstate_mdp(;nmax=20, λs::@NamedTuple{request_A::T, request_B::T, return_A::T, return_B::T} = (request_A = 3f0, request_B = 4f0, return_A = 3f0, return_B = 2f0), movecost::T = 2f0, rentcredit::T = 10f0, movemax::Integer=5, maxovernight::Integer = 20, overnightpenalty::T = 4f0, employeeshuttle = false) where T <: Real
+	#enumerate all states and afterstates
+	states = [(n_a, n_b) for n_a in 0:nmax for n_b in 0:nmax]
+	afterstates = [(n_a, n_b) for n_a in 0:nmax for n_b in 0:nmax]
+	
+	actions = collect(-movemax:movemax)
+
+	afterstate_lookup = makelookup(afterstates)
+
+	#enumerate all rewards by simply incrementing by 1 dollar from the worst to best case scenario
+	rewards = collect(-movecost*movemax - 2*overnightpenalty:rentcredit*nmax*2)
+	reward_lookup = Dict(zip(rewards, eachindex(rewards))) #mapping from rewards to the proper index
+
+	#create a lookup for the probability of starting with n cars at the start of the day and ending up with n′ at the end of the day
+	function create_probability_lookup(λ_request, λ_return)
+		#can only rent from 0 to n cars.  if requests exceed n, all of those situations are equivalent and the probability is 1 - p(x < n-1)
+		p_rent = Dict(n_request => poisson(n_request, λ_request) for n_request in 0:nmax-1)
+	
+		#car returns can be any number greater than or equal to 0, but all returns of nmax - (n - nrent) or more will result in the same state which is max cars
+		p_return = Dict(n_return => poisson(n_return, λ_return) for n_return in 0:nmax-1)
+		
+		#initialize probabilities for each final value at 0
+		prob_lookup = Dict((t, nrent) => 0f0 for t in states for nrent in 0:t[1])
+			
+		for n in 0:nmax
+			for n_rent in 0:n-1
+				for n_return in 0:(nmax - n + n_rent - 1)
+					n′ = n - n_rent + n_return
+					p = p_rent[n_rent]*p_return[n_return]
+					prob_lookup[((n, n′), n_rent)] += p
+				end
+				prob_lookup[((n, nmax), n_rent)] += p_rent[n_rent]*(1 - sum(p_return[n_return] for n_return in 0:nmax-n+n_rent-1; init = zero(T)))
+			end
+			for n_return in 0:(nmax - 1)
+				n′ = n_return
+				p = (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = zero(T)))*p_return[n_return]
+				prob_lookup[((n, n′), n)] += p
+			end
+			prob_lookup[((n, nmax), n)] += (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = zero(T)))*(1 - sum(p_return[n_return] for n_return in 0:nmax-1, init = zero(T)))
+		end
+		return prob_lookup
+	end
+
+	probabilities = (location_A = create_probability_lookup(λs.request_A, λs.return_A), location_B = create_probability_lookup(λs.request_B, λs.return_B))
+
+		#calculate probability matrix for all the afterstate transitions given starting in state s and taking action a
+	function get_afterstate_transition(s, a)
+		(n_a, n_b) = s
+
+		#calculate the number of cars moved with sign indicating direction + being A to B, normally this is simply a but if we try to move more cars than are available, it will be capped
+		carsmoved = if a > 0
+			min(a, n_a)
+		elseif a < 0
+			-min(abs(a), n_b)
+		else
+			0
+		end
+		
+		#cars above nmax are returned to the company but we still incur the cost of transfering them
+		aftercount_a = min(n_a - carsmoved, nmax)
+		aftercount_b = min(n_b + carsmoved, nmax)
+
+		cost = (abs(a) - (a > 0)*employeeshuttle)*movecost + (overnightpenalty * ((aftercount_a > maxovernight) + (aftercount_b > maxovernight))) #one free transfer from A to B if employee shuttle is true in modified version, overnight penalty if too many cars are left at a lot
+
+		afterstate = (aftercount_a, aftercount_b)
+
+		return (afterstate, -cost)
+	end
+
+	#create functions that map a state action pair to an afterstate and intermediate reward
+	afterstate_map = zeros(Int64, length(actions), length(states))
+	reward_interim_map = zeros(Float32, length(actions), length(states))
+	for (i_s, s) in enumerate(states)
+		for (i_a, a) in enumerate(actions)
+			(afterstate, r_int) = get_afterstate_transition(s, a)
+			afterstate_map[i_a, i_s] = afterstate_lookup[afterstate]
+			reward_interim_map[i_a, i_s] = r_int
+		end
+	end
+
+	out = zeros(Float32, length(states), length(rewards))
+	#calculate probability matrix for all the s′, r transitions given starting in afterstate y
+	function fillmatrix!(out, s)
+		#initialize the matrix for s′, r transitions, each column runs over the transition states
+		out .= 0f0
+		(aftercount_a, aftercount_b) = s
+
+		for (i_s′, s′) in enumerate(states)
+			(n_a′, n_b′) = s′
+			for n_rent_a in 0:aftercount_a
+				for n_rent_b in 0:aftercount_b
+					p_a = probabilities.location_A[((aftercount_a, n_a′), n_rent_a)]
+					p_b = probabilities.location_B[((aftercount_b, n_b′), n_rent_b)]
+					p_total = p_a*p_b
+					r = rentcredit*(n_rent_a+n_rent_b)
+					out[i_s′, reward_lookup[r]] += p_total
+				end
+			end
+		end
+		return out
+	end
+
+	#initialize probability functions with all zeros
+	ptf = zeros(T, length(states), length(rewards), length(afterstates))
+	for (i_s, s) in enumerate(afterstates)
+		ptf[:, :, i_s] .= fillmatrix!(out, s)
+	end
+
+	#find indices of the reward vector that never have non zero probability
+	inds = reduce(intersect, [findall(0 .== [sum(ptf[:, i, j]) for i in 1:size(ptf, 2)]) for j in 1:size(ptf, 3)])
+
+	goodinds = setdiff(eachindex(rewards), inds)
+	
+	FiniteAfterstateMDP(states, afterstates, actions, rewards[goodinds], ptf[:, goodinds, :], afterstate_map, reward_interim_map)
+end
+
+# ╔═╡ 7de9b6a4-49ce-4dc3-9d5b-cecfcb98bba1
+const jacks_car_afterstate_mdp = create_car_rental_afterstate_mdp()
+
+# ╔═╡ 2455742f-dc18-4d6b-9f58-5666adac6919
+function create_car_rental_mdp(;nmax=20, λs::@NamedTuple{request_A::T, request_B::T, return_A::T, return_B::T} = (request_A = 3f0, request_B = 4f0, return_A = 3f0, return_B = 2f0), movecost::T = 2f0, rentcredit::T = 10f0, movemax::Integer=5, maxovernight::Integer = 20, overnightpenalty::T = 4f0, employeeshuttle = false) where T <: Real
+	#enumerate all states
+	states = [(n_a, n_b) for n_a in 0:nmax for n_b in 0:nmax]
+	
+	actions = collect(-movemax:movemax)
+
+	#enumerate all rewards by simply incrementing by 1 dollar from the worst to best case scenario
+	rewards = collect(-movecost*movemax - 2*overnightpenalty:rentcredit*nmax*2)
+	reward_lookup = Dict(zip(rewards, eachindex(rewards))) #mapping from rewards to the proper index
+
+	#create a lookup for the probability of starting with n cars at the start of the day and ending up with n′ at the end of the day
+	function create_probability_lookup(λ_request, λ_return)
+		#can only rent from 0 to n cars.  if requests exceed n, all of those situations are equivalent and the probability is 1 - p(x < n-1)
+		p_rent = Dict(n_request => poisson(n_request, λ_request) for n_request in 0:nmax-1)
+	
+		#car returns can be any number greater than or equal to 0, but all returns of nmax - (n - nrent) or more will result in the same state which is max cars
+		p_return = Dict(n_return => poisson(n_return, λ_return) for n_return in 0:nmax-1)
+		
+		#initialize probabilities for each final value at 0
+		prob_lookup = Dict((t, nrent) => 0f0 for t in states for nrent in 0:t[1])
+			
+		for n in 0:nmax
+			for n_rent in 0:n-1
+				for n_return in 0:(nmax - n + n_rent - 1)
+					n′ = n - n_rent + n_return
+					p = p_rent[n_rent]*p_return[n_return]
+					prob_lookup[((n, n′), n_rent)] += p
+				end
+				prob_lookup[((n, nmax), n_rent)] += p_rent[n_rent]*(1 - sum(p_return[n_return] for n_return in 0:nmax-n+n_rent-1; init = zero(T)))
+			end
+			for n_return in 0:(nmax - 1)
+				n′ = n_return
+				p = (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = zero(T)))*p_return[n_return]
+				prob_lookup[((n, n′), n)] += p
+			end
+			prob_lookup[((n, nmax), n)] += (1 - sum(p_rent[n_rent] for n_rent in 0:n-1; init = zero(T)))*(1 - sum(p_return[n_return] for n_return in 0:nmax-1, init = zero(T)))
+		end
+		return prob_lookup
+	end
+
+	probabilities = (location_A = create_probability_lookup(λs.request_A, λs.return_A), location_B = create_probability_lookup(λs.request_B, λs.return_B))
+
+	#calculate probability matrix for all the s′, r transitions given starting in state s and taking action a
+	function getmatrix(s, a)
+		#initialize the matrix for s′, r transitions, each column runs over the transition states
+		out = zeros(length(states), length(rewards))
+		(n_a, n_b) = s
+
+		#calculate the number of cars moved with sign indicating direction + being A to B, normally this is simply a but if we try to move more cars than are available, it will be capped
+		carsmoved = if a > 0
+			min(a, n_a)
+		elseif a < 0
+			-min(abs(a), n_b)
+		else
+			0
+		end
+		
+		#cars above nmax are returned to the company but we still incur the cost of transfering them
+		aftercount_a = min(n_a - carsmoved, nmax)
+		aftercount_b = min(n_b + carsmoved, nmax)
+
+		cost = (abs(a) - (a > 0)*employeeshuttle)*movecost + (overnightpenalty * ((aftercount_a > maxovernight) + (aftercount_b > maxovernight))) #one free transfer from A to B if employee shuttle is true in modified version, overnight penalty if too many cars are left at a lot
+		for (i_s′, s′) in enumerate(states)
+			(n_a′, n_b′) = s′
+			for n_rent_a in 0:aftercount_a
+				for n_rent_b in 0:aftercount_b
+					p_a = probabilities.location_A[((aftercount_a, n_a′), n_rent_a)]
+					p_b = probabilities.location_B[((aftercount_b, n_b′), n_rent_b)]
+					p_total = p_a*p_b
+					r = rentcredit*(n_rent_a+n_rent_b) - cost
+					out[i_s′, reward_lookup[r]] += p_total
+				end
+			end
+		end
+		return out
+	end
+
+	#initialize probability function with all zeros
+	ptf = zeros(T, length(states), length(rewards), length(actions), length(states))
+	for (i_s, s) in enumerate(states)
+		for (i_a, a) in enumerate(actions)
+			ptf[:, :, i_a, i_s] .= getmatrix(s, a)
+		end
+	end
+
+	#find indices of the reward vector that never have non zero probability
+	inds = reduce(intersect, [findall(0 .== [sum(ptf[:, i, j, k]) for i in 1:size(ptf, 2)]) for j in 1:size(ptf, 3) for k in 1:size(ptf, 4)])
+
+	goodinds = setdiff(eachindex(rewards), inds)
+	
+	FiniteMDP(states, actions, rewards[goodinds], ptf[:, goodinds, :, :])
+end
+
+# ╔═╡ c2f56287-9a3e-454a-9ec1-53184b788db9
+const jacks_car_mdp = create_car_rental_mdp()
+
+# ╔═╡ 7ed07ddc-1c63-4ce7-bfd3-6da54304d297
+function makepolicyvaluemaps(mdp::CompleteMDP, v::Vector{T}, π::Matrix{T}) where T <: Real
+	function getaction(dist)
+		#default action will be 0
+		sum(dist) == 0 && return 0
+		(p, ind) = findmax(dist)
+		mdp.actions[ind]
+	end
+	policymap = zeros(Int64, 21, 21)
+	valuemap = zeros(T, 21, 21)
+	for i in 1:size(π, 2)
+		action = getaction(view(π, :, i))
+		(n_a, n_b) = mdp.states[i]
+		policymap[n_a+1, n_b+1] = action
+		valuemap[n_a+1, n_b+1] = v[i]
+	end
+	(policymap, valuemap)
+end
+
+# ╔═╡ 30e663da-282c-42ff-8171-dbe3c5c467c6
+function makepolicyvalueplots(mdp::CompleteMDP, v::Vector{T}, π::Matrix{T}, iter::Integer; policycolorscale = "RdBu", valuecolorscale = "Bluered", kwargs...) where T <: Real
+	(policymap, valuemap) = makepolicyvaluemaps(mdp, v, π)
+	layout = Layout(autosize = false, height = 220, width = 230, paper_bgcolor = "rgba(30, 30, 30, 1)", margin = attr(l = 0, t = 0, r = 0, b = 0, padding = 0), xaxis = attr(title = attr(text = "# Cars at second location", font_size = 10, standoff = 1, automargin = true), tickvals = [0, 20], linecolor = "white", mirror = true, linewidth = 2, yanchor = "bottom"), yaxis = attr(title = attr(text = "# Cars at first location", standoff = 1, automargin = true, pad_l = 0), tickvals = [0, 20], linecolor = "white", mirror = true, linewidth = 2), font_color = "gray", font_size = 9)
+	
+	function makeplot(z, colorscale; kwargs...) 
+		tr = heatmap(;x = 0:20, y = 0:20, z = z, colorscale = colorscale, colorbar_thickness = 2)
+		plot(tr, layout)
+	end
+	vtitle = L"v_{\pi_{%$(iter-1)}}"
+	policyplot = relayout(makeplot(policymap, policycolorscale), (title = attr(text =  latexify("π_$(iter-1)"), x = 0.5, xanchor = "center", font_size = 20, automargin = true, yref = "paper", yanchor = "bottom", pad_b = 10)))
+	valueplot = relayout(makeplot(valuemap, valuecolorscale), (title = attr(text = vtitle, x = 0.5, xanchor = "center", font_size = 20, automargin = true, yref = "paper", yanchor = "bottom", pad_b = 10)))
+	
+	(π = relayout(policyplot, kwargs), v = relayout(valueplot, kwargs))
+end
+
+# ╔═╡ bb085f2e-83cb-45b2-adf6-c07da892d6e1
+begin
+	car_results = begin_value_iteration_v(jacks_car_mdp, 0.9f0; θ = 0.0001f0)
+	π_car, v_car = makepolicyvalueplots(jacks_car_mdp, car_results[1][end], car_results[2], length(car_results[1]))
+	md"""
+	### Value Iteration Results for Jack's Car Rental
+	$([π_car v_car])
+	"""
+end
+
+# ╔═╡ 1f28280e-ba3b-4ca5-89e4-6ca4a90f5893
+begin
+	car_afterstate_results = begin_value_iteration_v(jacks_car_afterstate_mdp, 0.9f0, θ = 0.0001f0)
+	π_car_afterstate, v_car_afterstate = makepolicyvalueplots(jacks_car_afterstate_mdp, car_afterstate_results[1][end], car_afterstate_results[2], length(car_afterstate_results[1]))
+	md"""
+	### Afterstate Value Iteration Results for Jack's Car Rental
+	$([π_car_afterstate v_car_afterstate])
+	"""
+end
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
-BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
-BenchmarkTools = "~1.4.0"
 HypertextLiteral = "~0.9.5"
 LaTeXStrings = "~1.3.1"
+Latexify = "~0.16.1"
 PlutoPlotly = "~0.4.4"
-PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.55"
 StatsBase = "~0.34.2"
 """
@@ -2927,20 +3374,15 @@ StatsBase = "~0.34.2"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.0"
+julia_version = "1.10.2"
 manifest_format = "2.0"
-project_hash = "d906ab5e9d4500ce342caa28d2281654aa6cf110"
+project_hash = "f6d296dd021dd48b9e0bb4f63b927bc961e2434f"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "c278dfab760520b8bb7e9511b968bf4ba38b7acc"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.2.3"
-
-[[deps.AbstractTrees]]
-git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
-uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
-version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -2956,12 +3398,6 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 git-tree-sha1 = "4b41ad09c2307d5f24e36cd6f92eb41b218af22c"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
 version = "1.2.1"
-
-[[deps.BenchmarkTools]]
-deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "f1f03a9fa24271160ed7e73051fba3c1a759b53f"
-uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.4.0"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
@@ -3006,7 +3442,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.5+1"
+version = "1.1.0+0"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
@@ -3040,12 +3476,6 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
-[[deps.FileIO]]
-deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "c5c28c245101bd59154f649e19b038d15901b5dc"
-uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.16.2"
-
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
@@ -3055,11 +3485,11 @@ git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
 
-[[deps.FlameGraphs]]
-deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
-git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
-uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
-version = "0.2.10"
+[[deps.Formatting]]
+deps = ["Logging", "Printf"]
+git-tree-sha1 = "fb409abab2caf118986fc597ba84b50cbaf00b87"
+uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
+version = "0.4.3"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -3078,11 +3508,6 @@ deps = ["Logging", "Random"]
 git-tree-sha1 = "8b72179abc660bfab5e28472e019392b97d0985c"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.4"
-
-[[deps.IndirectArrays]]
-git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
-uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
-version = "1.0.0"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -3104,11 +3529,19 @@ git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.3.1"
 
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.1.3"
+[[deps.Latexify]]
+deps = ["Formatting", "InteractiveUtils", "LaTeXStrings", "MacroTools", "Markdown", "OrderedCollections", "Printf", "Requires"]
+git-tree-sha1 = "f428ae552340899a935973270b8d98e5a31c49fe"
+uuid = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
+version = "0.16.1"
+
+    [deps.Latexify.extensions]
+    DataFramesExt = "DataFrames"
+    SymEngineExt = "SymEngine"
+
+    [deps.Latexify.weakdeps]
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    SymEngine = "123dc426-2d89-5057-bbad-38513e3affd8"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -3165,6 +3598,12 @@ git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "0.1.4"
 
+[[deps.MacroTools]]
+deps = ["Markdown", "Random"]
+git-tree-sha1 = "2fa9ee3e63fd3a4f7a9a4f4744a52f4856de82df"
+uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+version = "0.5.13"
+
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
@@ -3194,7 +3633,7 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+2"
+version = "0.3.23+4"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
@@ -3238,12 +3677,6 @@ version = "0.4.4"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.PlutoProfile]]
-deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
-git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
-uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
-version = "0.4.0"
-
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
 git-tree-sha1 = "68723afdb616445c6caaef6255067a8339f91325"
@@ -3265,16 +3698,6 @@ version = "1.4.1"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
-
-[[deps.Profile]]
-deps = ["Printf"]
-uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
-
-[[deps.ProfileCanvas]]
-deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
-git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
-uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
-version = "0.1.0"
 
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
@@ -3449,18 +3872,20 @@ version = "17.4.0+2"
 # ╠═889611fb-7dac-4769-9251-9a90e3a1422f
 # ╟─510761f6-66c7-4faf-937b-e1422ec829a6
 # ╠═87fadfc0-2cdb-4be2-81ad-e8fdeffb690c
-# ╠═4a8d17a2-348b-4077-8071-708017daaf05
 # ╠═1dd1ba55-548a-41f6-903e-70742fd60e3d
-# ╠═c6715072-a5a7-433f-90e1-7abbb221eb25
 # ╠═2786101e-d365-4d6a-8de7-b9794499efb4
 # ╟─0b9c6dbd-4eb3-4167-886e-64db9ec7ff04
 # ╟─52aebb7b-c2a9-443f-bc03-24cd25793b32
 # ╟─e6672866-c0a0-46f2-bb52-25fcc3352645
 # ╟─e8f94345-9ad5-48d4-8709-d796fb55db3f
+# ╟─f2115666-86ce-4c80-9eb7-490cc7a7715c
 # ╟─a72d07bf-e337-4bd4-af5c-44d74d163b6b
+# ╟─c360945e-f8b2-4c6f-a70c-6ab4ddcf5b54
 # ╠═ddf3bb61-16c9-48c4-95d4-263260309762
 # ╟─105c5c23-270d-437e-89dd-12297814c6e0
 # ╟─48b557e3-e239-45e9-ab15-105bcca96492
+# ╟─187fc682-2282-46ca-b988-c9de438f36fd
+# ╟─22c2213e-5b9b-410f-a0ef-8f1e3db3c532
 # ╟─0a4ed8c7-27ca-45cb-af15-70ddd86240fb
 # ╠═620a6426-cb29-4010-997b-aa4f9d5f8fb0
 # ╠═3d8b1ccd-9bb3-42f2-a77a-6afdb72c1ff8
@@ -3468,8 +3893,6 @@ version = "17.4.0+2"
 # ╠═72b4d8d5-464c-4561-8c69-28ef3f59630b
 # ╠═3f3ebc9b-b070-4d73-8be9-823b399c664c
 # ╠═1e3d231a-4065-48ce-a74e-018066fb232a
-# ╟─187fc682-2282-46ca-b988-c9de438f36fd
-# ╟─22c2213e-5b9b-410f-a0ef-8f1e3db3c532
 # ╟─0e59e813-3d48-4a24-b5b3-9a9de7c500c2
 # ╟─0d6a11af-b146-4bbc-997e-a11b897269a7
 # ╟─a925534e-f9b8-471a-9d86-c9212129b630
@@ -3487,6 +3910,7 @@ version = "17.4.0+2"
 # ╠═3ed12c33-ab0a-49b1-b9e7-c4305ba35767
 # ╠═61bbf9db-49a0-4709-83f4-44f228be09c0
 # ╟─8d05403a-adeb-40ac-a98a-87586d5a5170
+# ╟─75bfe913-8757-4789-b708-7d400c225218
 # ╠═e19db54c-4b3c-42d1-b016-9620daf89bfb
 # ╠═ec285c96-4a75-4af6-8898-ec3176fa34c6
 # ╠═ab331778-f892-4690-8bb3-26464e3fc05f
@@ -3494,6 +3918,7 @@ version = "17.4.0+2"
 # ╟─136d1d96-b590-4f03-9e42-2337efc560cc
 # ╠═4556cf44-4a1c-4ca4-bfb8-4841301a2ce6
 # ╠═9f28772c-9afe-4253-ab3b-055b0f48be6e
+# ╠═bd1029f9-d6a8-4c68-98cd-8af94297b521
 # ╠═d299d800-a64e-4ba2-9603-efa833343405
 # ╟─04a0be81-ee5f-4eeb-963a-ad930392d50b
 # ╟─0ad739c9-8aca-4b82-bf20-c73584d29535
@@ -3531,7 +3956,7 @@ version = "17.4.0+2"
 # ╠═6556dafb-04fa-434c-868a-8d7bb7b5b196
 # ╠═6faa3015-3ac4-44af-a78c-10b175822441
 # ╠═6bffb08c-704a-4b7c-bfce-b3d099cf35c0
-# ╠═a4c4d5f2-d76d-425e-b8c9-9047fe53c4f0
+# ╟─a4c4d5f2-d76d-425e-b8c9-9047fe53c4f0
 # ╟─05664aaf-575b-4249-974c-d8a2e63f380a
 # ╟─2a3e4617-efbb-4bbc-9c61-8535628e439c
 # ╟─6e06bd39-486f-425a-bbca-bf363b58988c
@@ -3574,23 +3999,37 @@ version = "17.4.0+2"
 # ╟─d83ff60f-8973-4dc1-9358-5ad109ea5490
 # ╟─e4e80015-40ce-4f8a-aac7-4a9584da4baa
 # ╟─e26f788e-f602-403e-929e-6c98a6e6bf79
+# ╟─c9f7646a-ec01-4d90-9215-5027b7c1c885
+# ╟─b5e06f59-33b5-414e-9a81-43e8abd07aa3
+# ╟─0201ae9f-4a31-497e-86ab-62b454ca85de
 # ╠═943b6d7e-14a4-4532-90c7-dd5080be0c6e
 # ╠═0c0b875e-69f8-46ed-ad06-df9c36088fbe
 # ╠═64b210e8-223f-41f7-a6b7-8af6183ddf87
 # ╠═98bec66e-d8f3-4d4d-b4ec-5838489164e5
 # ╠═297f1606-4ec2-4075-9f81-926dc517b76f
-# ╟─c9f7646a-ec01-4d90-9215-5027b7c1c885
-# ╟─b5e06f59-33b5-414e-9a81-43e8abd07aa3
-# ╟─0201ae9f-4a31-497e-86ab-62b454ca85de
 # ╠═33d69db9-fa2b-40a3-bbed-21d5fd60f302
 # ╟─42799973-9884-4a0e-b29a-039890e92d21
 # ╟─35dc0d94-145a-4292-b0df-9e84a286c036
+# ╟─6029990b-eb31-45ae-a869-b789fba673a6
+# ╟─b37f2395-1480-4c7c-b6c0-eba391e969d7
+# ╟─c306867b-f137-44f2-97dd-3d10c226ca5c
+# ╟─a3d10753-2ec3-4252-9629-834145678b6a
+# ╠═393cd9d2-dd97-496e-b260-ec6e8b1c13b5
+# ╠═18e60b1d-97ec-432c-a388-003e7fae415f
+# ╠═685a7ba3-0f94-4663-a68a-73fa03bd9445
+# ╠═e947f86e-8dc3-4ce7-a9d4-0a7b675a9fa9
 # ╟─f95ceb98-f12e-4650-9ad3-0609b7ecd0f3
+# ╠═ad03500a-bd42-4216-a9cb-3f923152af79
+# ╠═c2f56287-9a3e-454a-9ec1-53184b788db9
+# ╠═7de9b6a4-49ce-4dc3-9d5b-cecfcb98bba1
+# ╟─bb085f2e-83cb-45b2-adf6-c07da892d6e1
+# ╟─1f28280e-ba3b-4ca5-89e4-6ca4a90f5893
+# ╟─d5b612d8-82a1-4586-b721-1baaea2101cf
 # ╟─f36822d7-9ea8-4f5c-9925-dc2a466a68ba
 # ╠═639840dc-976a-4e5c-987f-a92afb2d99d8
 # ╠═14b456f9-5fd1-4340-a3c7-ab9b91b4e3e0
 # ╟─22c4ce8c-bd82-4eb3-8af5-55342018edff
-# ╠═393cd9d2-dd97-496e-b260-ec6e8b1c13b5
+# ╠═d7566d1b-8938-4e2c-8c54-124f790e72ae
 # ╠═0748902c-ffc0-4634-9a1b-e642b3dfb77b
 # ╠═c4919d14-8cba-43e6-9369-efc52bcb9b23
 # ╠═95245673-2c29-401e-bb4b-a39dc8172297
@@ -3602,9 +4041,13 @@ version = "17.4.0+2"
 # ╠═0e488135-49e5-4e71-83b1-05d8e61f0510
 # ╠═8e15f4b5-0dc7-47a5-9477-9f4d8807b331
 # ╠═dea61907-d4fb-492d-b2bb-c037c7f785cb
-# ╠═45213165-11c8-40fe-acee-99331852c2a7
 # ╠═8787a5fd-d0ab-46b5-a7df-e7bc103a7378
 # ╠═4019c974-dcaa-46c8-ac90-e6566a376ea1
 # ╠═3134e913-1e86-495d-a558-c3ec4828bf7b
+# ╟─dd167494-99d6-45c6-99e4-c36fde5e2d3f
+# ╠═b3d4117f-7db4-43a6-8427-c08f3542d71f
+# ╠═2455742f-dc18-4d6b-9f58-5666adac6919
+# ╠═30e663da-282c-42ff-8171-dbe3c5c467c6
+# ╠═7ed07ddc-1c63-4ce7-bfd3-6da54304d297
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
