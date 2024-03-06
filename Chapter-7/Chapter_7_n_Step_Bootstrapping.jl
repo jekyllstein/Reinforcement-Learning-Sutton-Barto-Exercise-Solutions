@@ -28,15 +28,96 @@ md"""
 Consider estimating $v_\pi$ from sample episodes generated using $\pi$.  Monte Carlo methods perform an update for each state based on the entire sequence of observed rewards from that state until the end of the episode.  The update of one-step TD methods, on the other hand, is based on just the one next reward, bootstrapping from the value of the state one step later as a proxy for the remaining rewards.  One kind of intermediate method, then, would perform an update based on an intermediate number of rewards: more than one, but less than all of them until termination.  For example, a two-step method update would be based on the first two rewards and the estimated value of the state two steps later.  Similarly, we could have three-step updates, four-step updates, and so on.  Figure 7.1 shows the backup diagrams of the spectrum of *n-step updates* for $v_\pi$, with the one-step TD update on the left and the up-until-termination Monte Carlo update on the right.
 """
 
+# ╔═╡ 01f45d99-7cce-48ef-8fc1-eccb35dac6ea
+md"""
+### Figure 7.1
+
+The backup diagrams of *n*-step methods.  These methods form a spectrum ranging from one-step TD methods to Monte Carlo methods.
+"""
+
 # ╔═╡ 28e10379-a475-4b29-bfc6-f9c52201358a
 HTML("""
+<div style = "display: flex; align-items: flex-end; background-color: white; color: black; justify-content:space-around;">
+	<div>1-step TD <br> and TD(0)</div>
+	<div>2-step TD</div>
+	<div>3-step TD</div>
+	<div>n-step TD</div>
+	<div>&infin;-step TD <br> and Monte Carlo</div>
+</div>
+<div style = "display: flex; align-items: flex-start; background-color: white; padding: 5px;">
 <div class = "backup-diagram">
-	1-step TD <br> and TD(0)
 	<div class = "state"></div>
 	<div class = "down-arrow"></div>
 	<div class = "action"></div>
 	<div class = "down-arrow"></div>
 	<div class = "state"></div>
+</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+</div>
+<div style = "font-size: 5vw; color: black; transform: translateY(150px);">&hellip;</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div style = "font-size: 3vw; padding: 10px; color: black;">&vellip;</div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+</div>
+<div style = "font-size: 5vw; color: black; transform: translateY(150px);">&hellip;</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div style = "font-size: 3vw; padding: 10px; color: black;">&vellip;</div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "term"></div>
+</div>
 </div>
 """)
 
@@ -50,6 +131,7 @@ HTML("""
 	justify-content: center;
 	background-color: white;
 	color: black;
+	width: max(100px, 10vw); 
 }
 
 .down-arrow {
@@ -87,18 +169,48 @@ HTML("""
 	background-color: black;
 	border-radius: 50%;
 }
+.term {
+	width: 30px;
+	height: 30px;
+	background-color: gray;
+	border: 2px solid black;
+}
 </style>
 """)
 
 # ╔═╡ 4f7135bf-911d-4d57-a845-e6f86ff7f9a4
 md"""
+The methods that use *n*-step updates are still TD methods because they still change an earlier estimate based on how it differs from a later estimate.  Now the later estimate is not one step later, but *n* steps later.  Methods in which temporal difference extends over *n* steps are called *n-step TD methods*.  The TD methods introduced in the previous chapter all used one-step updates, which is why we call them one-step TD methods.  
 
-$V_{t+n}(S_t) \dot= V_{t+n-1}(S_t) + \alpha [G_{t:t+n} - V_{t+n-1}(S_t)], 0\leq t <T$
+More formally consider the update of the estimated value of state $S_t$ as a result of the state-reward sequence, $S_t, R_{t+1}, R_{t+2}, \dots, R_T, S_T$ (omitting the actions).  We know that in Monte Carlo updates the estimate of $v_\pi(S_t)$ is updated in the direction of the complete return: 
+
+$G_t \doteq R_{t+1}+\gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots + \gamma^{T-t-1}R_T$
+
+where $T$ is the last time step of the episode.  Let us call this quantity the *target* of the update.  Whereas in Monte Carlo updates the target is the return, in one-step updates the target is the first reward plus the discounted estimated value of the next state, which we call the *one-step return*:
+
+$G_{t:t+1} \doteq R_{t+1} + \gamma V_t(S_{t+1})$
+
+where $V_t : \mathcal{S} \rightarrow \mathbb{R}$ here is the estimate at time $t$ of $v_\pi$.  The subscripts on $G_{t:t+1}$ indicate that this is a truncated return for time $t$ using rewards up until time $t+1$, with the discounted estimate $\gamma V_t(S_{t+1})$ taking the place of the other terms $\gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots + \gamma^{T-t-1} R_T$ of the full return, as discussed in the previous chapter.  Our point now is that this idea makes just as much sense after two steps as it does after one.  The target for a two step update is the *two-step return*:
+
+$G_{t:t+2} \doteq R_{t+1} + \gamma R_{t+2} + \gamma^2 V_{t+1}(S_{t+2})$
+
+where now $\gamma^2V_{t+1}(S_{t+2})$ corrects for the absense of the terms $\gamma^2R_{t+3} + \gamma ^3 R_{t+4} + \cdots + \gamma^{T-t-1}R_T$.  Similarly, the target for an arbitrary *n*-step update is the *n-ste return*:
+
+$G_{t:t+n} \doteq R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n V_{t+n-1}(S_{t+n}) \tag{7.1}$
+
+for all $n,t$ such that $n \geq 1$ and $0 \leq t \leq T-n$.  All *n*-step returns can be considered approximations to the full return, truncated after *n* steps and then corrected for the remaining missing terms by $V_{t+n-1}(S_{t+n})$.  If $t+n \geq T$ (if the *n*-step return extends to or beyond termination), then all the missing terms are taken as zero, and the *n*-step return defined to be equal to the ordinary full return $(G_{t:t+n} \doteq G_t \;\; \text{if} \;\; t+n \geq T)$.
+
+Note that *n*-step returns for $n > 1$ involve future rewards and states that are not available at the time of transition from $t$ to $t+1$.  No real algorithm can use the *n*-step return until after it has seen $R_{t+n}$ and computed $V_{t+n-1}$.  The first time these are available is $t+n$.  The natural state-value learning algorithm for using *n*-step returns is thus: 
+
+$V_{t+n}(S_t) \doteq V_{t+n-1}(S_t) + \alpha \left [ G_{t:t+n} - V_{t+n-1}(S_t) \right ], \;\;\;\; 0\leq t <T, \tag{7.2}$
+
+while the values of all other states remain unchanged: $V_{t+n}(s) = V_{t+n-1}(s)$, for all $s \neq S_t$.  We call this algorithm *n-step TD*.  Note that no changes at all are made during the first $n-1$ steps of each episode.  to make up for that, an equal number of additional updates are made at the end of the episode, after termination and before starting the next episode.  Complete code implementing *n-step TD* can be found below in the section *n*-step TD Implementation
 """
 
 # ╔═╡ 28d9394a-6ce0-4212-941e-2a699e08b7df
 md"""
-> Exercise 7.1 In Chapter 6 we noted that Monte Carlo error can be written as the sum of TD errors (6.6) if the value estimates don't change from step to step.  Show that the n-step error used in (7.2) can also be written as a sum of TD errors (again if the value estimates don't change) generalizing the earlier result
+> ### *Exercise 7.1* 
+> In Chapter 6 we noted that Monte Carlo error can be written as the sum of TD errors (6.6) if the value estimates don't change from step to step.  Show that the n-step error used in (7.2) can also be written as a sum of TD errors (again if the value estimates don't change) generalizing the earlier result
 
 The n-step update used in (7.2) can be written as:
 
@@ -131,7 +243,8 @@ $=\sum_{i=0}^{n-2} \gamma^i \delta_{t+i} + \gamma^{n-1} \delta_{t+n-1} = \sum_{i
 
 # ╔═╡ 5954a783-14a6-4d2b-b342-9fee0d9ef564
 md"""
-> Exercise 7.2 (programming) With an n-step method, the value estimates *do* change from step to step, so an algorithm that used the sum of TD errors (see previous exercise) in place of the error in (7.2) would actually be a slightly different algorithm.  Would it be a better algorithm or a worse one?  Devise and program a small experiment to answer this question empirically.
+> ### *Exercise 7.2 (programming)* 
+> With an n-step method, the value estimates *do* change from step to step, so an algorithm that used the sum of TD errors (see previous exercise) in place of the error in (7.2) would actually be a slightly different algorithm.  Would it be a better algorithm or a worse one?  Devise and program a small experiment to answer this question empirically.
 
 The pseudo-code for the typical algorithm is given already.  The algorithm to compare this to is one that calculates all the updated values for an episode using the n-step method but does not update the values until the end of the episode.  This can be tested by having two versions of V so that the values from the end of the previous episode can be preserved all while the new values are being updated.
 """
@@ -257,9 +370,6 @@ function create_random_walk(n)
 	end
 	(states, sterm, step)
 end
-
-# ╔═╡ 7f6dee5f-1cc5-4dab-86c2-a68c92bc135a
-
 
 # ╔═╡ d3d39d13-e711-4289-a893-28c2c1af50f6
 function value_estimate_random_walk(nstates, α, n, numep = 1000)
@@ -749,6 +859,11 @@ md"""
 # Dependencies
 """
 
+# ╔═╡ 0968a366-d843-49cf-8931-94e5b5b04cd6
+md"""
+## MDP Types and Functions
+"""
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -1195,16 +1310,16 @@ version = "17.4.0+2"
 # ╔═╡ Cell order:
 # ╟─b8e46d42-44f1-4f34-a501-7a4943e60a83
 # ╟─4e4ee05c-c585-4847-b2ab-0e5c4c7f6ca4
-# ╠═28e10379-a475-4b29-bfc6-f9c52201358a
-# ╠═88e27f19-2cfb-4e17-8a62-5eadafbda85e
-# ╠═4f7135bf-911d-4d57-a845-e6f86ff7f9a4
+# ╟─01f45d99-7cce-48ef-8fc1-eccb35dac6ea
+# ╟─28e10379-a475-4b29-bfc6-f9c52201358a
+# ╟─88e27f19-2cfb-4e17-8a62-5eadafbda85e
+# ╟─4f7135bf-911d-4d57-a845-e6f86ff7f9a4
 # ╟─28d9394a-6ce0-4212-941e-2a699e08b7df
 # ╟─5954a783-14a6-4d2b-b342-9fee0d9ef564
 # ╠═6445e66b-1c07-4474-81ff-5c4cbba88ca6
 # ╠═a0092f58-8f2d-4d98-895a-5cc622fb8f4f
 # ╠═7f32af81-580b-4f7b-8a71-0aa67928afa4
 # ╠═1e199d68-4bc1-4f56-bbce-f4299e649dee
-# ╠═7f6dee5f-1cc5-4dab-86c2-a68c92bc135a
 # ╠═d3d39d13-e711-4289-a893-28c2c1af50f6
 # ╠═3b1ee21f-6147-40bb-a534-26dd255ce26e
 # ╠═e6ad9fb0-9efe-4a38-8160-43f1b9c7ee40
@@ -1233,5 +1348,6 @@ version = "17.4.0+2"
 # ╠═b8ae179f-3ab9-4d8d-a49d-5d4035af63fd
 # ╟─ec706721-a414-47c9-910e-9d58e77664ea
 # ╠═0321b9d1-7d4e-4bf8-ac61-9c16ab6bc461
+# ╟─0968a366-d843-49cf-8931-94e5b5b04cd6
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
