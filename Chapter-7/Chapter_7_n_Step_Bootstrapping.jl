@@ -317,138 +317,166 @@ For the shorter chain, an n of 1 seems optimal over the first 10 episodes wherea
 md"""
 ## 7.2 *n*-step Sarsa
 
-We redefine *n*-step returns (update targets) in terms of estimated action values:
+To use $n$-step methods for control, we simply switch states for state-action pairs and then use an $\epsilon$-greedy policy with respect to the state-action value function.  Only now the mechanism for the value updates will be based on the $n$-step return rather than either TD(0) or Monte Carlo returns.
 
-$G_{t:t+n} \dot = R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1} R_{t+n} + \gamma^n Q_{t+n-1}(S_{t+n}, A_{t+n}), n \geq 1, 0 \leq t \lt T-n$ with $G_{t:t+n} \dot = G_t$ if $t+n \geq T$
+We redefine $n$-step returns (update targets) in terms of estimated action values:
+
+$G_{t:t+n} \dot = R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1} R_{t+n} + \gamma^n Q_{t+n-1}(S_{t+n}, A_{t+n}), \; n \geq 1, 0 \leq t \lt T-n$ with $G_{t:t+n} \doteq G_t$ if $t+n \geq T \tag{7.4}$
 
 The natural algorithm is then
 
-$Q_{t+n}(S_t, A_t) \dot = Q_{t+n-1}(S_t, A_t) + \alpha [G_{t:t+n} - Q_{t+n-1}(S_t, A_t)], 0 \leq t \lt T$
+$Q_{t+n}(S_t, A_t) \doteq Q_{t+n-1}(S_t, A_t) + \alpha [G_{t:t+n} - Q_{t+n-1}(S_t, A_t)], \;\; 0 \leq t \lt T \tag{7.5}$
 
-while the values of all others states remain unchanged.  This is the algorithm we call *n-step Sarsa*.
+while the values of all others states remain unchanged.  This is the algorithm we call *n-step Sarsa*.  Implementation of this algorithm can be found in the next section
 """
 
-# ╔═╡ f4d7917d-f773-46d4-8605-87195c293d11
-#based on pseudocode described in book for n-step Sarsa for estimating Q
-function n_step_sarsa(ϵ, α, n, states::Vector{S}, sterm, actions::Vector{A}, sim, γ; q0 = 0.0, numep = 1000) where S where A
-	#mapping of actions to indicies in action list
-	actiondict = Dict(actions[i] => i for i in eachindex(actions))
-	numactions = length(actions)
+# ╔═╡ 71370f7c-4af7-43ae-aba3-da2d412c248a
+md"""
+### Figure 7.3: 
+The backup diagrams for the spectrum of $n$-step methods for state-action values.  They range from the one-step update of Sarsa(0) to the up-until-termination update of the Monte Carlo method.  In between are the $n$-step updates based on $n$ steps of real rewards and the estimated value of the $n$th next state-action pair, all appropriately discounted.
+"""
 
-	#initialize action values as a vector of values for each state
-	Q = Dict(s => fill(q0, numactions) for s in states)
-	Q[sterm] = fill(0.0, numactions)
+# ╔═╡ e528af0a-1af3-429a-b781-de2e8421b4e8
+HTML("""
+<div style = "display: flex; align-items: flex-end; background-color: white; color: black;">
+	<div style = "padding-left: 3vw; padding-right: 0vw;">1-step Sarsa <br> aka Sarsa(0)</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">2-step Sarsa</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">3-step Sarsa</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">n-step Sarsa</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">&infin;-step Sarsa <br> aka Monte Carlo</div>
+</div>
+<div style = "display: flex; align-items: flex-start; background-color: white; padding: 5px;">
+<div class = "backup-diagram">
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+</div>
+<div class = "backup-diagram">
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+</div>
+<div class = "backup-diagram">
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+</div>
+<div style = "font-size: 5vw; color: black; transform: translateY(100px);">&hellip;</div>
+<div class = "backup-diagram">
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div style = "font-size: 3vw; padding: 10px; color: black;">&vellip;</div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+</div>
+<div class = "backup-diagram">
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div style = "font-size: 3vw; padding: 10px; color: black;">&vellip;</div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "term"></div>
+</div>
+</div>
+""")
 
-	#initialize policy to be random at each state
-	π = Dict(s => ones(numactions) ./ numactions for s in states)
+# ╔═╡ cf9fdc5d-a3f5-4c0d-8bf9-8d43fe152d5a
+md"""
+### $n$-step Sarsa Implementation
+"""
 
-	#define a function to select actions from a policy
-	sample_action(s) = sample(actions, weights(π[s])) 
+# ╔═╡ aa9b62f2-4dc7-48bf-93e6-31a5b19b01f3
+md"""
+### Figure 7.4: 
+Gridworld example of learning using $n$-step methods.  The left plot shows the path taken by the agent during the first episode of training.  All of the values are initially zero and there is a single reward of 1 for the terminal step only.  The light blue squares show values that were changed from zero for each of the three $n$-step methods.  The right is equivalent to Monte Carlo learning because the episode is shorter than the $n$ selected, and in this case every state along the path is updated.  For one-step Sarsa only the value of the cell adjacent to the goal is increased.
+"""
 
-	#with a probability ϵ a random action will be selected
-	baseval = ϵ / n
-
-	#with a probability 1-ϵ the greedy action will be selected
-	bonusval = 1.0 - ϵ
-	
-	#define a function to update π to be ϵ-greedy wrt Q
-	function update_π!()
-		for s in states
-			qvec = Q[s]
-			i = argmax(qvec)
-			π[s] .= baseval
-			π[s][i] += bonusval
-		end
-	end
-
-	#initialize vectors to store a history up to length n+1 of states, actions, and rewards
-	svec = Vector{S}(undef, n+1)
-	avec = Vector{A}(undef, n+1)
-	rvec = Vector{Float64}(undef, n+1)
-
-	#define index calculator
-	getind(i) = mod(i, n+1) + 1
-	
-	for ep in 1:numep
-		#initialize state
-		s0 = rand(states)
-		#initialize action
-		a0 = sample_action(s0)
-		
-		svec[1] = s0
-		avec[1] = a0
-		s = s0
-		a = a0
-		T = typemax(Int64)
-		τ = 0
-		t = 0
-		while τ != T - 1
-			if t < T
-				(s, r) = sim(svec[getind(t)], a)
-				storeind = getind(t+1)
-				svec[storeind] = s
-				rvec[storeind] = r
-				if s == sterm 
-					T = t + 1
-				else
-					a = sample_action(s)
-					avec[storeind] = a
-				end
-			end
-			τ = t - n + 1
-			if τ >= 0
-				G = sum(γ^(i - τ - 1) * rvec[getind(i)] for i in (τ + 1):min(τ+n, T))
-				if τ+n < T
-					G += γ^n * Q[svec[getind(τ+n)]][actiondict[avec[getind(τ+n)]]]
-				end
-				ind = getind(τ)
-				Q[svec[ind]][actiondict[avec[ind]]] += α*(G-Q[svec[ind]][actiondict[avec[ind]]])
-				update_π!()
-			end
-			t += 1
-		end
-	end
-
-	greedy_π = Dict(s => actions[argmax(π[s])] for s in states)
-	
-	return Q, greedy_π
-end
-
-# ╔═╡ 0c64afd6-ef23-4582-9250-2c1d4ae3cc43
-function test_n_step_sarsa(n)
-	(states, sterm, actions, sim) = make_gridworld(10, 8, (7, 4), 1.0, 1.0)
-	(Q, π) = n_step_sarsa(0.1, 0.1, n, states, sterm, actions, sim, 1.0, numep = 1000)
-	s = (1, 1)
-	while s != sterm
-		println(s, π[s])
-		(s, r) = sim(s, π[s])
-	end
-end
-
-# ╔═╡ 8ac0f5e2-d2a2-4bc7-a4a0-910068947f90
-test_n_step_sarsa(10)
+# ╔═╡ 9b3d9429-dbe1-4363-9909-15106481b3d8
+@bind run7_4 Button("New Path")
 
 # ╔═╡ 1b12b915-4576-4c3d-8360-50eb9ad2392d
 md"""
-> *Exercise 7.4* Prove that the *n*-step return of Sarsa (7.4) can be written exactly in terms of a novel TD error, as 
->$G_{t:t+n}=Q_{t-1}(S_t, A_t) + \sum_{k=t}^{\text{min}(t+n,T)-1} \gamma^{k-t}[R_{k+1}+\gamma Q_k (S_{k+1}, A_{k+1}) - Q_{k-1}(S_k, A_k)]$
+> ### *Exercise 7.4* 
+> Prove that the *n*-step return of Sarsa (7.4) can be written exactly in terms of a novel TD error, as $G_{t:t+n}=Q_{t-1}(S_t, A_t) + \sum_{k=t}^{\text{min}(t+n,T)-1} \gamma^{k-t}[R_{k+1}+\gamma Q_k (S_{k+1}, A_{k+1}) - Q_{k-1}(S_k, A_k)]$
 
 *n*-step return for Sarsa is:
 
-$G_{t:t+n} \dot = R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1} R_{t+n} + \gamma^n Q_{t+n-1}(S_{t+n}, A_{t+n}), n \geq 1, 0 \leq t \lt T-n$
+$G_{t:t+n} \doteq R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1} R_{t+n} + \gamma^n Q_{t+n-1}(S_{t+n}, A_{t+n}), \; n \geq 1, 0 \leq t \lt T-n$
 
 So we can see that:
 
-$G_{k:k+1} \dot = R_{k+1} + \gamma Q_k(S_{k+1}, A_{k+1})$
+$G_{k:k+1} \doteq R_{k+1} + \gamma Q_k(S_{k+1}, A_{k+1})$
 
 which we can use to rewrite the novel expression as:
 
-$G_{t:t+n}=Q_{t-1}(S_t, A_t) + \sum_{k=t}^{\text{min}(t+n,T)-1} \gamma^{k-t}[G_{k:k+1} - Q_{k-1}(S_k, A_k)]$
+$\begin{flalign}
+G_{t:t+n}&=Q_{t-1}(S_t, A_t) + \sum_{k=t}^{\text{min}(t+n,T)-1} \gamma^{k-t}[G_{k:k+1} - Q_{k-1}(S_k, A_k)] \\
+&=Q_{t-1}(S_t, A_t) + G_{t:t+1} - Q_{t-1}(S_t, A_t) + \sum_{k=t+1}^{\text{min}(t+n,T)-1} \gamma^{k-t}[G_{k:k+1} - Q_{k-1}(S_k, A_k)] \\
+&=G_{t:t+1} + \sum_{k=t+1}^{\text{min}(t+n,T)-1} \gamma^{k-t}[G_{k:k+1} - Q_{k-1}(S_k, A_k)] \\
+&=R_{t+1} + \gamma Q_t(S_{t+1}, A_{t+1})+\sum_{k=t+1}^{\text{min}(t+n,T)-1} \gamma^{k-t}[G_{k:k+1} - Q_{k-1}(S_k, A_k)] \\
+\end{flalign}$
+"""
+
+# ╔═╡ b0b56d97-3802-41f2-814d-8a3eb617a442
+md"""
+We can also define an $n$-step version of Expected Sarsa by writing the $n$-step return as 
+
+$G_{t:t+n} \doteq R_{t+1} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \overline{V}_{t_n-1}(S_{t+n}), \;\; t+n \lt T \tag{7.7}$
+
+(with $G_{t:t+n} \doteq T_t \; for \; t+n \geq T$) where $\overline{V}_t(s)$ is the *expected approximate value* of state $s$, using the estimated action values at time $t$, under the target policy:
+
+$\overline{V}_t(s) \doteq \sum_a \pi(a \vert s) Q_t(s, a), \;\; \forall s \in \mathcal{S} \tag{7.8}$
+
+Expected approximate values are used in developing many of the action-value methods explored in the rest of the book.  If $s$ is terminal, then its expected approximate value is defined to be 0.
+"""
+
+# ╔═╡ d1cdf977-abc0-4df3-bc15-287ce4b94fc3
+md"""
+Step Size $\alpha$: $(@bind ex7_4_α NumberField(0.1f0:0.1f0:1.0f0, default = 0.4))
 """
 
 # ╔═╡ 6819a060-7e26-46cb-9c9d-5c4e3364b66a
 md"""
-## 7.3 *n*-step Off-policy Learning
+## 7.3 $n$-step Off-policy Learning
 """
 
 # ╔═╡ 8e3415b2-0464-43ee-a16f-39c17364e0be
@@ -685,6 +713,19 @@ $\mathbb{E_\pi}[G_{t:h}] + \gamma \mathbb{E_\pi}[G_{t+1:T}] + \sum_{i=t+1}^{h-1}
 md"""
 # Dependencies
 """
+
+# ╔═╡ 5838ecbf-8982-4ab3-aa56-423b0e3d9563
+html"""
+	<style>
+		main {
+			margin: 0 auto;
+			max-width: min(2000px, 90%);
+	    	padding-left: max(10px, 5%);
+	    	padding-right: max(10px, 5%);
+			font-size: max(10px, min(24px, 2vw));
+		}
+	</style>
+	"""
 
 # ╔═╡ 0968a366-d843-49cf-8931-94e5b5b04cd6
 md"""
@@ -1019,6 +1060,193 @@ function make_ϵ_greedy_policy!(v::AbstractVector{T}, ϵ::T; valid_inds = eachin
 	return v
 end
 
+# ╔═╡ ace391b4-ec40-4314-a624-a6b6d2c038db
+function create_ϵ_greedy_policy(Q::Matrix{T}, ϵ::T; π = copy(Q), get_valid_inds = j -> 1:size(Q, 1)) where T<:Real
+	vhold = zeros(T, size(Q, 1))
+	for j in 1:size(Q, 2)
+		vhold .= Q[:, j]
+		make_ϵ_greedy_policy!(vhold, ϵ; valid_inds = get_valid_inds(j))
+		π[:, j] .= vhold
+	end
+	return π
+end
+
+# ╔═╡ 39a181d4-dbde-4e1b-9ca0-389c11852465
+function n_step_sarsa(mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ::X; num_episodes::Integer = 1000, qinit::X = zero(X), ϵinit = one(X)/10, Qinit = initialize_state_action_value(mdp; qinit = qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), history_state::S = first(mdp.states), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), decay_ϵ = false, save_path = false) where {X <: AbstractFloat, S, A, F, E, H}
+	
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(X)
+	π = copy(πinit)
+	vhold = zeros(X, length(mdp.actions))
+	rewards = zeros(X, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_path
+		path = Vector{S}()
+	end
+	
+	#initialize
+	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	actionindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	rewardbuffer = MVector{n+1, X}(zeros(X, n+1))
+	get_state_index(i) = stateindexbuffer[mod(i, n+1) + 1]
+	get_action_index(i) = actionindexbuffer[mod(i, n+1) + 1]
+	get_reward(i) = rewardbuffer[mod(i, n+1) + 1]
+	get_value(buffer, i) = buffer[mod(i, n+1) + 1]
+
+	#simulate and episode and update the value function every step
+	function runepisode!(Q, j)
+		ϵ = ϵinit / (1 + j*decay_ϵ)
+		s = mdp.state_init()
+		i_s = mdp.statelookup[s]
+		T = typemax(Int64)
+		t = 0
+		τ = 0
+		stateindexbuffer[1] = i_s
+		i_a = sample_action(π, i_s)
+		actionindexbuffer[1] = i_a
+		rtot = zero(X)
+		while τ != T - 1
+			if t < T
+				i_s = get_state_index(t)
+				s = mdp.states[i_s]
+				if save_path && (j == num_episodes)
+					push!(path, s)
+				end
+				i = mod(t+1, n+1) + 1
+				i_a = get_action_index(t)
+				a = mdp.actions[i_a]
+				(r, s′) = mdp.step(s, a)
+				rtot += r
+				rewardbuffer[i] = r
+				i_s′ = mdp.statelookup[s′]
+				stateindexbuffer[i] = i_s′
+				if mdp.isterm(s′)
+					T = t + 1
+				else
+					i_a′ = sample_action(π, i_s′)
+					actionindexbuffer[i] = i_a′
+				end
+			end
+			τ = t - n + 1
+			if τ >= 0
+				G = zero(X)
+				for i in τ+1:min(τ+n, T)
+					G += (γ^(i - τ - 1))*get_reward(i)
+				end
+				if τ+n < T
+					G += γ^n * Q[get_action_index(τ+n), get_state_index(τ+n)]
+				end
+				i_s_τ = get_value(stateindexbuffer, τ)
+				i_a_τ = get_value(actionindexbuffer, τ)
+				Q[i_a_τ, i_s_τ] += α*(G-Q[i_a_τ, i_s_τ])
+				vhold .= Q[:, i_s_τ]
+				update_policy!(vhold, ϵ, mdp.states[i_s_τ])
+				π[:, i_s_τ] .= vhold
+			end
+			t += 1
+		end
+		steps[j] = t
+		rewards[j] = rtot
+		return Q
+	end
+	for i = 1:num_episodes; runepisode!(Q, i); end
+	default_return = Q, π, steps, rewards
+	save_path && return (default_return..., path)
+	return default_return
+end
+
+# ╔═╡ 8732e67e-3944-4a9f-bc69-1d8e2e0c2fa3
+function n_step_expected_sarsa(mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ::X; num_episodes::Integer = 1000, qinit::X = zero(X), ϵinit = one(X)/10, Qinit = initialize_state_action_value(mdp; qinit = qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), history_state::S = first(mdp.states), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), decay_ϵ = false, save_path = false) where {X <: AbstractFloat, S, A, F, E, H}
+	
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(X)
+	π = copy(πinit)
+	vhold = zeros(X, length(mdp.actions))
+	rewards = zeros(X, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_path
+		path = Vector{S}()
+	end
+	
+	#initialize
+	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	actionindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	rewardbuffer = MVector{n+1, X}(zeros(X, n+1))
+	get_state_index(i) = stateindexbuffer[mod(i, n+1) + 1]
+	get_action_index(i) = actionindexbuffer[mod(i, n+1) + 1]
+	get_reward(i) = rewardbuffer[mod(i, n+1) + 1]
+	get_value(buffer, i) = buffer[mod(i, n+1) + 1]
+
+	#simulate and episode and update the value function every step
+	function runepisode!(Q, j)
+		ϵ = ϵinit / (1 + j*decay_ϵ)
+		s = mdp.state_init()
+		i_s = mdp.statelookup[s]
+		T = typemax(Int64)
+		t = 0
+		τ = 0
+		stateindexbuffer[1] = i_s
+		i_a = sample_action(π, i_s)
+		actionindexbuffer[1] = i_a
+		rtot = zero(X)
+		while τ != T - 1
+			if t < T
+				i_s = get_state_index(t)
+				s = mdp.states[i_s]
+				if save_path && (j == num_episodes)
+					push!(path, s)
+				end
+				i = mod(t+1, n+1) + 1
+				i_a = get_action_index(t)
+				a = mdp.actions[i_a]
+				(r, s′) = mdp.step(s, a)
+				rtot += r
+				rewardbuffer[i] = r
+				i_s′ = mdp.statelookup[s′]
+				stateindexbuffer[i] = i_s′
+				if mdp.isterm(s′)
+					T = t + 1
+				else
+					i_a′ = sample_action(π, i_s′)
+					actionindexbuffer[i] = i_a′
+				end
+			end
+			τ = t - n + 1
+			if τ >= 0
+				G = zero(X)
+				for i in τ+1:min(τ+n, T)
+					G += (γ^(i - τ - 1))*get_reward(i)
+				end
+				
+				if τ+n < T
+					i_s_n = get_state_index(τ+n)
+					v̄ = sum(π[i, i_s_n]*Q[i, i_s_n] for i in eachindex(mdp.actions))
+					G += γ^n * v̄
+				end
+				i_s_τ = get_value(stateindexbuffer, τ)
+				i_a_τ = get_value(actionindexbuffer, τ)
+				
+				Q[i_a_τ, i_s_τ] += α*(G-Q[i_a_τ, i_s_τ])
+				vhold .= Q[:, i_s_τ]
+				update_policy!(vhold, ϵ, mdp.states[i_s_τ])
+				π[:, i_s_τ] .= vhold
+			end
+			t += 1
+		end
+		steps[j] = t
+		rewards[j] = rtot
+		return Q
+	end
+	for i = 1:num_episodes; runepisode!(Q, i); end
+	default_return = Q, π, steps, rewards
+	save_path && return (default_return..., path)
+	return default_return
+end
+
 # ╔═╡ cf3418ed-af8b-4d86-8057-d1b1d22581c7
 function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
 	(vmin, vmax) = extrema(v)
@@ -1087,6 +1315,56 @@ begin
 	const wind_vals = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
 end
 
+# ╔═╡ 53cbf192-e558-4dd7-83b2-79a4674240b5
+function make_gridworld(;actions = rook_actions, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, stepreward = 0.0f0, termreward = 1.0f0)
+	
+	states = [GridworldState(x, y) for x in 1:xmax for y in 1:ymax]
+	
+	boundstate(x::Int64, y::Int64) = (clamp(x, 1, xmax), clamp(y, 1, ymax))
+	
+	function step(s::GridworldState, a::GridworldAction)
+		(x, y) = move(a, s.x, s.y)
+		GridworldState(boundstate(x, y)...)
+	end
+	isterm(s::GridworldState) = s == sterm
+
+	function tr(s::GridworldState, a::GridworldAction) 
+		s′ = step(s, a)
+		x = Float32(isterm(s′))
+		r = (1f0 - x)*stepreward + x*termreward
+		(r, s′)
+	end	
+	MDP_TD(states, actions, () -> start, tr, isterm)
+end	
+
+# ╔═╡ 57e9260d-f628-433b-92fe-f27e8d5294f5
+const plain_gridworld = make_gridworld(sterm = GridworldState(7, 4), start = GridworldState(2, 4), xmax = 10, ymax = 8)
+
+# ╔═╡ e016e721-62a1-4b58-b904-c95e8e898e0e
+function compare_sarsa(n::Integer, α::AbstractFloat, γ::AbstractFloat, num_episodes::Integer)
+	args = (plain_gridworld, n, α, γ)
+	kwargs = (num_episodes = num_episodes, save_path = true)
+	results = n_step_sarsa(args...; kwargs...)
+	exp_results = n_step_expected_sarsa(args...; kwargs...)
+	(results[3], exp_results[3])
+end
+
+# ╔═╡ 78888166-1b70-4a5f-829e-dddf7bed67ad
+function compare_sarsa_trials(args...; trials = 100)
+	1:trials |> Map(_ -> compare_sarsa(args...)) |> foldxt((a, b) -> (first(a) .+ first(b), last(a) .+ last(b))) |> a -> (mean(first(a) ./ trials), mean(last(a) ./ trials))
+end
+
+# ╔═╡ b99db42e-543b-42c1-8f08-f6ba1c81bff1
+function compare_sarsa(nlist::AbstractVector{Int64}; α = 0.4f0, trials = 100)
+	trials = [compare_sarsa_trials(n, 0.4f0, 0.999f0, 100) for n in nlist]
+	sarsa_trace = scatter(x = nlist, y = [first(a) for a in trials], name = "Sarsa")
+	expected_sarsa_trace = scatter(x = nlist, y = [last(a) for a in trials], name = "Expected Sarsa")
+	plot([sarsa_trace, expected_sarsa_trace], Layout(xaxis_title = "n for n-step method", yaxis_title = "Average Number of Steps <br> Per Episode after <br> 100 Training Episodes", title = "Sarsa and Expected Sarsa Performance on Simple Gridworld with α = $α"))
+end
+
+# ╔═╡ dcae4bbe-263d-4c6e-8d10-8c30c97174af
+compare_sarsa(1:5; α = ex7_4_α)
+
 # ╔═╡ 294d55aa-5de7-4cb2-adf0-85af09fb2464
 function make_windy_gridworld(;actions = rook_actions, apply_wind = apply_wind, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, winds = wind_vals, get_step_reward = () -> -1f0)
 	
@@ -1131,8 +1409,40 @@ function create_gridworld_mdp(width, height, start, goal, wind, actions, step_re
 	FiniteMDP(mdp.states, mdp.actions, [0.0f0, step_reward], ptf)	
 end
 
+# ╔═╡ d7215445-fcb2-4828-a27d-a5a6b18fb068
+function plot_path(mdp, states::Vector; title = "Optimal policy <br> path example")
+	xmax = maximum([s.x for s in mdp.states])
+	ymax = maximum([s.y for s in mdp.states])
+	start = mdp.state_init()
+	goal = mdp.states[findfirst(mdp.isterm(s) for s in mdp.states)]
+	start_trace = scatter(x = [start.x + 0.5], y = [start.y + 0.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
+	finish_trace = scatter(x = [goal.x + .5], y = [goal.y + .5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+	path_traces = [scatter(x = [states[i].x + 0.5, states[i+1].x + 0.5], y = [states[i].y + 0.5, states[i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(states)-1]
+	finalpath = scatter(x = [states[end].x + 0.5, goal.x + .5], y = [states[end].y + 0.5, goal.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
+
+	h1 = 30*ymax
+	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = fill("", 10), range = [1, xmax+1]), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
+end
+
+# ╔═╡ db618d5c-63e2-4719-829f-f71405d2ced0
+function plot_path(mdp, π::Matrix; kwargs...)
+	(states, actions, rewards) = runepisode(mdp, π; max_steps = 100)
+	plot_path(mdp, states; kwargs...)
+end
+
+# ╔═╡ 00e4e3c7-1e1f-4ab0-b670-b7f2fff8c056
+plot_path(mdp; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, make_random_policy(mdp); title = title, kwargs...)
+
+# ╔═╡ 57710048-d814-43ac-8396-cad6135279d8
+function addelements(e1, e2)
+	@htl("""
+	$e1
+	$e2
+	""")
+end
+
 # ╔═╡ 14b269e1-fa81-4ed8-957e-119bff365d0e
-function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = king_action_display, scale = 1.0)
+function show_grid_value(mdp, Q::Matrix, name; scale = 1.0, title = "", sigdigits = 2)
 	width = maximum(s.x for s in mdp.states)
 	height = maximum(s.y for s in mdp.states)
 	start = mdp.state_init()
@@ -1140,26 +1450,20 @@ function show_grid_value(mdp, Q::Matrix, wind::Vector, name; action_display = ki
 	sterm = mdp.states[termind]
 	ngrid = width*height
 	@htl("""
-		<div style = "display: flex; transform: scale($scale); background-color: white;">
+		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px;">
 			<div>
+				$title
 				<div class = "gridworld $name value">
-					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 20px; color: black;">$(round(maximum(Q[:, i]), sigdigits = 2))</div>""", *, eachindex(mdp.states))))
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 12px; color: black; $(maximum(Q[:, i]) != 0 ? "background-color: lightblue;" : "")">$(round(maximum(Q[:, i]), sigdigits = sigdigits))</div>""", *, eachindex(mdp.states))))
 				</div>
-				<div class = "windrow" style = "display: grid; grid-template-columns: repeat($width, 40px)">
-					$(HTML(mapreduce(i -> """<div class="windbox downarrow" w = "$(wind[i])"><div style = "transform: rotate(180deg); color: black;">$(wind[i])</div></div>""", *, 1:width)))
-				</div>
-			</div>
-			<div style = "display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; color: black; font-size: 18px; width: 5em; margin-left: 1em;">
-				$(action_display)
-				<div>Wind Values</div>
 			</div>
 		</div>
 	
 		<style>
 			.$name.value.gridworld {
 				display: grid;
-				grid-template-columns: repeat($width, 40px);
-				grid-template-rows: repeat($height, 40px);
+				grid-template-columns: repeat($width, 20px);
+				grid-template-rows: repeat($height, 20px);
 				background-color: white;
 			}
 
@@ -1191,7 +1495,7 @@ function show_grid_value(mdp, V::Vector, wind::Vector, name; action_display = ki
 		<div style = "display: flex; transform: scale($scale); background-color: white; margin: 0; padding: 0;">
 			<div>
 				<div class = "gridworld $name value">
-					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 20px; color: black;">$(round(V[i], sigdigits = 2))</div>""", *, eachindex(mdp.states))))
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 20px; color: black; $(V[i] != 0 ? "background-color: blue;" : "")>$(round(V[i], sigdigits = 2))</div>""", *, eachindex(mdp.states))))
 				</div>
 				<div class = "windrow" style = "display: grid; grid-template-columns: repeat($width, 40px)">
 					$(HTML(mapreduce(i -> """<div class="windbox downarrow" w = "$(wind[i])"><div style = "transform: rotate(180deg); color: black;">$(wind[i])</div></div>""", *, 1:width)))
@@ -1224,6 +1528,37 @@ function show_grid_value(mdp, V::Vector, wind::Vector, name; action_display = ki
 
 		</style>
 	""")
+end
+
+# ╔═╡ 0c64afd6-ef23-4582-9250-2c1d4ae3cc43
+function test_n_step_sarsa(;nlist = [1, 10, 1000])
+	seed = rand(UInt64)
+	sarsa_results = [begin
+		Random.seed!(seed)
+		n_step_sarsa(plain_gridworld, n, 0.5f0, 0.9999f0; num_episodes = 1, save_path = true)
+	end
+	for n in nlist]
+		
+
+	path = plot_path(plain_gridworld, last(first(sarsa_results)); title = "Path Taken")
+	valuegrids = [show_grid_value(plain_gridworld, first(a), "fig7_4"; title = "Action Values Changed By $(nlist[i])-step Sarsa", sigdigits = 1) for (i, a) in enumerate(sarsa_results)]
+	@htl("""
+	<div style = "display: flex; justify-content: flex-start; align-items: center; background-color: white;">
+	<div>$path</div>
+	$(reduce(addelements, valuegrids))
+	</div>
+	""")
+	# s = (1, 1)
+	# while s != sterm
+	# 	println(s, π[s])
+	# 	(s, r) = sim(s, π[s])
+	# end
+end
+
+# ╔═╡ 8ac0f5e2-d2a2-4bc7-a4a0-910068947f90
+begin
+	run7_4
+	test_n_step_sarsa()
 end
 
 # ╔═╡ 87ad13fa-604f-48f7-8232-a2c021b0fefd
@@ -1274,6 +1609,80 @@ function show_grid_policy(mdp, π, wind::Vector, display_function, name; action_
 		</style>
 	""")
 end
+
+# ╔═╡ 2023cd4e-6b1f-430e-b81a-da97a23b5ed5
+const rook_action_display = @htl("""
+<div style = "display: flex; flex-direction: column; align-items: center; justify-content: center; color: black; background-color: rgba(100, 100, 100, 0.1);">
+	<div style = "display: flex; align-items: center; justify-content: center;">
+	<div class = "downarrow" style = "transform: rotate(90deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(180deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(270deg);"></div>
+	<div class = "downarrow" style = "position: absolute;"></div>
+	</div>
+	<div>Actions</div>
+</div>
+""")
+
+# ╔═╡ df8a0a95-71e2-4b37-ae2c-dd8826a91369
+HTML("""
+<style>
+	.downarrow {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		flex-direction: column;
+	}
+
+	.downarrow::before {
+		content: '';
+		width: 2px;
+		height: 40px;
+		background-color: black;
+	}
+	.downarrow::after {
+		content: '';
+		width: 0px;
+		height: 0px;
+		border-left: 5px solid transparent;
+		border-right: 5px solid transparent;
+		border-top: 10px solid black;
+	}
+
+	.gridcell {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			border: 1px solid black;
+		}
+
+	.windbox {
+		height: 40px;
+		width: 40px;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		transform: rotate(180deg);
+		background-color: green;
+	}
+
+	.windbox * {
+		background-color: green;
+		color: green;
+	}
+
+	.windbox[w="0"] {
+		opacity: 0.0; 
+	}
+
+	.windbox[w="1"] {
+		opacity: 0.5;
+	}
+
+	.windbox[w="2"] {
+		opacity: 1.0;
+	}
+</style>
+""")
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1945,11 +2354,24 @@ version = "17.4.0+2"
 # ╠═e6ad9fb0-9efe-4a38-8160-43f1b9c7ee40
 # ╟─0e318ccf-f4ad-4715-8415-125539e02690
 # ╟─e10b6467-05f4-40b8-b899-2a31b5067030
-# ╠═f4d7917d-f773-46d4-8605-87195c293d11
+# ╟─71370f7c-4af7-43ae-aba3-da2d412c248a
+# ╟─e528af0a-1af3-429a-b781-de2e8421b4e8
+# ╟─cf9fdc5d-a3f5-4c0d-8bf9-8d43fe152d5a
+# ╠═39a181d4-dbde-4e1b-9ca0-389c11852465
+# ╠═57e9260d-f628-433b-92fe-f27e8d5294f5
+# ╟─aa9b62f2-4dc7-48bf-93e6-31a5b19b01f3
+# ╟─9b3d9429-dbe1-4363-9909-15106481b3d8
+# ╟─8ac0f5e2-d2a2-4bc7-a4a0-910068947f90
 # ╠═0c64afd6-ef23-4582-9250-2c1d4ae3cc43
-# ╠═8ac0f5e2-d2a2-4bc7-a4a0-910068947f90
 # ╟─1b12b915-4576-4c3d-8360-50eb9ad2392d
-# ╟─6819a060-7e26-46cb-9c9d-5c4e3364b66a
+# ╟─b0b56d97-3802-41f2-814d-8a3eb617a442
+# ╠═8732e67e-3944-4a9f-bc69-1d8e2e0c2fa3
+# ╠═e016e721-62a1-4b58-b904-c95e8e898e0e
+# ╠═78888166-1b70-4a5f-829e-dddf7bed67ad
+# ╠═b99db42e-543b-42c1-8f08-f6ba1c81bff1
+# ╟─d1cdf977-abc0-4df3-bc15-287ce4b94fc3
+# ╟─dcae4bbe-263d-4c6e-8d10-8c30c97174af
+# ╠═6819a060-7e26-46cb-9c9d-5c4e3364b66a
 # ╠═8e3415b2-0464-43ee-a16f-39c17364e0be
 # ╟─17c52a18-33ae-47dd-aa43-07440c586b6c
 # ╟─baab474f-e491-4b73-8d08-afc4a3bacde5
@@ -1958,6 +2380,7 @@ version = "17.4.0+2"
 # ╠═b8ae179f-3ab9-4d8d-a49d-5d4035af63fd
 # ╟─ec706721-a414-47c9-910e-9d58e77664ea
 # ╠═0321b9d1-7d4e-4bf8-ac61-9c16ab6bc461
+# ╠═5838ecbf-8982-4ab3-aa56-423b0e3d9563
 # ╟─0968a366-d843-49cf-8931-94e5b5b04cd6
 # ╠═0f62c007-aff7-4927-ade3-b315b48d4d18
 # ╠═4fa8f201-c78a-4d51-9129-eb549e6e9a9b
@@ -1974,6 +2397,7 @@ version = "17.4.0+2"
 # ╠═993110fc-e3bc-46a8-a35b-32b15dac87d5
 # ╠═751e8763-3274-4cf7-80ef-b544b8c46f4b
 # ╠═52eb8101-6dd2-443e-9aff-979f2d2bb532
+# ╠═ace391b4-ec40-4314-a624-a6b6d2c038db
 # ╠═eb4a7088-e7b3-4b18-a007-349694a49278
 # ╠═8f77dd8e-7689-4f85-a990-58550c723920
 # ╠═631b2d23-584d-47bb-be24-7fa58be53dfa
@@ -1984,9 +2408,16 @@ version = "17.4.0+2"
 # ╠═cf3418ed-af8b-4d86-8057-d1b1d22581c7
 # ╠═9b2e64df-0341-4bd5-8484-3b7c1ef2c828
 # ╠═c17dc4eb-5a12-4313-b2e3-defa2be85295
+# ╠═53cbf192-e558-4dd7-83b2-79a4674240b5
 # ╠═294d55aa-5de7-4cb2-adf0-85af09fb2464
+# ╠═d7215445-fcb2-4828-a27d-a5a6b18fb068
+# ╠═db618d5c-63e2-4719-829f-f71405d2ced0
+# ╠═00e4e3c7-1e1f-4ab0-b670-b7f2fff8c056
+# ╠═57710048-d814-43ac-8396-cad6135279d8
 # ╠═14b269e1-fa81-4ed8-957e-119bff365d0e
 # ╠═2d1be15f-b0a8-49bd-9636-7f7348a2aae0
 # ╠═87ad13fa-604f-48f7-8232-a2c021b0fefd
+# ╠═2023cd4e-6b1f-430e-b81a-da97a23b5ed5
+# ╠═df8a0a95-71e2-4b37-ae2c-dd8826a91369
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
