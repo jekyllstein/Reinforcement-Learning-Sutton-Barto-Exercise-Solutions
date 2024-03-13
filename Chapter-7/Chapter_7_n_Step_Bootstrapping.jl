@@ -47,12 +47,12 @@ The backup diagrams of *n*-step methods.  These methods form a spectrum ranging 
 
 # ╔═╡ 28e10379-a475-4b29-bfc6-f9c52201358a
 HTML("""
-<div style = "display: flex; align-items: flex-end; background-color: white; color: black;">
-	<div style = "padding-left: 3vw; padding-right: 3vw;">1-step TD <br> and TD(0)</div>
-	<div style = "padding-left: 3vw; padding-right: 3vw;">2-step TD</div>
-	<div style = "padding-left: 3vw; padding-right: 3vw;">3-step TD</div>
-	<div style = "padding-left: 3vw; padding-right: 3vw;">n-step TD</div>
-	<div style = "padding-left: 3vw; padding-right: 3vw;">&infin;-step TD <br> and Monte Carlo</div>
+<div style = "display: flex; align-items: flex-end; background-color: white; color: black; font-size: 28px;">
+	<div style = "padding-left: 3vw; padding-right: 0vw;">1-step TD <br> and TD(0)</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">2-step TD</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">3-step TD</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">n-step TD</div>
+	<div style = "padding-left: 3vw; padding-right: 0vw;">&infin;-step TD <br> and Monte Carlo</div>
 </div>
 <div style = "display: flex; align-items: flex-start; background-color: white; padding: 5px;">
 <div class = "backup-diagram">
@@ -338,7 +338,7 @@ The backup diagrams for the spectrum of $n$-step methods for state-action values
 
 # ╔═╡ e528af0a-1af3-429a-b781-de2e8421b4e8
 HTML("""
-<div style = "display: flex; align-items: flex-end; background-color: white; color: black;">
+<div style = "display: flex; align-items: flex-end; background-color: white; color: black; font-size: max(20px, 1.5vw);">
 	<div style = "padding-left: 3vw; padding-right: 0vw;">1-step Sarsa <br> aka Sarsa(0)</div>
 	<div style = "padding-left: 3vw; padding-right: 0vw;">2-step Sarsa</div>
 	<div style = "padding-left: 3vw; padding-right: 0vw;">3-step Sarsa</div>
@@ -469,6 +469,11 @@ $\overline{V}_t(s) \doteq \sum_a \pi(a \vert s) Q_t(s, a), \;\; \forall s \in \m
 Expected approximate values are used in developing many of the action-value methods explored in the rest of the book.  If $s$ is terminal, then its expected approximate value is defined to be 0.
 """
 
+# ╔═╡ 2180a3a3-08aa-4b0a-8734-52377966f661
+md"""
+### $n$-step Expected Sarsa for estimating $Q \approx q_*$ or $q_\pi$
+"""
+
 # ╔═╡ d1cdf977-abc0-4df3-bc15-287ce4b94fc3
 md"""
 Step Size $\alpha$: $(@bind ex7_4_α NumberField(0.1f0:0.1f0:1.0f0, default = 0.4))
@@ -477,100 +482,42 @@ Step Size $\alpha$: $(@bind ex7_4_α NumberField(0.1f0:0.1f0:1.0f0, default = 0.
 # ╔═╡ 6819a060-7e26-46cb-9c9d-5c4e3364b66a
 md"""
 ## 7.3 $n$-step Off-policy Learning
+
+Recall that off-policy learning is learning the value function for one policy, $\pi$, while following another policy $b$.  Often, $\pi$ is the greedy policy for the current action-value function estimate, and $b$ is a more exploratory policy, perhaps $\epsilon$-greedy.  In order to use data from $b$ we must take into account the difference between the two policies, using their relative probability of taking the actions that were taken.  In $n$-step methods, returns are constructed over $n$ steps, so we are interested in the relative probability of just those $n$ actions.  For example, to make a simple off-policy version of $n$-step TD, the update for time $t$ (actually made at time $t+n$) can simply be weighted by $\rho_{t:t+n-1}$:
+
+$V_{t+n}(S_t) \doteq V_{t+n-1}(S_t) + \alpha \rho_{t:t+n-1} [G_{t:t+n} - V_{t+n-1}(S_t)], \;\; 0 \leq t \lt T \tag{7.9}$
+
+where $\rho_{t:t+n-1}$, called the *importance sampling ratio*, is the relative probability under the two policies of taking the $n$ actions from $A_t$ to $A_{t+n-1}$:
+
+$\rho_{t:h} \doteq \prod_{k=t}^{\min(h, T-1)} \frac{\pi(A_k \vert S_k)}{b(A_k \vert S_k)} \tag{7.10}$
+
+For example, if any one of the actions owuld never be taken by $\pi$ then the $n$-step return should be given zero weight and be totally ignored.  On the other hand if by chance an action is taken that $\pi$ would take with much greater probability than $b$ does, then this will increase the weight that would otherwise be givevn to the return.  If the two policies are the same, then the importance sampling ratio is always 1.  Thus our new update (7.9) generalizes and can completely replace our earlier $n$-step TD update.  Similarly, our previous $n$-step Sarsa update can be completely replaced by a simple off-policy form: 
+
+$Q_{t+n}(S_t,A_t) \doteq Q_{t+n-1}(S_t, A_t) + \alpha \rho_{t+1:t+n}[G_{t:t+n}-Q_{t+n-1}(S_t, A_t)] \tag{7.11}$
+
+for $0 \leq t \lt T$.  Note that the importance sampling ratio here starts and ends one step later than for $n$-step TD (7.9).  This is because here we are updating a state-action pair.  We do not have to care how likely we were to select the action; now that we have selected it we want to learn fully from what happens, with importance sampling only for the subsequent actions.  A full implementation for state value estimation and sarsa based on off-policy learning is in the following sections.
 """
 
-# ╔═╡ 8e3415b2-0464-43ee-a16f-39c17364e0be
-#based on pseudocode described in book for off-policy n-step Sarsa for estimating Q
-function n_step_sarsa_offpolicy(b, ϵ, α, n, states::Vector{S}, sterm, actions::Vector{A}, sim, γ; q0 = 0.0, numep = 1000) where S where A
-	#mapping of actions to indicies in action list
-	actiondict = Dict(actions[i] => i for i in eachindex(actions))
-	numactions = length(actions)
+# ╔═╡ c9f3ae61-3ce5-4d24-9910-b31d18b14a7e
+md"""
+### Off-policy $n$-step TD for estimating $V \approx v_\pi$
+"""
 
-	#initialize action values as a vector of values for each state
-	Q = Dict(s => fill(q0, numactions) for s in states)
-	Q[sterm] = fill(0.0, numactions)
+# ╔═╡ ba2d9b8b-573b-4771-9741-ec77272a37c2
+md"""
+### Example 7.2: Off-policy $n$-step TD Methods on Cliff Gridworld
+"""
 
-	#initialize policy to be random at each state
-	π = Dict(s => ones(numactions) ./ numactions for s in states)
+# ╔═╡ 5b1977be-2610-4eba-a953-364813504505
+md"""
+### Off-policy $n$-step Sarsa for estimating $Q \approx q_*$ or $q_\pi$
+"""
 
-	#define a function to select actions from behavior policy
-	sample_action(s) = sample(actions, weights(b[s])) 
-
-	#with a probability ϵ a random action will be selected
-	baseval = ϵ / n
-
-	#with a probability 1-ϵ the greedy action will be selected
-	bonusval = 1.0 - ϵ
-	
-	#define a function to update π to be ϵ-greedy wrt Q
-	function update_π!()
-		for s in states
-			qvec = Q[s]
-			i = argmax(qvec)
-			π[s] .= baseval
-			π[s][i] += bonusval
-		end
-	end
-
-	#initialize vectors to store a history up to length n+1 of states, actions, and rewards
-	svec = Vector{S}(undef, n+1)
-	avec = Vector{A}(undef, n+1)
-	rvec = Vector{Float64}(undef, n+1)
-
-	#define index calculator
-	getind(i) = mod(i, n+1) + 1
-
-	#sample action value dictionaries given storage index
-	function getvalue(d::Dict, i)
-		ind = getind(i)
-		d[svec[ind]][actiondict[avec[ind]]]
-	end
-	
-	for ep in 1:numep
-		#initialize state
-		s0 = rand(states)
-		#initialize action
-		a0 = sample_action(s0)
-		
-		svec[1] = s0
-		avec[1] = a0
-		s = s0
-		a = a0
-		T = typemax(Int64)
-		τ = 0
-		t = 0
-		while τ != T - 1
-			if t < T
-				(s, r) = sim(svec[getind(t)], a)
-				storeind = getind(t+1)
-				svec[storeind] = s
-				rvec[storeind] = r
-				if s == sterm 
-					T = t + 1
-				else
-					a = sample_action(s)
-					avec[storeind] = a
-				end
-			end
-			τ = t - n + 1
-			if τ >= 0
-				ρ = prod(getvalue(π, i)/getvalue(b, i) for i in τ+1:min(τ+n, T-1))
-				G = sum(γ^(i - τ - 1) * rvec[getind(i)] for i in (τ + 1):min(τ+n, T))
-				if τ+n < T
-					G += γ^n * getvalue(Q, τ+n)
-				end
-				ind = getind(τ)
-				Q[svec[ind]][actiondict[avec[ind]]] += α*ρ*(G-getvalue(Q, τ))
-				update_π!()
-			end
-			t += 1
-		end
-	end
-
-	greedy_π = Dict(s => actions[argmax(π[s])] for s in states)
-	
-	return Q, greedy_π
-end
+# ╔═╡ fe6c2450-8bfe-41ab-aa92-1d13c08973e0
+md"""
+*n*-step method: $(@bind eg_7_3_n NumberField(1:100, default = 5)) 
+Training Episodes: $(@bind eg_7_3_ep NumberField(10:1000, default = 100))
+"""
 
 # ╔═╡ 17c52a18-33ae-47dd-aa43-07440c586b6c
 md"""
@@ -578,32 +525,33 @@ md"""
 
 For the *n* steps ending at horizon *h*, the *n*-step return can be written
 
-$G_{t:h} = R_{t+1} + \gamma G_{t+1:h}, t<h<T$
+$G_{t:h} = R_{t+1} + \gamma G_{t+1:h}, \;\; t<h<T \tag{7.12}$
 
-where $G_{h:h} \dot = V_{h-1}(S_h)$ (Recall that this return is used at time *h*, previously denoted $t+n$).  Now consider the effect of following a behavior policy *b* that is not the same as the target policy π.  All of the resulting experience, including the first reward $R_{t+1}$ and the next state $S_{t+1}$ must be weighted by the importance sampling ratio for time $t$, $\rho_t = \frac{\pi(A_t|S_t)}{b(A_t,S_t)}$.  One might be tempted to simply weight the righthand side of the above equation, but one can do better.  Suppose the action at time $t$ would never be selected by $\pi$, so that $\rho_t$ is zero.  Then a simple weighting owuld result in the *n*-step return being zero, which oculd result in high variance when it was used as a target.  Instead, in this more sophisticated approach, one uses an alternate, *off-policy* definition of the *n*-step return ending at horizon *h*, as 
+where $G_{h:h} \doteq V_{h-1}(S_h)$ (Recall that this return is used at time *h*, previously denoted $t+n$).  Now consider the effect of following a behavior policy $b$ that is not the same as the target policy $\pi$.  All of the resulting experience, including the first reward $R_{t+1}$ and the next state $S_{t+1}$ must be weighted by the importance sampling ratio for time $t$, $\rho_t = \frac{\pi(A_t|S_t)}{b(A_t,S_t)}$.  One might be tempted to simply weight the righthand side of the above equation, but one can do better.  Suppose the action at time $t$ would never be selected by $\pi$, so that $\rho_t$ is zero.  Then a simple weighting would result in the $n$-step return being zero, which could result in high variance when it was used as a target.  Instead, in this more sophisticated approach, one uses an alternate, *off-policy* definition of the $n$-step return ending at horizon $h$, as 
 
-$G_{t:h} \dot = \rho_t (R_{t+1}+\gamma G_{t+1:h}) + (1-\rho_t)V_{h-1}(S_t), t<h<T$
+$G_{t:h} \doteq \rho_t (R_{t+1}+\gamma G_{t+1:h}) + (1-\rho_t)V_{h-1}(S_t), \;\; t<h<T \tag{7.13}$
 
-In this approach, if $\rho_t$ is zero, then instead of the target being zero and causing the estimate to shrink, the target is the same as the estimate and cuases no change.  The importance sampling ratio being zero means we should ignore the sample, so leaving the estimate unchanged seemed appropriate.
+In this approach, if $\rho_t$ is zero, then instead of the target being zero and causing the estimate to shrink, the target is the same as the estimate and cuases no change.  The importance sampling ratio being zero means we should ignore the sample, so leaving the estimate unchanged seemed appropriate.  The second, additional term in (7.13) is called a *control variate* (for obscure reasons).  Notice that the control variate does not change the expected update; the importance sampling ratio has expected value one and is uncorrelated with the estimate, so the expected value of the control variate is zero.  Also note that the off-policy definition (7.13) is a strict generalization of the earlier on-policy definition of the $n$-step return (7.1), as the two are identical in the on-policy case, in which $\rho_t$ is always 1.
+
+For a conventional $n$-step method, the learning rule to use in conjunction with (7.13) is the $n$-step TD update (7.2), which has no explicit importance ampling ratios other than those embedded in the return.
 """
 
 # ╔═╡ baab474f-e491-4b73-8d08-afc4a3bacde5
 md"""
-> *Exercise 7.5* Write the pseudocode for the off-policy state-value prediction algorithm described above.
+> ### *Exercise 7.5* 
+> Write the pseudocode for the off-policy state-value prediction algorithm described above.
 
-Going off the new definition of the *n*-step return, we can expand it out per step:
+Going off the new definition of the $n$-step return, we can expand it out per step:
 
-$G_{t:h} \dot = \rho_t (R_{t+1}+\gamma G_{t+1:h}) + (1-\rho_t)V_{h-1}(S_t), t<h<T$
+$\begin{flalign}
+G_{t:h} &\doteq \rho_t (R_{t+1}+\gamma G_{t+1:h}) + (1-\rho_t)V_{h-1}(S_t), \;\; t<h<T \\
+&= \rho_t R_{t+1} + (1-\rho_t)V_{h-1}(S_t) + \rho_t \gamma G_{t+1:h}\\
+&= \rho_t R_{t+1} + (1-\rho_t)V_{h-1}(S_t) + \rho_t \gamma [\rho_{t+1} R_{t+2} + (1-\rho_{t+1})V_{h-1}(S_{t+1}) + \rho_{t+1} \gamma G_{t+2:h}]\\
+&= \rho_t [R_{t+1} + \gamma \rho_{t+1} R_{t+2}] + (1-\rho_t)V_{h-1}(S_t) + \rho_t \gamma (1-\rho_{t+1})V_{h-1}(S_{t+1}) + \rho_t \rho_{t+1} \gamma^2 G_{t+2:h}\\
+&=\sum_{i=t}^{h-1} \left [ \rho_{t:i} \left ( \gamma^{i-t} R_{t+1} + \left ( \frac{1}{\rho_i}-1 \right )V_{h-1}(S_i) \right ) \right ] + \rho_{t:h-1} \gamma^h V_{h-1}(S_h)\\
+\end{flalign}$
 
-$= \rho_t R_{t+1} + (1-\rho_t)V_{h-1}(S_t) + \rho_t \gamma G_{t+1:h}$
-
-$= \rho_t R_{t+1} + (1-\rho_t)V_{h-1}(S_t) + \rho_t \gamma [\rho_{t+1} R_{t+2} + (1-\rho_{t+1})V_{h-1}(S_{t+1}) + \rho_{t+1} \gamma G_{t+2:h}]$
-
-$= \rho_t [R_{t+1} + \gamma \rho_{t+1} R_{t+2}] + (1-\rho_t)V_{h-1}(S_t) + \rho_t \gamma (1-\rho_{t+1})V_{h-1}(S_{t+1}) + \rho_t \rho_{t+1} \gamma^2 G_{t+2:h}$
-
-$=\sum_{i=t}^{h-1} \left [ \rho_{t:i} \left ( \gamma^{i-t} R_{t+1} + \left ( \frac{1}{\rho_i}-1 \right )V_{h-1}(S_i) \right ) \right ] + \rho_{t:h-1} \gamma^h V_{h-1}(S_h)$
-
-where $\rho_{t:h} \dot = \prod_{i=t}^{h} \rho_i$
+where $\rho_{t:h} \doteq \prod_{i=t}^{h} \rho_i$
 
 See implementation below
 	"""
@@ -667,16 +615,18 @@ end
 md"""
 For action value estimates using off-policy control variates, we can write it recursively as:
 
-$G_{t:h} \dot = R_{t+1} + \gamma \left ( \rho_{t+1}G_{t+1:h} + \bar V_{h+1}(S_{t+1}) - \rho_{t+1}Q_{h-1}(S_{t+1}, A_{t+1}) \right )$
+$\begin{flalign}
+G_{t:h} &\doteq R_{t+1} + \gamma \left ( \rho_{t+1}G_{t+1:h} + \bar V_{h+1}(S_{t+1}) - \rho_{t+1}Q_{h-1}(S_{t+1}, A_{t+1}) \right ) \\
+&= R_{t+1} + \gamma \rho_{t+1} \left ( G_{t+1:h} - Q_{h-1}(S_{t+1}, A_{t+1}) \right ) + \gamma \bar V_{h-1}(S_{t+1}), \;\; t<h \leq T \tag{7.14}
+\end{flalign}$
 
-$= R_{t+1} + \gamma \rho_{t+1} \left ( G_{t+1:h} - Q_{h-1}(S_{t+1}, A_{t+1}) \right ) + \gamma \bar V_{h-1}(S_{t+1}), t<h \leq T$
-
-If $h<T$, then the recursion ends with $G_{h:h} \dot = Q_{h-1}(S_h, A_h)$, whereas if $h \geq T$, the recursion ends with $G_{T-1:h} \dot = R_T$.  Thre resultant prediction algorithm (after combining with (7.5)) is analogous to Expected Sarsa.
+If $h<T$, then the recursion ends with $G_{h:h} \doteq Q_{h-1}(S_h, A_h)$, whereas if $h \geq T$, the recursion ends with $G_{T-1:h} \doteq R_T$.  Thre resultant prediction algorithm (after combining with (7.5)) is analogous to Expected Sarsa.
 """
 
 # ╔═╡ b8ae179f-3ab9-4d8d-a49d-5d4035af63fd
 md"""
-> *Exercise 7.6* Prove that the control variate in the above equations does not change the expected value of the return
+> ### *Exercise 7.6* 
+> Prove that the control variate in the above equations does not change the expected value of the return
 
 From above we have:
 
@@ -708,6 +658,112 @@ $R_{t+1} + \gamma \mathbb{E_\pi}[G_{t+1:T}] + \sum_{i=t+1}^{h} \gamma^{i-1} \mat
 
 $\mathbb{E_\pi}[G_{t:h}] + \gamma \mathbb{E_\pi}[G_{t+1:T}] + \sum_{i=t+1}^{h-1} \gamma^{i-1} \mathbb{E} \left [ \rho_{t+1:i} \left ( - Q_{h-1}(S_i, A_i) + \gamma \bar V_{h-1}(S_{i+1}) \right ) \right ]$
 """
+
+# ╔═╡ b70147e8-1053-4791-b885-cd3fa4dcb216
+md"""
+> ### * *Exercise 7.7*
+> Write the pseudocode for the off-policy action-value prediction algorithm described immediately above.  Pay particular attention to the termination conditions for the recursion upon hitting the horizon or the end of episode.
+"""
+
+# ╔═╡ f710c428-ef84-4ae4-9fcc-7882e2a13acb
+md"""
+> ### *Exercise 7.8*
+> Show that the general (off-policy) version of the $n$-step return (7.13) can still be written exactly and compactly as the sum of state-based TD errors (6.5) if the approximate state value function does not change.
+"""
+
+# ╔═╡ 3b655b4a-709e-40cd-ab5d-bab2ce7030e2
+md"""
+> ### *Exercise 7.9*
+> Repeat the above exercise for the action version of the off-policy $n$-step return (7.14) and the Expected Sarsa TD error (the quantity in brackets in Equation 6.9).
+"""
+
+# ╔═╡ a23108c9-2710-41b1-9a0d-cbb343fe5fda
+md"""
+> ### *Exercise 7.10 (programming)*
+> Devise a small off-policy prediction problem and use it to show that the off-policy learning algorithm using (7.13) and (7.2) is more data efficient than the simpler algorithm using (7.1) and (7.9).
+"""
+
+# ╔═╡ b7f932f7-f889-45e2-804d-fe6874296b65
+md"""
+The importance sampling that we have used in this section, the previous section, and in Chapter 5, enables sound off-policy learning, but also results in high variance updates, forcing the use of a small step-size parameter and thereby causing learning to be slow.  It is probably inevitable that off-policy training is slower than on-policy training -- after all, the data is less relevant to what is being learned.  However, it is probably also true that these methods can be improved on.  The control variates are one way of reducing the variance.  In the next section we consider an off-policy learning method that does not use importance sampling."""
+
+# ╔═╡ 2a09d4e1-15aa-4acc-b8cf-763e5654baf9
+md"""
+## 7.5 Off-policy Learning Without Importance Sampling: The $n$-step Tree Backup Algorithm
+
+In the previous Chapter, Q-learning was an example of off-policy learning without importance sampling.  To extend this idea to an $n$-step method we introduce the *tree-backup algorithm*.
+
+Along a trajectory, the n steps of sample states, rewards, and actions are used, but we also consider the actions that were not selected at each state.  For the final state we use the expected update since there is no action selection.  The difference between this algorithm and the usual $n$-step algorithm is that the contribution for each step is weighted by the target policy probability of selecting that action.  Thus each first-level action $a$ contributes with a weight of $\pi(a\vert S_{t+1})$, except that the action actually taken, $A_{t+1}$, does not contribute at all.  Its probability, $\pi(A_{t+1}\vert S_{t+1})$ is used to weight all the second-level action values.  Thus each non-selected second-level action $a^\prime$ contributes with weight $\pi(A_{t+1}\vert S_{t+1})\pi(a^\prime\vert S_{t+2})$.  Each third-level action contributes with a weight $\pi(A_{t+1}\vert S_{t+1})\pi(A_{t+2}\vert S_{t+2})\pi(a^{\prime\prime}\vert S_{t+3})$, and so on.  It is as if each arrow to an action node in the diagram is weighted by the action's probability of being selected under the target policy and, if there is a tree below the action, then that weight applies to all the leaf nodes in the tree.
+
+We can think of a $n$-step tree-backup update as consisting of $2n$ half-steps, alternating between sample half-steps from an action to a subsequent state, and expected half-steps considering from that state all possible actions with their probabilities of occurring under the policy.
+
+What follows are detailed equations for the $n$-step tree-backup algorithm.  The one-step return (target) is the same as that of Expected Sarsa,
+
+$G_{t:t+1} \doteq R_{t+1}+\gamma \sum_a \pi(a\vert S_{t+1})Q_t(S_{t+1}, a) \tag{7.15}$
+
+for $t \lt T-1$, and the two-step tree-backup return is 
+
+$\begin{flalign}
+G_{t:t+2} &\doteq R_{t+1} + \gamma \sum_{a \neq A_{t+1}} \pi(a\vert S_{t+1})Q_t(S_{t+1}, a) \\ &+ \gamma \pi(A_{t+1}\vert S_{t+1})\left ( R_{t+2} + \gamma \sum_a \pi(a\vert S_{t+2})Q_{t+1}(S_{t+2}, a) \right ) \\
+&= R_{t+1} + \gamma \sum_{a \neq A_{t+1}}\pi(a \vert S_{t+1}) Q_{t+1}(S_{t+1}, a) + \gamma \pi(A_{t+1}\vert S_{t+1})G_{t+1:t+2}
+\end{flalign}$
+
+for $t \lt T-2$.  The latter form suggests the general recursive definition of the tree-backup $n$-step return:
+
+$G_{t:t+n} \doteq R_{t+1} + \gamma \sum_{a \neq A_{t+1}} \pi(a \vert S_{t+1})Q_{t+n-1}S_{t+1}, a) + \gamma \pi(A_{t+1}\vert S_{t+1})G_{t+1:t+n} \tag{7.16}$
+
+for $t \lt T-1, n \geq 2$, with the $n=1$ case handled by (7.15) except for $G_{T-1:t+n} \doteq R_T$.  This target is then used with the usual action-value update rule from $n$-step Sarsa:
+
+$Q_{t+n}(S_t, A_t) \doteq Q_{t+n-1}(S_t, A_t) + \alpha [G_{t:t+n} - Q_{t+n-1}(S_t, A_t)],$
+
+for $0 \leq t \lt T$, while the values of all other state-action pairs remain unchanged:  $Q_{t+n}(s, a) = Q_{t+n-1}(s, a)$, for all $s, a$ such that $s \neq S_t$ or $a \neq A_t$.  Code implementing this algorithm is in the next section
+"""
+
+# ╔═╡ 602213a5-73dc-4e9d-af2e-541da7425f2f
+md"""
+> ### *Exercise 7.11*
+> Show that if the approximate action values are unchanging, then the tree-backup return (7.16) can be written as a sum of expectation-based TD errors:
+
+> $G_{t:t+n} = Q(S_t, A_t) + \sum_{k=t}^{\min{t+n-1, T-1}} \delta_k \prod_{i = t+1}^k \gamma \pi(A_i \vert S_i)$
+
+> where $\delta_t \doteq R_{t+1} + \gamma \overline{V}_t(S_{t+1}) - Q(S_t, A_t)$ and $\overline{V}_t$ is given by (7.8).
+"""
+
+# ╔═╡ e35d1b11-f985-4593-8aab-5fdbaf23c316
+md"""
+### $n$-step Tree Backup for estimating $Q \approx q_{*}$ or $q_\pi$
+"""
+
+# ╔═╡ d0859458-777b-4756-a541-9ed31c8632a2
+md"""
+## 7.6 *A Unifying Algorithm: $n$-step $Q(\sigma)$
+
+So far we have considered algorithms that use sampling to calculate updates from the trajectory generated by a behavior policy as well as using all of the transitions from a given state with the target policy to calculate an expected value.  One idea to unify these algorithms is to decide on a step-by-step basis whether one wants to take the action as a sample or to consider the expectation over actions instead.  We can consider a continuous variation between sampling and expectation specified by a parameter $\sigma_t \in [0, 1]$ with $\sigma=1$ denoting full sampling and $\sigma=0$ denoting pure expectation with no sampling.  The random variable $\sigma_t$ might be set as a function of the state, action or state-action pair at the time $t$.  We call this proposed new algorithm $n$-step $Q(\sigma)$.
+
+To develop the equations for $n$-step $Q(\sigma)$, first write the $n$-step return (7.16) in terms of the horizon $h=t+n$ and then in terms of the expected approximate value $\overline{V}$ (7.8):
+
+$\begin{flalign}
+G_{t:h} &= R_{t+1} + \gamma \sum_{a \neq A_{t+1}} \pi(a \vert S_{t+1})Q_{h-1}(S_{t+1}, a) + \gamma \pi(A_{t+1} \vert S_{t+1})G_{t+1:h}\\
+&=R_{t+1} + \gamma \overline{V}_{h-1} (S_{t+1}) - \gamma \pi(A_{t+1} \vert S_{t+1}) Q_{h-1}(S_{t+1}, A_{t+1}) + \gamma \pi(A_{t+1}\vert S_{t+1}) G_{t+1:h} \\
+&=R_{t+1} + \gamma \pi(A_{t+1}\vert S_{t+1})(G_{t+1:h}  - Q_{h-1}(S_{t+1}, A_{t+1})) -  \gamma \overline{V}_{h-1} (S_{t+1}) \\
+\end{flalign}$
+
+after which it is exactly like the $n$-step return for Sarsa with control variates (7.14) except with the action probability $\pi(A_{t+1} \vert S_{t+1})$ substituted for the importance-sampling ratio $\rho_{t+1}$.  For $Q(\sigma)$, we slide linearly between these two cases:
+
+$\begin{flalign}
+G_{t:h} \doteq R_{t+1} &+ \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1-\sigma_{t+1}) \pi(A_{t+1}\vert S_{t+1}) \right ) \left ( G_{t+1:h}  - Q_{h-1}(S_{t+1}, A_{t+1}) \right ) \\ &+ \gamma \overline{V}_{h-1} (S_{t+1}) \tag{7.17}
+\end{flalign}$
+
+for $t \lt h \leq T$.  The recursion ends with $G_{h:h} \doteq Q_{h-1}(S_h, A_h)$ if $h \lt T$, or with $G_{T-1:T} \doteq R_T$ if $h = T$.  Then we use the earlier update for $n$-step Sarsa without importance-sampling ratios (7.5) instead of (7.11), because now the ratios are incorporated in the $n$-step return.  Code implementing this algorithm is in the following section.
+"""
+
+# ╔═╡ a6e782f1-beaa-4673-99f9-0b8e6181e12c
+md"""
+### Off-policy $n$-step $Q(\sigma)$ for estimating $Q \approx q_*$ or $q_\pi$
+"""
+
+# ╔═╡ 2c8d25e2-30b5-41c6-aad6-55a46d83538f
+iscliff_path(s) = s.x >= 4 && (s.y == 3 || s.y == 5)
 
 # ╔═╡ ec706721-a414-47c9-910e-9d58e77664ea
 md"""
@@ -863,6 +919,85 @@ function n_step_TD_Vest(π::Matrix{X}, mdp::MDP_TD{S, A, F, E, H}, n::Integer, �
 	return V, v_saves
 end
 
+# ╔═╡ 7b07b6ec-0428-495b-a99d-05290a968e06
+function n_step_off_policy_TD_Vest(π::Matrix{X}, b::Matrix{X}, mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ::X; num_episodes::Integer = 1000, vinit::X = zero(X), V::Vector{X} = initialize_state_value(mdp; vinit = vinit), save_states::Vector{S} = Vector{S}(), static_values = false) where {X <: AbstractFloat, S, A, F, E, H}
+	check_policy(π, mdp)
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	
+	#initialize
+	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	rewardbuffer = MVector{n+1, X}(zeros(X, n+1))
+	ρbuffer = MVector{n+1, X}(zeros(X, n+1))
+	get_state_index(i) = stateindexbuffer[mod(i, n+1) + 1]
+	get_reward(i) = rewardbuffer[mod(i, n+1) + 1]
+	get_value(buffer, i) = buffer[mod(i, n+1)+1]
+	V[terminds] .= zero(X) #terminal state must always have 0 value
+	if static_values
+		V_copy = copy(V)
+	end
+	v_saves = zeros(X, length(save_states), num_episodes+1)
+	function updatesaves!(ep)
+		for (i, s) in enumerate(save_states)
+			i_s = mdp.statelookup[s]
+			v_saves[i, ep] = V[i_s]
+		end
+	end
+	updatesaves!(1)
+
+	#simulate and episode and update the value function every step
+	function runepisode!(V, j)
+		s = mdp.state_init()
+		T = typemax(Int64)
+		t = 0
+		τ = 0
+		stateindexbuffer[1] = mdp.statelookup[s]
+		while τ != T - 1
+			if t < T
+				(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, b, s)
+				s = s′
+				i = mod(t+1, n+1) + 1
+				stateindexbuffer[i] = i_s′
+				rewardbuffer[i] = r
+				ρbuffer[mod(t, n+1) + 1] = π[i_a, i_s] / b[i_a, i_s]
+				if mdp.isterm(s′)
+					T = t + 1
+				end
+			end
+			τ = t - n + 1
+			if τ >= 0
+				G = zero(X)
+				for i in τ+1:min(τ+n, T)
+					G += (γ^(i - τ - 1))*get_reward(i)
+				end
+				if τ+n < T
+					G += γ^n * V[get_state_index(τ+n)]
+				end
+				ρ = one(X)
+				for k = τ:min(τ+n-1, T-1)
+					ρ *= get_value(ρbuffer, k)
+				end
+				i_τ = get_value(stateindexbuffer, τ)
+				update_value = V[i_τ] + α*ρ*(G-V[i_τ])
+				if static_values
+					V_copy[i_τ] = update_value
+				else
+					V[i_τ] = update_value
+				end
+			end
+			t += 1
+		end
+		updatesaves!(j+1)
+		if static_values
+			V .= V_copy
+		end
+		return V
+	end
+		
+	for i = 1:num_episodes;	runepisode!(V, i); end
+	
+	return V, v_saves
+end
+
 # ╔═╡ 5fef24aa-55f2-4ece-9722-6c1a132d793c
 function runepisode(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}; max_steps = Inf) where {S, A, F, G, H, T<:Real}
 	states = Vector{S}()
@@ -870,6 +1005,7 @@ function runepisode(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}; max_steps = Inf) 
 	rewards = Vector{T}()
 	s = mdp.state_init()
 	step = 1
+	sterm = s
 
 	#note that the terminal state will not be added to the state list
 	while !mdp.isterm(s) && (step <= max_steps)
@@ -879,60 +1015,12 @@ function runepisode(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}; max_steps = Inf) 
 		push!(rewards, r)
 		s = s′
 		step += 1
+		if mdp.isterm(s′)
+			sterm = s′
+		end
 	end
-	return states, actions, rewards
+	return states, actions, rewards, sterm
 end
-
-# ╔═╡ 36b394dd-1956-40ab-9600-624e6900f665
-const mrp_moves = [-1, 1]
-
-# ╔═╡ 2e3b1699-0e35-43f6-800b-4788b5e3bc7d
-function make_mrp(;l = (5), r_left = -1f0, r_right = 1f0)
-	function step(s, a)
-		x = s + rand(mrp_moves)
-		r = r_right*(x == l+1) + r_left*(x == 0)
-		(r, mod(x, l+1)) #if a transition is terminal will return 0
-	end
-	MDP_TD(collect(0:l), [1], () -> ceil(Int64, l/2), step, s -> s == 0)
-end
-
-# ╔═╡ d3d39d13-e711-4289-a893-28c2c1af50f6
-function value_estimate_random_walk(nstates, α, n; kwargs...)
-	mdp = make_mrp(l = nstates)
-	π = make_random_policy(mdp)
-	Vest,v_saves = n_step_TD_Vest(π, mdp, n, α, 1f0; save_states = collect(1:nstates), kwargs...)
-	c = (nstates + 1)/2
-	Vtrue = [(s-c)/c for s in 1:nstates]
-	sqrt.(mean((v_saves .- Vtrue) .^2, dims = 1)) |> mean
-	# (v_saves, Vest)
-end
-
-# ╔═╡ ab12f509-ae50-4360-bf0b-874912c00852
-function random_walk_method_compare(nstates, n; kwargs...)
-	α_vec = Float32.(0.0:0.1:1.0)
-	get_α_line(n, static_values) = [mean(value_estimate_random_walk(nstates, α, n; num_episodes = 10, static_values = static_values, kwargs...) for _ in 1:100) for α in α_vec]
-	line1 = get_α_line(n, false)
-	line2 = get_α_line(n, true)
-	trace1 = scatter(x = α_vec, y = line1, name = "Non-Static State Values", mode = "lines", line_shape = "spline")
-	trace2 = scatter(x = α_vec, y = line2, name = "Static State Values", mode = "lines", line_shape = "spline")
-	plot([trace1, trace2], Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_maxallowed = first(line1), title = "$n-step TD Learning"))
-end
-
-# ╔═╡ 05bc2b77-ae63-46c1-9480-5a72c17b7510
-random_walk_method_compare(ex7_2_params...)
-
-# ╔═╡ e6ad9fb0-9efe-4a38-8160-43f1b9c7ee40
-function nsteptd_error_random_walk(nstates; kwargs...)
-	α_vec = Float32.(0.0:0.1:1.0)
-	n_vec = 2 .^ (0:9)
-	get_α_line(n) = α_vec |> Map(α -> (1:100 |> Map(_ -> value_estimate_random_walk(nstates, α, n; num_episodes = 10, kwargs...)) |> foldxt(+)) / 100) |> collect
-	lines = n_vec |> Map(n -> get_α_line(n)) |> collect
-	traces = [scatter(x = α_vec, y = lines[i], name = "n = $n", mode = "lines", line_shape = "spline") for (i, n) in enumerate(n_vec)]
-	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_maxallowed = first(first(lines))))
-end
-
-# ╔═╡ 953a3fdc-81d9-4693-88bb-0ecace0bf219
-nsteptd_error_random_walk(eg_7_2; vinit = Float32(eg_7_2_init))
 
 # ╔═╡ cd7cbdfb-ae59-4e8a-a4bf-c9dad96062c3
 runepisode(mdp::MDP_TD; kwargs...) = runepisode(mdp, make_random_policy(mdp); kwargs...)
@@ -980,28 +1068,6 @@ function make_greedy_policy!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, V::Vector{T
 		π[:, i_s] ./= sum(π[:, i_s])
 	end
 	return π
-end
-
-# ╔═╡ 8f77dd8e-7689-4f85-a990-58550c723920
-function create_gridworld_mdp(mdp::MDP_TD, step_reward)
-	#this only works when the mdp is deterministic.  add a version for the stochastic wind example
-	ptf = zeros(Float32, length(mdp.states), 2, length(mdp.actions), length(mdp.states))
-	for s in mdp.states
-		i_s = mdp.statelookup[s]
-		if mdp.isterm(s)
-			ptf[i_s, 1, :, i_s] .= 1.0f0
-		else
-			for a in mdp.actions
-				(r, s′) = mdp.step(s, a)
-				i_a = mdp.actionlookup[a]
-				i_s′ = mdp.statelookup[s′]
-				i_s = mdp.statelookup[s]
-				ptf[i_s′, 2, i_a, i_s] = 1.0f0
-			end
-		end
-	end
-			
-	FiniteMDP(mdp.states, mdp.actions, [0.0f0, step_reward], ptf)	
 end
 
 # ╔═╡ 631b2d23-584d-47bb-be24-7fa58be53dfa
@@ -1058,6 +1124,297 @@ function make_ϵ_greedy_policy!(v::AbstractVector{T}, ϵ::T; valid_inds = eachin
 		end
 	end
 	return v
+end
+
+# ╔═╡ cf3418ed-af8b-4d86-8057-d1b1d22581c7
+function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
+	(vmin, vmax) = extrema(v)
+	if vmin == vmax
+		v .= zero(T)
+		v .= one(T) / length(v)
+	else
+		v .= (v .- vmax) ./ abs(vmin - vmax)
+		v .= exp.(c .* v)
+		v .= v ./ sum(v)
+	end
+	return v
+end
+
+# ╔═╡ 795db9a8-71f4-4664-8aa1-dad112b2da12
+function begin_value_iteration_v(mdp::M, γ::T, V::Vector{T}; θ = eps(zero(T)), nmax=typemax(Int64)) where {T<:Real, M <: CompleteMDP{T}}
+	valuelist = [copy(V)]
+	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
+
+	π = form_random_policy(mdp)
+	make_greedy_policy!(π, mdp, V, γ)
+	return (valuelist, π)
+end
+
+# ╔═╡ 9b2e64df-0341-4bd5-8484-3b7c1ef2c828
+function create_greedy_policy(Q::Matrix{T}; c = 1000, π = copy(Q)) where T<:Real
+	vhold = zeros(T, size(Q, 1))
+	for j in 1:size(Q, 2)
+		vhold .= Q[:, j]
+		make_greedy_policy!(vhold; c = c)
+		π[:, j] .= vhold
+	end
+	return π
+end
+
+# ╔═╡ d7892cb7-c744-4dbe-89a4-c1878f275f47
+function n_step_tree_backup(mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ::X; num_episodes::Integer = 1000, qinit::X = zero(X), Qinit = initialize_state_action_value(mdp; qinit = qinit), πinit = create_greedy_policy(Qinit), history_state::S = first(mdp.states), update_policy! = (v, s) -> make_greedy_policy!(v), save_path = false, select_action_index = s -> rand(eachindex(mdp.actions))) where {X <: AbstractFloat, S, A, F, E, H}
+	
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(X)
+	π = copy(πinit)
+	vhold = zeros(X, length(mdp.actions))
+	rewards = zeros(X, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_path
+		path = Vector{S}()
+	end
+	
+	#initialize
+	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	actionindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	rewardbuffer = MVector{n+1, X}(zeros(X, n+1))
+	get_state_index(i) = stateindexbuffer[mod(i, n+1) + 1]
+	get_action_index(i) = actionindexbuffer[mod(i, n+1) + 1]
+	get_reward(i) = rewardbuffer[mod(i, n+1) + 1]
+	get_value(buffer, i) = buffer[mod(i, n+1) + 1]
+
+	#simulate and episode and update the value function every step
+	function runepisode!(Q, j)
+		s = mdp.state_init()
+		i_s = mdp.statelookup[s]
+		T = typemax(Int64)
+		t = 0
+		τ = 0
+		stateindexbuffer[1] = i_s
+		i_a = select_action_index(s)
+		actionindexbuffer[1] = i_a
+		rtot = zero(X)
+		while τ != T - 1
+			if t < T
+				i_s = get_state_index(t)
+				s = mdp.states[i_s]
+				if save_path && (j == num_episodes)
+					push!(path, s)
+				end
+				i = mod(t+1, n+1) + 1
+				i_a = get_action_index(t)
+				a = mdp.actions[i_a]
+				(r, s′) = mdp.step(s, a)
+				rtot += r
+				rewardbuffer[i] = r
+				i_s′ = mdp.statelookup[s′]
+				stateindexbuffer[i] = i_s′
+				if mdp.isterm(s′)
+					T = t + 1
+				else
+					i_a′ = select_action_index(s′)
+					actionindexbuffer[i] = i_a′
+				end
+			end
+			τ = t - n + 1
+			if τ >= 0
+				if t+1 >= T
+					G = get_reward(T)
+				else
+					G = get_reward(t+1) + γ * sum(π[i, get_state_index(t+1)] * Q[i, get_state_index(t+1)] for i in eachindex(mdp.actions))
+				end
+					
+				for i in min(t, T+1):-1:τ+1
+					i_a = get_action_index(i)
+					i_s = get_state_index(i)
+					G += get_reward(i) + γ*π[i_a, i_s]*G
+					G += γ*sum(π[a, i_s]*Q[a, i_s] for a in 1:i_a-1; init = zero(X))
+					G += γ*sum(π[a, i_s]*Q[a, i_s] for a in i_a+1:length(mdp.actions); init = zero(X))
+				end
+			
+				i_s_τ = get_value(stateindexbuffer, τ)
+				i_a_τ = get_value(actionindexbuffer, τ)
+				
+				Q[i_a_τ, i_s_τ] += α*(G-Q[i_a_τ, i_s_τ])
+				vhold .= Q[:, i_s_τ]
+				update_policy!(vhold, mdp.states[i_s_τ])
+				π[:, i_s_τ] .= vhold
+			end
+			t += 1
+		end
+		steps[j] = t
+		rewards[j] = rtot
+		return Q
+	end
+	for i = 1:num_episodes; runepisode!(Q, i); end
+	default_return = Q, π, steps, rewards
+	save_path && return (default_return..., path)
+	return default_return
+end
+
+# ╔═╡ d26b08ff-fef7-4aca-a51c-58c91fa1555a
+function n_step_off_policy_Qσ(mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ::X; num_episodes::Integer = 1000, qinit::X = zero(X), Qinit = initialize_state_action_value(mdp; qinit = qinit), πinit = create_greedy_policy(Qinit), history_state::S = first(mdp.states), update_target_policy! = (v, s) -> make_greedy_policy!(v), binit = make_random_policy(mdp), select_σ = (s, a, t) -> one(X)/2, save_path = false) where {X <: AbstractFloat, S, A, F, E, H}
+	
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(X)
+	π = copy(πinit)
+	b = copy(binit)
+	vhold = zeros(X, length(mdp.actions))
+	rewards = zeros(X, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_path
+		path = Vector{S}()
+	end
+	
+	#initialize
+	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	actionindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	rewardbuffer = MVector{n+1, X}(zeros(X, n+1))
+	σbuffer = MVector{n+1, X}(zeros(X, n+1))
+	ρbuffer = MVector{n+1, X}(zeros(X, n+1))
+	get_state_index(i) = stateindexbuffer[mod(i, n+1) + 1]
+	get_action_index(i) = actionindexbuffer[mod(i, n+1) + 1]
+	get_reward(i) = rewardbuffer[mod(i, n+1) + 1]
+	get_σ(i) = get_value(σbuffer, i)
+	get_ρ(i) = get_value(ρbuffer, i)
+	get_value(buffer, i) = buffer[mod(i, n+1) + 1]
+
+	#simulate and episode and update the value function every step
+	function runepisode!(Q, j)
+		s = mdp.state_init()
+		i_s = mdp.statelookup[s]
+		T = typemax(Int64)
+		t = 0
+		τ = 0
+		stateindexbuffer[1] = i_s
+		i_a = sample_action(b, i_s)
+		actionindexbuffer[1] = i_a
+		rtot = zero(X)
+		while τ != T - 1
+			if t < T
+				i_s = get_state_index(t)
+				s = mdp.states[i_s]
+				if save_path && (j == num_episodes)
+					push!(path, s)
+				end
+				i = mod(t+1, n+1) + 1
+				i_a = get_action_index(t)
+				a = mdp.actions[i_a]
+				(r, s′) = mdp.step(s, a)
+				rtot += r
+				rewardbuffer[i] = r
+				i_s′ = mdp.statelookup[s′]
+				stateindexbuffer[i] = i_s′
+				if mdp.isterm(s′)
+					T = t + 1
+				else
+					i_a′ = sample_action(b, i_s′)
+					σbuffer[i] = select_σ(s′, mdp.actions[i_a′], t+1)
+					actionindexbuffer[i] = i_a′
+					ρbuffer[i] = π[i_a′, i_s′] / b[i_a′, i_s′]
+				end
+			end
+			τ = t - n + 1
+			if τ >= 0
+				if t+1 < T
+					G = Q[get_action_index(t+1), get_state_index(t+1)]
+				else
+					G = zero(X)
+				end
+				for k = min(t+1, T):-1:τ+1
+					if k == T
+						G = get_reward(T)
+					else
+						k_s = get_state_index(k)
+						k_a = get_action_index(k)
+						v̄ = sum(π[a, k_s]*Q[a, k_s] for a in eachindex(mdp.actions))
+						G = get_reward(k) + γ*(get_σ(k)*get_ρ(k) + (1 - get_σ(k))*π[k_a, k_s])*(G - Q[k_a, k_s]) + γ*v̄
+					end
+				end
+				i_s_τ = get_value(stateindexbuffer, τ)
+				i_a_τ = get_value(actionindexbuffer, τ)
+				Q[i_a_τ, i_s_τ] += α*(G-Q[i_a_τ, i_s_τ])
+				vhold .= Q[:, i_s_τ]
+				update_target_policy!(vhold, mdp.states[i_s_τ])
+				π[:, i_s_τ] .= vhold
+			end
+			t += 1
+		end
+		steps[j] = t
+		rewards[j] = rtot
+		return Q
+	end
+	for i = 1:num_episodes; runepisode!(Q, i); end
+	default_return = Q, π, steps, rewards
+	save_path && return (default_return..., path)
+	return default_return
+end
+
+# ╔═╡ a9f377a9-f76d-42a9-be95-a6e3e802c79b
+md"""
+### Random Walk Environment
+"""
+
+# ╔═╡ 36b394dd-1956-40ab-9600-624e6900f665
+const mrp_moves = [-1, 1]
+
+# ╔═╡ 2e3b1699-0e35-43f6-800b-4788b5e3bc7d
+function make_mrp(;l = (5), r_left = -1f0, r_right = 1f0)
+	function step(s, a)
+		x = s + rand(mrp_moves)
+		r = r_right*(x == l+1) + r_left*(x == 0)
+		(r, mod(x, l+1)) #if a transition is terminal will return 0
+	end
+	MDP_TD(collect(0:l), [1], () -> ceil(Int64, l/2), step, s -> s == 0)
+end
+
+# ╔═╡ d3d39d13-e711-4289-a893-28c2c1af50f6
+function value_estimate_random_walk(nstates, α, n; kwargs...)
+	mdp = make_mrp(l = nstates)
+	π = make_random_policy(mdp)
+	Vest,v_saves = n_step_TD_Vest(π, mdp, n, α, 1f0; save_states = collect(1:nstates), kwargs...)
+	c = (nstates + 1)/2
+	Vtrue = [(s-c)/c for s in 1:nstates]
+	sqrt.(mean((v_saves .- Vtrue) .^2, dims = 1)) |> mean
+	# (v_saves, Vest)
+end
+
+# ╔═╡ ab12f509-ae50-4360-bf0b-874912c00852
+function random_walk_method_compare(nstates, n; kwargs...)
+	α_vec = Float32.(0.0:0.1:1.0)
+	get_α_line(n, static_values) = [mean(value_estimate_random_walk(nstates, α, n; num_episodes = 10, static_values = static_values, kwargs...) for _ in 1:100) for α in α_vec]
+	line1 = get_α_line(n, false)
+	line2 = get_α_line(n, true)
+	trace1 = scatter(x = α_vec, y = line1, name = "Non-Static State Values", mode = "lines", line_shape = "spline")
+	trace2 = scatter(x = α_vec, y = line2, name = "Static State Values", mode = "lines", line_shape = "spline")
+	plot([trace1, trace2], Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_maxallowed = first(line1), title = "$n-step TD Learning"))
+end
+
+# ╔═╡ 05bc2b77-ae63-46c1-9480-5a72c17b7510
+random_walk_method_compare(ex7_2_params...)
+
+# ╔═╡ e6ad9fb0-9efe-4a38-8160-43f1b9c7ee40
+function nsteptd_error_random_walk(nstates; kwargs...)
+	α_vec = Float32.(0.0:0.1:1.0)
+	n_vec = 2 .^ (0:9)
+	get_α_line(n) = α_vec |> Map(α -> (1:100 |> Map(_ -> value_estimate_random_walk(nstates, α, n; num_episodes = 10, kwargs...)) |> foldxt(+)) / 100) |> collect
+	lines = n_vec |> Map(n -> get_α_line(n)) |> collect
+	traces = [scatter(x = α_vec, y = lines[i], name = "n = $n", mode = "lines", line_shape = "spline") for (i, n) in enumerate(n_vec)]
+	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_maxallowed = first(first(lines))))
+end
+
+# ╔═╡ 953a3fdc-81d9-4693-88bb-0ecace0bf219
+nsteptd_error_random_walk(eg_7_2; vinit = Float32(eg_7_2_init))
+
+# ╔═╡ ae9970bf-2313-418b-8ea8-ed43138b8718
+begin
+	mrp = make_mrp(l = 5)
+	π = make_random_policy(mrp)
+	n_step_off_policy_TD_Vest(π, π, mrp, 1, 0.1f0, 1f0)
 end
 
 # ╔═╡ ace391b4-ec40-4314-a624-a6b6d2c038db
@@ -1247,39 +1604,125 @@ function n_step_expected_sarsa(mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ
 	return default_return
 end
 
-# ╔═╡ cf3418ed-af8b-4d86-8057-d1b1d22581c7
-function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
-	(vmin, vmax) = extrema(v)
-	if vmin == vmax
-		v .= zero(T)
-		v .= one(T) / length(v)
-	else
-		v .= (v .- vmax) ./ abs(vmin - vmax)
-		v .= exp.(c .* v)
-		v .= v ./ sum(v)
+# ╔═╡ ef9261a3-6bfd-4811-836c-a25ee781a756
+function n_step_sarsa_off_policy(mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ::X; num_episodes::Integer = 1000, qinit::X = zero(X), ϵinit = one(X)/10, Qinit = initialize_state_action_value(mdp; qinit = qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), history_state::S = first(mdp.states), update_target_policy! = (v, ϵ, s) -> make_greedy_policy!(v), decay_ϵ = false, save_path = false) where {X <: AbstractFloat, S, A, F, E, H}
+	
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(X)
+	π = copy(πinit)
+	b = make_random_policy(mdp)
+	vhold = zeros(X, length(mdp.actions))
+	rewards = zeros(X, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_path
+		path = Vector{S}()
 	end
-	return v
+	
+	#initialize
+	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	actionindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	rewardbuffer = MVector{n+1, X}(zeros(X, n+1))
+	get_state_index(i) = stateindexbuffer[mod(i, n+1) + 1]
+	get_action_index(i) = actionindexbuffer[mod(i, n+1) + 1]
+	get_reward(i) = rewardbuffer[mod(i, n+1) + 1]
+	get_value(buffer, i) = buffer[mod(i, n+1) + 1]
+
+	#simulate and episode and update the value function every step
+	function runepisode!(Q, j)
+		ϵ = ϵinit / (1 + j*decay_ϵ)
+		s = mdp.state_init()
+		i_s = mdp.statelookup[s]
+		T = typemax(Int64)
+		t = 0
+		τ = 0
+		stateindexbuffer[1] = i_s
+		i_a = sample_action(b, i_s)
+		actionindexbuffer[1] = i_a
+		rtot = zero(X)
+		while τ != T - 1
+			if t < T
+				i_s = get_state_index(t)
+				s = mdp.states[i_s]
+				if save_path && (j == num_episodes)
+					push!(path, s)
+				end
+				i = mod(t+1, n+1) + 1
+				i_a = get_action_index(t)
+				a = mdp.actions[i_a]
+				(r, s′) = mdp.step(s, a)
+				rtot += r
+				rewardbuffer[i] = r
+				i_s′ = mdp.statelookup[s′]
+				stateindexbuffer[i] = i_s′
+				if mdp.isterm(s′)
+					T = t + 1
+				else
+					i_a′ = sample_action(b, i_s′)
+					actionindexbuffer[i] = i_a′
+				end
+			end
+			τ = t - n + 1
+			if τ >= 0
+				ρ = one(X)
+				G = zero(X)
+				t_end = min(τ+n, T-1)
+				for i in τ+1:min(τ+n, T)
+					if i <= t_end
+						i_a = get_action_index(i)
+						i_s = get_state_index(i)
+						ρ *= π[i_a, i_s] / b[i_a, i_s]
+					end
+					G += (γ^(i - τ - 1))*get_reward(i)
+				end
+				if τ+n < T
+					G += γ^n * Q[get_action_index(τ+n), get_state_index(τ+n)]
+				end
+				i_s_τ = get_value(stateindexbuffer, τ)
+				i_a_τ = get_value(actionindexbuffer, τ)
+				Q[i_a_τ, i_s_τ] += α*ρ*(G-Q[i_a_τ, i_s_τ])
+				vhold .= Q[:, i_s_τ]
+				update_target_policy!(vhold, ϵ, mdp.states[i_s_τ])
+				π[:, i_s_τ] .= vhold
+			end
+			t += 1
+		end
+		steps[j] = t
+		rewards[j] = rtot
+		return Q
+	end
+	for i = 1:num_episodes; runepisode!(Q, i); end
+	default_return = Q, π, steps, rewards
+	save_path && return (default_return..., path)
+	return default_return
 end
 
-# ╔═╡ 795db9a8-71f4-4664-8aa1-dad112b2da12
-function begin_value_iteration_v(mdp::M, γ::T, V::Vector{T}; θ = eps(zero(T)), nmax=typemax(Int64)) where {T<:Real, M <: CompleteMDP{T}}
-	valuelist = [copy(V)]
-	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
+# ╔═╡ 51834c9a-da99-41a5-9fcf-20790e741d53
+md"""
+### Gridworld Environment
+"""
 
-	π = form_random_policy(mdp)
-	make_greedy_policy!(π, mdp, V, γ)
-	return (valuelist, π)
-end
-
-# ╔═╡ 9b2e64df-0341-4bd5-8484-3b7c1ef2c828
-function create_greedy_policy(Q::Matrix{T}; c = 1000, π = copy(Q)) where T<:Real
-	vhold = zeros(T, size(Q, 1))
-	for j in 1:size(Q, 2)
-		vhold .= Q[:, j]
-		make_greedy_policy!(vhold; c = c)
-		π[:, j] .= vhold
+# ╔═╡ 8f77dd8e-7689-4f85-a990-58550c723920
+function create_gridworld_mdp(mdp::MDP_TD, step_reward)
+	#this only works when the mdp is deterministic.  add a version for the stochastic wind example
+	ptf = zeros(Float32, length(mdp.states), 2, length(mdp.actions), length(mdp.states))
+	for s in mdp.states
+		i_s = mdp.statelookup[s]
+		if mdp.isterm(s)
+			ptf[i_s, 1, :, i_s] .= 1.0f0
+		else
+			for a in mdp.actions
+				(r, s′) = mdp.step(s, a)
+				i_a = mdp.actionlookup[a]
+				i_s′ = mdp.statelookup[s′]
+				i_s = mdp.statelookup[s]
+				ptf[i_s′, 2, i_a, i_s] = 1.0f0
+			end
+		end
 	end
-	return π
+			
+	FiniteMDP(mdp.states, mdp.actions, [0.0f0, step_reward], ptf)	
 end
 
 # ╔═╡ c17dc4eb-5a12-4313-b2e3-defa2be85295
@@ -1316,7 +1759,7 @@ begin
 end
 
 # ╔═╡ 53cbf192-e558-4dd7-83b2-79a4674240b5
-function make_gridworld(;actions = rook_actions, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, stepreward = 0.0f0, termreward = 1.0f0)
+function make_gridworld(;actions = rook_actions, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, stepreward = 0.0f0, termreward = 1.0f0, iscliff = s -> false, cliffreward = -100f0, goal2 = GridworldState(start.x, ymax), usegoal2 = false)
 	
 	states = [GridworldState(x, y) for x in 1:xmax for y in 1:ymax]
 	
@@ -1326,11 +1769,19 @@ function make_gridworld(;actions = rook_actions, sterm = GridworldState(8, 4), s
 		(x, y) = move(a, s.x, s.y)
 		GridworldState(boundstate(x, y)...)
 	end
-	isterm(s::GridworldState) = s == sterm
+		
+	function isterm(s::GridworldState) 
+		s == sterm && return true
+		usegoal2 && (s == goal2) && return true
+		return false
+	end
 
 	function tr(s::GridworldState, a::GridworldAction) 
+		isterm(s) && return (0f0, s)
 		s′ = step(s, a)
+		iscliff(s′) && return (cliffreward, start)
 		x = Float32(isterm(s′))
+		usegoal2 && (s′ == goal2) && return (0f0, goal2)
 		r = (1f0 - x)*stepreward + x*termreward
 		(r, s′)
 	end	
@@ -1364,6 +1815,36 @@ end
 
 # ╔═╡ dcae4bbe-263d-4c6e-8d10-8c30c97174af
 compare_sarsa(1:5; α = ex7_4_α)
+
+# ╔═╡ 4790d50d-fab8-43cf-bd0e-2f57f1fb5aef
+tree_results = n_step_tree_backup(plain_gridworld, 2, 0.5f0, 0.99f0; num_episodes = 10)
+
+# ╔═╡ 981376ba-3791-4ec4-b286-e7e5ec3637a4
+qσ_results = n_step_off_policy_Qσ(plain_gridworld, 1, 0.1f0, 0.999f0; num_episodes = 10)
+
+# ╔═╡ 992ef08d-6ba7-4267-8d97-b226fa241f34
+const dangerous_cliffworld = make_gridworld(sterm = GridworldState(7, 4), start = GridworldState(2, 4), xmax = 10, ymax = 8, iscliff = s -> s.x >= 4 && s.x <= 6 && (s.y == 3 || s.y == 5))
+
+# ╔═╡ 61192375-b37b-4574-b71e-d4d8d54d2cca
+const πcliff = mapreduce(s -> [0f0, 0f0, 0f0, 1f0], hcat, dangerous_cliffworld.states)
+
+# ╔═╡ 6d3ed7dc-f0b5-439a-9aeb-5e04737478ac
+const bcliff = make_random_policy(dangerous_cliffworld)
+
+# ╔═╡ 0dfc2332-ecf7-498c-97f4-78272be6efb0
+n_step_off_policy_TD_Vest(πcliff, bcliff, plain_gridworld, 1, 0.5f0, 1.0f0)
+
+# ╔═╡ 4f5f771a-7fef-44ad-82bf-4b70498fd39a
+dangerous_cliffworld.state_init()
+
+# ╔═╡ eb6107b7-4914-4c20-9306-e0fe56119dbc
+tree_results2 = n_step_tree_backup(dangerous_cliffworld, 2, 0.5f0, 0.99f0; num_episodes = 10)
+
+# ╔═╡ 902d2dff-f20d-4b79-b67b-316e9147cc7a
+runepisode(dangerous_cliffworld, tree_results2[2]; max_steps = 10)
+
+# ╔═╡ c99b759f-42c4-4521-ba64-c6b85b735bde
+const pathological_cliffworld = make_gridworld(;actions = [rook_actions; Stay()], sterm = GridworldState(7, 4), start = GridworldState(2, 4), xmax = 10, ymax = 8, iscliff = iscliff_path, usegoal2 = true)
 
 # ╔═╡ 294d55aa-5de7-4cb2-adf0-85af09fb2464
 function make_windy_gridworld(;actions = rook_actions, apply_wind = apply_wind, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, winds = wind_vals, get_step_reward = () -> -1f0)
@@ -1409,29 +1890,91 @@ function create_gridworld_mdp(width, height, start, goal, wind, actions, step_re
 	FiniteMDP(mdp.states, mdp.actions, [0.0f0, step_reward], ptf)	
 end
 
+# ╔═╡ e2186e6f-f8d0-407a-b70b-19ef27741516
+md"""
+### Gridworld Visualization
+"""
+
 # ╔═╡ d7215445-fcb2-4828-a27d-a5a6b18fb068
-function plot_path(mdp, states::Vector; title = "Optimal policy <br> path example")
+function plot_path(mdp, states::Vector, sterm; title = "Optimal policy <br> path example", iscliff = s -> false)
 	xmax = maximum([s.x for s in mdp.states])
 	ymax = maximum([s.y for s in mdp.states])
 	start = mdp.state_init()
-	goal = mdp.states[findfirst(mdp.isterm(s) for s in mdp.states)]
+	goal = mdp.states[findlast(mdp.isterm(s) for s in mdp.states)]
 	start_trace = scatter(x = [start.x + 0.5], y = [start.y + 0.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
 	finish_trace = scatter(x = [goal.x + .5], y = [goal.y + .5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+
+	cliff_squares = filter(iscliff, mdp.states)
+	if !isempty(cliff_squares)
+		cliff_traces = [scatter(x = [s.x + 0.5], y = [s.y+0.5], mode = "text", text = ["C"], textposition = "left", showlegend = false) for s in cliff_squares]
+	end
+	
 	path_traces = [scatter(x = [states[i].x + 0.5, states[i+1].x + 0.5], y = [states[i].y + 0.5, states[i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(states)-1]
-	finalpath = scatter(x = [states[end].x + 0.5, goal.x + .5], y = [states[end].y + 0.5, goal.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
+	finalpath = scatter(x = [states[end].x + 0.5, sterm.x + .5], y = [states[end].y + 0.5, sterm.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
 
 	h1 = 30*ymax
-	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = fill("", 10), range = [1, xmax+1]), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
+	traces = [start_trace; finish_trace; path_traces; finalpath]
+	if !isempty(cliff_squares)
+		cliff_traces = [scatter(x = [s.x + 0.5], y = [s.y+0.5], mode = "text", text = ["C"], textposition = "left", showlegend = false) for s in cliff_squares]
+		traces = [traces; cliff_traces]
+	end
+	plot(traces, Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = fill("", 10), range = [1, xmax+1]), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
 end
 
 # ╔═╡ db618d5c-63e2-4719-829f-f71405d2ced0
 function plot_path(mdp, π::Matrix; kwargs...)
-	(states, actions, rewards) = runepisode(mdp, π; max_steps = 100)
-	plot_path(mdp, states; kwargs...)
+	(states, actions, rewards, sterm) = runepisode(mdp, π; max_steps = 100)
+	plot_path(mdp, states, sterm; kwargs...)
 end
 
 # ╔═╡ 00e4e3c7-1e1f-4ab0-b670-b7f2fff8c056
 plot_path(mdp; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, make_random_policy(mdp); title = title, kwargs...)
+
+# ╔═╡ e1a06901-55df-4687-9993-d4afa4321c36
+function test_off_policy_n_step_sarsa(n; mdp = plain_gridworld, kwargs...)
+	results1 = n_step_sarsa(mdp, 1, 0.1f0, 0.999f0; kwargs...)
+	results2 = n_step_sarsa_off_policy(mdp, 1, 0.1f0, 0.999f0; kwargs...)
+	[plot_path(mdp, results1[2], title = "$n-step Sarsa Path") plot_path(mdp, results2[2], title = "$n-step Off Policy Sarsa Path")]
+end
+
+# ╔═╡ 9ca471a9-f634-4988-9c8a-5fe97f66f3b5
+test_off_policy_n_step_sarsa(eg_7_3_n;num_episodes = eg_7_3_ep)
+
+# ╔═╡ 6e99c015-b4d4-4d64-ab6a-d00cd34de3ce
+test_off_policy_n_step_sarsa(2; mdp = dangerous_cliffworld, num_episodes = 100)
+
+# ╔═╡ e7be8cc5-c4b1-459f-8bc1-49c0a2633969
+plot_path(plain_gridworld, tree_results[2])
+
+# ╔═╡ cc086d13-87e8-496e-afe3-94004e879a39
+plot_path(dangerous_cliffworld, tree_results2[2])
+
+# ╔═╡ 5f52aa16-33c2-438f-8b5c-5d5a1ae2edd5
+plot_path(plain_gridworld, qσ_results[2])
+
+# ╔═╡ 08562519-6fe0-4be8-8e39-ce890b2ba410
+function test_algorithm(mdp, algo, n, α, γ; iscliff = s -> false, kwargs...)
+	results = algo(mdp, n, α, γ; kwargs...)
+	plot_path(mdp, results[2]; iscliff = iscliff)
+end
+
+# ╔═╡ 3d55de86-e619-4ede-bc4b-61a572577872
+test_algorithm(dangerous_cliffworld, n_step_off_policy_Qσ, 2, 0.1f0, 0.5f0; num_episodes = 100, select_σ = (a, b, c) -> 0f0)
+
+# ╔═╡ 4ed92a56-7a31-4ce0-9cb3-e3fdb098a8c1
+test_algorithm(dangerous_cliffworld, n_step_tree_backup, 2, 0.1f0, 0.5f0; num_episodes = 100)
+
+# ╔═╡ 2b176815-c567-47b6-b1f0-105246f991db
+test_algorithm(dangerous_cliffworld, n_step_sarsa_off_policy, 2, 0.1f0, 0.5f0; num_episodes = 100)
+
+# ╔═╡ 935cd4f3-0ba2-49fc-a6e9-eb1e32cda84a
+test_algorithm(dangerous_cliffworld, n_step_sarsa, 2, 0.1f0, 0.5f0; num_episodes = 100)
+
+# ╔═╡ b4a2a4d8-417c-475b-909c-33767f8f3a1d
+test_algorithm(pathological_cliffworld, n_step_sarsa, 2, 0.1f0, 0.5f0; num_episodes = 1000, iscliff = iscliff_path)
+
+# ╔═╡ bcf62294-020d-4bcf-8e74-6a259051480a
+test_algorithm(pathological_cliffworld, n_step_off_policy_Qσ, 2, 0.1f0, 0.5f0; num_episodes = 1000, iscliff = iscliff_path)
 
 # ╔═╡ 57710048-d814-43ac-8396-cad6135279d8
 function addelements(e1, e2)
@@ -1442,19 +1985,22 @@ function addelements(e1, e2)
 end
 
 # ╔═╡ 14b269e1-fa81-4ed8-957e-119bff365d0e
-function show_grid_value(mdp, Q::Matrix, name; scale = 1.0, title = "", sigdigits = 2)
+function show_grid_value(mdp, Q, name; scale = 1.0, title = "", sigdigits = 2)
 	width = maximum(s.x for s in mdp.states)
 	height = maximum(s.y for s in mdp.states)
 	start = mdp.state_init()
 	termind = findfirst(mdp.isterm, mdp.states)
 	sterm = mdp.states[termind]
 	ngrid = width*height
+
+	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
+	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
 	@htl("""
 		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px;">
 			<div>
 				$title
 				<div class = "gridworld $name value">
-					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 12px; color: black; $(maximum(Q[:, i]) != 0 ? "background-color: lightblue;" : "")">$(round(maximum(Q[:, i]), sigdigits = sigdigits))</div>""", *, eachindex(mdp.states))))
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 12px; color: black; $(displayvalue(Q, i) != 0 ? "background-color: lightblue;" : "")">$(displayvalue(Q, i))</div>""", *, eachindex(mdp.states))))
 				</div>
 			</div>
 		</div>
@@ -1466,53 +2012,6 @@ function show_grid_value(mdp, Q::Matrix, name; scale = 1.0, title = "", sigdigit
 				grid-template-rows: repeat($height, 20px);
 				background-color: white;
 			}
-
-			.$name.value[x="$(start.x)"][y="$(start.y)"] {
-				content: '';
-				background-color: rgba(0, 255, 0, 0.5);
-				
-			}
-
-			.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
-				content: '';
-				background-color: rgba(255, 0, 0, 0.5);
-				
-			}
-
-		</style>
-	""")
-end
-
-# ╔═╡ 2d1be15f-b0a8-49bd-9636-7f7348a2aae0
-function show_grid_value(mdp, V::Vector, wind::Vector, name; action_display = king_action_display, scale = 1.0)
-	width = maximum(s.x for s in mdp.states)
-	height = maximum(s.y for s in mdp.states)
-	start = mdp.state_init()
-	termind = findfirst(mdp.isterm, mdp.states)
-	sterm = mdp.states[termind]
-	ngrid = width*height
-	@htl("""
-		<div style = "display: flex; transform: scale($scale); background-color: white; margin: 0; padding: 0;">
-			<div>
-				<div class = "gridworld $name value">
-					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 20px; color: black; $(V[i] != 0 ? "background-color: blue;" : "")>$(round(V[i], sigdigits = 2))</div>""", *, eachindex(mdp.states))))
-				</div>
-				<div class = "windrow" style = "display: grid; grid-template-columns: repeat($width, 40px)">
-					$(HTML(mapreduce(i -> """<div class="windbox downarrow" w = "$(wind[i])"><div style = "transform: rotate(180deg); color: black;">$(wind[i])</div></div>""", *, 1:width)))
-				</div>
-			</div>
-			<div style = "display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; color: black; font-size: 18px; width: 5em; margin-left: 1em;">
-				$(action_display)
-				<div>Wind Values</div>
-			</div>
-		</div>
-	
-		<style>
-			.$name.value.gridworld {
-				display: grid;
-				grid-template-columns: repeat($width, 40px);
-				grid-template-rows: repeat($height, 40px);
-				background-color: white;
 
 			.$name.value[x="$(start.x)"][y="$(start.y)"] {
 				content: '';
@@ -1548,11 +2047,6 @@ function test_n_step_sarsa(;nlist = [1, 10, 1000])
 	$(reduce(addelements, valuegrids))
 	</div>
 	""")
-	# s = (1, 1)
-	# while s != sterm
-	# 	println(s, π[s])
-	# 	(s, r) = sim(s, π[s])
-	# end
 end
 
 # ╔═╡ 8ac0f5e2-d2a2-4bc7-a4a0-910068947f90
@@ -1560,6 +2054,12 @@ begin
 	run7_4
 	test_n_step_sarsa()
 end
+
+# ╔═╡ a9b6a196-91bf-49f8-a4c9-67a02809c0ef
+show_grid_value(plain_gridworld, n_step_TD_Vest(πcliff, plain_gridworld, 10, 0.5f0, 1.0f0)[1], "ex7_2_a", sigdigits = 1)
+
+# ╔═╡ 744269d9-78b2-438b-b39f-23b262c29588
+show_grid_value(plain_gridworld, n_step_off_policy_TD_Vest(πcliff, bcliff, plain_gridworld, 5, 0.1f0, 1.0f0, num_episodes = 10_000)[1], "ex7_2_b", sigdigits = 1)
 
 # ╔═╡ 87ad13fa-604f-48f7-8232-a2c021b0fefd
 function show_grid_policy(mdp, π, wind::Vector, display_function, name; action_display = king_action_display, scale = 1.0)
@@ -2365,19 +2865,64 @@ version = "17.4.0+2"
 # ╠═0c64afd6-ef23-4582-9250-2c1d4ae3cc43
 # ╟─1b12b915-4576-4c3d-8360-50eb9ad2392d
 # ╟─b0b56d97-3802-41f2-814d-8a3eb617a442
+# ╟─2180a3a3-08aa-4b0a-8734-52377966f661
 # ╠═8732e67e-3944-4a9f-bc69-1d8e2e0c2fa3
 # ╠═e016e721-62a1-4b58-b904-c95e8e898e0e
 # ╠═78888166-1b70-4a5f-829e-dddf7bed67ad
 # ╠═b99db42e-543b-42c1-8f08-f6ba1c81bff1
 # ╟─d1cdf977-abc0-4df3-bc15-287ce4b94fc3
 # ╟─dcae4bbe-263d-4c6e-8d10-8c30c97174af
-# ╠═6819a060-7e26-46cb-9c9d-5c4e3364b66a
-# ╠═8e3415b2-0464-43ee-a16f-39c17364e0be
-# ╟─17c52a18-33ae-47dd-aa43-07440c586b6c
+# ╟─6819a060-7e26-46cb-9c9d-5c4e3364b66a
+# ╟─c9f3ae61-3ce5-4d24-9910-b31d18b14a7e
+# ╠═7b07b6ec-0428-495b-a99d-05290a968e06
+# ╟─ba2d9b8b-573b-4771-9741-ec77272a37c2
+# ╠═992ef08d-6ba7-4267-8d97-b226fa241f34
+# ╠═61192375-b37b-4574-b71e-d4d8d54d2cca
+# ╠═6d3ed7dc-f0b5-439a-9aeb-5e04737478ac
+# ╠═4f5f771a-7fef-44ad-82bf-4b70498fd39a
+# ╠═0dfc2332-ecf7-498c-97f4-78272be6efb0
+# ╠═a9b6a196-91bf-49f8-a4c9-67a02809c0ef
+# ╠═744269d9-78b2-438b-b39f-23b262c29588
+# ╠═ae9970bf-2313-418b-8ea8-ed43138b8718
+# ╟─5b1977be-2610-4eba-a953-364813504505
+# ╠═ef9261a3-6bfd-4811-836c-a25ee781a756
+# ╠═e1a06901-55df-4687-9993-d4afa4321c36
+# ╟─fe6c2450-8bfe-41ab-aa92-1d13c08973e0
+# ╟─9ca471a9-f634-4988-9c8a-5fe97f66f3b5
+# ╠═6e99c015-b4d4-4d64-ab6a-d00cd34de3ce
+# ╠═17c52a18-33ae-47dd-aa43-07440c586b6c
 # ╟─baab474f-e491-4b73-8d08-afc4a3bacde5
 # ╠═1ea5aa34-38e9-40d5-a5b5-a30991b23413
 # ╟─fd9b3f70-bd00-4e30-8231-6ada24529585
 # ╠═b8ae179f-3ab9-4d8d-a49d-5d4035af63fd
+# ╠═b70147e8-1053-4791-b885-cd3fa4dcb216
+# ╠═f710c428-ef84-4ae4-9fcc-7882e2a13acb
+# ╠═3b655b4a-709e-40cd-ab5d-bab2ce7030e2
+# ╠═a23108c9-2710-41b1-9a0d-cbb343fe5fda
+# ╟─b7f932f7-f889-45e2-804d-fe6874296b65
+# ╟─2a09d4e1-15aa-4acc-b8cf-763e5654baf9
+# ╟─602213a5-73dc-4e9d-af2e-541da7425f2f
+# ╟─e35d1b11-f985-4593-8aab-5fdbaf23c316
+# ╠═d7892cb7-c744-4dbe-89a4-c1878f275f47
+# ╠═4790d50d-fab8-43cf-bd0e-2f57f1fb5aef
+# ╠═e7be8cc5-c4b1-459f-8bc1-49c0a2633969
+# ╠═eb6107b7-4914-4c20-9306-e0fe56119dbc
+# ╠═902d2dff-f20d-4b79-b67b-316e9147cc7a
+# ╠═cc086d13-87e8-496e-afe3-94004e879a39
+# ╟─d0859458-777b-4756-a541-9ed31c8632a2
+# ╟─a6e782f1-beaa-4673-99f9-0b8e6181e12c
+# ╠═d26b08ff-fef7-4aca-a51c-58c91fa1555a
+# ╠═981376ba-3791-4ec4-b286-e7e5ec3637a4
+# ╠═5f52aa16-33c2-438f-8b5c-5d5a1ae2edd5
+# ╠═08562519-6fe0-4be8-8e39-ce890b2ba410
+# ╠═3d55de86-e619-4ede-bc4b-61a572577872
+# ╠═4ed92a56-7a31-4ce0-9cb3-e3fdb098a8c1
+# ╠═2b176815-c567-47b6-b1f0-105246f991db
+# ╠═935cd4f3-0ba2-49fc-a6e9-eb1e32cda84a
+# ╠═2c8d25e2-30b5-41c6-aad6-55a46d83538f
+# ╠═c99b759f-42c4-4521-ba64-c6b85b735bde
+# ╠═b4a2a4d8-417c-475b-909c-33767f8f3a1d
+# ╠═bcf62294-020d-4bcf-8e74-6a259051480a
 # ╟─ec706721-a414-47c9-910e-9d58e77664ea
 # ╠═0321b9d1-7d4e-4bf8-ac61-9c16ab6bc461
 # ╠═5838ecbf-8982-4ab3-aa56-423b0e3d9563
@@ -2391,15 +2936,10 @@ version = "17.4.0+2"
 # ╠═96a3e618-9d94-4954-9431-059d2621ebbd
 # ╠═2e85c71b-c630-4d46-b789-9af014f69a92
 # ╠═5fef24aa-55f2-4ece-9722-6c1a132d793c
-# ╠═36b394dd-1956-40ab-9600-624e6900f665
-# ╠═2e3b1699-0e35-43f6-800b-4788b5e3bc7d
 # ╠═cd7cbdfb-ae59-4e8a-a4bf-c9dad96062c3
 # ╠═993110fc-e3bc-46a8-a35b-32b15dac87d5
 # ╠═751e8763-3274-4cf7-80ef-b544b8c46f4b
 # ╠═52eb8101-6dd2-443e-9aff-979f2d2bb532
-# ╠═ace391b4-ec40-4314-a624-a6b6d2c038db
-# ╠═eb4a7088-e7b3-4b18-a007-349694a49278
-# ╠═8f77dd8e-7689-4f85-a990-58550c723920
 # ╠═631b2d23-584d-47bb-be24-7fa58be53dfa
 # ╠═c5e01eea-20af-47b3-8dc4-681d3b01df8f
 # ╠═795db9a8-71f4-4664-8aa1-dad112b2da12
@@ -2407,15 +2947,22 @@ version = "17.4.0+2"
 # ╠═ea0b8273-e77c-482e-bc6c-f3e7bc7c7d46
 # ╠═cf3418ed-af8b-4d86-8057-d1b1d22581c7
 # ╠═9b2e64df-0341-4bd5-8484-3b7c1ef2c828
+# ╟─a9f377a9-f76d-42a9-be95-a6e3e802c79b
+# ╠═36b394dd-1956-40ab-9600-624e6900f665
+# ╠═2e3b1699-0e35-43f6-800b-4788b5e3bc7d
+# ╠═ace391b4-ec40-4314-a624-a6b6d2c038db
+# ╟─51834c9a-da99-41a5-9fcf-20790e741d53
+# ╠═eb4a7088-e7b3-4b18-a007-349694a49278
+# ╠═8f77dd8e-7689-4f85-a990-58550c723920
 # ╠═c17dc4eb-5a12-4313-b2e3-defa2be85295
 # ╠═53cbf192-e558-4dd7-83b2-79a4674240b5
 # ╠═294d55aa-5de7-4cb2-adf0-85af09fb2464
+# ╟─e2186e6f-f8d0-407a-b70b-19ef27741516
 # ╠═d7215445-fcb2-4828-a27d-a5a6b18fb068
 # ╠═db618d5c-63e2-4719-829f-f71405d2ced0
 # ╠═00e4e3c7-1e1f-4ab0-b670-b7f2fff8c056
 # ╠═57710048-d814-43ac-8396-cad6135279d8
 # ╠═14b269e1-fa81-4ed8-957e-119bff365d0e
-# ╠═2d1be15f-b0a8-49bd-9636-7f7348a2aae0
 # ╠═87ad13fa-604f-48f7-8232-a2c021b0fefd
 # ╠═2023cd4e-6b1f-430e-b81a-da97a23b5ed5
 # ╠═df8a0a95-71e2-4b37-ae2c-dd8826a91369
