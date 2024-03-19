@@ -915,7 +915,7 @@ function batch_value_est(π::Matrix{T}, mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T
 	saved_episodes = Vector{Tuple{Vector{S}, Vector{A}, Vector{T}}}()
 
 	for n in 1:num_episodes
-		push!(saved_episodes, runepisode(mdp, π))
+		push!(saved_episodes, runepisode(mdp, π)[1:end-1])
 		err = typemax(T)
 		#wait until the error has converged
 		count = zero(T)
@@ -1150,7 +1150,7 @@ md"""
 
 # ╔═╡ 6b496582-cc0e-4195-87ef-94792b0fff54
 function make_ϵ_greedy_policy!(v::AbstractVector{T}, ϵ::T; valid_inds = eachindex(v)) where T <: Real
-	vmax = maximum(view(v, valid_inds))
+	vmax = maximum(v[i] for i in valid_inds)
 	v .= T.(isapprox.(v, vmax))
 	s = sum(v)
 	c = s * ϵ / length(valid_inds)
@@ -2098,7 +2098,7 @@ Let $X = \{ X_1, \dots, X_M \}$ be a set of random variables and let $\mu^A = \{
 
 $$\mathbb{E} \{ \mu_{a^*}^B \} = \mathbb{E} \{ X_{a^*} \} \leq \max_i \mathbb{E} \{ X_i \}$$.  Furthermore, the inequality is strict if and only if $P(a^* \notin \mathcal{M}) \gt 0$.
 
-*Proof*.  Assume $a^* \in \mathcal{M}$.  Then $\mathbb{E} \{ \mu_{a^*}^B\} = \mathbb{E} \{ X_{a^*}\} \doteq \max_i \mathbb{E} \{ X_i \}.  Now assume $a^* \notin \mathcal{M}$ and choose $j \in \mathcal{M}$.  Then $\mathbb{E} \{ \mu_{a^*} \} = \mathbb{E} \{ X_{a^*}\} \lt \mathbb{E} \{ X_j \} \doteq \max_i \mathbb{E} \{ X_i \}$.  These two possibilities are mutually exclusive, so the combined expression can be written as: 
+*Proof*.  Assume $a^* \in \mathcal{M}$.  Then $\mathbb{E} \{ \mu_{a^*}^B\} = \mathbb{E} \{ X_{a^*}\} \doteq \max_i \mathbb{E} \{ X_i \}$.  Now assume $a^* \notin \mathcal{M}$ and choose $j \in \mathcal{M}$.  Then $\mathbb{E} \{ \mu_{a^*} \} = \mathbb{E} \{ X_{a^*}\} \lt \mathbb{E} \{ X_j \} \doteq \max_i \mathbb{E} \{ X_i \}$.  These two possibilities are mutually exclusive, so the combined expression can be written as: 
 
 $$\begin{flalign}
 \mathbb{E} \{ \mu_{a^*}^B \} &= P(a^* \in \mathcal{M}) \mathbb{E} \{ \mu_{a^*}^B \vert a^* \in \mathcal{M} \} + P(a^* \notin \mathcal{M}) \mathbb{E} \{ \mu_{a^*}^B \vert a^* \notin \mathcal{M} \} \\
@@ -2410,7 +2410,7 @@ html"""
 	<style>
 		main {
 			margin: 0 auto;
-			max-width: min(2000px, 90%);
+			max-width: min(1200px, 90%);
 	    	padding-left: max(10px, 5%);
 	    	padding-right: max(10px, 5%);
 			font-size: max(10px, min(24px, 2vw));
@@ -2497,11 +2497,17 @@ end
 # ╔═╡ 685a7ba3-0f94-4663-a68a-73fa03bd9445
 function make_greedy_policy!(π::Matrix{T}, mdp::FiniteAfterstateMDP{T, S1, S2, A}, V::Vector{T}, γ::T) where {T<:Real,S1,S2,A}
 	for i_s in eachindex(mdp.states)
-		maxv = -Inf
 		π[:, i_s] .= mdp.reward_interim_map[:, i_s] .+ V[mdp.afterstate_map[:, i_s]]
-		maxv = maximum(π[:, i_s])
+		maxv = -T(Inf)
+		@inbounds @fastmath @simd for i_a in eachindex(mdp.actions)
+			maxv = max(maxv, π[i_a, i_s])
+		end
 		π[:, i_s] .= (π[:, i_s] .≈ maxv)
-		π[:, i_s] ./= sum(π[:, i_s])
+		x = zero(T)
+		@fastmath @inbounds @simd for i_a in eachindex(mdp.actions)
+			x += π[i_a, i_s]
+		end
+		π[:, i_s] ./= x
 	end
 	return π
 end
@@ -2529,7 +2535,7 @@ function make_greedy_policy!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, V::Vector{T
 			π[i_a, i_s] = x
 		end
 		π[:, i_s] .= (π[:, i_s] .≈ maxv)
-		π[:, i_s] ./= sum(π[:, i_s])
+		π[:, i_s] ./= sum(π[i_a, i_s] for i_a in eachindex(mdp.actions))
 	end
 	return π
 end
@@ -4058,7 +4064,7 @@ version = "17.4.0+2"
 # ╠═f841c4d8-5176-4007-b472-9e01a799d85c
 # ╠═902738c3-2f7b-49cb-8580-29359c857027
 # ╠═889611fb-7dac-4769-9251-9a90e3a1422f
-# ╠═510761f6-66c7-4faf-937b-e1422ec829a6
+# ╟─510761f6-66c7-4faf-937b-e1422ec829a6
 # ╠═87fadfc0-2cdb-4be2-81ad-e8fdeffb690c
 # ╠═1dd1ba55-548a-41f6-903e-70742fd60e3d
 # ╠═2786101e-d365-4d6a-8de7-b9794499efb4
