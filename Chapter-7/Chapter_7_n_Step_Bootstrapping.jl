@@ -1510,7 +1510,7 @@ function n_step_sarsa(mdp::MDP_TD{S, A, F, E, H}, n::Integer, α::X, γ::X; num_
 	end
 	for i = 1:num_episodes; runepisode!(Q, i); end
 	default_return = Q, π, steps, rewards
-	save_path && return (default_return..., path)
+	save_path && return (default_return..., path, last(path))
 	return default_return
 end
 
@@ -2039,7 +2039,7 @@ function test_n_step_sarsa(;nlist = [1, 10, 1000])
 	for n in nlist]
 		
 
-	path = plot_path(plain_gridworld, last(first(sarsa_results)); title = "Path Taken")
+	path = plot_path(plain_gridworld, first(sarsa_results)[end-1], first(sarsa_results)[end]; title = "Path Taken")
 	valuegrids = [show_grid_value(plain_gridworld, first(a), "fig7_4"; title = "Action Values Changed By $(nlist[i])-step Sarsa", sigdigits = 1) for (i, a) in enumerate(sarsa_results)]
 	@htl("""
 	<div style = "display: flex; justify-content: flex-start; align-items: center; background-color: white;">

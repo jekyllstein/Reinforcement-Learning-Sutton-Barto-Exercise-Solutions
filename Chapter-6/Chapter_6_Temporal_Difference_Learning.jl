@@ -16,7 +16,7 @@ end
 
 # ╔═╡ 639840dc-976a-4e5c-987f-a92afb2d99d8
 begin
-	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra, Serialization, Latexify
+	using StatsBase, Statistics, PlutoUI, HypertextLiteral, LaTeXStrings, PlutoPlotly, Base.Threads, LinearAlgebra, Serialization, Latexify, Transducers
 	TableOfContents()
 end
 
@@ -122,7 +122,7 @@ function runepisode(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}; max_steps = Inf) 
 		s = s′
 		step += 1
 	end
-	return states, actions, rewards
+	return states, actions, rewards, s
 end
 
 # ╔═╡ 7035c082-6e50-4df5-919f-5f09d2011b4a
@@ -1349,7 +1349,7 @@ function plot_path(mdp, π; title = "Optimal policy <br> path example", windtext
 	start_trace = scatter(x = [start.x + 0.5], y = [start.y + 0.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
 	finish_trace = scatter(x = [goal.x + .5], y = [goal.y + .5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
 	path_traces = [scatter(x = [eg[1][i].x + 0.5, eg[1][i+1].x + 0.5], y = [eg[1][i].y + 0.5, eg[1][i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path") for i in 1:length(eg[1])-1]
-	finalpath = scatter(x = [eg[1][end].x + 0.5, goal.x + .5], y = [eg[1][end].y + 0.5, goal.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
+	finalpath = scatter(x = [eg[1][end].x + 0.5, last(eg).x + .5], y = [eg[1][end].y + 0.5, last(eg).y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = "Optimal Path")
 
 	h1 = 30*ymax
 	plot([start_trace; finish_trace; path_traces; finalpath], Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = windtext, range = [1, xmax+1], title = xtitle), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
@@ -2236,7 +2236,7 @@ The double estimator methods are the only ones that don't show an initial increa
 # ╔═╡ c9f7646a-ec01-4d90-9215-5027b7c1c885
 md"""
 ### Q-learning Instability at Higher Learning Rate
-Learning Rate $\alpha$ $(@bind α_6_8 Slider(0.01f0:0.01f0:0.5f0, default = 0.1f0, show_value=true))
+Learning Rate $\alpha$ $(@bind α_6_8 Slider(0.01f0:0.01f0:0.5f0, default = 0.3f0, show_value=true))
 """
 
 # ╔═╡ 0201ae9f-4a31-497e-86ab-62b454ca85de
@@ -2801,7 +2801,7 @@ md"""
 Q-learning Solution
 $(show_gridworld_policy_value(noisy_gridworld, q_learning(noisy_gridworld, α_6_8, 1.0f0, num_episodes = 5_000); winds = fill(0, gridsize)))
 Double Q-learning Solution
-$(show_gridworld_policy_value(noisy_gridworld, double_q_learning(noisy_gridworld, α_6_8, 1.0f0, num_episodes = 5_000); winds = fill(0, gridsize)))
+$(show_gridworld_policy_value(noisy_gridworld, double_q_learning(noisy_gridworld, α_6_8, 1.0f0, num_episodes = 1_000); winds = fill(0, gridsize)))
 """
 
 # ╔═╡ 95245673-2c29-401e-bb4b-a39dc8172297
@@ -3033,21 +3033,26 @@ example_6_5(;mdp = stochastic_gridworld, num_episodes = 400, action_display = ki
 
 # ╔═╡ 33d69db9-fa2b-40a3-bbed-21d5fd60f302
 function example_6_8(;loadfile = true)
-	loadfile && isfile("example_6_8.bin") && return deserialize("example_6_8.bin")
 	methods = [sarsa, expected_sarsa, double_expected_sarsa, q_learning, double_q_learning]
 	names = ["Sarsa", "Expected Sarsa", "Double Expected Sarsa", "Q-learning", "Double Q-learning"]
-	results1 = [f(noisy_gridworld, 0.01f0, 1.0f0, num_episodes = 10_000) for f in methods]
+	results1 = [f(noisy_gridworld, 0.1f0, 1.0f0, num_episodes = 5_000) for f in methods]
 	displays = [show_gridworld_policy_value(noisy_gridworld, a; winds = fill(0, gridsize)) for a in results1]
 	value_iteration_solution = begin_value_iteration_v(noisy_gridworld_dp, 1.0f0)
 	v_true = last(first(value_iteration_solution))
 	value_iteration_display = show_gridworld_policy_value(noisy_gridworld, (v_true, last(value_iteration_solution)))
 
 
-	max_episodes = 20
-	steps = [mean(f(noisy_gridworld, 0.01f0, 1.0f0, num_episodes = max_episodes)[3] for _ in 1:10_000) for f in methods]
-	step_traces = [scatter(x = 1:max_episodes, y = v, name = names[i]) for (i, v) in enumerate(steps)]
-
-	step_plot = plot(step_traces, Layout(title = "Episode Length for Noisy Gridworld", xaxis_title = "Episodes", yaxis_title = "Steps per Episode", yaxis_type = "log"))
+	if loadfile && isfile("example_6_8.bin") 
+		step_plot = deserialize("example_6_8.bin")
+	else
+		max_episodes = 20
+		num_samples = 10_000
+		steps = [(1:num_samples |> Map(_ -> f(noisy_gridworld, 0.01f0, 1.0f0, num_episodes = max_episodes)[3]) |> foldxt(+)) / num_samples for f in methods]
+		step_traces = [scatter(x = 1:max_episodes, y = v, name = names[i]) for (i, v) in enumerate(steps)]
+	
+		step_plot = plot(step_traces, Layout(title = "Episode Length for Noisy Gridworld", xaxis_title = "Episodes", yaxis_title = "Steps per Episode", yaxis_type = "log"))
+		serialize("example_6_8.bin", step_plot)
+	end
 	
 	out = @htl("""
 	<div>
@@ -3059,7 +3064,6 @@ function example_6_8(;loadfile = true)
 		"""
 		<div>
 		$(names[i]) Solution
-		
 		$(displays[i])
 		</div>
 		"""
@@ -3067,7 +3071,6 @@ function example_6_8(;loadfile = true)
 	</div>
 	$(step_plot)
 	""")
-	serialize("example_6_8.bin", out)
 	return out
 end
 
@@ -3366,6 +3369,7 @@ PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]
 HypertextLiteral = "~0.9.5"
@@ -3374,6 +3378,7 @@ Latexify = "~0.16.1"
 PlutoPlotly = "~0.4.4"
 PlutoUI = "~0.7.55"
 StatsBase = "~0.34.2"
+Transducers = "~0.4.81"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -3382,13 +3387,51 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.2"
 manifest_format = "2.0"
-project_hash = "f6d296dd021dd48b9e0bb4f63b927bc961e2434f"
+project_hash = "d1c6fa35f878143a4b41de0b6c1a251dcd356877"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "c278dfab760520b8bb7e9511b968bf4ba38b7acc"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.2.3"
+
+[[deps.Accessors]]
+deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown", "Test"]
+git-tree-sha1 = "c0d491ef0b135fd7d63cbc6404286bc633329425"
+uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
+version = "0.1.36"
+
+    [deps.Accessors.extensions]
+    AccessorsAxisKeysExt = "AxisKeys"
+    AccessorsIntervalSetsExt = "IntervalSets"
+    AccessorsStaticArraysExt = "StaticArrays"
+    AccessorsStructArraysExt = "StructArrays"
+    AccessorsUnitfulExt = "Unitful"
+
+    [deps.Accessors.weakdeps]
+    AxisKeys = "94b1ba4f-4ee9-5380-92f1-94cde586c3c5"
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    Requires = "ae029012-a4dd-5104-9daa-d747884805df"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+
+[[deps.Adapt]]
+deps = ["LinearAlgebra", "Requires"]
+git-tree-sha1 = "e2a9873379849ce2ac9f9fa34b0e37bde5d5fe0a"
+uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+version = "4.0.2"
+
+    [deps.Adapt.extensions]
+    AdaptStaticArraysExt = "StaticArrays"
+
+    [deps.Adapt.weakdeps]
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[[deps.ArgCheck]]
+git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
+version = "2.3.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -3397,6 +3440,28 @@ version = "1.1.1"
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
+[[deps.BangBang]]
+deps = ["Accessors", "Compat", "ConstructionBase", "InitialValues", "LinearAlgebra", "Requires"]
+git-tree-sha1 = "490e739172eb18f762e68dc3b928cad2a077983a"
+uuid = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
+version = "0.4.1"
+
+    [deps.BangBang.extensions]
+    BangBangChainRulesCoreExt = "ChainRulesCore"
+    BangBangDataFramesExt = "DataFrames"
+    BangBangStaticArraysExt = "StaticArrays"
+    BangBangStructArraysExt = "StructArrays"
+    BangBangTablesExt = "Tables"
+    BangBangTypedTablesExt = "TypedTables"
+
+    [deps.BangBang.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+    Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+    TypedTables = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
+
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
@@ -3404,6 +3469,11 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 git-tree-sha1 = "4b41ad09c2307d5f24e36cd6f92eb41b218af22c"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
 version = "1.2.1"
+
+[[deps.Baselet]]
+git-tree-sha1 = "aebf55e6d7795e02ca500a689d326ac979aaf89e"
+uuid = "9718e550-a3fa-408a-8086-8db961cd8217"
+version = "0.1.1"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
@@ -3450,6 +3520,29 @@ deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.1.0+0"
 
+[[deps.CompositionsBase]]
+git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
+uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
+version = "0.1.2"
+weakdeps = ["InverseFunctions"]
+
+    [deps.CompositionsBase.extensions]
+    CompositionsBaseInverseFunctionsExt = "InverseFunctions"
+
+[[deps.ConstructionBase]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "c53fc348ca4d40d7b371e71fd52251839080cbc9"
+uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
+version = "1.5.4"
+
+    [deps.ConstructionBase.extensions]
+    ConstructionBaseIntervalSetsExt = "IntervalSets"
+    ConstructionBaseStaticArraysExt = "StaticArrays"
+
+    [deps.ConstructionBase.weakdeps]
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
@@ -3461,15 +3554,29 @@ git-tree-sha1 = "ac67408d9ddf207de5cfa9a97e114352430f01ed"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 version = "0.18.16"
 
+[[deps.DataValueInterfaces]]
+git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
+version = "1.0.0"
+
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+
+[[deps.DefineSingletons]]
+git-tree-sha1 = "0fba8b706d0178b4dc7fd44a96a92382c9065c2c"
+uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
+version = "0.1.2"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
+
+[[deps.Distributed]]
+deps = ["Random", "Serialization", "Sockets"]
+uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
@@ -3497,6 +3604,10 @@ git-tree-sha1 = "fb409abab2caf118986fc597ba84b50cbaf00b87"
 uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
 version = "0.4.3"
 
+[[deps.Future]]
+deps = ["Random"]
+uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
+
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
@@ -3515,14 +3626,30 @@ git-tree-sha1 = "8b72179abc660bfab5e28472e019392b97d0985c"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.4"
 
+[[deps.InitialValues]]
+git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
+uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
+version = "0.3.1"
+
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+
+[[deps.InverseFunctions]]
+deps = ["Test"]
+git-tree-sha1 = "68772f49f54b479fa88ace904f6127f0a3bb2e46"
+uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
+version = "0.1.12"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.2"
+
+[[deps.IteratorInterfaceExtensions]]
+git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+uuid = "82899510-4779-5014-852e-03e436cf321d"
+version = "1.0.0"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
@@ -3618,6 +3745,12 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.2+1"
+
+[[deps.MicroCollections]]
+deps = ["Accessors", "BangBang", "InitialValues"]
+git-tree-sha1 = "44d32db644e84c75dab479f1bc15ee76a1a3618f"
+uuid = "128add7d-3638-4c79-886c-908ea0c25c34"
+version = "0.2.0"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -3731,6 +3864,12 @@ version = "0.7.0"
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 
+[[deps.Setfield]]
+deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
+git-tree-sha1 = "e2cc6d8c88613c05e1defb55170bf5ff211fbeac"
+uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
+version = "1.1.1"
+
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 
@@ -3744,6 +3883,17 @@ version = "1.2.1"
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 version = "1.10.0"
+
+[[deps.SplittablesBase]]
+deps = ["Setfield", "Test"]
+git-tree-sha1 = "e08a62abc517eb79667d0a29dc08a3b589516bb5"
+uuid = "171d559e-b47b-412a-8079-5efa626c420e"
+version = "0.1.15"
+
+[[deps.StaticArraysCore]]
+git-tree-sha1 = "36b3d696ce6366023a0ea192b4cd442268995a0d"
+uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+version = "1.4.2"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
@@ -3772,6 +3922,18 @@ deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
 
+[[deps.TableTraits]]
+deps = ["IteratorInterfaceExtensions"]
+git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
+uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
+version = "1.0.1"
+
+[[deps.Tables]]
+deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "LinearAlgebra", "OrderedCollections", "TableTraits"]
+git-tree-sha1 = "cb76cf677714c095e535e3501ac7954732aeea2d"
+uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+version = "1.11.1"
+
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
 uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
@@ -3786,6 +3948,26 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[[deps.Transducers]]
+deps = ["Accessors", "Adapt", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "ConstructionBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "SplittablesBase", "Tables"]
+git-tree-sha1 = "47e516e2eabd0cf1304cd67839d9a85d52dd659d"
+uuid = "28d57a85-8fef-5791-bfe6-a80928e7c999"
+version = "0.4.81"
+
+    [deps.Transducers.extensions]
+    TransducersBlockArraysExt = "BlockArrays"
+    TransducersDataFramesExt = "DataFrames"
+    TransducersLazyArraysExt = "LazyArrays"
+    TransducersOnlineStatsBaseExt = "OnlineStatsBase"
+    TransducersReferenceablesExt = "Referenceables"
+
+    [deps.Transducers.weakdeps]
+    BlockArrays = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    LazyArrays = "5078a376-72f3-5289-bfd5-ec5146d43c02"
+    OnlineStatsBase = "925886fa-5bf2-5e8e-b522-a9147a512338"
+    Referenceables = "42d2dcc6-99eb-4e98-b66c-637b7d73030e"
 
 [[deps.Tricks]]
 git-tree-sha1 = "eae1bb484cd63b36999ee58be2de6c178105112f"
@@ -3876,7 +4058,7 @@ version = "17.4.0+2"
 # ╠═f841c4d8-5176-4007-b472-9e01a799d85c
 # ╠═902738c3-2f7b-49cb-8580-29359c857027
 # ╠═889611fb-7dac-4769-9251-9a90e3a1422f
-# ╟─510761f6-66c7-4faf-937b-e1422ec829a6
+# ╠═510761f6-66c7-4faf-937b-e1422ec829a6
 # ╠═87fadfc0-2cdb-4be2-81ad-e8fdeffb690c
 # ╠═1dd1ba55-548a-41f6-903e-70742fd60e3d
 # ╠═2786101e-d365-4d6a-8de7-b9794499efb4
@@ -3970,7 +4152,7 @@ version = "17.4.0+2"
 # ╟─047a8881-c2ec-4dd1-8778-e3acf9beba2e
 # ╟─667666b9-3ab6-4836-953d-9878208103c9
 # ╟─21fbdc3b-4444-4f56-9934-fb58e184d685
-# ╠═cafedde8-be94-4697-a511-510a5fea0155
+# ╟─cafedde8-be94-4697-a511-510a5fea0155
 # ╟─c8500b89-644d-407f-881a-bcbd7da23502
 # ╠═84584793-8274-4aa1-854f-b167c7434548
 # ╠═6d9ae541-cf8c-4687-9f0a-f008944657e3
