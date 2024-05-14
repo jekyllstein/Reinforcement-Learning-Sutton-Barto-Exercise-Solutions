@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.40
+# v0.19.41
 
 using Markdown
 using InteractiveUtils
@@ -3391,7 +3391,7 @@ Transducers = "~0.4.81"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.2"
+julia_version = "1.10.3"
 manifest_format = "2.0"
 project_hash = "d1c6fa35f878143a4b41de0b6c1a251dcd356877"
 
@@ -3524,7 +3524,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.1.1+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -4109,7 +4109,7 @@ version = "17.4.0+2"
 # ╠═ec285c96-4a75-4af6-8898-ec3176fa34c6
 # ╠═ab331778-f892-4690-8bb3-26464e3fc05f
 # ╟─500d8dd4-fc53-4021-b797-114224ca4deb
-# ╟─136d1d96-b590-4f03-9e42-2337efc560cc
+# ╠═136d1d96-b590-4f03-9e42-2337efc560cc
 # ╠═4556cf44-4a1c-4ca4-bfb8-4841301a2ce6
 # ╠═9f28772c-9afe-4253-ab3b-055b0f48be6e
 # ╠═bd1029f9-d6a8-4c68-98cd-8af94297b521

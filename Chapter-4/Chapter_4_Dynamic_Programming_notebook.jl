@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.40
+# v0.19.41
 
 using Markdown
 using InteractiveUtils
@@ -1882,7 +1882,7 @@ PlutoUI = "~0.7.58"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.2"
+julia_version = "1.10.3"
 manifest_format = "2.0"
 project_hash = "0785e3c85560030238c49c8380ed313ca3820d7b"
 
@@ -1946,7 +1946,7 @@ version = "0.12.10"
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.1.1+0"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -2415,11 +2415,11 @@ version = "17.4.0+2"
 # ╟─d79c93ff-7945-435c-8db1-dfdd6518e34e
 # ╟─42e4a3d6-26ef-48bb-9164-118186ec118b
 # ╟─cf8a9ce5-8204-4628-a21c-df52d986aca0
-# ╟─1c8bf532-326d-4da7-905f-1ba05ea4d748
+# ╠═1c8bf532-326d-4da7-905f-1ba05ea4d748
 # ╟─75aeff5b-fb91-4567-84d8-1e617366a6f3
-# ╟─4bbf42a7-3d5e-4e7e-ac12-b135736d19d3
+# ╠═4bbf42a7-3d5e-4e7e-ac12-b135736d19d3
 # ╟─14f7ccb6-facc-4d1e-9d15-1eb93253548a
-# ╟─a3269e92-2e16-4173-9bbe-9771dfa291f6
+# ╠═a3269e92-2e16-4173-9bbe-9771dfa291f6
 # ╟─b59756bc-d268-45cf-8fe9-1981d7af1cb6
 # ╟─64f22fbb-5c6c-4e8f-bd79-3c9eb19bedca
 # ╠═f5809bd3-64d4-47ee-9e41-e491f8c09719
