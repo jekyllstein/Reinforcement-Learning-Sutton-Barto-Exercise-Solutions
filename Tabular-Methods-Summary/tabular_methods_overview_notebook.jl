@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.41
+# v0.19.42
 
 using Markdown
 using InteractiveUtils
@@ -16,7 +16,12 @@ end
 
 # ╔═╡ 0574291d-263a-4836-8cb9-78ad7de3f095
 begin
-	using Statistics, PlutoPlotly, Random, StatsBase, PlutoUI, HypertextLiteral, DataStructures, StaticArrays, Transducers, Serialization, PlutoHooks, Base.Threads, LinearAlgebra, SparseArrays
+	using Statistics, Random, StatsBase, DataStructures, StaticArrays, Transducers, Serialization, PlutoHooks, Base.Threads, LinearAlgebra, SparseArrays, HypertextLiteral
+end
+
+# ╔═╡ cbcc1cd8-7319-4076-84cf-f7ae4d0b5794
+@skip_as_script begin
+	using PlutoUI, PlutoPlotly
 	TableOfContents()
 end
 
@@ -61,7 +66,8 @@ Often times, we visualize these *trajectories* with diagrams where open circles 
 """
 
 # ╔═╡ 9836edb5-5d95-4091-af9a-849b6d077cbf
-@htl("""
+@skip_as_script begin
+	@htl("""
 <div style="display: flex; flex-direction: row; align-items: flex-start; justify-content: center; background-color: rgb(100, 100, 100)">
 	
 	<div class="backup">
@@ -149,6 +155,7 @@ Often times, we visualize these *trajectories* with diagrams where open circles 
 	}
 </style>
 """)
+end
 
 # ╔═╡ 4835bed5-a02a-49e9-8a01-63885109339c
 md"""
@@ -220,7 +227,7 @@ begin
 	end
 
 	#rectilinear actions
-	rook_actions = [Up(), Down(), Left(), Right()]
+	const rook_actions = [Up(), Down(), Left(), Right()]
 	
 	move(::Up, x, y) = (x, y+1)
 	move(::Down, x, y) = (x, y-1)
@@ -302,16 +309,34 @@ begin
 	end
 end
 
+# ╔═╡ 1188e680-cfbe-417c-ad61-83e145c39220
+md"""
+##### Create a deterministic gridworld with all the necessary components shown below
+"""
+
 # ╔═╡ 10d4576c-9b86-469c-83b7-1e3d3bc21da1
 @skip_as_script const deterministic_gridworld = make_gridworld()
 
 # ╔═╡ 3b3decd0-bb00-4fd2-a8eb-a5b14aede950
 md"""
-Deterministic gridworld transition display.  Given a state action pair defined below, shows the corresponding state in the grid highlighted in blue and the transition state outlined in bold.  The start and goal states are also shown in green and red respectively.
+##### Deterministic gridworld transition display.  Given a state action pair defined below, shows the corresponding state in the grid highlighted in blue and the transition state outlined in bold.  The start and goal states are also shown in green and gold respectively.  Notice that if the selected state is the goal, then all transitions remain in that state.
 """
 
 # ╔═╡ e14350ea-5a00-4a8f-8b81-f751c69b67a6
-@skip_as_script md"""Selected State $(@bind highlight_state_index Slider(eachindex(deterministic_gridworld.mdp.states), show_value=true))"""
+@skip_as_script @htl("""
+<div style = "display: flex; justify-content: flex-start; background-color:gray; color:black;">
+<div>Selected State</div>
+<div style = "width:20px; height:20px; background-color: rgb(0, 0, 255, 0.4); margin-top: 5px; margin-left: 10px; margin-right: 10px; border: 2px solid black;"></div>
+<div>$(@bind highlight_state_index Slider(eachindex(deterministic_gridworld.mdp.states), show_value=true))</div>
+
+
+</div>
+</div>
+<div style = "display: flex; background-color: gray; color:black">
+Transition State 
+<div style = "width:20px; height:20px; border: 4px solid black; background-color: white; margin-left: 10px">
+</div>
+""")
 
 # ╔═╡ 770c4392-6285-4e00-8d72-5c6a132d8aa9
 @skip_as_script md"""Selected Action $(@bind grid_action_selection Slider(1:4; show_value = true))"""
@@ -455,14 +480,18 @@ q_\pi(s, a) &\doteq \mathbb{E}_\pi[G_t \mid S_t=s,A_t=a] \tag{3.13} \\
 
 # ╔═╡ c4e1d754-2535-40be-bbb3-075ca3fa64b9
 md"""
-For a policy $\pi$, $v_\pi(s)$ is called the *state value function* and $q_\pi(s, a)$ is called the *state-action value function*. Notice that both expressions have a recursive form that defines values in terms of successor states.  Those recursive equations are known as the *Bellman Equations* for each value function.  
+For a policy $\pi$, $v_\pi(s)$ is called the *state value function* and $q_\pi(s, a)$ is called the *state-action value function*. Notice that both expressions have a recursive form that defines values in terms of successor states.  Those recursive equations are known as the *Bellman Equations* for each value function.
 
-Since we have a finite and countable number of state action pairs, each value function can be represented as a vector or matrix whose indices represent the states and actions corresponding to that value estimate.  It can be proven that if we initialize our value function with aribitrary values and update those values by applying the recursive relationship, that process will converge to the true value function.  This iterative approach is one method of computing the value functions when we have the probability transition function for an environment.
+Since we have a finite and countable number of state action pairs, each value function can be represented as a vector or matrix whose indices represent the states and actions corresponding to that value estimate.  Given a value function and a policy, we can verify whether or not it satisfies the Bellman Equation everywhere.  If it does, then we have the correct value function for that policy.  In other words, the correct value function is a *fixed point* of the *Bellman Operator* where the *Bellman Operator* is the act of updating the value function with the right hand side of the Bellman Equation.  
+
+Verifying that a value function is correct is simple, but what is less obvious is that we can use the Bellman Operator to compute the correct value function without knowing it in advance.  It can be proven that if we initialize our value function arbitrarily and update those values with the Bellman Operator, that process will converge to the true value function.  This iterative approach is one method of computing the value functions when we have a well defined policy and the probability transition function for an environment.
 """
 
 # ╔═╡ 478aa9a3-ac58-4520-9613-3fcf1a1c1952
 md"""
 ### *Bellman Policy Evaluation*
+
+The following code shows how one can use the Bellman Operator to iteratively calculate the value function for a given policy.  The policy must be defined in terms of a probability distribution over actions for each state in the environment.  This implementation is an extension of the prior code in which every state action pair can be enumerated in advance.
 """
 
 # ╔═╡ ed7c22bf-2773-4ff7-93d0-2bd05cfef738
@@ -574,13 +603,13 @@ State values for the random policy.  Notice that at a discount rate of $\gamma=1
 """
 
 # ╔═╡ e6beff79-061c-4c01-b469-75dc5d4e059f
-@skip_as_script md"""Discount Rate: $(@bind γ_gridworld_policy_evaluation Slider(0.01f0:0.01f0:1f0; show_value=true, default = 1f0))"""
+@skip_as_script md"""Select Discount Rate for State Policy Evaluation: $(@bind γ_gridworld_policy_evaluation Slider(0.01f0:0.01f0:1f0; show_value=true, default = 1f0))"""
 
 # ╔═╡ ac5f7dcc-02ba-421c-a593-ca7ba60b3ff2
-@skip_as_script deterministic_gridworld_random_policy_evaluation = v_policy_evaluation(deterministic_gridworld.mdp, example_gridworld_random_policy, γ_gridworld_policy_evaluation)
+@skip_as_script deterministic_gridworld_random_policy_evaluation = v_policy_evaluation(deterministic_gridworld.mdp, example_gridworld_random_policy, γ_gridworld_policy_evaluation);
 
 # ╔═╡ 7851e968-a5af-4b65-9591-e34b3404fb09
-md"""
+@skip_as_script md"""
 Converged after $(deterministic_gridworld_random_policy_evaluation.total_iterations) iterations
 """
 
@@ -675,34 +704,45 @@ end
 # ╔═╡ f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
 function policy_iteration_v(mdp::CompleteMDP{T, S, A}, γ::T; max_iterations = 10, kwargs...) where {T<:Real, S, A}
 	π_list = Vector{Matrix{T}}()
+	v_list = Vector{Vector{T}}()
 	πgreedy = make_random_policy(mdp)
 	push!(π_list, copy(πgreedy))
 	(v_π, num_iterations, num_updates) = v_policy_evaluation(mdp, πgreedy, γ; kwargs...)
+	push!(v_list, copy(v_π))
 	make_greedy_policy!(πgreedy, mdp, v_π, γ)
 	while πgreedy != last(π_list)
 		push!(π_list, copy(πgreedy))
 		(v_π, num_iterations, num_updates) = v_policy_evaluation(mdp, πgreedy, γ; kwargs...)
+		push!(v_list, copy(v_π))
 		make_greedy_policy!(πgreedy, mdp, v_π, γ)
 	end
-	return π_list, v_π
+	return π_list, v_list
 end
 
 # ╔═╡ 4a80a7c3-6e9a-4973-b48a-b02509823830
-md"""
-#### Example: Gridworld Optimal Policy Iteration
+@skip_as_script md"""
+#### *Example: Gridworld Optimal Policy Iteration*
+
+If we apply policy iteration using the state value function, we can compute the optimal policy and value function for an arbitrary MDP.  This example applies the technique to a gridworld similar to the previous example but with a secondary goal in the upper left hand corner with half the reward.  The optimal solution changes depending on the discount rate since there are states for which the lower reward secondary goal is favorable due to the closer distance.  One can select the iteration to view both the policy and the corresponding value function as well as the discount rate and secondary goal reward to use for solving the MDP.
 """
 
-# ╔═╡ 7cce54bb-eaf9-488a-a836-71e72ba66fcd
-new_gridworld = make_gridworld(;goal2 = GridworldState(1, 7), usegoal2=true, goal2reward = 0.9f0)
+# ╔═╡ 6467d0ee-d551-4558-a765-aa832373d125
+@skip_as_script md"""Select reward for secondary goal: $(@bind goal2reward Slider(-1f0:.01f0:1f0; show_value=true, default = 0.5f0))"""
 
 # ╔═╡ 11b8c129-ca24-4b9e-a36a-73a9291b62cd
-@bind policy_iteration_γ Slider(0.01f0:0.01f0:1f0; show_value=true)
+@skip_as_script md"""Select Discount Rate for State Policy Iteration: $(@bind policy_iteration_γ Slider(0.01f0:0.01f0:1f0; show_value=true, default = 0.9))"""
+
+# ╔═╡ 7cce54bb-eaf9-488a-a836-71e72ba66fcd
+@skip_as_script const new_gridworld = make_gridworld(;goal2 = GridworldState(1, 7), usegoal2=true, goal2reward = goal2reward);
 
 # ╔═╡ 6d74b5de-1fc9-48af-96dd-3e090f691641
-π_list, v_π = policy_iteration_v(new_gridworld.mdp, policy_iteration_γ)
+@skip_as_script π_list, v_list = policy_iteration_v(new_gridworld.mdp, policy_iteration_γ);
+
+# ╔═╡ f218de8b-6003-4bd2-9820-48165cfde650
+@skip_as_script md"""Policy iteration converged after $(length(π_list) - 1) iterations"""
 
 # ╔═╡ 3a868cc5-4123-4b5f-be87-589430df389f
-@bind policy_iteration_count Slider(1:length(π_list); show_value=true, default = length(π_list))
+@skip_as_script md"""Number of Policy Iterations: $(@bind policy_iteration_count Slider(0:length(π_list) .- 1; show_value=true, default = length(π_list) - 1))"""
 
 # ╔═╡ 0a7c9e73-81a7-45d9-bf9e-ebc61abeb552
 md"""
@@ -780,10 +820,13 @@ end
 begin_value_iteration_v(mdp::CompleteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, length(mdp.states)); kwargs...)
 
 # ╔═╡ bf12d9c9-c79d-4398-9f15-27cbde1ed476
-@bind value_iteration_γ Slider(0.01f0:0.01f0:1f0; show_value=true)
+@skip_as_script md"""Select discount rate for value iteration: $(@bind value_iteration_γ Slider(0.01f0:0.01f0:1f0; show_value=true, default = 0.9f0))"""
 
 # ╔═╡ 929c353b-f67c-49ff-85d3-0a27cafc59cf
-(vlist, πstar) = begin_value_iteration_v(new_gridworld.mdp, value_iteration_γ)
+@skip_as_script const value_iteration_grid_example = begin_value_iteration_v(new_gridworld.mdp, value_iteration_γ);
+
+# ╔═╡ f7bdd0f3-ac7b-432e-8ed0-b733efa0a042
+@skip_as_script md"""Value iteration converged after $(length(value_iteration_grid_example[1]) - 1) steps"""
 
 # ╔═╡ 1d555f77-c404-485a-9244-717c12c80d28
 md"""
@@ -844,7 +887,7 @@ md"""
 md"""# Dependencies"""
 
 # ╔═╡ 7b4e1a9b-ef0b-41f6-a634-99af17a02f60
-html"""
+@skip_as_script html"""
 	<style>
 		main {
 			margin: 0 auto;
@@ -862,7 +905,7 @@ md"""
 """
 
 # ╔═╡ afaac0aa-d0e2-4e2c-a5ed-08b89b901541
-function addelements(e1, e2)
+@skip_as_script function addelements(e1, e2)
 	@htl("""
 	$e1
 	$e2
@@ -870,10 +913,61 @@ function addelements(e1, e2)
 end
 
 # ╔═╡ a40d6dd3-1f8b-476a-9839-1bd1ae46751a
-show_grid_value(mdp::CompleteMDP{T, S, A}, isterm::Function, state_init::Function, Q, name; kwargs...) where {T<:Real, S, A} = show_grid_value(mdp.states, isterm, state_init, Q, name; kwargs...)
+@skip_as_script show_grid_value(mdp::CompleteMDP{T, S, A}, isterm::Function, state_init::Function, Q, name; kwargs...) where {T<:Real, S, A} = show_grid_value(mdp.states, isterm, state_init, Q, name; kwargs...)
+
+# ╔═╡ 7ad8dc82-5c60-493a-b78f-93e37a3f3ab8
+@skip_as_script function show_grid_value(states, isterm, state_init, Q, name; scale = 1.0, title = "", sigdigits = 2, square_pixels = 20)
+	width = maximum(s.x for s in states)
+	height = maximum(s.y for s in states)
+	start = state_init()
+	terminds = findall(isterm, states)
+	sterms = states[terminds]
+	ngrid = width*height
+
+	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
+	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
+	@htl("""
+		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px; justify-content: center;">
+			<div>
+				$title
+				<div class = "gridworld $name value">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(states[i].x)" y = "$(states[i].y)" style = "grid-row: $(height - states[i].y + 1); grid-column: $(states[i].x); font-size: 12px; color: black;">$(displayvalue(Q, i))</div>""", *, eachindex(states))))
+				</div>
+			</div>
+		</div>
+	
+		<style>
+			.$name.value.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, $(square_pixels)px);
+				grid-template-rows: repeat($height, $(square_pixels)px);
+				background-color: white;
+			}
+
+			.$name.value[x="$(start.x)"][y="$(start.y)"] {
+				content: '';
+				background-color: rgba(0, 255, 0, 0.5);
+				
+			}
+
+			$(mapreduce(addelements, sterms) do sterm
+				@htl("""
+				.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
+					content: '';
+					background-color: rgba(255, 215, 0, 0.5);
+				}
+				""")
+			end)
+			
+		</style>
+	""")
+end
+
+# ╔═╡ bfef62c9-4186-4b01-afe2-e49432f04265
+@skip_as_script show_grid_value(deterministic_gridworld.mdp, deterministic_gridworld.isterm, () -> deterministic_gridworld.init_state, deterministic_gridworld_random_policy_evaluation.value_function, "gridworld_random_values"; square_pixels = 50)
 
 # ╔═╡ 9b937c49-7216-47c9-a1ef-2ecfa6ff3b31
-function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
+@skip_as_script function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
 	@htl("""
 		<div style = "display: flex; align-items: center; justify-content: center; transform: scale($scale);">
 		<div class = "downarrow" style = "position: absolute; transform: rotate(180deg); opacity: $(v[1]);"></div>	
@@ -885,14 +979,14 @@ function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
 end
 
 # ╔═╡ d5431c0e-ac46-4de1-8d3c-8c97b92306a8
-function show_selected_action(i)
+@skip_as_script function show_selected_action(i)
 	v = zeros(4)
 	v[i] = 1
 	display_rook_policy(v)
 end
 
 # ╔═╡ 93cbc453-152e-401e-bf53-c95f1ae962c0
-const rook_action_display = @htl("""
+@skip_as_script const rook_action_display = @htl("""
 <div style = "display: flex; flex-direction: column; align-items: center; justify-content: center; color: black; background-color: rgba(100, 100, 100, 0.1);">
 	<div style = "display: flex; align-items: center; justify-content: center;">
 	<div class = "downarrow" style = "transform: rotate(90deg);"></div>
@@ -904,8 +998,8 @@ const rook_action_display = @htl("""
 </div>
 """)
 
-# ╔═╡ 7ad8dc82-5c60-493a-b78f-93e37a3f3ab8
-function show_grid_value(states, isterm, state_init, Q, name; scale = 1.0, title = "", sigdigits = 2, action_display = rook_action_display, highlight_state = GridworldState(1, 1), transition_state = GridworldState(1, 2), reward_value = 0f0)
+# ╔═╡ 5ab5f9d5-b60a-4556-a8c7-47c808e5d4f8
+@skip_as_script function show_grid_transitions(states, isterm, state_init, name; scale = 1.0, title = "", action_display = rook_action_display, highlight_state = GridworldState(1, 1), transition_state = GridworldState(1, 2), reward_value = 0.0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
 	start = state_init()
@@ -913,8 +1007,6 @@ function show_grid_value(states, isterm, state_init, Q, name; scale = 1.0, title
 	sterms = states[terminds]
 	ngrid = width*height
 
-	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
-	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
 	@htl("""
 		<div style = "background-color: white; color: black;">
 		Selected Action with Reward $reward_value
@@ -924,7 +1016,7 @@ function show_grid_value(states, isterm, state_init, Q, name; scale = 1.0, title
 			<div>
 				$title
 				<div class = "gridworld $name value">
-					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(states[i].x)" y = "$(states[i].y)" style = "grid-row: $(height - states[i].y + 1); grid-column: $(states[i].x); font-size: 12px; color: black;">$(displayvalue(Q, i))</div>""", *, eachindex(states))))
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(states[i].x)" y = "$(states[i].y)" style = "grid-row: $(height - states[i].y + 1); grid-column: $(states[i].x); font-size: 12px; color: black;"></div>""", *, eachindex(states))))
 				</div>
 			</div>
 		</div>
@@ -936,6 +1028,7 @@ function show_grid_value(states, isterm, state_init, Q, name; scale = 1.0, title
 				grid-template-columns: repeat($width, 20px);
 				grid-template-rows: repeat($height, 20px);
 				background-color: white;
+				margin: 20px;
 			}
 
 			.$name.value[x="$(start.x)"][y="$(start.y)"] {
@@ -951,7 +1044,7 @@ function show_grid_value(states, isterm, state_init, Q, name; scale = 1.0, title
 
 			.$name.value[x="$(transition_state.x)"][y="$(transition_state.y)"] {
 				content: '';
-				border: 2px solid black;
+				border: 4px solid black;
 			}
 
 			$(mapreduce(addelements, sterms) do sterm
@@ -969,21 +1062,17 @@ end
 
 # ╔═╡ fed249aa-2d0a-4bc3-84ea-e3ad4b4e66fa
 function show_deterministic_gridworld(mdp, isterm, init_state, highlight_state_index, grid_action_selection)
-	gridworld_values = initialize_state_action_value(mdp)
 	s = mdp.states[highlight_state_index]
 	s′ = mdp.states[mdp.state_transition_map[grid_action_selection, highlight_state_index]]
 	r = mdp.reward_transition_map[grid_action_selection, highlight_state_index]
-	show_grid_value(mdp, isterm, () -> init_state, gridworld_values, "deterministic_gridworld_initial_values"; highlight_state = s, transition_state = s′, action_display = show_selected_action(grid_action_selection), reward_value = r)
+	show_grid_transitions(mdp.states, isterm, () -> init_state, "deterministic_gridworld_initial_values"; highlight_state = s, transition_state = s′, action_display = show_selected_action(grid_action_selection), reward_value = r)
 end
 
 # ╔═╡ 5994f7fd-ecd1-4c2b-8000-5eaa03262a63
 @skip_as_script  show_deterministic_gridworld(deterministic_gridworld.mdp, deterministic_gridworld.isterm, deterministic_gridworld.init_state, highlight_state_index, grid_action_selection)
 
-# ╔═╡ bfef62c9-4186-4b01-afe2-e49432f04265
-@skip_as_script show_grid_value(deterministic_gridworld.mdp, deterministic_gridworld.isterm, () -> deterministic_gridworld.init_state, deterministic_gridworld_random_policy_evaluation.value_function, "gridworld_random_values")
-
 # ╔═╡ b70ec2b1-f8c2-4288-831a-041804d2ec43
-function show_grid_policy(states, state_init, isterm, π, name; display_function = display_rook_policy, action_display = rook_action_display, scale = 1.0)
+@skip_as_script function show_grid_policy(states, state_init, isterm, π, name; display_function = display_rook_policy, action_display = rook_action_display, scale = 1.0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
 	start = state_init()
@@ -1031,13 +1120,18 @@ end
 @skip_as_script show_grid_policy((deterministic_gridworld.mdp).states, () -> deterministic_gridworld.init_state, deterministic_gridworld.isterm, make_random_policy(deterministic_gridworld.mdp), "random_policy_deterministic_gridworld")
 
 # ╔═╡ 2e4bdce5-6188-4c22-a56b-7051c63aa165
-show_grid_policy((new_gridworld.mdp).states, () -> new_gridworld.init_state, new_gridworld.isterm, π_list[policy_iteration_count], "policy_iteration_deterministic_gridworld")
+@skip_as_script @htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div>Policy after Iteration $policy_iteration_count$(show_grid_policy((new_gridworld.mdp).states, () -> new_gridworld.init_state, new_gridworld.isterm, π_list[policy_iteration_count+1], "policy_iteration_deterministic_gridworld"))</div>
+	<div>Corresponding Value Function$(show_grid_value(new_gridworld.mdp, new_gridworld.isterm, () -> new_gridworld.init_state, v_list[policy_iteration_count+1], "policy_iteration_values", square_pixels = 40))</div>
+</div>
+""")
 
 # ╔═╡ 668f21ed-435c-47b1-9f63-451a45536879
-show_grid_policy((new_gridworld.mdp).states, () -> new_gridworld.init_state, new_gridworld.isterm, πstar, "policy_iteration_deterministic_gridworld")
+@skip_as_script show_grid_policy((new_gridworld.mdp).states, () -> new_gridworld.init_state, new_gridworld.isterm, value_iteration_grid_example[2], "policy_iteration_deterministic_gridworld")
 
 # ╔═╡ c11ab768-1da4-497b-afc1-fb64bc3fb457
-HTML("""
+@skip_as_script HTML("""
 <style>
 	.downarrow {
 		display: flex;
@@ -1098,7 +1192,7 @@ HTML("""
 """)
 
 # ╔═╡ 3279ba47-18a1-45a9-9d29-18b9875ed057
-function plot_path(episode_states::Vector{S}, sterm::S, gridworld_states::Vector{S}, s0::S, isterm::Function; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path") where S <: GridworldState
+@skip_as_script function plot_path(episode_states::Vector{S}, sterm::S, gridworld_states::Vector{S}, s0::S, isterm::Function; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path") where S <: GridworldState
 	xmax = maximum([s.x for s in gridworld_states])
 	ymax = maximum([s.y for s in gridworld_states])
 	start = s0
@@ -1127,13 +1221,13 @@ function plot_path(episode_states::Vector{S}, sterm::S, gridworld_states::Vector
 end
 
 # ╔═╡ cbeac89a-845c-4409-8067-8766fe3b8a24
-function plot_path(mdp::CompleteMDP, s0, isterm, π; max_steps = 100, kwargs...)
+@skip_as_script function plot_path(mdp::CompleteMDP, s0, isterm, π; max_steps = 100, kwargs...)
 	(states, actions, rewards, sterm) = runepisode(mdp, s0, isterm, π; max_steps = max_steps)
 	plot_path(states, sterm, mdp.states, s0, isterm; kwargs...)
 end
 
 # ╔═╡ 4f193af4-9925-4047-92f9-c67eec1f4c97
-plot_path(mdp::CompleteMDP, s0, isterm; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, s0, isterm, make_random_policy(mdp); title = title, kwargs...)
+@skip_as_script plot_path(mdp::CompleteMDP, s0, isterm; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, s0, isterm, make_random_policy(mdp); title = title, kwargs...)
 
 # ╔═╡ 3a707040-a763-42f6-9f5c-8c56a5f869f7
 @skip_as_script plot_path(deterministic_gridworld.mdp, deterministic_gridworld.init_state, deterministic_gridworld.isterm)
@@ -1812,11 +1906,12 @@ version = "17.4.0+2"
 # ╠═fa07a49b-68fb-4478-a29b-9289f6a3d56a
 # ╟─06f6647d-48c5-4ead-b7b5-90a968363215
 # ╠═92556e91-abae-4ce3-aa15-b35c4a65cff5
+# ╟─1188e680-cfbe-417c-ad61-83e145c39220
 # ╠═10d4576c-9b86-469c-83b7-1e3d3bc21da1
 # ╟─3b3decd0-bb00-4fd2-a8eb-a5b14aede950
 # ╟─e14350ea-5a00-4a8f-8b81-f751c69b67a6
 # ╟─770c4392-6285-4e00-8d72-5c6a132d8aa9
-# ╠═5994f7fd-ecd1-4c2b-8000-5eaa03262a63
+# ╟─5994f7fd-ecd1-4c2b-8000-5eaa03262a63
 # ╠═fed249aa-2d0a-4bc3-84ea-e3ad4b4e66fa
 # ╟─4b277cea-668e-43d6-bd2a-fcbf62be9b12
 # ╟─82f710d7-6ae8-4794-af2d-762ee3a73a3f
@@ -1848,9 +1943,9 @@ version = "17.4.0+2"
 # ╟─381bfc1e-9bc4-47f7-a8d3-116933382e25
 # ╟─b991831b-f15d-493c-835c-c7e8a33f8d7b
 # ╟─e6beff79-061c-4c01-b469-75dc5d4e059f
-# ╠═ac5f7dcc-02ba-421c-a593-ca7ba60b3ff2
 # ╟─7851e968-a5af-4b65-9591-e34b3404fb09
-# ╠═bfef62c9-4186-4b01-afe2-e49432f04265
+# ╟─bfef62c9-4186-4b01-afe2-e49432f04265
+# ╟─ac5f7dcc-02ba-421c-a593-ca7ba60b3ff2
 # ╟─cb96b24a-65aa-4832-bc7d-093f0c951f83
 # ╟─7df4fcbb-2f5f-4d59-ba0c-c7e635bb0503
 # ╟─4f0f052d-b461-4040-b5ff-46aac74a24de
@@ -1861,11 +1956,13 @@ version = "17.4.0+2"
 # ╠═397b3a3d-e64b-43b6-9b33-964cc65ecd30
 # ╠═f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
 # ╟─4a80a7c3-6e9a-4973-b48a-b02509823830
-# ╠═7cce54bb-eaf9-488a-a836-71e72ba66fcd
+# ╟─6467d0ee-d551-4558-a765-aa832373d125
 # ╟─11b8c129-ca24-4b9e-a36a-73a9291b62cd
-# ╠═6d74b5de-1fc9-48af-96dd-3e090f691641
+# ╟─f218de8b-6003-4bd2-9820-48165cfde650
 # ╟─3a868cc5-4123-4b5f-be87-589430df389f
-# ╠═2e4bdce5-6188-4c22-a56b-7051c63aa165
+# ╟─2e4bdce5-6188-4c22-a56b-7051c63aa165
+# ╟─7cce54bb-eaf9-488a-a836-71e72ba66fcd
+# ╟─6d74b5de-1fc9-48af-96dd-3e090f691641
 # ╟─0a7c9e73-81a7-45d9-bf9e-ebc61abeb552
 # ╠═c2903e20-1be8-4d79-8716-798f5dc15bd4
 # ╠═55d182d1-aa25-4ac9-802f-129756ffa302
@@ -1873,8 +1970,9 @@ version = "17.4.0+2"
 # ╠═1e24a0aa-dbf9-422e-92c9-834f293a0c02
 # ╠═eec3017b-6d02-49e6-aedf-9a494b426ec5
 # ╟─bf12d9c9-c79d-4398-9f15-27cbde1ed476
-# ╠═929c353b-f67c-49ff-85d3-0a27cafc59cf
-# ╠═668f21ed-435c-47b1-9f63-451a45536879
+# ╟─f7bdd0f3-ac7b-432e-8ed0-b733efa0a042
+# ╟─668f21ed-435c-47b1-9f63-451a45536879
+# ╟─929c353b-f67c-49ff-85d3-0a27cafc59cf
 # ╠═1d555f77-c404-485a-9244-717c12c80d28
 # ╠═3df86061-63f7-4c1f-a141-e1848f6e83e4
 # ╠═b1531821-7ed0-4540-888d-4eaf718c63f9
@@ -1888,11 +1986,13 @@ version = "17.4.0+2"
 # ╠═78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
 # ╟─796eeb6c-1152-11ef-00b7-b543ec85b526
 # ╠═0574291d-263a-4836-8cb9-78ad7de3f095
+# ╠═cbcc1cd8-7319-4076-84cf-f7ae4d0b5794
 # ╠═7b4e1a9b-ef0b-41f6-a634-99af17a02f60
 # ╟─32c92099-f322-4086-983d-50b79ab28de8
 # ╠═afaac0aa-d0e2-4e2c-a5ed-08b89b901541
 # ╠═a40d6dd3-1f8b-476a-9839-1bd1ae46751a
 # ╠═d5431c0e-ac46-4de1-8d3c-8c97b92306a8
+# ╠═5ab5f9d5-b60a-4556-a8c7-47c808e5d4f8
 # ╠═7ad8dc82-5c60-493a-b78f-93e37a3f3ab8
 # ╠═b70ec2b1-f8c2-4288-831a-041804d2ec43
 # ╠═9b937c49-7216-47c9-a1ef-2ecfa6ff3b31
