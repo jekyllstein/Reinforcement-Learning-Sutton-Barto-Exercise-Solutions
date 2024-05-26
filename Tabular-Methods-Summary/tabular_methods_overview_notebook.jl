@@ -635,17 +635,43 @@ q_*(s, a) &\doteq \max_\pi q_\pi(s, a) \: \forall \: s \in \mathcal{S} \text{ an
 
 # ╔═╡ 4f0f052d-b461-4040-b5ff-46aac74a24de
 md"""
-Analogous to the previous Bellman equations, (3.19) and (3.20) are known as the *Bellman optimality equations* for the state and state-action value functions.  Every optimal policy will share the value function that has this property.
+Analogous to the previous Bellman equations, (3.19) and (3.20) are known as the *Bellman optimality equations* for the state and state-action value functions.  Every optimal policy will share the value function that has this property.  We can verify if a particular value function is optimal by checking whether it satisfies the Bellman optimality equation, but we also want methods to compute this function just like we did for a given policy.  In fact, our ability to compute the value function for a set policy can be used to derive the optimal value function.  This process is known as *policy improvement*.
 """
 
 # ╔═╡ cf902114-94e3-4402-ae04-8f704dd6adad
 md"""
 ### Policy Improvement
+
+Suppose we have a policy $\pi$ and the corresponding value functions $v_\pi, q_\pi$.  Recall that the optimal value functions $v_*, q_*$ have the property that their values are at least as good as the values for any other policy.  So, if we can find a modified policy whose value function is improved, we have moved our policy closer to the optimal one.  The approach in policy improvement will be to repeatedly improve a set policy until it is optimal.
+
+As a starting point, consider a state $s$ and the corresponding value function at that state $v_\pi(s)$.  We can also consider $q_\pi(s, a)$ for all of the available actions.  Let's say we find an action $a$ such that $q_\pi(s, a) \geq v_\pi(s)$.  If we define a new policy $\pi^\prime$ which takes this action from state $s$ and otherwise follows $\pi$, then we know that $q_\pi(s, \pi^\prime(s)) \geq v_\pi(s)$.  This expression is using the value function for the original policy $\pi$ and assumes that our choice of action at state $s$ is a one time event.  If we encounter $s$ in the future, this expression is only correct if we revert to following $\pi$.  What we would like to know is whether $v_{\pi^\prime}(s) \geq v_\pi(s)$ for the state in question and every other state in the problem.  
+
+The *policy improvement theorem* states that such a policy $\pi^\prime$ as we have defined it does in fact have that property.  In other words: 
+
+$q_\pi(s, \pi^\prime(s)) \geq v_\pi(s) \implies v_{\pi^\prime}(s) \geq v_\pi(s) \: \forall \: s \in \mathcal{S}$
+
+The $\pi^\prime$ defined above meets this property and uses $q_\pi$ to select a new action.  If we have access to the probability transition function, we can use $v_\pi$ to update the policy as follows:
+
+$\begin{flalign}
+\pi^\prime(s) &\doteq \mathrm{argmax}_a q_\pi(s, a) \\
+& = \mathrm{argmax}_a \mathbb{E} [R_{t+1} + \gamma v_\pi(S_{t+1}) \mid S_t = s, A_t = a] \\
+& = \mathrm{argmax}_a \sum_{s^\prime, r} p(s^\prime, r \vert s, a) [r + \gamma v_\pi(s^\prime)] \\
+\end{flalign}$
+
+This policy is known as the *greedy* policy with respect to the value function.  We can apply this update at every state to improve the policy everywhere.  Let's say that $\pi^\prime = \pi$.  That would mean that the $v_{\pi^\prime} = v_\pi$, and $v_{\pi^\prime}(s) = \max_a q_{\pi^\prime}(s, a)$.  In other words, $\pi^\prime$ satisfies the Bellman optimaliy equation and we have found the optimal policy.
+"""
+
+# ╔═╡ a3e85772-9c67-454f-94d2-c2608b53c427
+md"""
+### Policy Iteration
+
+Since we can improve an arbitrary policy, one method to computing the optimal policy is to just repeat this process over an over until it converges.  Once the process converges, our policy is guaranteed to be optimal.  The procedure called *policy iteration* starts with an arbitrary policy $\pi_0$, computes its value function $v_{\pi_0}$, and then performs the greedy updateat every state to achieve an improved policy $\pi_1$.  Upon repetition this procedure will produce a sequence of policies and value functions until the update results in no change to the policy.  Since we are also computing the value functions at each step, we can also halt the process when the state values do not change at all or within some tolerance.
 """
 
 # ╔═╡ f52b6f5d-3832-41aa-8ccd-78e514e65c8b
 md"""
 ### *Bellman Policy Iteration*
+The following code implements policy iteration in the tabular case where the full probability transition function is available.  In this case, state values are sufficient, but one can also use state-action values with policy iteration.
 """
 
 # ╔═╡ 1f9752c2-7bb9-4cd2-b90b-2995bcec7ae3
@@ -739,14 +765,28 @@ If we apply policy iteration using the state value function, we can compute the 
 @skip_as_script π_list, v_list = policy_iteration_v(new_gridworld.mdp, policy_iteration_γ);
 
 # ╔═╡ f218de8b-6003-4bd2-9820-48165cfde650
-@skip_as_script md"""Policy iteration converged after $(length(π_list) - 1) iterations"""
+@skip_as_script md"""Policy iteration converged after $(length(π_list) - 1) steps"""
 
 # ╔═╡ 3a868cc5-4123-4b5f-be87-589430df389f
 @skip_as_script md"""Number of Policy Iterations: $(@bind policy_iteration_count Slider(0:length(π_list) .- 1; show_value=true, default = length(π_list) - 1))"""
 
+# ╔═╡ 6253a562-2a48-45da-b453-1ec7b51d2073
+md"""
+### Value Iteration
+
+When we introduced the Bellman optimality equations, it was noted that those equations can be used to verify if a policy is optimal.  It turns out that, just like with policy evaluation, we can use turn the Bellman optimality equations into an operator and use the operator directly to compute the optimal value function.  This procedure is called *value iteration* and proceeds by first initializing an arbitrary value function $v_0$.  Then that value function is updated with the Bellman optimality operator as follows:
+
+$\begin{flalign}
+v_{k+1}(s) = \max_a \sum_{s^\prime, r}p(s^\prime, r \vert s, a) \left [ r + \gamma v_k (s^\prime) \right ]
+\end{flalign}$
+
+This update can be performed at every state and repeated until the process converges.  It can be proven that starting with an arbitrary $v_0$, this procedure does converge to $v_*$ in the same manner that policy evaluation can compute $v_\pi$.  Here, the expected value under the policy is replaced with the maximization over actions.  This approach dispenses entirely with defining a policy as required by policy iteration and may converge faster than that process.  We can halt the process when the value function update becomes small within some tolerance.
+"""
+
 # ╔═╡ 0a7c9e73-81a7-45d9-bf9e-ebc61abeb552
 md"""
 ### *Bellman Value Iteration*
+The following code implements value iteration in the tabular case where the value function can be represented as a vector of values for each state.  Given the probability transition function, state values are sufficient to perform value iteration, but it can also be done with state-action values.
 """
 
 # ╔═╡ c2903e20-1be8-4d79-8716-798f5dc15bd4
@@ -819,14 +859,18 @@ end
 # ╔═╡ eec3017b-6d02-49e6-aedf-9a494b426ec5
 begin_value_iteration_v(mdp::CompleteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, length(mdp.states)); kwargs...)
 
+# ╔═╡ 40f6257d-db5c-4e21-9691-f3c9ffc9a9b5
+@skip_as_script md"""
+#### *Example: Gridworld Value Iteration*
+
+If we apply value iteration using the state value function, we can compute the optimal value function for an arbitrary MDP.  The optimal policy will just be the greedy policy with respect to that value function.  The MDP shown is the same example as that used for the policy iteration example.  Even though value iteration requires more steps to converge, each step is much faster than those of policy iteration.
+"""
+
 # ╔═╡ bf12d9c9-c79d-4398-9f15-27cbde1ed476
 @skip_as_script md"""Select discount rate for value iteration: $(@bind value_iteration_γ Slider(0.01f0:0.01f0:1f0; show_value=true, default = 0.9f0))"""
 
 # ╔═╡ 929c353b-f67c-49ff-85d3-0a27cafc59cf
 @skip_as_script const value_iteration_grid_example = begin_value_iteration_v(new_gridworld.mdp, value_iteration_γ);
-
-# ╔═╡ f7bdd0f3-ac7b-432e-8ed0-b733efa0a042
-@skip_as_script md"""Value iteration converged after $(length(value_iteration_grid_example[1]) - 1) steps"""
 
 # ╔═╡ 1d555f77-c404-485a-9244-717c12c80d28
 md"""
@@ -1127,8 +1171,14 @@ end
 </div>
 """)
 
-# ╔═╡ 668f21ed-435c-47b1-9f63-451a45536879
-@skip_as_script show_grid_policy((new_gridworld.mdp).states, () -> new_gridworld.init_state, new_gridworld.isterm, value_iteration_grid_example[2], "policy_iteration_deterministic_gridworld")
+# ╔═╡ 102d169a-8bd0-42f4-bfc9-3a32708afadc
+@skip_as_script @htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div style = "margin: 10px;">Optimal value function found after $(length(value_iteration_grid_example[1]) - 1) steps $(show_grid_value(new_gridworld.mdp, new_gridworld.isterm, () -> new_gridworld.init_state, last(value_iteration_grid_example[1]), "policy_iteration_values", square_pixels = 40))</div>
+	<div style = "margin: 10px;">Corresponding greedy policy
+	$(show_grid_policy((new_gridworld.mdp).states, () -> new_gridworld.init_state, new_gridworld.isterm, value_iteration_grid_example[2], "policy_iteration_deterministic_gridworld"))</div>
+</div>
+""")
 
 # ╔═╡ c11ab768-1da4-497b-afc1-fb64bc3fb457
 @skip_as_script HTML("""
@@ -1949,7 +1999,8 @@ version = "17.4.0+2"
 # ╟─cb96b24a-65aa-4832-bc7d-093f0c951f83
 # ╟─7df4fcbb-2f5f-4d59-ba0c-c7e635bb0503
 # ╟─4f0f052d-b461-4040-b5ff-46aac74a24de
-# ╟─cf902114-94e3-4402-ae04-8f704dd6adad
+# ╠═cf902114-94e3-4402-ae04-8f704dd6adad
+# ╟─a3e85772-9c67-454f-94d2-c2608b53c427
 # ╟─f52b6f5d-3832-41aa-8ccd-78e514e65c8b
 # ╠═1f9752c2-7bb9-4cd2-b90b-2995bcec7ae3
 # ╠═b9fba3cc-bfe4-4d84-9718-9f13daf40195
@@ -1963,15 +2014,16 @@ version = "17.4.0+2"
 # ╟─2e4bdce5-6188-4c22-a56b-7051c63aa165
 # ╟─7cce54bb-eaf9-488a-a836-71e72ba66fcd
 # ╟─6d74b5de-1fc9-48af-96dd-3e090f691641
+# ╟─6253a562-2a48-45da-b453-1ec7b51d2073
 # ╟─0a7c9e73-81a7-45d9-bf9e-ebc61abeb552
 # ╠═c2903e20-1be8-4d79-8716-798f5dc15bd4
 # ╠═55d182d1-aa25-4ac9-802f-129756ffa302
 # ╠═ecebce8b-0e2a-49d0-89f5-53bd0ffdd1a3
 # ╠═1e24a0aa-dbf9-422e-92c9-834f293a0c02
 # ╠═eec3017b-6d02-49e6-aedf-9a494b426ec5
+# ╟─40f6257d-db5c-4e21-9691-f3c9ffc9a9b5
 # ╟─bf12d9c9-c79d-4398-9f15-27cbde1ed476
-# ╟─f7bdd0f3-ac7b-432e-8ed0-b733efa0a042
-# ╟─668f21ed-435c-47b1-9f63-451a45536879
+# ╟─102d169a-8bd0-42f4-bfc9-3a32708afadc
 # ╟─929c353b-f67c-49ff-85d3-0a27cafc59cf
 # ╠═1d555f77-c404-485a-9244-717c12c80d28
 # ╠═3df86061-63f7-4c1f-a141-e1848f6e83e4
