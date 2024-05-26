@@ -872,19 +872,40 @@ If we apply value iteration using the state value function, we can compute the o
 # ╔═╡ 929c353b-f67c-49ff-85d3-0a27cafc59cf
 @skip_as_script const value_iteration_grid_example = begin_value_iteration_v(new_gridworld.mdp, value_iteration_γ);
 
+# ╔═╡ a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
+md"""
+### Generalized Policy Iteration
+
+So far we presented two extreme cases of generalized policy iteration.  In the first case, policy iteration, we accurately compute a policy value function, and then update the policy to be greedy with respect to it.  In value iteration, we skip defining a policy altogether and just use the Bellman optimality operator to iteratively compute the optimal value function.  In general, we can use the Bellman operator to compute a value function for a policy that is not yet optimal and stop before that value function has converged.  Then our policy improvement step is not basing the new policy on an accurate version of the current value function, but we can continue to apply policy evaluation to the updated policy.  In this procedure, the policy evaluation is constantly playing catchup to the ever changing policy by chasing a moving target, but that target will stop moving once we reach the optimal policy.  It turns out that proceding with partial value function updates will still eventually converge to the optimal policy, and we can choose to wait until the value function is fully converged, dispense with it altogether, or anything in between.  This family of procedures all follow the same pattern and are known as *generalized policy iteration*.
+"""
+
 # ╔═╡ 1d555f77-c404-485a-9244-717c12c80d28
 md"""
 ## Monte Carlo Sampling Methods
+The preceeding solution methods require the probability transition function to calculate value functions by using the Bellman equations.  It is also possible to compute value functions from *experience* with the environment.  Typically this experience is in the form of observed transitions in the environment: $(s, a) \rightarrow (s^\prime, r)$.  For a deterministic environment, only one state transition is possible, so even after one observation we may already have information equivalent to the probability transition function.  In general stochastic environments, we can only learn accurate value functions by observing many transitions from a single state action pair (usually an infinite number to guarantee convergence).  Our approach to computing the optimal value function will follow the same pattern of generalized policy iteration where we use the value function as a stepping stone for policy improvement.
 """
 
 # ╔═╡ 3df86061-63f7-4c1f-a141-e1848f6e83e4
 md"""
 ### Policy Prediction
+
+Experience can be used to do policy evaluation.  When we use experience instead of the probability transition function, this procedure is known as *Monte Carlo Prediction* and the environment will be used to *sample* experience that follows the probability transition function.  This method is the easiest to understand because it only relies upon the original definition of the value functions.  
+
+$\begin{flalign}
+v_\pi(s) &= \mathbb{E}_\pi \left [G_t \mid S_t = s \right] = \mathbb{E}_\pi \left [R_t + \gamma R_{t+1} + \cdots \mid S_t = s \right] \\
+q_\pi(s, a) &= \mathbb{E}_\pi \left [G_t \mid S_t = s, A_t = a \right] = \mathbb{E}_\pi \left [R_t + \gamma R_{t+1} + \cdots \mid S_t = s, A_t = a \right]\\
+\end{flalign}$
+
+Instead of expanding the definition of $G_t$, we will directly sample it from episodes through the environment.  As such this method is only suitable for environments that are episodic and for policies that produce finite episodes.  Given such a policy, we can select a starting state either randomly or given naturally by the environment and then use the policy to generate transitions through the environment until termination.  Such an episode will look like:
+
+$S_0 \overset{\pi}{\rightarrow} A_0 \rightarrow R_1, S_1 \overset{\pi}{\rightarrow} A_1 \rightarrow R_2, S_2 \overset{\pi}{\rightarrow} \cdots\rightarrow R_T, S_T$
+
+From this episode, at each state $s = S_t$, we can estimate $G_t = \mathbb{E}_\pi \left [ R_t + R_{t+1} + \cdots + R_T \right ]$ by taking a single sample who's expected value matches the expected value in the definition of $G_t$.  A weighted average of these samples will produce an estimate of $G_t$ who's variance will shrink to 0 in the limit of infinite samples (this depends on the averaging method as some methods may not have variance that converges to 0 and also on the environment in the case of the reward distribution for a particular state having infinite variance).  If we instead wish to estimate state-action values, we can perform the same averaging but maintain a different estimate for each state action pair observed.    
 """
 
-# ╔═╡ b1531821-7ed0-4540-888d-4eaf718c63f9
+# ╔═╡ 7c553f77-7783-439e-834b-53a2cd3bef5a
 md"""
-### Generalized Policy Iteration
+### *Monte Carlo Policy Prediction*
 """
 
 # ╔═╡ d7037f99-d3b8-4986-95c8-58f4f043e916
@@ -2025,9 +2046,10 @@ version = "17.4.0+2"
 # ╟─bf12d9c9-c79d-4398-9f15-27cbde1ed476
 # ╟─102d169a-8bd0-42f4-bfc9-3a32708afadc
 # ╟─929c353b-f67c-49ff-85d3-0a27cafc59cf
-# ╠═1d555f77-c404-485a-9244-717c12c80d28
+# ╟─a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
+# ╟─1d555f77-c404-485a-9244-717c12c80d28
 # ╠═3df86061-63f7-4c1f-a141-e1848f6e83e4
-# ╠═b1531821-7ed0-4540-888d-4eaf718c63f9
+# ╠═7c553f77-7783-439e-834b-53a2cd3bef5a
 # ╠═d7037f99-d3b8-4986-95c8-58f4f043e916
 # ╟─eebfe8e7-56dd-457c-a1e6-1a67b3b7ceec
 # ╠═5979b5ec-5fef-40ef-a5c3-3a5b3d3040d9
