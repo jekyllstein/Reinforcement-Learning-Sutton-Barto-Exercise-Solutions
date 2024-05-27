@@ -706,13 +706,13 @@ function make_greedy_policy!(π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, V
 end
 
 # ╔═╡ 397b3a3d-e64b-43b6-9b33-964cc65ecd30
-function make_greedy_policy!(π::Matrix{T}, mdp::AbstractCompleteMDP{T, S, A}, Q::Matrix{T}) where {T<:Real,S,A}
+function make_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A}, Q::Matrix{T}) where {T<:Real,S,A}
 	for i_s in eachindex(mdp.states)
 		maxq = -Inf
 		for i_a in eachindex(mdp.actions)
 			maxq = max(maxq, Q[i_a, i_s])
 		end
-		π[:, i_s] .= (π[:, i_s] .≈ maxq)
+		π[:, i_s] .= (Q[:, i_s] .≈ maxq)
 		π[:, i_s] ./= sum(π[:, i_s])
 	end
 	return π
@@ -1022,6 +1022,40 @@ function runepisode(mdp::AbstractCompleteMDP{T, S, A}, s0::S, isterm::Function, 
 	return states, actions, rewards, sterm
 end
 
+# ╔═╡ e4476a04-036e-4074-bd90-54475c00800a
+function runepisode(mdp::AbstractSampleTabularMDP{T, S, A}, π::Matrix{T}, s0::S, a0::A; max_steps = Inf) where {T<:Real, S, A}
+	s = s0
+	a = a0
+	states = Vector{S}()
+	actions = Vector{A}()
+	push!(states, s)
+	(r, s′) = mdp.step(s, a)
+	push!(actions, a)
+	rewards = [r]
+	step = 2
+	sterm = s
+	if mdp.isterm(s′)
+		sterm = s′
+	else
+		sterm = s
+	end
+	s = s′
+
+	#note that the terminal state will not be added to the state list
+	while !mdp.isterm(s) && (step <= max_steps)
+		push!(states, s)
+		(_, _, r, s′, a, _) = takestep(mdp, π, s)
+		push!(actions, a)
+		push!(rewards, r)
+		s = s′
+		step += 1
+		if mdp.isterm(s′)
+			sterm = s′
+		end
+	end
+	return states, actions, rewards, sterm
+end
+
 # ╔═╡ 33bcbaeb-6fd4-4724-ba89-3f0057b29ae9
 function runepisode(mdp::AbstractSampleTabularMDP{T, S, A}, π::Matrix{T}; s0::S = mdp.state_init(), max_steps = Inf) where {T<:Real, S, A}
 	s = s0
@@ -1068,71 +1102,73 @@ md"""
 """
 
 # ╔═╡ 3d86b788-9770-4356-ac6b-e80b0bfa1314
-function mc_episode_update!(v_sum::Vector{T}, counts::Vector{T}, π, mdp::AbstractSampleTabularMDP, γ::T; kwargs...) where T<:Real
-	(states, actions, rewards, sterm) = runepisode(mdp, π)
+function mc_episode_update!(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, v::Vector{T}, counts::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	l = length(states)
-	G = zero(T)
+	g = zero(T)
 	for i in l:-1:1
-		G = γ*G + rewards[i]
+		g = γ*g + rewards[i]
 		i_s = mdp.state_index[states[i]]
-		v_sum[i_s] += G
 		counts[i_s] += 1
+		v_old = v[i_s]
+		v[i_s] += (g - v_old) / counts[i_s] 
 	end
 end
 
 # ╔═╡ 025ef73b-e9f6-4741-9e89-f334b0f758f5
-function mc_episode_update!(q_sum::Matrix{T}, counts::Matrix{T}, π, mdp::AbstractSampleTabularMDP, γ::T; kwargs...) where T<:Real
-	(states, actions, rewards, sterm) = runepisode(mdp, π)
+function mc_episode_update!(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, q::Matrix{T}, counts::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	l = length(states)
-	G = zero(T)
+	g = zero(T)
 	for i in l:-1:1
-		G = γ*G + rewards[i]
+		g = γ*g + rewards[i]
 		i_s = mdp.state_index[states[i]]
 		i_a = mdp.action_index[actions[i]]
-		q_sum[i_a, i_s] += G
 		counts[i_a, i_s] += 1
+		q_old = q[i_a, i_s]
+		q[i_a, i_s] += (g - q_old) / counts[i_a, i_s] 
 	end
 end
 
 # ╔═╡ ea19d77b-96bf-411f-8faa-6007c11e204b
 function v_mc_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	v_sum = initialize_state_value(mdp) #default is 0 initialization
+	v = initialize_state_value(mdp) #default is 0 initialization
 	counts = zeros(T, length(mdp.states))
 	if save_history
-		v_history = zeros(T, length(v_sum), num_episodes)
+		v_history = zeros(T, length(v), num_episodes)
 	end
 	for ep in 1:num_episodes
-		mc_episode_update!(v_sum, counts, π, mdp, γ; kwargs...)
+		(states, actions, rewards, _) = runepisode(mdp, π)
+		mc_episode_update!(states, actions, rewards, v, counts, mdp, γ; kwargs...)
 		if save_history
-			v_history[:, ep] .= v_sum ./ (counts .+ 1f0) #if a state is unvisited leave its value estimate at 0 rather than NaN
+			v_history[:, ep] .= v
 		end
 	end
-	final_v = v_sum ./ counts
+	final_v = v
 	if save_history
 		return (final_value_estimate = final_v, value_estimate_history = v_history)
 	else
-		return v_sum ./ (counts .+ 1f0) #if a state is unvisited leave its value estimate at 0 rather than NaN
+		return v
 	end
 end
 
 # ╔═╡ 3d0ba8ea-4097-4c64-9745-46b3e1f503c5
 function q_mc_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	q_sum = initialize_state_action_value(mdp) #default is 0 initialization
+	q = initialize_state_action_value(mdp) #default is 0 initialization
 	counts = zeros(T, length(mdp.actions), length(mdp.states))
 	if save_history
 		q_history = zeros(T, size(q_sum)..., num_episodes)
 	end
 	for ep in 1:num_episodes
-		mc_episode_update!(q_sum, counts, π, mdp, γ; kwargs...)
+		(states, actions, rewards, _) = runepisode(mdp, π)
+		mc_episode_update!(states, actions, rewards, q, counts, mdp, γ; kwargs...)
 		if save_history
-			v_history[:, :, ep] .= q_sum ./ (counts .+ 1f0) #if a state is unvisited leave its value estimate at 0 rather than NaN
+			q_history[:, :, ep] .= q
 		end
 	end
-	final_q = q_sum ./ counts
+	final_q = q
 	if save_history
 		return (final_value_estimate = final_q, value_estimate_history = q_history)
 	else
-		return q_sum ./ (counts .+ 1f0) #if a state is unvisited leave its value estimate at 0 rather than NaN
+		return q
 	end
 end
 
@@ -1177,6 +1213,36 @@ md"""
 
 The following code implements Monte Carlo control for estimating the optimal policy of a Tabular MDP from which we can only take samples.  Exploring starts are required to ensure that we could visit all the state action pairs an unlimited number of times over the course of multiple episodes.
 """
+
+# ╔═╡ 9a7e922b-44e5-4c5e-8288-e39a48e151d5
+function monte_carlo_control_exploring_starts(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer; π = make_random_policy(mdp), q = initialize_state_action_value(mdp), counts = zeros(T, length(mdp.actions), length(mdp.states)), compare_error = false, value_reference = zeros(T, length(mdp.states)), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+	if compare_error
+		error_history = zeros(T, num_episodes)
+	end
+	for ep in 1:num_episodes
+		(states, actions, rewards) = runepisode(mdp, π, rand(mdp.states), rand(mdp.actions); kwargs...)
+		mc_episode_update!(states, actions, rewards, q, counts, mdp, γ)
+		make_greedy_policy!(π, mdp, q)
+		if compare_error
+			error_history[ep] = sqrt(mean((value_reference[i] - sum(q[i_a, i]*π[i_a, i] for i_a in eachindex(mdp.actions))) ^2 for i in eachindex(value_reference)))
+		end
+	end
+	basereturn = (optimal_policy_estimate = π, optimal_value_estimate = q)
+	!compare_error && return basereturn
+	return (;basereturn..., error_history = error_history)
+end
+
+# ╔═╡ 26d60dab-bab1-495d-a236-44f075c912bd
+@bind mc_control_γ NumberField(0.01f0:0.01f0:1f0; default = 0.88f0)
+
+# ╔═╡ 4f645ebc-27f4-4b68-93d9-2e35232cedcf
+@skip_as_script const value_iteration_grid_example2 = begin_value_iteration_v(deterministic_gridworld.mdp, mc_control_γ);
+
+# ╔═╡ faa17fdd-9660-43ab-8f94-9cd1c3ba7fec
+const mc_control_sample_gridworld = monte_carlo_control_exploring_starts(deterministic_sample_gridworld, mc_control_γ, 10_000; compare_error = true, value_reference = last(value_iteration_grid_example2[1]), max_steps = 1_000)
+
+# ╔═╡ fbfeb350-d9a7-4960-8f9b-a9f70e19a4e2
+@skip_as_script plot(mc_control_sample_gridworld.error_history)
 
 # ╔═╡ d7037f99-d3b8-4986-95c8-58f4f043e916
 md"""
@@ -1468,6 +1534,15 @@ end
 	<div style = "margin: 10px;">Optimal value function found after $(length(value_iteration_grid_example[1]) - 1) steps $(show_grid_value(new_gridworld.mdp, new_gridworld.isterm, () -> new_gridworld.init_state, last(value_iteration_grid_example[1]), "policy_iteration_values", square_pixels = 40))</div>
 	<div style = "margin: 10px;">Corresponding greedy policy
 	$(show_grid_policy((new_gridworld.mdp).states, () -> new_gridworld.init_state, new_gridworld.isterm, value_iteration_grid_example[2], "policy_iteration_deterministic_gridworld"))</div>
+</div>
+""")
+
+# ╔═╡ 3cc38ba2-70ce-4250-be97-0a48c2c2b484
+@skip_as_script @htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div style = "margin: 10px;">Learned optimal value function found after 10,000 episodes $(show_grid_value(deterministic_sample_gridworld.states, deterministic_sample_gridworld.isterm, deterministic_sample_gridworld.state_init, sum(mc_control_sample_gridworld.optimal_policy_estimate .* mc_control_sample_gridworld.optimal_value_estimate, dims = 1), "mc_control_values", square_pixels = 40))</div>
+	<div style = "margin: 10px;">Corresponding greedy policy
+	$(show_grid_policy(deterministic_sample_gridworld.states, deterministic_sample_gridworld.state_init, deterministic_sample_gridworld.isterm, mc_control_sample_gridworld.optimal_policy_estimate, "mc_control_optimal_policy_gridworld"))</div>
 </div>
 """)
 
@@ -2325,6 +2400,7 @@ version = "17.4.0+2"
 # ╠═860650f0-c6bb-43d6-9ece-c6e6f39e010d
 # ╠═ce8a7ed9-7719-4caa-a680-76fac3dea985
 # ╠═71d18d73-0bcb-48ee-91fd-8fa2f52a908c
+# ╠═e4476a04-036e-4074-bd90-54475c00800a
 # ╠═33bcbaeb-6fd4-4724-ba89-3f0057b29ae9
 # ╠═0a81b18a-0ac8-45ba-ad46-02034ae8fb55
 # ╟─7c553f77-7783-439e-834b-53a2cd3bef5a
@@ -2335,10 +2411,16 @@ version = "17.4.0+2"
 # ╠═ad55c2d1-404f-4396-aff8-b8c207157ce4
 # ╠═ba25b564-230b-4e06-aba5-c7d3197970ef
 # ╟─a2027cca-4a12-4d7d-a721-6044c6255394
-# ╟─4e6b27be-79c3-4224-bfc1-7d4b83be6d39
+# ╠═4e6b27be-79c3-4224-bfc1-7d4b83be6d39
 # ╠═4d6472e3-cbb6-4b5c-b06a-4210ff940409
 # ╟─1b83b6c2-43cb-4ad4-b5a9-46e31d585a27
 # ╟─51fecb7e-65ff-4a11-b043-b5832fed5e02
+# ╠═9a7e922b-44e5-4c5e-8288-e39a48e151d5
+# ╟─26d60dab-bab1-495d-a236-44f075c912bd
+# ╠═faa17fdd-9660-43ab-8f94-9cd1c3ba7fec
+# ╟─3cc38ba2-70ce-4250-be97-0a48c2c2b484
+# ╟─fbfeb350-d9a7-4960-8f9b-a9f70e19a4e2
+# ╟─4f645ebc-27f4-4b68-93d9-2e35232cedcf
 # ╠═d7037f99-d3b8-4986-95c8-58f4f043e916
 # ╟─eebfe8e7-56dd-457c-a1e6-1a67b3b7ceec
 # ╠═5979b5ec-5fef-40ef-a5c3-3a5b3d3040d9
