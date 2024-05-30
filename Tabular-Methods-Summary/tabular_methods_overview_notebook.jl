@@ -281,21 +281,25 @@ begin
 			return s′
 		end
 
+	
+		state_index = makelookup(states)
+		action_index = makelookup(actions)
+
+		i_sterm = state_index[sterm]
+		i_goal2 = state_index[goal2]
 		#determines if a state is terminal
-		function isterm(s::GridworldState) 
-			s == sterm && return true
-			usegoal2 && (s == goal2) && return true
+		function isterm(i_s::Integer) 
+			i_s == i_sterm && return true
+			usegoal2 && (i_s == i_goal2) && return true
 			return false
 		end
 
-		state_index = makelookup(states)
-		action_index = makelookup(actions)
 
 		state_transition_map = zeros(Int64, length(actions), length(states))
 		reward_transition_map = zeros(Float32, length(actions), length(states))
 		for s in states
 			i_s = state_index[s] #get index for starting state
-			if isterm(s)
+			if isterm(i_s)
 				state_transition_map[:, i_s] .= i_s
 				reward_transition_map[:, i_s] .= 0f0
 			else
@@ -304,13 +308,13 @@ begin
 					s′ = step(s, a)
 					i_s′ = state_index[s′] #get index for transition state
 					state_transition_map[i_a, i_s] = i_s′
-					reward = if isterm(s)
+					reward = if isterm(i_s)
 						0f0
 					elseif iscliff(s′)
 						cliffreward
 					elseif usegoal2 && (s′ == goal2)
 						goal2reward
-					elseif isterm(s′)
+					elseif isterm(i_s′)
 						termreward
 					else
 						stepreward
@@ -319,21 +323,21 @@ begin
 				end
 			end
 		end
-		(mdp = FiniteDeterministicMDP(states, actions, state_index, action_index, state_transition_map, reward_transition_map), isterm = isterm, init_state = start)
+		(mdp = FiniteDeterministicMDP(states, actions, state_index, action_index, state_transition_map, reward_transition_map), isterm = isterm, init_state = state_index[start])
 	end
 end
 
 # ╔═╡ 48954b7d-5165-4c4f-9af1-ee4217af5127
 function find_terminal_states(mdp::FiniteDeterministicMDP)
-	Set(mdp.states[findall(eachindex(mdp.states)) do i_s
+	Set(findall(eachindex(mdp.states)) do i_s
 			all((i_s′ == i_s) for i_s′ in view(mdp.state_transition_map, :, i_s)) && iszero(sum(view(mdp.reward_transition_map, :, i_s)))
-	end])
+	end)
 end
 
 # ╔═╡ 7d7527be-2cfa-4c7b-8344-8049d91835b0
 function make_isterm(mdp::FiniteDeterministicMDP{T, S, A}) where {T<:Real, S, A}
-	termstates = find_terminal_states(mdp)
-	isterm(s::S) = in(s, termstates)
+	terminds = find_terminal_states(mdp)
+	isterm(i_s::Integer) = in(i_s, terminds)
 end
 
 # ╔═╡ 1188e680-cfbe-417c-ad61-83e145c39220
@@ -405,31 +409,26 @@ end
 make_random_policy(mdp::AbstractTabularMDP{T, S, A}) where {T, S, A} = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
 
 # ╔═╡ dc3e1ed4-3e48-4bf0-9cc0-a7ce0eab226e
-function takestep(mdp::FiniteDeterministicMDP{T, S, A}, π::Matrix{T}, s) where {T<:Real, S, A}
-	i_s = mdp.state_index[s]
+function takestep(mdp::FiniteDeterministicMDP{T, S, A}, π::Matrix{T}, i_s::Integer) where {T<:Real, S, A}
 	i_a = sample_action(π, i_s)
 	i_s′ = mdp.state_transition_map[i_a, i_s]
 	r = mdp.reward_transition_map[i_a, i_s]
-	s′ = mdp.states[i_s′]
-	a = mdp.actions[i_a]
-	return (i_s, i_s′, r, s′, a, i_a)
+	return (r, i_s′, i_a)
 end
 
 # ╔═╡ efbf3590-6b03-4497-b0b0-a23c135bf827
-function takestep(mdp::FiniteStochasticMDP{T, S, A}, π::Matrix{T}, s) where {T<:Real, S, A}
-	i_s = mdp.state_index[s]
+function takestep(mdp::FiniteStochasticMDP{T, S, A}, π::Matrix{T}, i_s::Integer) where {T<:Real, S, A}
 	i_a = sample_action(π, i_s)
 	ptf = mdp.ptf[(i_a, i_s)]
 	probabilities = [ptf[i_s′][1] for i_s′ in keys(ptf)]
 	i_s′ = sample(collect(keys(ptf)), weights(probabilities))
 	s′ = mdp.states[i_s′]
 	r = ptf[i_s′][2]
-	a = mdp.actions[i_a]
-	return (i_s, i_s′, r, s′, a, i_a)
+	return (r, i_s′, i_a)
 end
 
 # ╔═╡ ad8ac04f-a061-4015-8373-913f81500d85
-runepisode(mdp::AbstractCompleteMDP{T, S, A}, s0::S, isterm::Function; kwargs...) where {T<:Real,S,A} = runepisode(mdp, s0, isterm, make_random_policy(mdp); kwargs...)
+runepisode(mdp::AbstractCompleteMDP{T, S, A}, i_s0::Integer, isterm::Function; kwargs...) where {T<:Real,S,A} = runepisode(mdp, i_s0, isterm, make_random_policy(mdp); kwargs...)
 
 # ╔═╡ 035a6f5c-3bed-4f72-abe5-17558331f8ba
 md"""Matrix representation of a random policy"""
@@ -729,6 +728,16 @@ function make_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A}, Q:
 	return π
 end
 
+# ╔═╡ ff25237f-f07f-44da-9b81-541a354751d8
+function make_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A}, Q::Matrix{T}, i_s::Integer) where {T<:Real,S,A}
+	maxq = -Inf
+	for i_a in eachindex(mdp.actions)
+		maxq = max(maxq, Q[i_a, i_s])
+	end
+	π[:, i_s] .= (Q[:, i_s] .≈ maxq)
+	π[:, i_s] ./= sum(π[:, i_s])
+end
+
 # ╔═╡ f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
 function policy_iteration_v(mdp::AbstractCompleteMDP{T, S, A}, γ::T; max_iterations = 10, kwargs...) where {T<:Real, S, A}
 	π_list = Vector{Matrix{T}}()
@@ -928,35 +937,26 @@ begin
 		actions::Vector{A}
 		state_index::Dict{S, Int64}
 		action_index::Dict{A, Int64}
-		step::F #step(s::S, a::A) must return a tuple (r::T, s′::S)
-		state_init::G #state_init() must return an initial state s_0::S
-		isterm::H #isterm(s::S) must return a boolean inicating whether state s::S is a terminal
+		step::F #step(i_s::Integer, i_a::Integer) must return a tuple (r::T, i_s′::Integer)
+		state_init::G #state_init() must return an initial state index i_s_0::Integer
+		isterm::H #isterm(i_s::Integer) must return a boolean inicating whether state s = states[i_s] is terminal
 		function SampleTabularMDP(states::Vector{S}, actions::Vector{A}, step::F, state_init::G, isterm::H) where {S, A, F<:Function, G<:Function, H<:Function}
-			s = state_init()
-			typeof(s) != S && error("state init function is not returning a state of type $S")
-			transition = step(state_init(), first(actions))
+			i_s = state_init()
+			!(typeof(i_s) <: Integer) && error("state init function is not returning a state index")
+			transition = step(state_init(), 1)
 			!(typeof(transition) <: Tuple) && error("step function is not returning a tuple of (r, s)")
-			(r, s′) = transition
+			(r, i_s′) = transition
 			T = typeof(r)
-			typeof(s′) != S && error("state transition is not of type $S")
+			!(typeof(i_s′) <: Integer)  && error("state transition is not an index")
 			!(T <: Real) && error("Reward is not a real number")
-			!isterm(s) #check to see if isterm function takes a state and returns a boolean
+			!isterm(i_s) #check to see if isterm function takes a state and returns a boolean
 			new{T, S, A, F, G, H}(states, actions, makelookup(states), makelookup(actions), step, state_init, isterm)
 		end
 	end
 
 	#once we have an AbstractCompleteMDP as defined above, we can always convert it into an AbstractSampleTabularMDP as long as we have a state_init function defined.  everything else can be derived from the TabularMDP
 	function SampleTabularMDP(mdp::FiniteDeterministicMDP{T, S, A}, state_init::Function) where {T<:Real, S, A}
-		transition_lookup = Dict{Tuple{S, A}, Tuple{T, S}}(Dict(begin
-			i_s = mdp.state_index[s]
-			i_a = mdp.action_index[a]
-			i_s′ = mdp.state_transition_map[i_a, i_s]
-			r = mdp.reward_transition_map[i_a, i_s]
-			s′ = mdp.states[i_s′]
-			(s, a) => (r, s′)
-		end
-		for s in mdp.states for a in mdp.actions))
-		step(s, a) = transition_lookup[(s, a)]
+		step(i_s, i_a) = (mdp.reward_transition_map[i_a, i_s], mdp.state_transition_map[i_a, i_s])
 		isterm = make_isterm(mdp)
 		SampleTabularMDP(mdp.states, mdp.actions, step, state_init, isterm)
 	end
@@ -999,117 +999,114 @@ end
 
 # ╔═╡ ce8a7ed9-7719-4caa-a680-76fac3dea985
 #construct a sample gridworld from the previously instantiated one
-@skip_as_script const deterministic_sample_gridworld = SampleTabularMDP(deterministic_gridworld.mdp, () -> deterministic_gridworld.init_state)
+@skip_as_script const deterministic_sample_gridworld = SampleTabularMDP(deterministic_gridworld.mdp, () ->deterministic_gridworld.init_state)
 
 # ╔═╡ 71d18d73-0bcb-48ee-91fd-8fa2f52a908c
-function takestep(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, s) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-	i_s = mdp.state_index[s]
+function takestep(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, i_s::Integer) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	i_a = sample_action(π, i_s)
-	a = mdp.actions[i_a]
-	(r::T, s′::S) = mdp.step(s, mdp.actions[i_a])
-	i_s′ = mdp.state_index[s′]
-	return (i_s::Int64, i_s′::Int64, r::T, s′::S, a::A, i_a::Int64)
+	(r, i_s′) = mdp.step(i_s, i_a)
+	return (r, i_s′, i_a)
 end
 
 # ╔═╡ 2f7afb63-22de-49af-b907-4aeb75dc9f2a
-function runepisode(mdp::AbstractCompleteMDP{T, S, A}, s0::S, isterm::Function, π::Matrix{T}; max_steps = Inf) where {T<:Real, S, A}
-	s = s0
-	states = Vector{S}()
-	actions = Vector{A}()
-	push!(states, s)
-	(_, _, r, s′, a, _) = takestep(mdp, π, s)
-	push!(actions, a)
+function runepisode(mdp::AbstractCompleteMDP{T, S, A}, i_s0::Integer, isterm::Function, π::Matrix{T}; max_steps = Inf) where {T<:Real, S, A}
+	i_s = i_s0
+	states = Vector{Int64}()
+	actions = Vector{Int64}()
+	push!(states, i_s)
+	(r, i_s′, i_a) = takestep(mdp, π, i_s)
+	push!(actions, i_a)
 	rewards = [r]
 	step = 2
-	sterm = s
-	if isterm(s′)
-		sterm = s′
+	i_sterm = i_s
+	if isterm(i_s′)
+		i_sterm = i_s′
 	else
-		sterm = s
+		i_sterm = i_s
 	end
-	s = s′
+	i_s = i_s′
 
 	#note that the terminal state will not be added to the state list
-	while !isterm(s) && (step <= max_steps)
-		push!(states, s)
-		(_, _, r, s′, a, _) = takestep(mdp, π, s)
-		push!(actions, a)
+	while !isterm(i_s) && (step <= max_steps)
+		push!(states, i_s)
+		(r, i_s′, i_a) = takestep(mdp, π, i_s)
+		push!(actions, i_a)
 		push!(rewards, r)
-		s = s′
+		i_s = i_s′
 		step += 1
-		if isterm(s′)
-			sterm = s′
+		if isterm(i_s′)
+			i_sterm = i_s′
 		end
 	end
-	return states, actions, rewards, sterm
+	return states, actions, rewards, i_sterm
 end
 
 # ╔═╡ e4476a04-036e-4074-bd90-54475c00800a
-function runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, s0::S, a0::A; max_steps = Inf) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-	s = s0
-	a = a0
-	states = Vector{S}()
-	actions = Vector{A}()
-	push!(states, s)
-	(r, s′) = mdp.step(s, a)
-	push!(actions, a)
+function runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, i_s0::Integer, i_a0::Integer; max_steps = Inf) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+	i_s = i_s0
+	i_a = i_a0
+	states = Vector{Int64}()
+	actions = Vector{Int64}()
+	push!(states, i_s)
+	(r, i_s′) = mdp.step(i_s, i_a)
+	push!(actions, i_a)
 	rewards = [r]
 	step = 2
-	sterm = s
-	if mdp.isterm(s′)
-		sterm = s′
+	i_sterm = i_s
+	if mdp.isterm(i_s′)
+		i_sterm = i_s′
 	else
-		sterm = s
+		i_sterm = i_s
 	end
-	s = s′
+	i_s = i_s′
 
 	#note that the terminal state will not be added to the state list
-	while !mdp.isterm(s) && (step <= max_steps)
-		push!(states, s)
-		(_, _, r, s′, a, _) = takestep(mdp, π, s)
-		push!(actions, a)
+	while !mdp.isterm(i_s) && (step <= max_steps)
+		push!(states, i_s)
+		(r, i_s′, i_a) = takestep(mdp, π, i_s)
+		push!(actions, i_a)
 		push!(rewards, r)
-		s = s′
+		i_s = i_s′
 		step += 1
-		if mdp.isterm(s′)
-			sterm = s′
+		if mdp.isterm(i_s′)
+			i_sterm = i_s′
 		end
 	end
-	return states, actions, rewards, sterm
+	return states, actions, rewards, i_sterm
 end
 
 # ╔═╡ 33bcbaeb-6fd4-4724-ba89-3f0057b29ae9
-function runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}; s0::S = mdp.state_init(), max_steps = Inf) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-	s = s0
-	states = Vector{S}()
-	actions = Vector{A}()
+function runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}; i_s0::Integer = mdp.state_init(), max_steps = Inf) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+	i_s = i_s0
+	states = Vector{Int64}()
+	actions = Vector{Int64}()
 	rewards = Vector{T}()
-	push!(states, s)
-	(_, _, r, s′, a, _) = takestep(mdp, π, s)
-	push!(actions, a)
+	push!(states, i_s)
+	(r, i_s′, i_a) = takestep(mdp, π, i_s)
+	push!(actions, i_a)
 	push!(rewards, r)
 	step = 2
-	sterm = s
-	if mdp.isterm(s′)
-		sterm = s′
+	i_sterm = i_s
+	if mdp.isterm(i_s′)
+		i_sterm = i_s′
 	else
-		sterm = s
+		i_sterm = i_s
 	end
-	s = s′
+	i_s = i_s′
 
 	#note that the terminal state will not be added to the state list
-	while !mdp.isterm(s) && (step <= max_steps)
-		push!(states, s)
-		(_, _, r, s′, a, _) = takestep(mdp, π, s)
-		push!(actions, a)
+	while !mdp.isterm(i_s) && (step <= max_steps)
+		push!(states, i_s)
+		(r, i_s′, i_a) = takestep(mdp, π, i_s)
+		push!(actions, i_a)
 		push!(rewards, r)
-		s = s′
+		i_s = i_s′
 		step += 1
-		if mdp.isterm(s′)
-			sterm = s′
+		if mdp.isterm(i_s′)
+			i_sterm = i_s′
 		end
 	end
-	return states, actions, rewards, sterm
+	return states, actions, rewards, i_sterm
 end
 
 # ╔═╡ 1fed0e8d-0014-4484-8b61-29807caa8ef7
@@ -1125,12 +1122,12 @@ md"""
 """
 
 # ╔═╡ 3d86b788-9770-4356-ac6b-e80b0bfa1314
-function mc_episode_update!(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, v::Vector{T}, counts::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+function mc_episode_update!(states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, v::Vector{T}, counts::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	l = length(states)
 	g = zero(T)
 	for i in l:-1:1
 		g = γ*g + rewards[i]
-		i_s = mdp.state_index[states[i]]
+		i_s = states[i]
 		counts[i_s] += 1
 		v_old = v[i_s]
 		v[i_s] += (g - v_old) / counts[i_s] 
@@ -1138,13 +1135,13 @@ function mc_episode_update!(states::Vector{S}, actions::Vector{A}, rewards::Vect
 end
 
 # ╔═╡ 025ef73b-e9f6-4741-9e89-f334b0f758f5
-function mc_episode_update!(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, q::Matrix{T}, counts::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+function mc_episode_update!(states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, q::Matrix{T}, counts::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	l = length(states)
 	g = zero(T)
 	for i in l:-1:1
 		g = γ*g + rewards[i]
-		i_s = mdp.state_index[states[i]]
-		i_a = mdp.action_index[actions[i]]
+		i_s = states[i]
+		i_a = actions[i]
 		counts[i_a, i_s] += 1
 		q_old = q[i_a, i_s]
 		q[i_a, i_s] += (g - q_old) / counts[i_a, i_s] 
@@ -1203,6 +1200,19 @@ function make_ϵ_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A},
 	return π
 end
 
+# ╔═╡ f77cf1bb-6385-403d-a224-3c9c7313e591
+function make_ϵ_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A}, Q::Matrix{T}, ϵ::T, i_s::Integer) where {T<:Real,S,A}
+	n = length(mdp.actions)
+	maxq = -Inf
+	for i_a in eachindex(mdp.actions)
+		maxq = max(maxq, Q[i_a, i_s])
+	end
+	π[:, i_s] .= (Q[:, i_s] .≈ maxq)
+	π[:, i_s] ./= (sum(π[:, i_s]) / (one(T) - ϵ))
+	π[:, i_s] .+= ϵ / n
+	return π
+end
+
 # ╔═╡ 4bd400f3-4cb4-47a2-b0f5-31e6dedc253d
 md"""
 #### *Example: Monte Carlo control with $\epsilon$ greedy policy*
@@ -1240,13 +1250,13 @@ update_weight(ρ::T, ::OrdinaryImportanceSampling) where T<:Real = one(T)
 update_weight(ρ, ::WeightedImportanceSampling) = ρ
 
 # ╔═╡ a1b90125-d3dd-409c-8231-ab0c3a85153e
-function mc_episode_update!(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, π_target::Matrix{T}, π_behavior::Matrix{T}, sampling_method::AbstractSamplingMethod, q::Matrix{T}, weights::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+function mc_episode_update!(states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, π_target::Matrix{T}, π_behavior::Matrix{T}, sampling_method::AbstractSamplingMethod, q::Matrix{T}, weights::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	l = length(states)
 	g = zero(T)
 	ρ = one(T)
 	for i in l:-1:1
-		i_s = mdp.state_index[states[i]]
-		i_a = mdp.action_index[actions[i]]
+		i_s = states[i]
+		i_a = actions[i]
 		if iszero(π_target[i_a, i_s]) && isa(sampling_method, WeightedImportanceSampling)
 			#in this case no further updates will occur
 			break
@@ -1336,7 +1346,7 @@ function monte_carlo_control_exploring_starts(mdp::AbstractSampleTabularMDP{T, S
 		error_history = zeros(T, num_episodes)
 	end
 	for ep in 1:num_episodes
-		(states, actions, rewards) = runepisode(mdp, π, rand(mdp.states), rand(mdp.actions); kwargs...)
+		(states, actions, rewards) = runepisode(mdp, π, rand(eachindex(mdp.states)), rand(eachindex(mdp.actions)); kwargs...)
 		mc_episode_update!(states, actions, rewards, q, counts, mdp, γ)
 		make_greedy_policy!(π, mdp, q)
 		if compare_error
@@ -1483,18 +1493,182 @@ md"""
 
 # ╔═╡ d250a257-4dc6-4369-90f0-fe186b3d9e7b
 md"""
-### Policy Prediction
+### TD(0) Policy Prediction
 """
+
+# ╔═╡ b7506e65-60eb-4985-9a28-5a29cb400670
+md"""
+### *Tabular TD(0) for Estimating Value Function* 
+"""
+
+# ╔═╡ 337b9905-9284-4bd7-a06b-f3e8bb44679c
+function v_td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	v = initialize_state_value(mdp) #default is 0 initialization
+	if save_history
+		v_history = zeros(T, length(v), num_episodes)
+	end
+
+	function episode_update!()
+		i_s = mdp.state_init()
+		while !mdp.isterm(i_s)
+			(r, i_s′, i_a) = takestep(mdp, π, i_s)
+			v[i_s] += α * (r + γ*v[i_s′] - v[i_s])
+			i_s = i_s′
+		end
+	end
+	
+	for ep in 1:num_episodes
+		episode_update!()
+		if save_history
+			v_history[:, ep] .= v
+		end
+	end
+	final_v = v
+	if save_history
+		return (final_value_estimate = final_v, value_estimate_history = v_history)
+	else
+		return v
+	end
+end
+
+# ╔═╡ a858aeaa-29f5-4615-805c-0c6093cf9b5f
+function sarsa_step(mdp, π, i_s::Integer, i_a::Integer)
+	(r, i_s′) = mdp.step(i_s, i_a)
+	i_a′ = sample_action(π, i_s′)
+	(r, i_s′, i_a′)
+end
+
+# ╔═╡ 952b664d-f5f7-4bbc-a9cb-c78c406111f7
+function q_td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	q = initialize_state_action_value(mdp) #default is 0 initialization
+	if save_history
+		q_history = zeros(T, size(q)..., num_episodes)
+	end
+
+	function episode_update!()
+		i_s = mdp.state_init()
+		i_a = sample_action(π, i_s)
+		while !mdp.isterm(i_s)
+			(r, i_s′, i_a′) = sarsa_step(mdp, π, i_s, i_a)
+			q[i_a, i_s] += α * (r + γ*q[i_a′, i_s′] - q[i_a, i_s])
+			i_s = i_s′
+			i_a = i_a′
+		end
+	end
+	
+	for ep in 1:num_episodes
+		episode_update!()
+		if save_history
+			q_history[:, :, ep] .= q
+		end
+	end
+	final_q = q
+	if save_history
+		return (final_value_estimate = final_q, value_estimate_history = q_history)
+	else
+		return q
+	end
+end
+
+# ╔═╡ 034734a7-e7f0-4ea5-b252-5916f67c65d4
+td0v = v_td0_policy_prediction(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
+
+# ╔═╡ 749b5691-506f-4c7f-baa2-6d3e9b2607b9
+td0q = q_td0_policy_prediction(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
 
 # ╔═╡ 9fb8f6ea-ca20-461c-b790-f651b13721b2
 md"""
 ### Sarsa: On-policy TD Control
 """
 
+# ╔═╡ c3c3bb5c-4bcf-442e-9718-c18a4a03fa82
+md"""
+### *Sarsa for estimating $Q \approx q_{\star}$*
+"""
+
+# ╔═╡ 1dab32e6-9d81-4de3-9b97-6a2ac58a28c3
+function sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π = make_random_policy(mdp), save_history = false, ϵ = T(0.1), update_policy! = (π, q) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ), kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	q = initialize_state_action_value(mdp) #default is 0 initialization
+	if save_history
+		q_history = zeros(T, size(q)..., num_episodes)
+	end
+
+	function episode_update!()
+		i_s = mdp.state_init()
+		i_a = sample_action(π, i_s)
+		while !mdp.isterm(i_s)
+			(r, i_s′, i_a′) = sarsa_step(mdp, π, i_s, i_a)
+			q[i_a, i_s] += α * (r + γ*q[i_a′, i_s′] - q[i_a, i_s])
+			i_s = i_s′
+			i_a = i_a′
+			update_policy!(π, q)
+		end
+	end
+	
+	for ep in 1:num_episodes
+		episode_update!()
+		if save_history
+			q_history[:, :, ep] .= q
+		end
+	end
+	final_q = q
+	final_π = make_greedy_policy!(π, mdp, q)
+	if save_history
+		return (final_policy = final_π, final_value_estimate = final_q, value_estimate_history = q_history)
+	else
+		return (final_policy = final_π, final_value_estimate = final_q)
+	end
+end
+
+# ╔═╡ 6823a91e-c02e-495c-9e82-e22b18857df7
+sarsa_test = sarsa(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
+
 # ╔═╡ 41361309-8be9-464a-987e-981035e4b15a
 md"""
 ### Q-learning: Off-policy TD Control
 """
+
+# ╔═╡ b577750a-6bda-4cd8-ae74-a38273be9af0
+function expected_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π_target = make_random_policy(mdp), π_behavior = make_random_policy(mdp), save_history = false, ϵ = T(0.1), update_behavior_policy! = (π, mdp, q) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ), update_target_policy! = update_behavior_policy!, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	q = initialize_state_action_value(mdp) #default is 0 initialization
+	if save_history
+		q_history = zeros(T, size(q)..., num_episodes)
+	end
+
+	function episode_update!()
+		i_s = mdp.state_init()
+		i_a = sample_action(π_behavior, i_s)
+		while !mdp.isterm(i_s)
+			(r, i_s′, i_a′) = sarsa_step(mdp, π_behavior, i_s, i_a)
+			v′ = sum(π_target[i_a′, i_s′]*q[i_a′, i_s′] for i_a′ in eachindex(mdp.actions))
+			q[i_a, i_s] += α * (r + γ*v′ - q[i_a, i_s])
+			i_s = i_s′
+			i_a = i_a′
+			update_behavior_policy!(π_behavior, mdp, q)
+			update_target_policy!(π_target, mdp, q)
+		end
+	end
+	
+	for ep in 1:num_episodes
+		episode_update!()
+		if save_history
+			q_history[:, :, ep] .= q
+		end
+	end
+	final_q = q
+	final_π = make_greedy_policy!(π_target, mdp, q)
+	if save_history
+		return (final_policy = final_π, final_value_estimate = final_q, value_estimate_history = q_history)
+	else
+		return (final_policy = final_π, final_value_estimate = final_q)
+	end
+end
+
+# ╔═╡ 94193bc1-91c4-4d3e-8e44-cd37495481bf
+q_learning(args...; kwargs...) = expected_sarsa(args...; update_target_policy! = make_greedy_policy!, kwargs...)
+
+# ╔═╡ d7de7be9-8d97-4476-ba09-9f84d2cebb00
+expected_sarsa_test = q_learning(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
 
 # ╔═╡ 2bab0784-b185-44f0-9dec-c98bf164827b
 md"""
@@ -1545,8 +1719,8 @@ end
 @skip_as_script function show_grid_value(states, isterm, state_init, Q, name; scale = 1.0, title = "", sigdigits = 2, square_pixels = 20, highlight_state_index = 0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
-	start = state_init()
-	terminds = findall(isterm, states)
+	start = states[state_init()]
+	terminds = findall(isterm, eachindex(states))
 	sterms = states[terminds]
 	ngrid = width*height
 
@@ -1603,6 +1777,12 @@ end
 # ╔═╡ bfef62c9-4186-4b01-afe2-e49432f04265
 @skip_as_script show_grid_value(deterministic_gridworld.mdp, deterministic_gridworld.isterm, () -> deterministic_gridworld.init_state, deterministic_gridworld_random_policy_evaluation.value_function, "gridworld_random_values"; square_pixels = 50)
 
+# ╔═╡ e18328c7-837e-427c-b5c0-3be31dcb4c4b
+show_grid_value(deterministic_sample_gridworld, td0v, "td0_v_test"; square_pixels = 40)
+
+# ╔═╡ 35df802b-41e6-4ede-8200-5658e3ee1328
+show_grid_value(deterministic_sample_gridworld, td0q, "td0_q_test"; square_pixels = 40)
+
 # ╔═╡ 9b937c49-7216-47c9-a1ef-2ecfa6ff3b31
 @skip_as_script function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
 	@htl("""
@@ -1639,8 +1819,8 @@ end
 @skip_as_script function show_grid_transitions(states, isterm, state_init, name; scale = 1.0, title = "", action_display = rook_action_display, highlight_state = GridworldState(1, 1), transition_state = GridworldState(1, 2), reward_value = 0.0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
-	start = state_init()
-	terminds = findall(isterm, states)
+	start = states[state_init()]
+	terminds = findall(isterm, eachindex(states))
 	sterms = states[terminds]
 	ngrid = width*height
 
@@ -1712,8 +1892,8 @@ end
 @skip_as_script function show_grid_policy(states, state_init, isterm, π, name; display_function = display_rook_policy, action_display = rook_action_display, scale = 1.0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
-	start = state_init()
-	termind = findfirst(isterm, states)
+	start = states[state_init()]
+	termind = findfirst(isterm, eachindex(states))
 	sterm = states[termind]
 	ngrid = width*height
 	@htl("""
@@ -1809,6 +1989,24 @@ end
 </div>
 """)
 
+# ╔═╡ 64d2a0e3-4ecd-4d44-b5cc-0ff23b3776dd
+@skip_as_script @htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div style = "margin: 10px;">Learned optimal value function found after 10,000 episodes $(show_grid_value(deterministic_sample_gridworld, sum(sarsa_test.final_value_estimate .* sarsa_test.final_policy, dims = 1), "sarsa_grid_world_values", square_pixels = 40))</div>
+	<div style = "margin: 10px;">Corresponding greedy policy
+	$(show_grid_policy(deterministic_sample_gridworld.states, deterministic_sample_gridworld.state_init, deterministic_sample_gridworld.isterm, sarsa_test.final_policy, "sarsa_optimal_policy_gridworld"))</div>
+</div>
+""")
+
+# ╔═╡ acd5ff5b-f9d0-41bf-ae09-cf6842eab556
+@skip_as_script @htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div style = "margin: 10px;">Learned optimal value function found after 10,000 episodes $(show_grid_value(deterministic_sample_gridworld, sum(expected_sarsa_test.final_value_estimate .* expected_sarsa_test.final_policy, dims = 1), "sarsa_grid_world_values", square_pixels = 40))</div>
+	<div style = "margin: 10px;">Corresponding greedy policy
+	$(show_grid_policy(deterministic_sample_gridworld.states, deterministic_sample_gridworld.state_init, deterministic_sample_gridworld.isterm, expected_sarsa_test.final_policy, "sarsa_optimal_policy_gridworld"))</div>
+</div>
+""")
+
 # ╔═╡ c11ab768-1da4-497b-afc1-fb64bc3fb457
 @skip_as_script HTML("""
 <style>
@@ -1871,16 +2069,16 @@ end
 """)
 
 # ╔═╡ 3279ba47-18a1-45a9-9d29-18b9875ed057
-@skip_as_script function plot_path(episode_states::Vector{S}, sterm::S, gridworld_states::Vector{S}, s0::S, isterm::Function; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path") where S <: GridworldState
+@skip_as_script function plot_path(episode_states::Vector{Int64}, i_sterm::Integer, gridworld_states::Vector{S}, i_s0::Integer, isterm::Function; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path") where S <: GridworldState
 	xmax = maximum([s.x for s in gridworld_states])
 	ymax = maximum([s.y for s in gridworld_states])
-	start = s0
-	goal = gridworld_states[findlast(isterm(s) for s in gridworld_states)]
+	start = gridworld_states[i_s0]
+	goal = gridworld_states[findlast(isterm(i_s) for i_s in eachindex(gridworld_states))]
 	start_trace = scatter(x = [start.x + 0.5], y = [start.y + 0.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
 	finish_trace = scatter(x = [goal.x + .5], y = [goal.y + .5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
 	
-	path_traces = [scatter(x = [episode_states[i].x + 0.5, episode_states[i+1].x + 0.5], y = [episode_states[i].y + 0.5, episode_states[i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname) for i in 1:length(episode_states)-1]
-	finalpath = scatter(x = [episode_states[end].x + 0.5, sterm.x + .5], y = [episode_states[end].y + 0.5, sterm.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname)
+	path_traces = [scatter(x = [gridworld_states[episode_states[i]].x + 0.5, gridworld_states[episode_states[i+1]].x + 0.5], y = [gridworld_states[episode_states[i]].y + 0.5, gridworld_states[episode_states[i+1]].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname) for i in 1:length(episode_states)-1]
+	finalpath = scatter(x = [gridworld_states[episode_states[end]].x + 0.5, gridworld_states[i_sterm].x + .5], y = [gridworld_states[episode_states[end]].y + 0.5, gridworld_states[i_sterm].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname)
 
 	h1 = 30*ymax
 	traces = [start_trace; finish_trace; path_traces; finalpath]
@@ -1900,13 +2098,13 @@ end
 end
 
 # ╔═╡ cbeac89a-845c-4409-8067-8766fe3b8a24
-@skip_as_script function plot_path(mdp::AbstractCompleteMDP, s0, isterm, π; max_steps = 100, kwargs...)
-	(states, actions, rewards, sterm) = runepisode(mdp, s0, isterm, π; max_steps = max_steps)
-	plot_path(states, sterm, mdp.states, s0, isterm; kwargs...)
+@skip_as_script function plot_path(mdp::AbstractCompleteMDP, i_s0, isterm, π; max_steps = 100, kwargs...)
+	(states, actions, rewards, sterm) = runepisode(mdp, i_s0, isterm, π; max_steps = max_steps)
+	plot_path(states, sterm, mdp.states, i_s0, isterm; kwargs...)
 end
 
 # ╔═╡ 4f193af4-9925-4047-92f9-c67eec1f4c97
-@skip_as_script plot_path(mdp::AbstractCompleteMDP, s0, isterm; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, s0, isterm, make_random_policy(mdp); title = title, kwargs...)
+@skip_as_script plot_path(mdp::AbstractCompleteMDP, i_s0, isterm; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, i_s0, isterm, make_random_policy(mdp); title = title, kwargs...)
 
 # ╔═╡ 3a707040-a763-42f6-9f5c-8c56a5f869f7
 @skip_as_script plot_path(deterministic_gridworld.mdp, deterministic_gridworld.init_state, deterministic_gridworld.isterm)
@@ -2682,6 +2880,7 @@ version = "17.4.0+2"
 # ╠═1f9752c2-7bb9-4cd2-b90b-2995bcec7ae3
 # ╠═b9fba3cc-bfe4-4d84-9718-9f13daf40195
 # ╠═397b3a3d-e64b-43b6-9b33-964cc65ecd30
+# ╠═ff25237f-f07f-44da-9b81-541a354751d8
 # ╠═f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
 # ╟─4a80a7c3-6e9a-4973-b48a-b02509823830
 # ╟─6467d0ee-d551-4558-a765-aa832373d125
@@ -2700,7 +2899,7 @@ version = "17.4.0+2"
 # ╠═eec3017b-6d02-49e6-aedf-9a494b426ec5
 # ╟─40f6257d-db5c-4e21-9691-f3c9ffc9a9b5
 # ╟─bf12d9c9-c79d-4398-9f15-27cbde1ed476
-# ╟─102d169a-8bd0-42f4-bfc9-3a32708afadc
+# ╠═102d169a-8bd0-42f4-bfc9-3a32708afadc
 # ╟─929c353b-f67c-49ff-85d3-0a27cafc59cf
 # ╟─a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
 # ╟─1d555f77-c404-485a-9244-717c12c80d28
@@ -2733,6 +2932,7 @@ version = "17.4.0+2"
 # ╠═4f645ebc-27f4-4b68-93d9-2e35232cedcf
 # ╟─4efee19f-c86c-44cc-8b4b-6eb45adf0aa1
 # ╠═1c829fde-e15d-42db-a608-2e5bdbaa4d8c
+# ╠═f77cf1bb-6385-403d-a224-3c9c7313e591
 # ╠═65c8b05f-d294-47ef-b138-531d56282ba0
 # ╟─4bd400f3-4cb4-47a2-b0f5-31e6dedc253d
 # ╠═b666c289-de0f-4412-a5f7-8e5bb546a47c
@@ -2761,8 +2961,24 @@ version = "17.4.0+2"
 # ╟─0ad54e4b-ea9d-418c-bb6a-cd8fbe241c73
 # ╠═5979b5ec-5fef-40ef-a5c3-3a5b3d3040d9
 # ╠═d250a257-4dc6-4369-90f0-fe186b3d9e7b
-# ╠═9fb8f6ea-ca20-461c-b790-f651b13721b2
+# ╟─b7506e65-60eb-4985-9a28-5a29cb400670
+# ╠═337b9905-9284-4bd7-a06b-f3e8bb44679c
+# ╠═a858aeaa-29f5-4615-805c-0c6093cf9b5f
+# ╠═952b664d-f5f7-4bbc-a9cb-c78c406111f7
+# ╠═034734a7-e7f0-4ea5-b252-5916f67c65d4
+# ╠═749b5691-506f-4c7f-baa2-6d3e9b2607b9
+# ╠═e18328c7-837e-427c-b5c0-3be31dcb4c4b
+# ╠═35df802b-41e6-4ede-8200-5658e3ee1328
+# ╟─9fb8f6ea-ca20-461c-b790-f651b13721b2
+# ╟─c3c3bb5c-4bcf-442e-9718-c18a4a03fa82
+# ╠═1dab32e6-9d81-4de3-9b97-6a2ac58a28c3
+# ╠═6823a91e-c02e-495c-9e82-e22b18857df7
+# ╟─64d2a0e3-4ecd-4d44-b5cc-0ff23b3776dd
 # ╠═41361309-8be9-464a-987e-981035e4b15a
+# ╠═b577750a-6bda-4cd8-ae74-a38273be9af0
+# ╠═94193bc1-91c4-4d3e-8e44-cd37495481bf
+# ╠═d7de7be9-8d97-4476-ba09-9f84d2cebb00
+# ╟─acd5ff5b-f9d0-41bf-ae09-cf6842eab556
 # ╠═2bab0784-b185-44f0-9dec-c98bf164827b
 # ╠═78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
 # ╟─796eeb6c-1152-11ef-00b7-b543ec85b526
