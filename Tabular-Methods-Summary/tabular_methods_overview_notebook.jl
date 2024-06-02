@@ -1407,19 +1407,6 @@ monte_carlo_control_exploring_starts(args...; kwargs...) = monte_carlo_control(a
 # ╔═╡ fbfeb350-d9a7-4960-8f9b-a9f70e19a4e2
 @skip_as_script plot(mc_control_sample_gridworld.error_history)
 
-# ╔═╡ 66886194-a2bd-4b1e-9bff-fbb419fddc78
-#the ϵ-soft method is defined by using the normal episode initialization from the mdp and using an ϵ-greedy policy update
-monte_carlo_control_ϵ_soft(args...; ϵ = 0.1f0, kwargs...) = monte_carlo_control(args..., mdp -> (), (π, mdp, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s); kwargs...)
-
-# ╔═╡ b666c289-de0f-4412-a5f7-8e5bb546a47c
-@skip_as_script const mc_ϵ_soft_control_sample_gridworld = monte_carlo_control_ϵ_soft(deterministic_sample_gridworld, mc_control_γ, 1_000; compare_error = true, value_reference = last(value_iteration_grid_example2[1]), max_steps = 10_000, ϵ = 0.5f0)
-
-# ╔═╡ a6b08af6-34e8-4316-8f8c-b8e4b5fbb98a
-@skip_as_script plot(mc_ϵ_soft_control_sample_gridworld.error_history)
-
-# ╔═╡ 99006d01-9021-443d-ace8-829be73f3342
-@skip_as_script plot((mc_ϵ_soft_control_sample_gridworld.step_history |> cumsum) ./ collect(1:1000))
-
 # ╔═╡ 5648561c-98cf-4aa6-9af4-16add4706c3b
 function monte_carlo_off_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π_target::Matrix{T}, γ::T, num_episodes::Integer, initialize_value::Function; π_behavior = make_random_policy(mdp), sampling_method = WeightedImportanceSampling(), save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
 	any(iszero, π_behavior) && error("Behavior policy is not soft")
@@ -1561,18 +1548,18 @@ function episode_update!(q::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F,
 end
 
 # ╔═╡ 337b9905-9284-4bd7-a06b-f3e8bb44679c
-function td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T, initialize_value_function::Function; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+function td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T, initialize_value_function::Function; save_value_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
 	value_estimate = initialize_value_function(mdp) #default is 0 initialization
-	if save_history
+	if save_value_history
 		value_history = zeros(T, size(value_estimate)..., num_episodes)
 	end
 	
 	for ep in 1:num_episodes
 		episode_update!(value_estimate, mdp, π, γ, α)
-		save_history && update_value_history!(value_history, value_estimate, ep)
+		save_value_history && update_value_history!(value_history, value_estimate, ep)
 	end
 	final_v = value_estimate
-	if save_history
+	if save_value_history
 		return (final_value_estimate = final_v, value_estimate_history = value_history)
 	else
 		return value_estimate
@@ -1602,92 +1589,211 @@ td0_policy_prediction_q(args...; kwargs...) = td0_policy_prediction(args..., ini
 """
 
 # ╔═╡ 1dab32e6-9d81-4de3-9b97-6a2ac58a28c3
-function sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π = make_random_policy(mdp), save_value_history = false, ϵ = T(0.1), update_policy! = (π, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s), kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	q = initialize_state_action_value(mdp) #default is 0 initialization
+function generalized_episodic_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T, setup_function::Function; save_value_history = false, ϵ = T(0.1), kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	(episode_update_args, episode_update!, get_q, get_πtarget) = setup_function(mdp, γ, ϵ, α; kwargs...)
 	if save_value_history
 		q_history = zeros(T, size(q)..., num_episodes)
 	end
-
-	function episode_update!()
-		i_s = mdp.state_init()
-		i_a = sample_action(π, i_s)
-		while !mdp.isterm(i_s)
-			(r, i_s′, i_a′) = sarsa_step(mdp, π, i_s, i_a)
-			q[i_a, i_s] += α * (r + γ*q[i_a′, i_s′] - q[i_a, i_s])
-			i_s = i_s′
-			i_a = i_a′
-			update_policy!(π, q, i_s)
-		end
-	end
+	reward_history = zeros(T, num_episodes)
+	step_history = zeros(Int64, num_episodes)
 	
 	for ep in 1:num_episodes
-		episode_update!()
+		(total_reward, total_steps) = episode_update!(episode_update_args...)
 		if save_value_history
-			q_history[:, :, ep] .= q
+			q_history[:, :, ep] .= get_q(episode_update_args)
 		end
+		reward_history[ep] = total_reward
+		step_history[ep] = total_steps
 	end
-	final_q = q
-	final_π = make_greedy_policy!(π, mdp, q)
+	final_q = get_q(episode_update_args)
+	final_π = make_greedy_policy!(get_πtarget(episode_update_args), mdp, final_q)
+	base_return = (final_policy = final_π, final_value_estimate = final_q, reward_history = reward_history, step_history = step_history)
 	if save_value_history
-		return (final_policy = final_π, final_value_estimate = final_q, value_estimate_history = q_history)
+		return (;base_return..., value_estimate_history = q_history)
 	else
-		return (final_policy = final_π, final_value_estimate = final_q)
+		return base_return
 	end
 end
 
-# ╔═╡ 6823a91e-c02e-495c-9e82-e22b18857df7
-@skip_as_script sarsa_test = sarsa(deterministic_sample_gridworld, 0.9f0, 10_000, 0.1f0; ϵ = 0.1f0)
+# ╔═╡ cc09fc0b-bf88-464a-980b-59ae86bbd5d8
+function sarsa_episode_update!((q, π)::Tuple{Matrix{T}, Matrix{T}}, update_policy!::Function, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, α::T) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	i_s = mdp.state_init()
+	i_a = sample_action(π, i_s)
+	total_reward = zero(T)
+	total_steps = 0
+	while !mdp.isterm(i_s)
+		(r, i_s′, i_a′) = sarsa_step(mdp, π, i_s, i_a)
+		q[i_a, i_s] += α * (r + γ*q[i_a′, i_s′] - q[i_a, i_s])
+		i_s = i_s′
+		i_a = i_a′
+		update_policy!(π, q, i_s)
+		total_reward += r
+		total_steps += 1
+	end
+	return total_reward, total_steps
+end
 
 # ╔═╡ 41361309-8be9-464a-987e-981035e4b15a
 @skip_as_script md"""
 ### Q-learning: Off-policy TD Control
 """
 
-# ╔═╡ b577750a-6bda-4cd8-ae74-a38273be9af0
-function expected_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π_target = make_random_policy(mdp), π_behavior = make_random_policy(mdp), save_value_history = false, ϵ = T(0.1), update_behavior_policy! = (π, mdp, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s), update_target_policy! = update_behavior_policy!, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	q = initialize_state_action_value(mdp) #default is 0 initialization
-	if save_value_history
-		q_history = zeros(T, size(q)..., num_episodes)
-	end
+# ╔═╡ ee8a054e-64db-4c61-a5d3-b38e692887d9
+md"""
+### *Expected Sarsa for estimating $$Q \approx q_{\star}$$*
 
-	function episode_update!()
-		i_s = mdp.state_init()
-		i_a = sample_action(π_behavior, i_s)
-		while !mdp.isterm(i_s)
-			(r, i_s′, i_a′) = sarsa_step(mdp, π_behavior, i_s, i_a)
-			v′ = sum(π_target[i_a′, i_s′]*q[i_a′, i_s′] for i_a′ in eachindex(mdp.actions))
-			q[i_a, i_s] += α * (r + γ*v′ - q[i_a, i_s])
-			i_s = i_s′
-			i_a = i_a′
-			update_behavior_policy!(π_behavior, mdp, q, i_s)
-			update_target_policy!(π_target, mdp, q, i_s)
-		end
+Q-learning is implemented as a version of expected sarsa where the target policy is updated with to be greedy while the behavior policy is updated to be $\epsilon$-greedy
+"""
+
+# ╔═╡ 7146eebf-bd16-424f-ae55-de51689bc0fe
+function expected_sarsa_episode_update!((q, π_target, π_behavior)::Tuple{Matrix{T}, Matrix{T}, Matrix{T}}, update_target_policy!::Function, update_behavior_policy!::Function, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, α::T) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	i_s = mdp.state_init()
+	i_a = sample_action(π_behavior, i_s)
+	total_reward = zero(T)
+	total_steps = 0
+	while !mdp.isterm(i_s)
+		(r, i_s′, i_a′) = sarsa_step(mdp, π_behavior, i_s, i_a)
+		v′ = sum(π_target[i_a′, i_s′]*q[i_a′, i_s′] for i_a′ in eachindex(mdp.actions))
+		q[i_a, i_s] += α * (r + γ*v′ - q[i_a, i_s])
+		i_s = i_s′
+		i_a = i_a′
+		update_behavior_policy!(π_behavior, mdp, q, i_s)
+		update_target_policy!(π_target, mdp, q, i_s)
+		total_reward += r
+		total_steps += 1
 	end
-	
-	for ep in 1:num_episodes
-		episode_update!()
-		if save_value_history
-			q_history[:, :, ep] .= q
-		end
-	end
-	final_q = q
-	final_π = make_greedy_policy!(π_target, mdp, q)
-	if save_value_history
-		return (final_policy = final_π, final_value_estimate = final_q, value_estimate_history = q_history)
-	else
-		return (final_policy = final_π, final_value_estimate = final_q)
-	end
+	return total_reward, total_steps
 end
 
-# ╔═╡ 94193bc1-91c4-4d3e-8e44-cd37495481bf
-q_learning(args...; kwargs...) = expected_sarsa(args...; update_target_policy! = make_greedy_policy!, kwargs...)
-
-# ╔═╡ d7de7be9-8d97-4476-ba09-9f84d2cebb00
-@skip_as_script expected_sarsa_test = q_learning(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
+# ╔═╡ 9a4027f9-243d-4fc6-916a-2f89a76120c9
+episodic_expected_sarsa(args...; kwargs...) = generalized_episodic_sarsa(args..., setup_expected_sarsa; kwargs...)
 
 # ╔═╡ 2bab0784-b185-44f0-9dec-c98bf164827b
 @skip_as_script md"""
-### Other TD Methods
+### Double Learning TD Methods
+"""
+
+# ╔═╡ be74f8fb-fd58-4170-8735-1af55a04d48f
+md"""
+### *Double Expected Sarsa for estimating $$Q \approx q_{\star}$$ and $\pi \approx \pi_{\star}$*
+"""
+
+# ╔═╡ 2688c9b8-07c0-4105-b2af-a7c71c48fb31
+function make_ϵ_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A}, Q1::Matrix{T}, Q2::Matrix{T}, ϵ::T, i_s::Integer) where {T<:Real,S,A}
+	n = length(mdp.actions)
+	maxq = -Inf
+	π[:, i_s] .= (Q1[:, i_s] .+ Q2[:, i_s]) ./ 2
+	for i_a in eachindex(mdp.actions)
+		maxq = max(maxq, π[i_a, i_s])
+	end
+	π[:, i_s] .= (π[:, i_s] .≈ maxq)
+	π[:, i_s] ./= (sum(π[:, i_s]) / (one(T) - ϵ))
+	π[:, i_s] .+= ϵ / n
+	return π
+end
+
+# ╔═╡ 66886194-a2bd-4b1e-9bff-fbb419fddc78
+#the ϵ-soft method is defined by using the normal episode initialization from the mdp and using an ϵ-greedy policy update
+monte_carlo_control_ϵ_soft(args...; ϵ = 0.1f0, kwargs...) = monte_carlo_control(args..., mdp -> (), (π, mdp, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s); kwargs...)
+
+# ╔═╡ b666c289-de0f-4412-a5f7-8e5bb546a47c
+@skip_as_script const mc_ϵ_soft_control_sample_gridworld = monte_carlo_control_ϵ_soft(deterministic_sample_gridworld, mc_control_γ, 1_000; compare_error = true, value_reference = last(value_iteration_grid_example2[1]), max_steps = 10_000, ϵ = 0.5f0)
+
+# ╔═╡ a6b08af6-34e8-4316-8f8c-b8e4b5fbb98a
+@skip_as_script plot(mc_ϵ_soft_control_sample_gridworld.error_history)
+
+# ╔═╡ 99006d01-9021-443d-ace8-829be73f3342
+@skip_as_script plot((mc_ϵ_soft_control_sample_gridworld.step_history |> cumsum) ./ collect(1:1000))
+
+# ╔═╡ 59307ddd-c24b-444f-9723-badc7e6da897
+function setup_episodic_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, ϵ::T, α::T; q = initialize_state_action_value(mdp), π = make_random_policy(mdp)) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	update_policy!(π, q, i_s) = make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s)
+	episode_update_args = ((q, π), update_policy!, mdp, γ, α)
+	get_q(episode_update_args) = first(first(episode_update_args))
+	get_πtarget(episode_update_args) = last(first(episode_update_args))
+	(episode_update_args = episode_update_args, episode_update! = sarsa_episode_update!, get_q = get_q, get_πtarget = get_πtarget)
+end
+
+# ╔═╡ 2f70e03f-1556-4fce-b4f5-394df4266eb7
+episodic_sarsa(args...; kwargs...) = generalized_episodic_sarsa(args..., setup_episodic_sarsa; kwargs...)
+
+# ╔═╡ 6823a91e-c02e-495c-9e82-e22b18857df7
+@skip_as_script sarsa_test = episodic_sarsa(deterministic_sample_gridworld, 0.9f0, 10_000, 0.1f0; ϵ = 0.5f0)
+
+# ╔═╡ c75d9e65-f9be-4b8a-9bd4-9dbeeafec16e
+@skip_as_script plot(cumsum(sarsa_test.step_history) ./ collect(1:length(sarsa_test.step_history)))
+
+# ╔═╡ ae700906-4b17-45ce-b27e-e2a0d745e259
+function setup_episodic_expected_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, ϵ::T, α::T; q = initialize_state_action_value(mdp), π_target = make_random_policy(mdp), π_behavior = make_random_policy(mdp), update_target_policy! = (π, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s), update_behavior_policy! = (π, mdp, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s)) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	episode_update_args = ((q, π_target, π_behavior), update_target_policy!, update_behavior_policy!, mdp, γ, α)
+	get_q(episode_update_args) = first(first(episode_update_args))
+	get_πtarget(episode_update_args) = first(episode_update_args)[2]
+	(episode_update_args = episode_update_args, episode_update! = expected_sarsa_episode_update!, get_q = get_q, get_πtarget = get_πtarget)
+end
+
+# ╔═╡ 823d65da-5636-4f7d-9582-2a0189a564ae
+setup_episodic_q_learning(args...; kwargs...) = setup_episodic_expected_sarsa(args...; update_target_policy! = make_greedy_policy!, kwargs...)
+
+# ╔═╡ 94193bc1-91c4-4d3e-8e44-cd37495481bf
+episodic_q_learning(args...; kwargs...) = generalized_episodic_sarsa(args..., setup_episodic_q_learning; kwargs...)
+
+# ╔═╡ d7de7be9-8d97-4476-ba09-9f84d2cebb00
+@skip_as_script expected_sarsa_test = episodic_q_learning(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
+
+# ╔═╡ 5b66bf73-b7dd-4054-9efb-1c30a475bc6b
+@skip_as_script plot(cumsum(expected_sarsa_test.step_history) ./ collect(1:length(expected_sarsa_test.step_history)))
+
+# ╔═╡ afdd018f-c923-4906-9b70-c7b0a3e16831
+function double_expected_sarsa_episode_update!((q1, q2, π_target1, π_target2, π_behavior)::Tuple{Matrix{T}, Matrix{T}, Matrix{T}, Matrix{T}, Matrix{T}}, update_target_policy!::Function, update_behavior_policy!::Function, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, α::T) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	i_s = mdp.state_init()
+	i_a = sample_action(π_behavior, i_s)
+	total_reward = zero(T)
+	total_steps = 0
+	while !mdp.isterm(i_s)
+		(r, i_s′, i_a′) = sarsa_step(mdp, π_behavior, i_s, i_a)
+		(π_target, q′, q) = if rand() < 0.5
+			(π_target1, q2, q1)
+		else
+			(π_target2, q1, q2)
+		end
+		v′ = sum(π_target1[i_a′, i_s′]*q′[i_a′, i_s′] for i_a′ in eachindex(mdp.actions))
+		q[i_a, i_s] += α * (r + γ*v′ - q[i_a, i_s])
+		i_s = i_s′
+		i_a = i_a′
+		update_behavior_policy!(π_behavior, mdp, q1, q2, i_s)
+		update_target_policy!(π_target, mdp, q, i_s)
+		total_reward += r
+		total_steps += 1
+	end
+	return total_reward, total_steps
+end
+
+# ╔═╡ 447cd06f-e110-450d-984f-ceb1d6361b43
+function setup_episodic_double_expected_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, ϵ::T, α::T; q1 = initialize_state_action_value(mdp), q2 = copy(q1), π_target1 = make_random_policy(mdp), π_target2 = copy(π_target1), π_behavior = make_random_policy(mdp), update_target_policy! = (π, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s), update_behavior_policy! = (π, mdp, q1, q2, i_s) -> make_ϵ_greedy_policy!(π, mdp, q1, q2, ϵ, i_s)) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	episode_update_args = ((q1, q2, π_target1, π_target2, π_behavior), update_target_policy!, update_behavior_policy!, mdp, γ, α)
+	get_q(episode_update_args) = (first(episode_update_args)[1] .+ first(episode_update_args)[2]) ./ 2
+	get_πtarget(episode_update_args) = (first(episode_update_args)[3] .+ first(episode_update_args)[4]) ./ 2
+	(episode_update_args = episode_update_args, episode_update! = double_expected_sarsa_episode_update!, get_q = get_q, get_πtarget = get_πtarget)
+end
+
+# ╔═╡ ffefe265-b7a3-4bc4-9e5f-2da6c406cc56
+setup_episodic_double_q_learning(args...; kwargs...) = setup_episodic_double_expected_sarsa(args...; update_target_policy! = make_greedy_policy!, kwargs...)
+
+# ╔═╡ adfc5819-6bb7-40fc-baef-9770efeb6a21
+episodic_double_expected_sarsa(args...; kwargs...) = generalized_episodic_sarsa(args..., setup_double_expected_sarsa; kwargs...)
+
+# ╔═╡ cd834845-8ca9-407a-91da-d3104b0bd9b7
+episodic_double_q_learning(args...; kwargs...) = generalized_episodic_sarsa(args..., setup_episodic_double_q_learning; kwargs...)
+
+# ╔═╡ 3eca2837-16fb-4237-9ebd-8b6378ca13a8
+@skip_as_script double_expected_sarsa_test = episodic_double_q_learning(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
+
+# ╔═╡ c87db76f-4c6a-4fe2-822b-8ee88079e30d
+@skip_as_script plot(cumsum(double_expected_sarsa_test.step_history) ./ collect(1:length(double_expected_sarsa_test.step_history)))
+
+# ╔═╡ 3dc94c4a-1072-4e9d-8408-439ea20a6029
+md"""
+## Afterstates
 """
 
 # ╔═╡ 78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
@@ -2019,6 +2125,15 @@ end
 	<div style = "margin: 10px;">Learned optimal value function found after 10,000 episodes $(show_grid_value(deterministic_sample_gridworld, sum(expected_sarsa_test.final_value_estimate .* expected_sarsa_test.final_policy, dims = 1), "sarsa_grid_world_values", square_pixels = 40))</div>
 	<div style = "margin: 10px;">Corresponding greedy policy
 	$(show_grid_policy(deterministic_sample_gridworld.states, deterministic_sample_gridworld.state_init, deterministic_sample_gridworld.isterm, expected_sarsa_test.final_policy, "sarsa_optimal_policy_gridworld"))</div>
+</div>
+""")
+
+# ╔═╡ d32191cf-1d96-495a-bf04-f0bc5a5ecaa0
+@skip_as_script @htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div style = "margin: 10px;">Learned optimal value function found after 10,000 episodes $(show_grid_value(deterministic_sample_gridworld, sum(double_expected_sarsa_test.final_value_estimate .* expected_sarsa_test.final_policy, dims = 1), "sarsa_grid_world_values", square_pixels = 40))</div>
+	<div style = "margin: 10px;">Corresponding greedy policy
+	$(show_grid_policy(deterministic_sample_gridworld.states, deterministic_sample_gridworld.state_init, deterministic_sample_gridworld.isterm, double_expected_sarsa_test.final_policy, "sarsa_optimal_policy_gridworld"))</div>
 </div>
 """)
 
@@ -3003,14 +3118,34 @@ version = "17.4.0+2"
 # ╟─9fb8f6ea-ca20-461c-b790-f651b13721b2
 # ╟─c3c3bb5c-4bcf-442e-9718-c18a4a03fa82
 # ╠═1dab32e6-9d81-4de3-9b97-6a2ac58a28c3
+# ╠═cc09fc0b-bf88-464a-980b-59ae86bbd5d8
+# ╠═59307ddd-c24b-444f-9723-badc7e6da897
+# ╠═2f70e03f-1556-4fce-b4f5-394df4266eb7
 # ╠═6823a91e-c02e-495c-9e82-e22b18857df7
 # ╟─64d2a0e3-4ecd-4d44-b5cc-0ff23b3776dd
+# ╠═c75d9e65-f9be-4b8a-9bd4-9dbeeafec16e
 # ╟─41361309-8be9-464a-987e-981035e4b15a
-# ╠═b577750a-6bda-4cd8-ae74-a38273be9af0
+# ╟─ee8a054e-64db-4c61-a5d3-b38e692887d9
+# ╠═7146eebf-bd16-424f-ae55-de51689bc0fe
+# ╠═ae700906-4b17-45ce-b27e-e2a0d745e259
+# ╠═823d65da-5636-4f7d-9582-2a0189a564ae
+# ╠═9a4027f9-243d-4fc6-916a-2f89a76120c9
 # ╠═94193bc1-91c4-4d3e-8e44-cd37495481bf
 # ╠═d7de7be9-8d97-4476-ba09-9f84d2cebb00
 # ╟─acd5ff5b-f9d0-41bf-ae09-cf6842eab556
-# ╠═2bab0784-b185-44f0-9dec-c98bf164827b
+# ╠═5b66bf73-b7dd-4054-9efb-1c30a475bc6b
+# ╟─2bab0784-b185-44f0-9dec-c98bf164827b
+# ╟─be74f8fb-fd58-4170-8735-1af55a04d48f
+# ╠═2688c9b8-07c0-4105-b2af-a7c71c48fb31
+# ╠═afdd018f-c923-4906-9b70-c7b0a3e16831
+# ╠═447cd06f-e110-450d-984f-ceb1d6361b43
+# ╠═ffefe265-b7a3-4bc4-9e5f-2da6c406cc56
+# ╠═adfc5819-6bb7-40fc-baef-9770efeb6a21
+# ╠═cd834845-8ca9-407a-91da-d3104b0bd9b7
+# ╠═3eca2837-16fb-4237-9ebd-8b6378ca13a8
+# ╠═d32191cf-1d96-495a-bf04-f0bc5a5ecaa0
+# ╠═c87db76f-4c6a-4fe2-822b-8ee88079e30d
+# ╟─3dc94c4a-1072-4e9d-8408-439ea20a6029
 # ╠═78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
 # ╟─796eeb6c-1152-11ef-00b7-b543ec85b526
 # ╠═0574291d-263a-4836-8cb9-78ad7de3f095
