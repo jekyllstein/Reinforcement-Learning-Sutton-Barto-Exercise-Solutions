@@ -26,19 +26,19 @@ end
 end
 
 # ╔═╡ b6144c34-9f2b-4dc4-81cb-20e3a4cef298
-md"""
+@skip_as_script md"""
 # Tabular Solution Methods for Markov Decision Processes
 
 Code implementing the concepts as well as examples executing that code is interspersed throughout the document.  Any section containing code and examples will be italicized to distinguish it from other notes.
 """
 
 # ╔═╡ 5340f896-674d-4675-b53a-8e22b536a269
-md"""
+@skip_as_script md"""
 ## Markov Decision Process Definitions
 """
 
 # ╔═╡ 6a3e83b0-b4b4-4f4b-bd72-eb97df199465
-md"""
+@skip_as_script md"""
 ### Agent and Environment
 
 We seek to find the optimum *behavior* for an *agent* interacting with an *environment*.  To properly define an *environment* we must first define the *state space* $s \in \mathcal{S}$ and the *action space* $a \in \mathcal{A}$.  An agent is something which can, at discrete time steps $t$, take actions in the environment.  Once an action has been taken, the *environement* will produce a *step transition* consisting of a numerical *reward* as well as an updated state.
@@ -61,7 +61,7 @@ For some environments, only one transition state $s^\prime$ can be reached from 
 """
 
 # ╔═╡ da6ab60e-1677-41dc-82a1-bbc0c9234e25
-md"""
+@skip_as_script md"""
 Often times, we visualize these *trajectories* with diagrams where open circles represent states, closed circles represent actions, and squares represent terminal states if they exist.  Even if an environment is *stochastic* a trajectory will have a single path as shown below.  For a *deterministic* environment, this path will represent the only possible trajectory given those actions.
 """
 
@@ -158,7 +158,7 @@ Often times, we visualize these *trajectories* with diagrams where open circles 
 end
 
 # ╔═╡ 4835bed5-a02a-49e9-8a01-63885109339c
-md"""
+@skip_as_script md"""
 ### *MDP Types and Definitions*
 
 If we know in advance the entire probability transition function, then we can define an environment using those probabilities.  Below are datatypes and functions that implement such an environment.  Note that to implement such an environment, a complete list of all the states and actions must be known ahead of time.
@@ -208,8 +208,8 @@ initialize_state_action_value(mdp::AbstractTabularMDP{T, S, A}; init_value = zer
 initialize_state_value(mdp::AbstractTabularMDP{T, S, A}; init_value = zero(T)) where {T<:Real, S, A} = ones(T, length(mdp.states)) .* init_value
 
 # ╔═╡ 06f6647d-48c5-4ead-b7b5-90a968363215
-md"""
-#### *Example: Creating a Deterministic MDP*
+@skip_as_script md"""
+### *Example: Creating a Deterministic Gridworld MDP*
 """
 
 # ╔═╡ 92556e91-abae-4ce3-aa15-b35c4a65cff5
@@ -341,7 +341,7 @@ function make_isterm(mdp::FiniteDeterministicMDP{T, S, A}) where {T<:Real, S, A}
 end
 
 # ╔═╡ 1188e680-cfbe-417c-ad61-83e145c39220
-md"""
+@skip_as_script md"""
 ##### Create a deterministic gridworld with all the necessary components shown below
 """
 
@@ -349,7 +349,7 @@ md"""
 @skip_as_script const deterministic_gridworld = make_gridworld()
 
 # ╔═╡ 3b3decd0-bb00-4fd2-a8eb-a5b14aede950
-md"""
+@skip_as_script md"""
 ##### Deterministic gridworld transition display.  Given a state action pair defined below, shows the corresponding state in the grid highlighted in blue and the transition state outlined in bold.  The start and goal states are also shown in green and gold respectively.  Notice that if the selected state is the goal, then all transitions remain in that state.
 """
 
@@ -373,13 +373,13 @@ Transition State
 @skip_as_script md"""Selected Action $(@bind grid_action_selection Slider(1:4; show_value = true))"""
 
 # ╔═╡ 4b277cea-668e-43d6-bd2a-fcbf62be9b12
-md"""
+@skip_as_script md"""
 ### Agent Behavior: The Policy Function
 An *agent* is often defined by a specific *policy* $\pi(a\vert s) = \text{Pr} \{A_t = a \mid S_t = s \}$ which defines the probabilities of taking an action given a state.  If there are multiple actions with non-zero probability for a given state, then this is a *stochastic* policy.  To handle stochastic policies in general, a generic policy can be defined as matrix of probabilities where each column represents the action distribution for the state represented by the column index.  Defining a policy like this takes advantage of the fact that we can enumerate all the state action pairs and thus represent them with a numerical index.  An agent following such a stochastic policy will sample from the action distribution every time it encounters a state.
 """
 
 # ╔═╡ 82f710d7-6ae8-4794-af2d-762ee3a73a3f
-md"""
+@skip_as_script md"""
 ### *Policies, Action Selection, and Trajectories*
 """
 
@@ -431,20 +431,20 @@ end
 runepisode(mdp::AbstractCompleteMDP{T, S, A}, i_s0::Integer, isterm::Function; kwargs...) where {T<:Real,S,A} = runepisode(mdp, i_s0, isterm, make_random_policy(mdp); kwargs...)
 
 # ╔═╡ 035a6f5c-3bed-4f72-abe5-17558331f8ba
-md"""Matrix representation of a random policy"""
+@skip_as_script md"""Matrix representation of a random policy"""
 
 # ╔═╡ 62436d67-a417-476f-b508-da752796c774
 @skip_as_script const example_gridworld_random_policy = make_random_policy(deterministic_gridworld.mdp)
 
 # ╔═╡ 84815181-244c-4f57-8bf0-7617379dda00
-md"""Visual representation of a random policy"""
+@skip_as_script md"""Visual representation of a random policy"""
 
 # ╔═╡ 08b70e16-f113-4464-bb4b-3da393c8500d
-md"""
+@skip_as_script md"""
 Random policy episode returns the trajectory as a list of states visited, actions taken, and rewards received.  The final state of the episode is also shown."""
 
 # ╔═╡ 73c4f222-a405-493c-9127-0f950cd5fa0e
-md"""
+@skip_as_script md"""
 ## The Value Function
 
 ### Goals and Rewards
@@ -480,7 +480,7 @@ q_\pi(s, a) &\doteq \mathbb{E}_\pi[G_t \mid S_t=s,A_t=a] \tag{3.13} \\
 """
 
 # ╔═╡ c4e1d754-2535-40be-bbb3-075ca3fa64b9
-md"""
+@skip_as_script md"""
 For a policy $\pi$, $v_\pi(s)$ is called the *state value function* and $q_\pi(s, a)$ is called the *state-action value function*. Notice that both expressions have a recursive form that defines values in terms of successor states.  Those recursive equations are known as the *Bellman Equations* for each value function.
 
 Since we have a finite and countable number of state action pairs, each value function can be represented as a vector or matrix whose indices represent the states and actions corresponding to that value estimate.  Given a value function and a policy, we can verify whether or not it satisfies the Bellman Equation everywhere.  If it does, then we have the correct value function for that policy.  In other words, the correct value function is a *fixed point* of the *Bellman Operator* where the *Bellman Operator* is the act of updating the value function with the right hand side of the Bellman Equation.  
@@ -489,7 +489,7 @@ Verifying that a value function is correct is simple, but what is less obvious i
 """
 
 # ╔═╡ 478aa9a3-ac58-4520-9613-3fcf1a1c1952
-md"""
+@skip_as_script md"""
 ### *Bellman Policy Evaluation*
 
 The following code shows how one can use the Bellman Operator to iteratively calculate the value function for a given policy.  The policy must be defined in terms of a probability distribution over actions for each state in the environment.  This implementation is an extension of the prior code in which every state action pair can be enumerated in advance.
@@ -580,26 +580,26 @@ function policy_evaluation!(value_estimate::Array{T, N}, π::Matrix{T}, mdp::Abs
 end
 
 # ╔═╡ 43da70fd-e3c4-4d2d-9204-29aa5007df63
-function q_policy_evaluation(mdp::AbstractCompleteMDP{T, S, A}, π::Matrix{T}, γ::T; kwargs...) where {T<:Real,S, A}
+function policy_evaluation_q(mdp::AbstractCompleteMDP{T, S, A}, π::Matrix{T}, γ::T; kwargs...) where {T<:Real,S, A}
 	Q = initialize_state_action_value(mdp)
 	(Q, total_iterations, total_updates) = policy_evaluation!(Q, π, mdp, γ; kwargs...)
 	return (value_function = Q, total_iterations = total_iterations, total_updates = total_updates)
 end
 
 # ╔═╡ 823a8e5d-2092-480f-ad6c-4fc9e83e88c0
-function v_policy_evaluation(mdp::AbstractCompleteMDP{T, S, A}, π::Matrix{T}, γ::T; kwargs...) where {T<:Real,S, A}
+function policy_evaluation_v(mdp::AbstractCompleteMDP{T, S, A}, π::Matrix{T}, γ::T; kwargs...) where {T<:Real,S, A}
 	V = initialize_state_value(mdp)
 	(V, total_iterations, total_updates) = policy_evaluation!(V, π, mdp, γ; kwargs...)
 	return (value_function = V, total_iterations = total_iterations, total_updates = total_updates)
 end
 
 # ╔═╡ 381bfc1e-9bc4-47f7-a8d3-116933382e25
-md"""
+@skip_as_script md"""
 #### *Example: Random Policy Evaluation for Deterministic Gridworld*
 """
 
 # ╔═╡ b991831b-f15d-493c-835c-c7e8a33f8d7b
-md"""
+@skip_as_script md"""
 State values for the random policy.  Notice that at a discount rate of $\gamma=1$ all of the state values will be identical with a value of 1.  If the sole reward is for reaching the goal, a discount factor must be used to favor reaching the goal as fast as possible.  Otherwise any policy that eventually reaches the goal will be considered equally good.
 """
 
@@ -607,7 +607,7 @@ State values for the random policy.  Notice that at a discount rate of $\gamma=1
 @skip_as_script md"""Select Discount Rate for State Policy Evaluation: $(@bind γ_gridworld_policy_evaluation Slider(0.01f0:0.01f0:1f0; show_value=true, default = 1f0))"""
 
 # ╔═╡ ac5f7dcc-02ba-421c-a593-ca7ba60b3ff2
-@skip_as_script deterministic_gridworld_random_policy_evaluation = v_policy_evaluation(deterministic_gridworld.mdp, example_gridworld_random_policy, γ_gridworld_policy_evaluation);
+@skip_as_script deterministic_gridworld_random_policy_evaluation = policy_evaluation_v(deterministic_gridworld.mdp, example_gridworld_random_policy, γ_gridworld_policy_evaluation);
 
 # ╔═╡ 7851e968-a5af-4b65-9591-e34b3404fb09
 @skip_as_script md"""
@@ -615,14 +615,14 @@ Converged after $(deterministic_gridworld_random_policy_evaluation.total_iterati
 """
 
 # ╔═╡ cb96b24a-65aa-4832-bc7d-093f0c951f83
-md"""
+@skip_as_script md"""
 ### Optimal Policies and Value Functions
 
 Every MDP has a unique optimal value function whose values are greater than or equal to every other value function at every state or state-action pair: $v_*(s) \geq v_\pi(s) \: \forall s, \pi$ and $q_*(s, a) \geq q_\pi(s, a) \: \forall s, a, \pi$.  This property can be used to derive a recursive relationship for both optimal value functions as shown below.
 """
 
 # ╔═╡ 7df4fcbb-2f5f-4d59-ba0c-c7e635bb0503
-md"""
+@skip_as_script md"""
 $\begin{flalign}
 v_*(s) &\doteq \max_\pi v_\pi(s) \: \forall \: s \in \mathcal{S} \tag{3.15} \\
 &= \max_{a \in \mathcal{A}(s)} q_{*}(s, a) \: \forall \: s \in \mathcal{S} \tag{meaning of optimal}\\
@@ -635,12 +635,12 @@ q_*(s, a) &\doteq \max_\pi q_\pi(s, a) \: \forall \: s \in \mathcal{S} \text{ an
 """
 
 # ╔═╡ 4f0f052d-b461-4040-b5ff-46aac74a24de
-md"""
+@skip_as_script md"""
 Analogous to the previous Bellman equations, (3.19) and (3.20) are known as the *Bellman optimality equations* for the state and state-action value functions.  Every optimal policy will share the value function that has this property.  We can verify if a particular value function is optimal by checking whether it satisfies the Bellman optimality equation, but we also want methods to compute this function just like we did for a given policy.  In fact, our ability to compute the value function for a set policy can be used to derive the optimal value function.  This process is known as *policy improvement*.
 """
 
 # ╔═╡ cf902114-94e3-4402-ae04-8f704dd6adad
-md"""
+@skip_as_script md"""
 ### Policy Improvement
 
 Suppose we have a policy $\pi$ and the corresponding value functions $v_\pi, q_\pi$.  Recall that the optimal value functions $v_*, q_*$ have the property that their values are at least as good as the values for any other policy.  So, if we can find a modified policy whose value function is improved, we have moved our policy closer to the optimal one.  The approach in policy improvement will be to repeatedly improve a set policy until it is optimal.
@@ -663,14 +663,14 @@ This policy is known as the *greedy* policy with respect to the value function. 
 """
 
 # ╔═╡ a3e85772-9c67-454f-94d2-c2608b53c427
-md"""
+@skip_as_script md"""
 ### Policy Iteration
 
 Since we can improve an arbitrary policy, one method to computing the optimal policy is to just repeat this process over an over until it converges.  Once the process converges, our policy is guaranteed to be optimal.  The procedure called *policy iteration* starts with an arbitrary policy $\pi_0$, computes its value function $v_{\pi_0}$, and then performs the greedy updateat every state to achieve an improved policy $\pi_1$.  Upon repetition this procedure will produce a sequence of policies and value functions until the update results in no change to the policy.  Since we are also computing the value functions at each step, we can also halt the process when the state values do not change at all or within some tolerance.
 """
 
 # ╔═╡ f52b6f5d-3832-41aa-8ccd-78e514e65c8b
-md"""
+@skip_as_script md"""
 ### *Bellman Policy Iteration*
 The following code implements policy iteration in the tabular case where the full probability transition function is available.  In this case, state values are sufficient, but one can also use state-action values with policy iteration.
 """
@@ -739,22 +739,39 @@ function make_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A}, Q:
 end
 
 # ╔═╡ f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
-function policy_iteration_v(mdp::AbstractCompleteMDP{T, S, A}, γ::T; max_iterations = 10, kwargs...) where {T<:Real, S, A}
-	π_list = Vector{Matrix{T}}()
-	v_list = Vector{Vector{T}}()
+function policy_iteration(mdp::AbstractCompleteMDP{T, S, A}, γ::T, initialize_value::Function; max_iterations = 10, save_history=true, kwargs...) where {T<:Real, S, A}
 	πgreedy = make_random_policy(mdp)
-	push!(π_list, copy(πgreedy))
-	(v_π, num_iterations, num_updates) = v_policy_evaluation(mdp, πgreedy, γ; kwargs...)
-	push!(v_list, copy(v_π))
-	make_greedy_policy!(πgreedy, mdp, v_π, γ)
-	while πgreedy != last(π_list)
-		push!(π_list, copy(πgreedy))
-		(v_π, num_iterations, num_updates) = v_policy_evaluation(mdp, πgreedy, γ; kwargs...)
-		push!(v_list, copy(v_π))
-		make_greedy_policy!(πgreedy, mdp, v_π, γ)
+	πlast = copy(πgreedy)
+	v_π = initialize_value(mdp)
+	(v_π, num_iterations, num_updates) = policy_evaluation!(v_π, πgreedy, mdp, γ; kwargs...)
+	if save_history
+		π_list = [πgreedy]
+		v_list = [copy(v_π)]
 	end
-	return π_list, v_list
+	make_greedy_policy!(πgreedy, mdp, v_π, γ)
+	πlast .= πgreedy
+	converged = false
+	while !converged
+		save_history && push!(π_list, copy(πgreedy))
+		(v_π, num_iterations, num_updates) = policy_evaluation!(v_π, πgreedy, mdp, γ; kwargs...)
+		save_history && push!(v_list, copy(v_π))
+		make_greedy_policy!(πgreedy, mdp, v_π, γ)
+		converged = (πgreedy == πlast)
+		πlast .= πgreedy
+	end
+
+	if save_history
+		return π_list, v_list
+	else
+		return πgreedy, v_π
+	end
 end
+
+# ╔═╡ a59f0142-9f0c-452b-91ea-647f9201a8d6
+policy_iteration_v(args...; kwargs...) = policy_iteration(args..., initialize_state_value; kwargs...)
+
+# ╔═╡ 7f3a1d41-dd16-493c-a59c-764aec13d076
+policy_iteration_q(args...; kwargs...) = policy_iteration(args..., initialize_state_action_value; kwargs...)
 
 # ╔═╡ 4a80a7c3-6e9a-4973-b48a-b02509823830
 @skip_as_script md"""
@@ -782,7 +799,7 @@ If we apply policy iteration using the state value function, we can compute the 
 @skip_as_script md"""Number of Policy Iterations: $(@bind policy_iteration_count Slider(0:length(π_list) .- 1; show_value=true, default = length(π_list) - 1))"""
 
 # ╔═╡ 6253a562-2a48-45da-b453-1ec7b51d2073
-md"""
+@skip_as_script md"""
 ### Value Iteration
 
 When we introduced the Bellman optimality equations, it was noted that those equations can be used to verify if a policy is optimal.  It turns out that, just like with policy evaluation, we can use turn the Bellman optimality equations into an operator and use the operator directly to compute the optimal value function.  This procedure is called *value iteration* and proceeds by first initializing an arbitrary value function $v_0$.  Then that value function is updated with the Bellman optimality operator as follows:
@@ -795,7 +812,7 @@ This update can be performed at every state and repeated until the process conve
 """
 
 # ╔═╡ 0a7c9e73-81a7-45d9-bf9e-ebc61abeb552
-md"""
+@skip_as_script md"""
 ### *Bellman Value Iteration*
 The following code implements value iteration in the tabular case where the value function can be represented as a vector of values for each state.  Given the probability transition function, state values are sufficient to perform value iteration, but it can also be done with state-action values.
 """
@@ -842,33 +859,57 @@ function bellman_optimal_value!(V::Vector{T}, mdp::FiniteStochasticMDP{T, S, A},
 end
 
 # ╔═╡ ecebce8b-0e2a-49d0-89f5-53bd0ffdd1a3
-function value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
+function value_iteration!(v_est, θ, mdp, γ, nmax, valuelist)
 	nmax <= 0 && return valuelist
 	
 	#update value function
-	delt = bellman_optimal_value!(V, mdp, γ)
+	delt = bellman_optimal_value!(v_est, mdp, γ)
 	
 	#add copy of value function to results list
-	push!(valuelist, copy(V))
+	push!(valuelist, copy(v_est))
 
 	#halt when value function is no longer changing
 	delt <= θ && return valuelist
 	
-	value_iteration_v!(V, θ, mdp, γ, nmax - 1, valuelist)	
+	value_iteration!(v_est, θ, mdp, γ, nmax - 1, valuelist)	
+end
+
+# ╔═╡ 42dab9c3-dd04-4129-ba3c-b6fb22e2afbe
+function value_iteration!(v_est, θ, mdp, γ, nmax)
+	nmax <= 0 && return v_est
+	
+	#update value function
+	delt = bellman_optimal_value!(v_est, mdp, γ)
+
+	#halt when value function is no longer changing
+	delt <= θ && return v_est
+	
+	value_iteration!(v_est, θ, mdp, γ, nmax - 1)	
 end
 
 # ╔═╡ 1e24a0aa-dbf9-422e-92c9-834f293a0c02
-function begin_value_iteration_v(mdp::M, γ::T, V::Vector{T}; θ = eps(zero(T)), nmax=typemax(Int64)) where {T<:Real, M <: AbstractCompleteMDP{T, S, A} where {S, A}}
-	valuelist = [copy(V)]
-	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
+function value_iteration(mdp::M, γ::T, v_est; θ = eps(zero(T)), nmax=typemax(Int64), save_history = true) where {T<:Real, M <: AbstractCompleteMDP{T, S, A} where {S, A}}
+	if save_history
+		valuelist = [copy(v_est)]
+		value_iteration!(v_est, θ, mdp, γ, nmax, valuelist)
+	else
+		value_iteration!(v_est, θ, mdp, γ, nmax)
+	end
 
 	π = make_random_policy(mdp)
-	make_greedy_policy!(π, mdp, V, γ)
-	return (valuelist, π)
+	make_greedy_policy!(π, mdp, v_est, γ)
+	if save_history
+		return (valuelist, π)
+	else
+		return (v_est, π)
+	end
 end
 
 # ╔═╡ eec3017b-6d02-49e6-aedf-9a494b426ec5
-begin_value_iteration_v(mdp::AbstractCompleteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, length(mdp.states)); kwargs...)
+value_iteration_v(mdp::AbstractCompleteMDP{T,S,A}, γ::T; init_value::T = zero(T), kwargs...) where {T<:Real,S,A} = value_iteration(mdp, γ, initialize_state_value(mdp; init_value = init_value); kwargs...)
+
+# ╔═╡ 2fe59959-5d89-4ae7-839c-ecf82e2c71d8
+value_iteration_q(mdp::AbstractCompleteMDP{T,S,A}, γ::T; init_value::T = zero(T), kwargs...) where {T<:Real,S,A} = value_iteration(mdp, γ, initialize_state_action_value(mdp; init_value = init_value); kwargs...)
 
 # ╔═╡ 40f6257d-db5c-4e21-9691-f3c9ffc9a9b5
 @skip_as_script md"""
@@ -881,23 +922,23 @@ If we apply value iteration using the state value function, we can compute the o
 @skip_as_script md"""Select discount rate for value iteration: $(@bind value_iteration_γ Slider(0.01f0:0.01f0:1f0; show_value=true, default = 0.9f0))"""
 
 # ╔═╡ 929c353b-f67c-49ff-85d3-0a27cafc59cf
-@skip_as_script const value_iteration_grid_example = begin_value_iteration_v(new_gridworld.mdp, value_iteration_γ);
+@skip_as_script const value_iteration_grid_example = value_iteration_v(new_gridworld.mdp, value_iteration_γ);
 
 # ╔═╡ a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
-md"""
+@skip_as_script md"""
 ### Generalized Policy Iteration
 
 So far we presented two extreme cases of generalized policy iteration.  In the first case, policy iteration, we accurately compute a policy value function, and then update the policy to be greedy with respect to it.  In value iteration, we skip defining a policy altogether and just use the Bellman optimality operator to iteratively compute the optimal value function.  In general, we can use the Bellman operator to compute a value function for a policy that is not yet optimal and stop before that value function has converged.  Then our policy improvement step is not basing the new policy on an accurate version of the current value function, but we can continue to apply policy evaluation to the updated policy.  In this procedure, the policy evaluation is constantly playing catchup to the ever changing policy by chasing a moving target, but that target will stop moving once we reach the optimal policy.  It turns out that proceding with partial value function updates will still eventually converge to the optimal policy, and we can choose to wait until the value function is fully converged, dispense with it altogether, or anything in between.  This family of procedures all follow the same pattern and are known as *generalized policy iteration*.
 """
 
 # ╔═╡ 1d555f77-c404-485a-9244-717c12c80d28
-md"""
+@skip_as_script md"""
 ## Monte Carlo Sampling Methods
 The preceeding solution methods require the probability transition function to calculate value functions by using the Bellman equations.  It is also possible to compute value functions from *experience* with the environment.  Typically this experience is in the form of observed transitions in the environment: $(s, a) \rightarrow (s^\prime, r)$.  For a deterministic environment, only one state transition is possible, so even after one observation we may already have information equivalent to the probability transition function.  In general stochastic environments, we can only learn accurate value functions by observing many transitions from a single state action pair (usually an infinite number to guarantee convergence).  Our approach to computing the optimal value function will follow the same pattern of generalized policy iteration where we use the value function as a stepping stone for policy improvement.
 """
 
 # ╔═╡ 3df86061-63f7-4c1f-a141-e1848f6e83e4
-md"""
+@skip_as_script md"""
 ### Policy Prediction
 
 Experience can be used to do policy evaluation.  When we use experience instead of the probability transition function, this procedure is known as *Monte Carlo Prediction* and the environment will be used to *sample* experience that follows the probability transition function.  This method is the easiest to understand because it only relies upon the original definition of the value functions.  
@@ -915,7 +956,7 @@ From this episode, at each state $s = S_t$, we can estimate $G_t = \mathbb{E}_\p
 """
 
 # ╔═╡ 8abba353-2309-4931-bf3f-6b1f500998a7
-md"""
+@skip_as_script md"""
 ### *Sampling MDP Definitions and Functions*
 
 When the probability transition function is unavailable, we can use an MDP that only provides sample transitions given a state action pair.  Below is code implementing such a ```SampleTabularMDP{T<:Real, S, A, F, G, H}``` where we can fully enumerate all the states and actions.  In addition to a list of states and actions, such an MDP must also have three functions to be called as follows: 
@@ -1075,39 +1116,11 @@ function runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, i_s0
 	return states, actions, rewards, i_sterm
 end
 
-# ╔═╡ 33bcbaeb-6fd4-4724-ba89-3f0057b29ae9
-function runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}; i_s0::Integer = mdp.state_init(), max_steps = Inf) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-	i_s = i_s0
-	states = Vector{Int64}()
-	actions = Vector{Int64}()
-	rewards = Vector{T}()
-	push!(states, i_s)
-	(r, i_s′, i_a) = takestep(mdp, π, i_s)
-	push!(actions, i_a)
-	push!(rewards, r)
-	step = 2
-	i_sterm = i_s
-	if mdp.isterm(i_s′)
-		i_sterm = i_s′
-	else
-		i_sterm = i_s
-	end
-	i_s = i_s′
+# ╔═╡ 8e69b091-2eec-4227-aea0-7b240fe43915
+runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}; i_s0::Integer = mdp.state_init(), i_a0 = sample_action(π, i_s0), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function} = runepisode(mdp, π, i_s0, i_a0; kwargs...)
 
-	#note that the terminal state will not be added to the state list
-	while !mdp.isterm(i_s) && (step <= max_steps)
-		push!(states, i_s)
-		(r, i_s′, i_a) = takestep(mdp, π, i_s)
-		push!(actions, i_a)
-		push!(rewards, r)
-		i_s = i_s′
-		step += 1
-		if mdp.isterm(i_s′)
-			i_sterm = i_s′
-		end
-	end
-	return states, actions, rewards, i_sterm
-end
+# ╔═╡ 33bcbaeb-6fd4-4724-ba89-3f0057b29ae9
+runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}; π::Matrix{T} = make_random_policy(mdp), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function} = runepisode(mdp, π; kwargs...)
 
 # ╔═╡ 1fed0e8d-0014-4484-8b61-29807caa8ef7
 @skip_as_script runepisode(deterministic_gridworld.mdp, deterministic_gridworld.init_state, deterministic_gridworld.isterm)
@@ -1117,42 +1130,82 @@ end
 @skip_as_script runepisode(deterministic_sample_gridworld, make_random_policy(deterministic_sample_gridworld))
 
 # ╔═╡ 7c553f77-7783-439e-834b-53a2cd3bef5a
-md"""
+@skip_as_script md"""
 ### *Monte Carlo Policy Prediction*
 """
 
+# ╔═╡ a502c80a-fe11-4184-9731-c634655a825d
+begin
+	abstract type AbstractAveragingMethod{T<:Real} end
+	#to keep track of a sample average, a weight or count is required
+	struct SampleAveraging{T<:Real, N} <: AbstractAveragingMethod{T}
+		weights::Array{T, N}
+		function SampleAveraging(values::Array{T, N}) where {T<:Real, N}
+			weights = similar(values)
+			weights .= 0
+			new{T, N}(weights)
+		end
+	end
+	#for constant step size averaging, no additional statistics are necessary
+	struct ConstantStepAveraging{T<:Real} <: AbstractAveragingMethod{T}
+		α::T
+	end
+	#note that to add additional averaging methods, one must also define a method of update_average! whose final argument matches the new averaging type.  see the examples below for those methods defined for SampleAveraging and ConstantStepAveraging
+end
+
+# ╔═╡ ad34ce87-d9cc-407b-9670-25ed535d2d8d
+function update_average!(v_est::Vector{T}, target_value::T, step::Integer, states::Vector{Int64}, actions::Vector{Int64}, avg_method::SampleAveraging) where T<:Real
+	i_s = states[step]
+	avg_method.weights[i_s] += 1
+	δ = target_value - v_est[i_s]
+	v_est[i_s] += δ / avg_method.weights[i_s]
+end
+
+# ╔═╡ 67a0aac8-b022-4051-804c-cfda3e0c7357
+function update_average!(v_est::Vector{T}, target_value::T, step::Integer, states::Vector{Int64}, actions::Vector{Int64}, avg_method::ConstantStepAveraging) where T<:Real
+	i_s = states[step]
+	δ = target_value - v_est[i_s]
+	v_est[i_s] += avg_method.α * δ
+end
+
+# ╔═╡ 6dfbf4c3-8d66-45d3-ae1c-ad50a53eb570
+function update_average!(q_est::Matrix{T}, target_value::T, step::Integer, states::Vector{Int64}, actions::Vector{Int64}, avg_method::SampleAveraging) where T<:Real
+	i_s = states[step]
+	i_a = actions[step]
+	avg_method.weights[i_a, i_s] += 1
+	δ = target_value - q_est[i_a, i_s]
+	q_est[i_a, i_s] += δ / avg_method.weights[i_a, i_s]
+end
+
+# ╔═╡ 7136cb2a-6957-4d21-a6e2-381e571a113a
+function update_average!(q_est::Matrix{T}, target_value::T, step::Integer, states::Vector{Int64}, actions::Vector{Int64}, avg_method::ConstantStepAveraging) where T<:Real
+	i_s = states[step]
+	i_a = actions[step]
+	δ = target_value - q_est[i_a, i_s]
+	q_est[i_a, i_s] += avg_method.α * δ
+end
+
 # ╔═╡ 3d86b788-9770-4356-ac6b-e80b0bfa1314
-function mc_episode_update!(states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, v::Vector{T}, counts::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+function monte_carlo_episode_update!(value_estimates::Array{T, N}, states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, averaging_method::AbstractAveragingMethod; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function, N}
 	l = length(states)
 	g = zero(T)
 	for i in l:-1:1
 		g = γ*g + rewards[i]
-		i_s = states[i]
-		counts[i_s] += 1
-		v_old = v[i_s]
-		v[i_s] += (g - v_old) / counts[i_s] 
+		update_average!(value_estimates, g, i, states, actions, averaging_method)
 	end
 end
 
-# ╔═╡ 025ef73b-e9f6-4741-9e89-f334b0f758f5
-function mc_episode_update!(states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, q::Matrix{T}, counts::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-	l = length(states)
-	g = zero(T)
-	for i in l:-1:1
-		g = γ*g + rewards[i]
-		i_s = states[i]
-		i_a = actions[i]
-		counts[i_a, i_s] += 1
-		q_old = q[i_a, i_s]
-		q[i_a, i_s] += (g - q_old) / counts[i_a, i_s] 
-	end
+# ╔═╡ 52e73547-ce0d-4696-8a3c-46ced9fa6582
+begin
+	update_value_history!(v_history, v::Vector, ep::Integer) = v_history[:, ep] .= v
+	update_value_history!(v_history, q::Matrix, ep::Integer) = v_history[:, :, ep] .= q
 end
 
 # ╔═╡ a2027cca-4a12-4d7d-a721-6044c6255394
-@bind γ_mc_predict NumberField(0f0:0.01f0:1f0; default = 0.99f0)
+@skip_as_script @bind γ_mc_predict NumberField(0f0:0.01f0:1f0; default = 0.99f0)
 
 # ╔═╡ 1b83b6c2-43cb-4ad4-b5a9-46e31d585a27
-md"""
+@skip_as_script md"""
 ### Monte Carlo Control
 
 Recalling generalized policy iteration, we can use the episode as the point at which we update the policy with respect to whatever the value estimates are at that time.  Since we cannot apply Monte Carlo prediction before an episode is completed, this is the fastest we could possible update the policy.  We could always update our prediction of the value function over more episodes to make it more accurate, but we plan on updating the policy anyway so there is not need to have converged values until we have reached the optimal policy.  In order to guarantee convergence, however, we must visit have a non zero probability of visiting every state action pair an infinite number of times in the limit of conducting infinite episodes.  There are two main methods of achieving this property.  The first is to begin episodes with random state-action pairs sampled such that each pair has a non-zero probability of being selected.  The second method is to update the policy to be $\epsilon$-greedy with respect to the value function.  $\epsilon$-greedy policies have a non-zero probability $\epsilon$ of taking random actions and behave as the greedy policy otherwise.  Because of the random chance, such a policy is also guaranteed to visit all the state action pairs, but then our policy improvement is restricted to the case of the best $\epsilon$-greedy policy.  We could lower $\epsilon$ to zero during the learning process to converge to the optimal policy.
@@ -1161,25 +1214,25 @@ After applying MC state-action value prediction for a single episode, we have ${
 """
 
 # ╔═╡ 51fecb7e-65ff-4a11-b043-b5832fed5e02
-md"""
+@skip_as_script md"""
 ### *Monte Carlo Control with Exploring Starts*
 
-The following code implements Monte Carlo control for estimating the optimal policy of a Tabular MDP from which we can only take samples.  Exploring starts are required to ensure that we could visit all the state action pairs an unlimited number of times over the course of multiple episodes.
+The following code implements Monte Carlo control for estimating the optimal policy of a Tabular MDP from which we can only take samples.  If we update the target policy to be greedy with respect to the value function, then exploring starts are required to ensure that we could visit all the state action pairs an unlimited number of times over the course of multiple episodes.  The exploring starts method is defined by initializing each episode with a random state action pair and performing the greedy policy update after each episode.
 """
 
 # ╔═╡ 105b8874-5cbc-4777-87c6-e8712cbcc78d
-md"""
+@skip_as_script md"""
 #### *Example: Monte Carlo control with exploring starts on gridworld*
 """
 
 # ╔═╡ 26d60dab-bab1-495d-a236-44f075c912bd
-@bind mc_control_γ NumberField(0.01f0:0.01f0:1f0; default = 0.88f0)
+@skip_as_script @bind mc_control_γ NumberField(0.01f0:0.01f0:1f0; default = 0.88f0)
 
 # ╔═╡ 4f645ebc-27f4-4b68-93d9-2e35232cedcf
-@skip_as_script const value_iteration_grid_example2 = begin_value_iteration_v(deterministic_gridworld.mdp, mc_control_γ)
+@skip_as_script const value_iteration_grid_example2 = value_iteration_v(deterministic_gridworld.mdp, mc_control_γ)
 
 # ╔═╡ 4efee19f-c86c-44cc-8b4b-6eb45adf0aa1
-md"""
+@skip_as_script md"""
 ### *Monte Carlo Control for $\epsilon$-soft policies*
 
 The following code implements Monte Carlo control without exploring starts.  In order to guarantee visits to all state-action pairs, we must force the policy to take random actions some percentage of the time.  Any policy that has non-zero probability for every state-action pair is called a *soft* policy.  For this algorithm we will select a value $\epsilon$ which controls the probability with which random actions are taken.  Such a policy is *soft* and thus this family of policies are called $\epsilon$-soft policies.  Once we set $\epsilon$, the behavior for the remaining probability can be arbitrary.  If we evenly divide it, then that would be the uniformly random policy which is also $\epsilon$-soft for any value of $\epsilon$.  If, instead, we select the greedy action for that probability, then such a policy is called $\epsilon$-greedy in addition to being an $\epsilon$-soft policy.  For any finite $\epsilon$, the learned policy will not necessarily be optimal since it is restricted to sometimes taking random actions, but as $\epsilon$ approaches zero, the learned policy can become arbitrarily close to the optimal policy.  Also, we are free to update the policy to be greedy with respect to the value function when we have completed the learning process.
@@ -1214,12 +1267,12 @@ function make_ϵ_greedy_policy!(π::Matrix{T}, mdp::AbstractTabularMDP{T, S, A},
 end
 
 # ╔═╡ 4bd400f3-4cb4-47a2-b0f5-31e6dedc253d
-md"""
+@skip_as_script md"""
 #### *Example: Monte Carlo control with $\epsilon$ greedy policy*
 """
 
 # ╔═╡ d7037f99-d3b8-4986-95c8-58f4f043e916
-md"""
+@skip_as_script md"""
 ### Off-policy Prediction via Importance Sampling
 
 To learn the optimal policy through sampling experience, it is important to visit all state-action pairs.  Otherwise, we cannot compute all of the estimated values needed to update the value function.  So far, we have considered methods that sample the environment using a single policy who's behavior is updated to converge towards the optimal policy.  The optimal policy in general will not visit all the state action pairs, so it is possible that learned policies which are converging to the optimal policy will not visit all of the state-action pairs and therefore prevent us from collecting the experience necessary to continue generalized policy iteration.  We have considered two methods to avoid this problem: 1) exploring starts and 2) $\epsilon$-greedy action selection.  Now we consider a new type of solution that relies on *off-policy* learning in which the policy generating episodes in an environment is not the policy being optimized.
@@ -1230,7 +1283,7 @@ Once we compute the weighted sum of returns, the value estimate can be computed 
 """
 
 # ╔═╡ 39a1fc54-4024-4d89-9eeb-1fab0477e684
-md"""
+@skip_as_script md"""
 ### *Monte Carlo Off-policy Prediction*
 
 Below is code implementing Monte Carlo prediction via importance sampling with the option of using ordinary or weighted importance sampling.  The MDPs are the same sampling types defined earlier and the weighted method is used by default.  Unlike on-policy Monte Carlo prediction, these algorithms require a behavior policy to be defined which is distinct from the target policy.  By default the random policy is used, but any other soft policy is suitable.  An error check will prevent prediction if the behavior policy is not soft.
@@ -1250,7 +1303,7 @@ update_weight(ρ::T, ::OrdinaryImportanceSampling) where T<:Real = one(T)
 update_weight(ρ, ::WeightedImportanceSampling) = ρ
 
 # ╔═╡ a1b90125-d3dd-409c-8231-ab0c3a85153e
-function mc_episode_update!(states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, π_target::Matrix{T}, π_behavior::Matrix{T}, sampling_method::AbstractSamplingMethod, q::Matrix{T}, weights::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+function monte_carlo_episode_update!((q, weights)::Tuple{Matrix{T}, Matrix{T}}, states::Vector{Int64}, actions::Vector{Int64}, rewards::Vector{T}, π_target::Matrix{T}, π_behavior::Matrix{T}, sampling_method::AbstractSamplingMethod, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	l = length(states)
 	g = zero(T)
 	ρ = one(T)
@@ -1274,39 +1327,39 @@ function mc_episode_update!(states::Vector{Int64}, actions::Vector{Int64}, rewar
 end
 
 # ╔═╡ ea19d77b-96bf-411f-8faa-6007c11e204b
-function v_mc_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	v = initialize_state_value(mdp) #default is 0 initialization
-	counts = zeros(T, length(mdp.states))
+function monte_carlo_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, initialize_value_function::Function; v_est = initialize_value_function(mdp), averaging_method::AbstractAveragingMethod = SampleAveraging(v_est), save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
 	if save_history
-		v_history = zeros(T, length(v), num_episodes)
+		v_history = zeros(T, size(v_est)..., num_episodes)
 	end
 	for ep in 1:num_episodes
 		(states, actions, rewards, _) = runepisode(mdp, π)
-		mc_episode_update!(states, actions, rewards, v, counts, mdp, γ; kwargs...)
-		if save_history
-			v_history[:, ep] .= v
-		end
+		monte_carlo_episode_update!(v_est, states, actions, rewards, mdp, γ, averaging_method; kwargs...)
+		save_history && update_value_history!(v_history, v_est, ep)
 	end
-	final_v = v
+	final_v = v_est
 	if save_history
 		return (final_value_estimate = final_v, value_estimate_history = v_history)
 	else
-		return v
+		return v_est
 	end
 end
 
+# ╔═╡ e375ca3a-57a7-4ca3-a672-4aa724cba34d
+#by default values are updated with sample averaging, to use constant step size averaging instead use the keyword argument averaging_method = ConstantStepAveraging(α) where α is the step size and must match the numerical type of the value function
+monte_carlo_policy_prediction_v(args...; kwargs...) = monte_carlo_policy_prediction(args..., initialize_state_value; kwargs...)
+
 # ╔═╡ ad55c2d1-404f-4396-aff8-b8c207157ce4
 #test state value policy prediction with gridworld random policy
-@skip_as_script v_mc_policy_prediction(deterministic_sample_gridworld, make_random_policy(deterministic_sample_gridworld), 0.99f0, 1_000)
+@skip_as_script monte_carlo_policy_prediction_v(deterministic_sample_gridworld, make_random_policy(deterministic_sample_gridworld), 0.99f0, 1_000)
 
 # ╔═╡ 4d6472e3-cbb6-4b5c-b06a-4210ff940409
 #given an AbstractCompleteMDP, compare the results of policy prediction with mc sampling with dynamic programming policy evaluation.  computes the RMS error across all the states as it changes with learning episode and averaged over trials
 function check_mc_error(mdp::AbstractCompleteMDP, state_init::Function, γ::T, num_episodes::Integer; num_trials = 100) where T<:Real
 	mdp_sample = SampleTabularMDP(mdp, state_init)
-	v_true = v_policy_evaluation(mdp, make_random_policy(mdp), γ)
+	v_true = policy_evaluation_v(mdp, make_random_policy(mdp), γ)
 
 	1:num_trials |> Map() do _
-		v_sample = v_mc_policy_prediction(mdp_sample, make_random_policy(mdp_sample), γ, num_episodes; save_history = true)
+		v_sample = monte_carlo_policy_prediction_v(mdp_sample, make_random_policy(mdp_sample), γ, num_episodes; save_history = true)
 		mean((v_sample.value_estimate_history .- v_true.value_function) .^ 2, dims = 1)[:]
 	end |> foldxt((v1, v2) -> v1 .+ v2) |> v -> sqrt.(v ./ num_trials) 
 end
@@ -1314,106 +1367,84 @@ end
 # ╔═╡ 4e6b27be-79c3-4224-bfc1-7d4b83be6d39
 @skip_as_script plot(check_mc_error(deterministic_gridworld.mdp, () -> deterministic_gridworld.init_state, γ_mc_predict, 100), Layout(xaxis_title = "Learning Episodes", yaxis_title = "Average RMS Error of State Values", title = "Monte Carlo State Value Prediction Error Decreases with More Episodes"))
 
-# ╔═╡ 3d0ba8ea-4097-4c64-9745-46b3e1f503c5
-function q_mc_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	q = initialize_state_action_value(mdp) #default is 0 initialization
-	counts = zeros(T, length(mdp.actions), length(mdp.states))
-	if save_history
-		q_history = zeros(T, size(q_sum)..., num_episodes)
-	end
-	for ep in 1:num_episodes
-		(states, actions, rewards, _) = runepisode(mdp, π)
-		mc_episode_update!(states, actions, rewards, q, counts, mdp, γ; kwargs...)
-		if save_history
-			q_history[:, :, ep] .= q
-		end
-	end
-	final_q = q
-	if save_history
-		return (final_value_estimate = final_q, value_estimate_history = q_history)
-	else
-		return q
-	end
-end
+# ╔═╡ 37a7a557-77ea-4440-8bf0-05f34b55ffc6
+monte_carlo_policy_prediction_q(args...; kwargs...) = monte_carlo_policy_prediction(args..., initialize_state_action_value; kwargs...)
 
 # ╔═╡ ba25b564-230b-4e06-aba5-c7d3197970ef
 #test state-action value policy prediction with gridworld random policy
-@skip_as_script q_mc_policy_prediction(deterministic_sample_gridworld, make_random_policy(deterministic_sample_gridworld), 0.99f0, 1_000)
+@skip_as_script monte_carlo_policy_prediction_q(deterministic_sample_gridworld, make_random_policy(deterministic_sample_gridworld), 0.99f0, 1_000)
 
 # ╔═╡ 9a7e922b-44e5-4c5e-8288-e39a48e151d5
-function monte_carlo_control_exploring_starts(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer; π = make_random_policy(mdp), q = initialize_state_action_value(mdp), counts = zeros(T, length(mdp.actions), length(mdp.states)), compare_error = false, value_reference = zeros(T, length(mdp.states)), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+function monte_carlo_control(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, initialize_episode::Function, update_policy!::Function; π = make_random_policy(mdp), q = initialize_state_action_value(mdp), counts = zeros(T, length(mdp.actions), length(mdp.states)), compare_error = false, value_reference = zeros(T, length(mdp.states)), averaging_method::AbstractAveragingMethod{T} = SampleAveraging(q), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	if compare_error
 		error_history = zeros(T, num_episodes)
 	end
+	reward_history = zeros(T, num_episodes)
+	step_history = zeros(Int64, num_episodes)
 	for ep in 1:num_episodes
-		(states, actions, rewards) = runepisode(mdp, π, rand(eachindex(mdp.states)), rand(eachindex(mdp.actions)); kwargs...)
-		mc_episode_update!(states, actions, rewards, q, counts, mdp, γ)
-		make_greedy_policy!(π, mdp, q)
+		(states, actions, rewards) = runepisode(mdp, π, initialize_episode(mdp)...; kwargs...)
+		monte_carlo_episode_update!(q, states, actions, rewards, mdp, γ, averaging_method)
+		for i_s in states
+			update_policy!(π, mdp, q, i_s)
+		end
 		if compare_error
 			error_history[ep] = sqrt(mean((value_reference[i] - sum(q[i_a, i]*π[i_a, i] for i_a in eachindex(mdp.actions))) ^2 for i in eachindex(value_reference)))
 		end
+		reward_history[ep] = sum(rewards)
+		step_history[ep] = length(rewards)
 	end
-	basereturn = (optimal_policy_estimate = π, optimal_value_estimate = q)
+	basereturn = (optimal_policy_estimate = π, optimal_value_estimate = q, reward_history = reward_history, step_history = step_history)
 	!compare_error && return basereturn
 	return (;basereturn..., error_history = error_history)
 end
 
+# ╔═╡ b40f0a76-9405-46d0-aae2-8987b296766a
+monte_carlo_control_exploring_starts(args...; kwargs...) = monte_carlo_control(args..., mdp -> (rand((eachindex(mdp.states))), rand(eachindex(mdp.actions))), make_greedy_policy!; kwargs...)
+
 # ╔═╡ faa17fdd-9660-43ab-8f94-9cd1c3ba7fec
-const mc_control_sample_gridworld = monte_carlo_control_exploring_starts(deterministic_sample_gridworld, mc_control_γ, 10_000; compare_error = true, value_reference = last(value_iteration_grid_example2[1]), max_steps = 1_000)
+@skip_as_script const mc_control_sample_gridworld = monte_carlo_control_exploring_starts(deterministic_sample_gridworld, mc_control_γ, 10_000; compare_error = true, value_reference = last(value_iteration_grid_example2[1]), max_steps = 10_000)
 
 # ╔═╡ fbfeb350-d9a7-4960-8f9b-a9f70e19a4e2
 @skip_as_script plot(mc_control_sample_gridworld.error_history)
 
-# ╔═╡ 65c8b05f-d294-47ef-b138-531d56282ba0
-function monte_carlo_control_ϵ_soft(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer; π = make_random_policy(mdp), ϵ = 0.1f0, q = initialize_state_action_value(mdp), counts = zeros(T, length(mdp.actions), length(mdp.states)), compare_error = false, value_reference = zeros(T, length(mdp.states)), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-	if compare_error
-		error_history = zeros(T, num_episodes)
-	end
-	for ep in 1:num_episodes
-		(states, actions, rewards) = runepisode(mdp, π; kwargs...)
-		mc_episode_update!(states, actions, rewards, q, counts, mdp, γ)
-		make_ϵ_greedy_policy!(π, mdp, q, ϵ)
-		if compare_error
-			error_history[ep] = sqrt(mean((value_reference[i] - sum(q[i_a, i]*π[i_a, i] for i_a in eachindex(mdp.actions))) ^2 for i in eachindex(value_reference)))
-		end
-	end
-	make_greedy_policy!(π, mdp, q)
-	basereturn = (optimal_policy_estimate = π, optimal_value_estimate = q)
-	!compare_error && return basereturn
-	return (;basereturn..., error_history = error_history)
-end
+# ╔═╡ 66886194-a2bd-4b1e-9bff-fbb419fddc78
+#the ϵ-soft method is defined by using the normal episode initialization from the mdp and using an ϵ-greedy policy update
+monte_carlo_control_ϵ_soft(args...; ϵ = 0.1f0, kwargs...) = monte_carlo_control(args..., mdp -> (), (π, mdp, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s); kwargs...)
 
 # ╔═╡ b666c289-de0f-4412-a5f7-8e5bb546a47c
-@skip_as_script const mc_ϵ_soft_control_sample_gridworld = monte_carlo_control_ϵ_soft(deterministic_sample_gridworld, mc_control_γ, 10_000; compare_error = true, value_reference = last(value_iteration_grid_example2[1]), max_steps = 10_000)
+@skip_as_script const mc_ϵ_soft_control_sample_gridworld = monte_carlo_control_ϵ_soft(deterministic_sample_gridworld, mc_control_γ, 1_000; compare_error = true, value_reference = last(value_iteration_grid_example2[1]), max_steps = 10_000, ϵ = 0.5f0)
 
 # ╔═╡ a6b08af6-34e8-4316-8f8c-b8e4b5fbb98a
 @skip_as_script plot(mc_ϵ_soft_control_sample_gridworld.error_history)
 
+# ╔═╡ 99006d01-9021-443d-ace8-829be73f3342
+@skip_as_script plot((mc_ϵ_soft_control_sample_gridworld.step_history |> cumsum) ./ collect(1:1000))
+
 # ╔═╡ 5648561c-98cf-4aa6-9af4-16add4706c3b
-function q_mc_off_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π_target::Matrix{T}, γ::T, num_episodes::Integer; π_behavior = make_random_policy(mdp), sampling_method = WeightedImportanceSampling(), save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+function monte_carlo_off_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π_target::Matrix{T}, γ::T, num_episodes::Integer, initialize_value::Function; π_behavior = make_random_policy(mdp), sampling_method = WeightedImportanceSampling(), save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
 	any(iszero, π_behavior) && error("Behavior policy is not soft")
-	q = initialize_state_action_value(mdp) #default is 0 initialization
-	counts = zeros(T, length(mdp.actions), length(mdp.states))
-	if save_history
-		q_history = zeros(T, size(q)..., num_episodes)
-	end
+	v_est = initialize_value(mdp) #default is 0 initialization
+	weights = zeros(T, size(v_est)...)
+	save_history &&	(value_history = zeros(T, size(v_est)..., num_episodes))
+
 	for ep in 1:num_episodes
 		(states, actions, rewards, _) = runepisode(mdp, π_behavior)
-		mc_episode_update!(states, actions, rewards, π_target, π_behavior, sampling_method, q, counts, mdp, γ; kwargs...)
-		if save_history
-			q_history[:, :, ep] .= q
-		end
+		monte_carlo_episode_update!((v_est, weights), states, actions, rewards, π_target, π_behavior, sampling_method, mdp, γ; kwargs...)
+		save_history && update_value_history!(value_history, v_est, ep)
 	end
-	final_q = q
+	final_value_estimate = v_est
 	if save_history
-		return (final_value_estimate = final_q, value_estimate_history = q_history)
+		return (final_value_estimate = final_value_estimate, value_estimate_history = value_history)
 	else
-		return q
+		return v_est
 	end
 end
 
+# ╔═╡ 5db8f67c-17fe-4c08-81df-42b47143b0ba
+monte_carlo_off_policy_prediction_q(args...; kwargs...) = monte_carlo_off_policy_prediction(args..., initialize_state_action_value; kwargs...)
+
 # ╔═╡ 900523ce-f8e7-4f33-a294-de86a7fb8869
-md"""
+@skip_as_script md"""
 #### *Example: Off-policy prediction with Right gridworld policy*
 """
 
@@ -1421,7 +1452,7 @@ md"""
 @skip_as_script const π_target_gridworld =  mapreduce(_ -> [0f0, 0f0, 0f0, 1f0], hcat, 1:length(deterministic_sample_gridworld.states))
 
 # ╔═╡ e9fb9a9a-73cd-49ee-ab9f-e864b2dbd8bf
-@skip_as_script const gridworld_right_policy_q = q_mc_policy_prediction(deterministic_sample_gridworld, π_target_gridworld, 0.9f0, 1)
+@skip_as_script const gridworld_right_policy_q = monte_carlo_policy_prediction_q(deterministic_sample_gridworld, π_target_gridworld, 0.9f0, 1)
 
 # ╔═╡ 73aece7b-314d-4f5f-bf7f-89852156e89e
 @skip_as_script md"""
@@ -1431,7 +1462,7 @@ Select x value to view state estimate:  $(@bind x_off_policy_select Slider(1:7; 
 # ╔═╡ 84d1f707-3a72-49a5-bf11-62316f69232a
 @skip_as_script function plot_off_policy_state_value(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π_target::Matrix{T}, γ::T, num_traces::Integer, num_samples::Integer, sample_method::AbstractSamplingMethod, num_episodes::Integer, s::S, a::A, v_true::T; kwargs...) where {T, S, A, F, G, H}
 	t_true = scatter(x = 1:num_episodes, y = fill(v_true, num_episodes), line_dash = "dash", name = "true value")
-	traces = 1:num_traces |> Map(_ -> scatter(x = 1:num_episodes, y = (1:num_samples |> Map(_ -> q_mc_off_policy_prediction(mdp, π_target, γ, num_episodes; sampling_method = sample_method, save_history = true).value_estimate_history[mdp.action_index[a], mdp.state_index[s], :]) |> foldxt(+) |> v -> v ./ num_samples), showlegend = false, name = "")) |> collect
+	traces = 1:num_traces |> Map(_ -> scatter(x = 1:num_episodes, y = (1:num_samples |> Map(_ -> monte_carlo_off_policy_prediction_q(mdp, π_target, γ, num_episodes; sampling_method = sample_method, save_history = true).value_estimate_history[mdp.action_index[a], mdp.state_index[s], :]) |> foldxt(+) |> v -> v ./ num_samples), showlegend = false, name = "")) |> collect
 	plot([t_true; traces], Layout(xaxis_title = "Episodes", yaxis_title = "Value Estimate", yaxis_range = [0f0, v_true*3]; kwargs...))
 end
 
@@ -1452,27 +1483,26 @@ end
 @skip_as_script off_policy_figure(x_off_policy_select)
 
 # ╔═╡ eebfe8e7-56dd-457c-a1e6-1a67b3b7ceec
-md"""
+@skip_as_script md"""
 ### Monte Carlo Off-policy Control
 """
 
-# ╔═╡ 238f8936-820b-4a51-88a1-0108975a3943
-
-
 # ╔═╡ 54cd4729-e4d3-4783-af1d-17df32ca6d69
-md"""
+@skip_as_script md"""
 ### *Monte Carlo Off-policy Control*
 """
 
 # ╔═╡ 138fb7ec-bfd3-4798-8cbc-cb1c8982b799
-function monte_carlo_off_policy_control(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer; π_target = make_random_policy(mdp), π_behavior = make_random_policy(mdp), q = initialize_state_action_value(mdp), counts = zeros(T, length(mdp.actions), length(mdp.states)), compare_error = false, value_reference = zeros(T, length(mdp.states)), sampling_method = WeightedImportanceSampling(), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+function monte_carlo_off_policy_control(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer; π_target = make_random_policy(mdp), π_behavior = make_random_policy(mdp), q = initialize_state_action_value(mdp), weights = zeros(T, length(mdp.actions), length(mdp.states)), compare_error = false, value_reference = zeros(T, length(mdp.states)), sampling_method = WeightedImportanceSampling(), kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	if compare_error
 		error_history = zeros(T, num_episodes)
 	end
 	for ep in 1:num_episodes
 		(states, actions, rewards) = runepisode(mdp, π_behavior; kwargs...)
-		mc_episode_update!(states, actions, rewards, π_target, π_behavior, sampling_method, q, counts, mdp, γ; kwargs...)
-		make_greedy_policy!(π_target, mdp, q)
+		monte_carlo_episode_update!((q, weights), states, actions, rewards, π_target, π_behavior, sampling_method, mdp, γ; kwargs...)
+		for i_s in states
+			make_greedy_policy!(π_target, mdp, q, i_s)
+		end
 		if compare_error
 			error_history[ep] = sqrt(mean((value_reference[i] - sum(q[i_a, i]*π_target[i_a, i] for i_a in eachindex(mdp.actions))) ^2 for i in eachindex(value_reference)))
 		end
@@ -1484,112 +1514,97 @@ function monte_carlo_off_policy_control(mdp::AbstractSampleTabularMDP{T, S, A, F
 end
 
 # ╔═╡ d4435765-167c-433b-99ea-5cb9f1f3ac82
-off_policy_control_gridworld = monte_carlo_off_policy_control(deterministic_sample_gridworld, 0.9f0, 1_000)
+@skip_as_script off_policy_control_gridworld = monte_carlo_off_policy_control(deterministic_sample_gridworld, 0.9f0, 10_000)
 
 # ╔═╡ 5979b5ec-5fef-40ef-a5c3-3a5b3d3040d9
-md"""
+@skip_as_script md"""
 ## Temporal Difference Learning
 """
 
 # ╔═╡ d250a257-4dc6-4369-90f0-fe186b3d9e7b
-md"""
+@skip_as_script md"""
 ### TD(0) Policy Prediction
 """
 
 # ╔═╡ b7506e65-60eb-4985-9a28-5a29cb400670
-md"""
+@skip_as_script md"""
 ### *Tabular TD(0) for Estimating Value Function* 
 """
 
-# ╔═╡ 337b9905-9284-4bd7-a06b-f3e8bb44679c
-function v_td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	v = initialize_state_value(mdp) #default is 0 initialization
-	if save_history
-		v_history = zeros(T, length(v), num_episodes)
-	end
-
-	function episode_update!()
-		i_s = mdp.state_init()
-		while !mdp.isterm(i_s)
-			(r, i_s′, i_a) = takestep(mdp, π, i_s)
-			v[i_s] += α * (r + γ*v[i_s′] - v[i_s])
-			i_s = i_s′
-		end
-	end
-	
-	for ep in 1:num_episodes
-		episode_update!()
-		if save_history
-			v_history[:, ep] .= v
-		end
-	end
-	final_v = v
-	if save_history
-		return (final_value_estimate = final_v, value_estimate_history = v_history)
-	else
-		return v
+# ╔═╡ 854fa686-914c-4a56-a975-486a542c0a9b
+function episode_update!(v::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, α::T) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+i_s = mdp.state_init()
+	while !mdp.isterm(i_s)
+		(r, i_s′, i_a) = takestep(mdp, π, i_s)
+		v[i_s] += α * (r + γ*v[i_s′] - v[i_s])
+		i_s = i_s′
 	end
 end
 
 # ╔═╡ a858aeaa-29f5-4615-805c-0c6093cf9b5f
-function sarsa_step(mdp, π, i_s::Integer, i_a::Integer)
+function sarsa_step(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, i_s::Integer, i_a::Integer) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
 	(r, i_s′) = mdp.step(i_s, i_a)
 	i_a′ = sample_action(π, i_s′)
 	(r, i_s′, i_a′)
 end
 
-# ╔═╡ 952b664d-f5f7-4bbc-a9cb-c78c406111f7
-function q_td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	q = initialize_state_action_value(mdp) #default is 0 initialization
-	if save_history
-		q_history = zeros(T, size(q)..., num_episodes)
-	end
-
-	function episode_update!()
-		i_s = mdp.state_init()
-		i_a = sample_action(π, i_s)
-		while !mdp.isterm(i_s)
-			(r, i_s′, i_a′) = sarsa_step(mdp, π, i_s, i_a)
-			q[i_a, i_s] += α * (r + γ*q[i_a′, i_s′] - q[i_a, i_s])
-			i_s = i_s′
-			i_a = i_a′
-		end
-	end
-	
-	for ep in 1:num_episodes
-		episode_update!()
-		if save_history
-			q_history[:, :, ep] .= q
-		end
-	end
-	final_q = q
-	if save_history
-		return (final_value_estimate = final_q, value_estimate_history = q_history)
-	else
-		return q
+# ╔═╡ 0d8da60d-5e21-4398-a731-ed87754b63c8
+function episode_update!(q::Matrix{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, α::T) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+	i_s = mdp.state_init()
+	i_a = sample_action(π, i_s)
+	while !mdp.isterm(i_s)
+		(r, i_s′, i_a′) = sarsa_step(mdp, π, i_s, i_a)
+		q[i_a, i_s] += α * (r + γ*q[i_a′, i_s′] - q[i_a, i_s])
+		i_s = i_s′
+		i_a = i_a′
 	end
 end
 
+# ╔═╡ 337b9905-9284-4bd7-a06b-f3e8bb44679c
+function td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T, initialize_value_function::Function; save_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	value_estimate = initialize_value_function(mdp) #default is 0 initialization
+	if save_history
+		value_history = zeros(T, size(value_estimate)..., num_episodes)
+	end
+	
+	for ep in 1:num_episodes
+		episode_update!(value_estimate, mdp, π, γ, α)
+		save_history && update_value_history!(value_history, value_estimate, ep)
+	end
+	final_v = value_estimate
+	if save_history
+		return (final_value_estimate = final_v, value_estimate_history = value_history)
+	else
+		return value_estimate
+	end
+end
+
+# ╔═╡ ac7606f4-5986-4110-9acb-d7b089e9c98a
+td0_policy_prediction_v(args...; kwargs...) = td0_policy_prediction(args..., initialize_state_value; kwargs...)
+
+# ╔═╡ 6e2a99bc-7f49-4455-8b23-11392e47f24d
+td0_policy_prediction_q(args...; kwargs...) = td0_policy_prediction(args..., initialize_state_action_value; kwargs...)
+
 # ╔═╡ 034734a7-e7f0-4ea5-b252-5916f67c65d4
-td0v = v_td0_policy_prediction(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
+@skip_as_script td0v = td0_policy_prediction_v(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
 
 # ╔═╡ 749b5691-506f-4c7f-baa2-6d3e9b2607b9
-td0q = q_td0_policy_prediction(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
+@skip_as_script td0q = td0_policy_prediction_q(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
 
 # ╔═╡ 9fb8f6ea-ca20-461c-b790-f651b13721b2
-md"""
+@skip_as_script md"""
 ### Sarsa: On-policy TD Control
 """
 
 # ╔═╡ c3c3bb5c-4bcf-442e-9718-c18a4a03fa82
-md"""
+@skip_as_script md"""
 ### *Sarsa for estimating $Q \approx q_{\star}$*
 """
 
 # ╔═╡ 1dab32e6-9d81-4de3-9b97-6a2ac58a28c3
-function sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π = make_random_policy(mdp), save_history = false, ϵ = T(0.1), update_policy! = (π, q) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ), kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+function sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π = make_random_policy(mdp), save_value_history = false, ϵ = T(0.1), update_policy! = (π, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s), kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
 	q = initialize_state_action_value(mdp) #default is 0 initialization
-	if save_history
+	if save_value_history
 		q_history = zeros(T, size(q)..., num_episodes)
 	end
 
@@ -1601,19 +1616,19 @@ function sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episo
 			q[i_a, i_s] += α * (r + γ*q[i_a′, i_s′] - q[i_a, i_s])
 			i_s = i_s′
 			i_a = i_a′
-			update_policy!(π, q)
+			update_policy!(π, q, i_s)
 		end
 	end
 	
 	for ep in 1:num_episodes
 		episode_update!()
-		if save_history
+		if save_value_history
 			q_history[:, :, ep] .= q
 		end
 	end
 	final_q = q
 	final_π = make_greedy_policy!(π, mdp, q)
-	if save_history
+	if save_value_history
 		return (final_policy = final_π, final_value_estimate = final_q, value_estimate_history = q_history)
 	else
 		return (final_policy = final_π, final_value_estimate = final_q)
@@ -1621,17 +1636,17 @@ function sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episo
 end
 
 # ╔═╡ 6823a91e-c02e-495c-9e82-e22b18857df7
-sarsa_test = sarsa(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
+@skip_as_script sarsa_test = sarsa(deterministic_sample_gridworld, 0.9f0, 10_000, 0.1f0; ϵ = 0.1f0)
 
 # ╔═╡ 41361309-8be9-464a-987e-981035e4b15a
-md"""
+@skip_as_script md"""
 ### Q-learning: Off-policy TD Control
 """
 
 # ╔═╡ b577750a-6bda-4cd8-ae74-a38273be9af0
-function expected_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π_target = make_random_policy(mdp), π_behavior = make_random_policy(mdp), save_history = false, ϵ = T(0.1), update_behavior_policy! = (π, mdp, q) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ), update_target_policy! = update_behavior_policy!, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+function expected_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, num_episodes::Integer, α::T; π_target = make_random_policy(mdp), π_behavior = make_random_policy(mdp), save_value_history = false, ϵ = T(0.1), update_behavior_policy! = (π, mdp, q, i_s) -> make_ϵ_greedy_policy!(π, mdp, q, ϵ, i_s), update_target_policy! = update_behavior_policy!, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
 	q = initialize_state_action_value(mdp) #default is 0 initialization
-	if save_history
+	if save_value_history
 		q_history = zeros(T, size(q)..., num_episodes)
 	end
 
@@ -1644,20 +1659,20 @@ function expected_sarsa(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, γ::T, 
 			q[i_a, i_s] += α * (r + γ*v′ - q[i_a, i_s])
 			i_s = i_s′
 			i_a = i_a′
-			update_behavior_policy!(π_behavior, mdp, q)
-			update_target_policy!(π_target, mdp, q)
+			update_behavior_policy!(π_behavior, mdp, q, i_s)
+			update_target_policy!(π_target, mdp, q, i_s)
 		end
 	end
 	
 	for ep in 1:num_episodes
 		episode_update!()
-		if save_history
+		if save_value_history
 			q_history[:, :, ep] .= q
 		end
 	end
 	final_q = q
 	final_π = make_greedy_policy!(π_target, mdp, q)
-	if save_history
+	if save_value_history
 		return (final_policy = final_π, final_value_estimate = final_q, value_estimate_history = q_history)
 	else
 		return (final_policy = final_π, final_value_estimate = final_q)
@@ -1668,20 +1683,20 @@ end
 q_learning(args...; kwargs...) = expected_sarsa(args...; update_target_policy! = make_greedy_policy!, kwargs...)
 
 # ╔═╡ d7de7be9-8d97-4476-ba09-9f84d2cebb00
-expected_sarsa_test = q_learning(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
+@skip_as_script expected_sarsa_test = q_learning(deterministic_sample_gridworld, 0.9f0, 1_000, 0.1f0; ϵ = 0.5f0)
 
 # ╔═╡ 2bab0784-b185-44f0-9dec-c98bf164827b
-md"""
+@skip_as_script md"""
 ### Other TD Methods
 """
 
 # ╔═╡ 78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
-md"""
+@skip_as_script md"""
 ## Planning and Learning
 """
 
 # ╔═╡ 796eeb6c-1152-11ef-00b7-b543ec85b526
-md"""# Dependencies"""
+@skip_as_script md"""# Dependencies"""
 
 # ╔═╡ 7b4e1a9b-ef0b-41f6-a634-99af17a02f60
 @skip_as_script html"""
@@ -1697,7 +1712,7 @@ md"""# Dependencies"""
 	"""
 
 # ╔═╡ 32c92099-f322-4086-983d-50b79ab28de8
-md"""
+@skip_as_script md"""
 ## Visualization Tools
 """
 
@@ -1778,10 +1793,10 @@ end
 @skip_as_script show_grid_value(deterministic_gridworld.mdp, deterministic_gridworld.isterm, () -> deterministic_gridworld.init_state, deterministic_gridworld_random_policy_evaluation.value_function, "gridworld_random_values"; square_pixels = 50)
 
 # ╔═╡ e18328c7-837e-427c-b5c0-3be31dcb4c4b
-show_grid_value(deterministic_sample_gridworld, td0v, "td0_v_test"; square_pixels = 40)
+@skip_as_script show_grid_value(deterministic_sample_gridworld, td0v, "td0_v_test"; square_pixels = 40)
 
 # ╔═╡ 35df802b-41e6-4ede-8200-5658e3ee1328
-show_grid_value(deterministic_sample_gridworld, td0q, "td0_q_test"; square_pixels = 40)
+@skip_as_script show_grid_value(deterministic_sample_gridworld, td0q, "td0_q_test"; square_pixels = 40)
 
 # ╔═╡ 9b937c49-7216-47c9-a1ef-2ecfa6ff3b31
 @skip_as_script function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
@@ -1878,7 +1893,7 @@ end
 end
 
 # ╔═╡ fed249aa-2d0a-4bc3-84ea-e3ad4b4e66fa
-function show_deterministic_gridworld(mdp, isterm, init_state, highlight_state_index, grid_action_selection)
+@skip_as_script function show_deterministic_gridworld(mdp, isterm, init_state, highlight_state_index, grid_action_selection)
 	s = mdp.states[highlight_state_index]
 	s′ = mdp.states[mdp.state_transition_map[grid_action_selection, highlight_state_index]]
 	r = mdp.reward_transition_map[grid_action_selection, highlight_state_index]
@@ -2848,7 +2863,7 @@ version = "17.4.0+2"
 # ╠═2f7afb63-22de-49af-b907-4aeb75dc9f2a
 # ╠═ad8ac04f-a061-4015-8373-913f81500d85
 # ╟─035a6f5c-3bed-4f72-abe5-17558331f8ba
-# ╠═62436d67-a417-476f-b508-da752796c774
+# ╟─62436d67-a417-476f-b508-da752796c774
 # ╟─84815181-244c-4f57-8bf0-7617379dda00
 # ╟─e30d2af4-b6e7-46fb-ad72-4672caa81de4
 # ╟─08b70e16-f113-4464-bb4b-3da393c8500d
@@ -2870,11 +2885,11 @@ version = "17.4.0+2"
 # ╟─e6beff79-061c-4c01-b469-75dc5d4e059f
 # ╟─7851e968-a5af-4b65-9591-e34b3404fb09
 # ╟─bfef62c9-4186-4b01-afe2-e49432f04265
-# ╟─ac5f7dcc-02ba-421c-a593-ca7ba60b3ff2
+# ╠═ac5f7dcc-02ba-421c-a593-ca7ba60b3ff2
 # ╟─cb96b24a-65aa-4832-bc7d-093f0c951f83
 # ╟─7df4fcbb-2f5f-4d59-ba0c-c7e635bb0503
 # ╟─4f0f052d-b461-4040-b5ff-46aac74a24de
-# ╠═cf902114-94e3-4402-ae04-8f704dd6adad
+# ╟─cf902114-94e3-4402-ae04-8f704dd6adad
 # ╟─a3e85772-9c67-454f-94d2-c2608b53c427
 # ╟─f52b6f5d-3832-41aa-8ccd-78e514e65c8b
 # ╠═1f9752c2-7bb9-4cd2-b90b-2995bcec7ae3
@@ -2882,6 +2897,8 @@ version = "17.4.0+2"
 # ╠═397b3a3d-e64b-43b6-9b33-964cc65ecd30
 # ╠═ff25237f-f07f-44da-9b81-541a354751d8
 # ╠═f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
+# ╠═a59f0142-9f0c-452b-91ea-647f9201a8d6
+# ╠═7f3a1d41-dd16-493c-a59c-764aec13d076
 # ╟─4a80a7c3-6e9a-4973-b48a-b02509823830
 # ╟─6467d0ee-d551-4558-a765-aa832373d125
 # ╟─11b8c129-ca24-4b9e-a36a-73a9291b62cd
@@ -2895,12 +2912,14 @@ version = "17.4.0+2"
 # ╠═c2903e20-1be8-4d79-8716-798f5dc15bd4
 # ╠═55d182d1-aa25-4ac9-802f-129756ffa302
 # ╠═ecebce8b-0e2a-49d0-89f5-53bd0ffdd1a3
+# ╠═42dab9c3-dd04-4129-ba3c-b6fb22e2afbe
 # ╠═1e24a0aa-dbf9-422e-92c9-834f293a0c02
 # ╠═eec3017b-6d02-49e6-aedf-9a494b426ec5
+# ╠═2fe59959-5d89-4ae7-839c-ecf82e2c71d8
 # ╟─40f6257d-db5c-4e21-9691-f3c9ffc9a9b5
 # ╟─bf12d9c9-c79d-4398-9f15-27cbde1ed476
 # ╠═102d169a-8bd0-42f4-bfc9-3a32708afadc
-# ╟─929c353b-f67c-49ff-85d3-0a27cafc59cf
+# ╠═929c353b-f67c-49ff-85d3-0a27cafc59cf
 # ╟─a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
 # ╟─1d555f77-c404-485a-9244-717c12c80d28
 # ╟─3df86061-63f7-4c1f-a141-e1848f6e83e4
@@ -2909,13 +2928,20 @@ version = "17.4.0+2"
 # ╠═ce8a7ed9-7719-4caa-a680-76fac3dea985
 # ╠═71d18d73-0bcb-48ee-91fd-8fa2f52a908c
 # ╠═e4476a04-036e-4074-bd90-54475c00800a
+# ╠═8e69b091-2eec-4227-aea0-7b240fe43915
 # ╠═33bcbaeb-6fd4-4724-ba89-3f0057b29ae9
 # ╠═0a81b18a-0ac8-45ba-ad46-02034ae8fb55
 # ╟─7c553f77-7783-439e-834b-53a2cd3bef5a
+# ╠═a502c80a-fe11-4184-9731-c634655a825d
+# ╠═ad34ce87-d9cc-407b-9670-25ed535d2d8d
+# ╠═67a0aac8-b022-4051-804c-cfda3e0c7357
+# ╠═6dfbf4c3-8d66-45d3-ae1c-ad50a53eb570
+# ╠═7136cb2a-6957-4d21-a6e2-381e571a113a
 # ╠═3d86b788-9770-4356-ac6b-e80b0bfa1314
-# ╠═025ef73b-e9f6-4741-9e89-f334b0f758f5
+# ╠═52e73547-ce0d-4696-8a3c-46ced9fa6582
 # ╠═ea19d77b-96bf-411f-8faa-6007c11e204b
-# ╠═3d0ba8ea-4097-4c64-9745-46b3e1f503c5
+# ╠═e375ca3a-57a7-4ca3-a672-4aa724cba34d
+# ╠═37a7a557-77ea-4440-8bf0-05f34b55ffc6
 # ╠═ad55c2d1-404f-4396-aff8-b8c207157ce4
 # ╠═ba25b564-230b-4e06-aba5-c7d3197970ef
 # ╟─a2027cca-4a12-4d7d-a721-6044c6255394
@@ -2924,20 +2950,22 @@ version = "17.4.0+2"
 # ╟─1b83b6c2-43cb-4ad4-b5a9-46e31d585a27
 # ╟─51fecb7e-65ff-4a11-b043-b5832fed5e02
 # ╠═9a7e922b-44e5-4c5e-8288-e39a48e151d5
+# ╠═b40f0a76-9405-46d0-aae2-8987b296766a
 # ╟─105b8874-5cbc-4777-87c6-e8712cbcc78d
 # ╟─26d60dab-bab1-495d-a236-44f075c912bd
-# ╠═faa17fdd-9660-43ab-8f94-9cd1c3ba7fec
+# ╟─faa17fdd-9660-43ab-8f94-9cd1c3ba7fec
 # ╟─3cc38ba2-70ce-4250-be97-0a48c2c2b484
 # ╟─fbfeb350-d9a7-4960-8f9b-a9f70e19a4e2
 # ╠═4f645ebc-27f4-4b68-93d9-2e35232cedcf
 # ╟─4efee19f-c86c-44cc-8b4b-6eb45adf0aa1
 # ╠═1c829fde-e15d-42db-a608-2e5bdbaa4d8c
 # ╠═f77cf1bb-6385-403d-a224-3c9c7313e591
-# ╠═65c8b05f-d294-47ef-b138-531d56282ba0
+# ╠═66886194-a2bd-4b1e-9bff-fbb419fddc78
 # ╟─4bd400f3-4cb4-47a2-b0f5-31e6dedc253d
 # ╠═b666c289-de0f-4412-a5f7-8e5bb546a47c
 # ╟─97234d16-1455-4321-bb16-c09534a58594
-# ╟─a6b08af6-34e8-4316-8f8c-b8e4b5fbb98a
+# ╠═a6b08af6-34e8-4316-8f8c-b8e4b5fbb98a
+# ╠═99006d01-9021-443d-ace8-829be73f3342
 # ╟─d7037f99-d3b8-4986-95c8-58f4f043e916
 # ╟─39a1fc54-4024-4d89-9eeb-1fab0477e684
 # ╠═46c11a87-10aa-46e2-8961-7acd33059b96
@@ -2945,6 +2973,7 @@ version = "17.4.0+2"
 # ╠═f316a6f8-b462-4cec-b2ff-434330be579a
 # ╠═a1b90125-d3dd-409c-8231-ab0c3a85153e
 # ╠═5648561c-98cf-4aa6-9af4-16add4706c3b
+# ╠═5db8f67c-17fe-4c08-81df-42b47143b0ba
 # ╟─900523ce-f8e7-4f33-a294-de86a7fb8869
 # ╠═f3df4648-2884-4b01-823d-7e8ee2adc35b
 # ╠═e9fb9a9a-73cd-49ee-ab9f-e864b2dbd8bf
@@ -2953,18 +2982,20 @@ version = "17.4.0+2"
 # ╟─b0d184ed-4129-49bf-afb7-7a848c93f15b
 # ╠═a2b62ae3-13d2-4d5b-a8ac-5c1c3c1ee246
 # ╠═84d1f707-3a72-49a5-bf11-62316f69232a
-# ╠═eebfe8e7-56dd-457c-a1e6-1a67b3b7ceec
-# ╠═238f8936-820b-4a51-88a1-0108975a3943
+# ╟─eebfe8e7-56dd-457c-a1e6-1a67b3b7ceec
 # ╟─54cd4729-e4d3-4783-af1d-17df32ca6d69
 # ╠═138fb7ec-bfd3-4798-8cbc-cb1c8982b799
 # ╠═d4435765-167c-433b-99ea-5cb9f1f3ac82
 # ╟─0ad54e4b-ea9d-418c-bb6a-cd8fbe241c73
-# ╠═5979b5ec-5fef-40ef-a5c3-3a5b3d3040d9
-# ╠═d250a257-4dc6-4369-90f0-fe186b3d9e7b
+# ╟─5979b5ec-5fef-40ef-a5c3-3a5b3d3040d9
+# ╟─d250a257-4dc6-4369-90f0-fe186b3d9e7b
 # ╟─b7506e65-60eb-4985-9a28-5a29cb400670
-# ╠═337b9905-9284-4bd7-a06b-f3e8bb44679c
+# ╠═854fa686-914c-4a56-a975-486a542c0a9b
 # ╠═a858aeaa-29f5-4615-805c-0c6093cf9b5f
-# ╠═952b664d-f5f7-4bbc-a9cb-c78c406111f7
+# ╠═0d8da60d-5e21-4398-a731-ed87754b63c8
+# ╠═337b9905-9284-4bd7-a06b-f3e8bb44679c
+# ╠═ac7606f4-5986-4110-9acb-d7b089e9c98a
+# ╠═6e2a99bc-7f49-4455-8b23-11392e47f24d
 # ╠═034734a7-e7f0-4ea5-b252-5916f67c65d4
 # ╠═749b5691-506f-4c7f-baa2-6d3e9b2607b9
 # ╠═e18328c7-837e-427c-b5c0-3be31dcb4c4b
@@ -2974,7 +3005,7 @@ version = "17.4.0+2"
 # ╠═1dab32e6-9d81-4de3-9b97-6a2ac58a28c3
 # ╠═6823a91e-c02e-495c-9e82-e22b18857df7
 # ╟─64d2a0e3-4ecd-4d44-b5cc-0ff23b3776dd
-# ╠═41361309-8be9-464a-987e-981035e4b15a
+# ╟─41361309-8be9-464a-987e-981035e4b15a
 # ╠═b577750a-6bda-4cd8-ae74-a38273be9af0
 # ╠═94193bc1-91c4-4d3e-8e44-cd37495481bf
 # ╠═d7de7be9-8d97-4476-ba09-9f84d2cebb00
