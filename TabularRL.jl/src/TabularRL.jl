@@ -25,7 +25,7 @@ export policy_evaluation_q, policy_evaluation_v, policy_iteration_v, value_itera
 export monte_carlo_policy_prediction, monte_carlo_policy_prediction_v, monte_carlo_control, monte_carlo_control_exploring_starts, monte_carlo_control_ϵ_soft, monte_carlo_off_policy_prediction, monte_carlo_off_policy_prediction_q, monte_carlo_off_policy_control
 
 #temporal difference solution methods
-export td0_policy_prediction, td0_policy_prediction_v, td0_policy_prediction_q, sarsa, expected_sarsa, q_learning
+export td0_policy_prediction, td0_policy_prediction_v, td0_policy_prediction_q#, sarsa, expected_sarsa, q_learning
 
 #----------Gridworld Environment------------
 export GridworldState, GridworldAction, rook_actions, make_gridworld
@@ -45,9 +45,9 @@ export GridworldState, GridworldAction, rook_actions, make_gridworld
         monte_carlo_control_exploring_starts(sample_mdp, γ, num_episodes; averaging_method = ConstantStepAveraging(α), max_steps = max_steps)
         monte_carlo_control_ϵ_soft(sample_mdp, γ, num_episodes, max_steps = max_steps)
         monte_carlo_off_policy_control(sample_mdp, γ, num_episodes; max_steps = max_steps)
-        sarsa(sample_mdp, γ, num_episodes, α)
-        expected_sarsa(sample_mdp, γ, num_episodes, α)
-        q_learning(sample_mdp, γ, num_episodes, α)
+        # sarsa(sample_mdp, γ, num_episodes, α)
+        # expected_sarsa(sample_mdp, γ, num_episodes, α)
+        # q_learning(sample_mdp, γ, num_episodes, α)
     end
 end
 end # module TabularRL
