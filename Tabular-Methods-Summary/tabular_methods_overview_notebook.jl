@@ -544,7 +544,8 @@ begin
 		goal2 = GridworldState(start.x, ymax), 
 		goal2reward = 0.0f0, 
 		usegoal2 = false,
-		wind = zeros(Int64, xmax))
+		wind = zeros(Int64, xmax),
+		continuing = false)
 
 		@assert length(wind) == xmax
 		@assert all(x -> x >= 0, wind)
@@ -571,19 +572,23 @@ begin
 		i_sterm = state_index[sterm]
 		i_goal2 = state_index[goal2]
 		#determines if a state is terminal
+
 		function isterm(i_s::Integer) 
 			i_s == i_sterm && return true
 			usegoal2 && (i_s == i_goal2) && return true
 			return false
 		end
 
-
 		state_transition_map = zeros(Int64, length(actions), length(states))
 		reward_transition_map = zeros(Float32, length(actions), length(states))
 		for s in states
 			i_s = state_index[s] #get index for starting state
 			if isterm(i_s)
-				state_transition_map[:, i_s] .= i_s
+				if continuing
+					state_transition_map[:, i_s] .= i_start
+				else
+					state_transition_map[:, i_s] .= i_s
+				end
 				reward_transition_map[:, i_s] .= 0f0
 			else
 				for a in actions
@@ -691,7 +696,8 @@ function make_stochastic_gridworld(;
 		goal2 = GridworldState(start.x, ymax), 
 		goal2reward = 0.0f0, 
 		usegoal2 = false,
-		wind = zeros(Int64, xmax))
+		wind = zeros(Int64, xmax),
+		continuing = false)
 
 		@assert length(wind) == xmax
 		@assert all(x -> x >= 0, wind)
@@ -748,7 +754,11 @@ function make_stochastic_gridworld(;
 			i_s = state_index[s] #get index for starting state
 			if isterm(i_s)
 				for i_a in eachindex(actions)
-					ptf[(i_s, i_a)] = Dict([i_s => (1f0, 0f0)])
+					if continuing
+						ptf[(i_s, i_a)] = Dict([i_start => (1f0, 0f0)])
+					else
+						ptf[(i_s, i_a)] = Dict([i_s => (1f0, 0f0)])
+					end
 				end
 			else
 				for a in actions
@@ -917,18 +927,6 @@ function takestep(mdp::AbstractCompleteMDP{T, S, A}, π::Matrix{T}, i_s::Integer
 	(r, i_s′) = get_transition(mdp, i_s, i_a)
 	return (r, i_s′, i_a)
 end
-
-# ╔═╡ ad8ac04f-a061-4015-8373-913f81500d85
-"""
-    runepisode(mdp::AbstractCompleteMDP, i_s0::Integer, isterm::Function; kwargs...)
-
-Runs an episode in a complete Markov Decision Process (MDP) using a given policy or a random policy.
-
-# Keyword Arguments
-- `π::Matrix{T}`: (Optional) The policy matrix representing the probability of selecting each action in each state. If not provided, a random policy is generated using `make_random_policy(mdp)`.
-- `max_steps::Int = Inf`: (Optional) The maximum number of steps allowed for the episode. Default is `Inf`.
-"""
-runepisode(mdp::AbstractCompleteMDP{T, S, A}, i_s0::Integer, isterm::Function; kwargs...) where {T<:Real, S, A} = runepisode(mdp, i_s0, isterm, make_random_policy(mdp); kwargs...)
 
 # ╔═╡ 035a6f5c-3bed-4f72-abe5-17558331f8ba
 @skip_as_script md"""Matrix representation of a random policy"""
@@ -1530,7 +1528,7 @@ policy_iteration_q(args...; kwargs...) = policy_iteration(args..., initialize_st
 
 # ╔═╡ 4a80a7c3-6e9a-4973-b48a-b02509823830
 @skip_as_script md"""
-#### *Example: Gridworld Optimal Policy Iteration*
+### *Example: Gridworld Optimal Policy Iteration*
 
 If we apply policy iteration using the state value function, we can compute the optimal policy and value function for an arbitrary MDP.  This example applies the technique to a gridworld similar to the previous example but with a secondary goal in the upper left hand corner with half the reward.  The optimal solution changes depending on the discount rate since there are states for which the lower reward secondary goal is favorable due to the closer distance.  One can select the iteration to view both the policy and the corresponding value function as well as the discount rate and secondary goal reward to use for solving the MDP.
 """
@@ -1549,12 +1547,14 @@ If we apply policy iteration using the state value function, we can compute the 
 	Use Wind: $(Child(:usewind, CheckBox()))
 	
 	Use Stochastic Wind: $(Child(:stochastic, CheckBox()))
+
+	Continuing Task: $(Child(:continuing, CheckBox()))
 	"""
 end |> confirm
 
 # ╔═╡ 7cce54bb-eaf9-488a-a836-71e72ba66fcd
 @skip_as_script const new_gridworld = begin
-	policy_iteration_kwargs = (goal2 = GridworldState(1, 7), usegoal2=true, goal2reward = policy_iteration_params.goal2reward, wind = policy_iteration_params.usewind ? wind_values : zeros(Int64, 10))
+	policy_iteration_kwargs = (goal2 = GridworldState(1, 7), usegoal2=true, goal2reward = policy_iteration_params.goal2reward, wind = policy_iteration_params.usewind ? wind_values : zeros(Int64, 10), continuing = policy_iteration_params.continuing)
 	if policy_iteration_params.stochastic
 		make_stochastic_gridworld(;policy_iteration_kwargs...)
 	else
@@ -1820,6 +1820,7 @@ function takestep(mdp::SampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, i_s::I
 end
 
 # ╔═╡ 2f7afb63-22de-49af-b907-4aeb75dc9f2a
+begin
 """
     runepisode(mdp::AbstractCompleteMDP{T, S, A}, i_s0::Integer, isterm::Function, π::Matrix{T}; max_steps = Inf) where {T<:Real, S, A}
 
@@ -1872,6 +1873,18 @@ function runepisode(mdp::AbstractCompleteMDP{T, S, A}, i_s0::Integer, isterm::Fu
 		end
 	end
 	return states, actions, rewards, i_sterm
+end
+
+"""
+    runepisode(mdp::AbstractCompleteMDP, i_s0::Integer, isterm::Function; kwargs...)
+
+Runs an episode in a complete Markov Decision Process (MDP) using a given policy or a random policy.
+
+# Keyword Arguments
+- `π::Matrix{T}`: (Optional) The policy matrix representing the probability of selecting each action in each state. If not provided, a random policy is generated using `make_random_policy(mdp)`.
+- `max_steps::Int = Inf`: (Optional) The maximum number of steps allowed for the episode. Default is `Inf`.
+"""
+runepisode(mdp::AbstractCompleteMDP{T, S, A}, i_s0::Integer, isterm::Function; kwargs...) where {T<:Real, S, A} = runepisode(mdp, i_s0, isterm, make_random_policy(mdp); kwargs...)
 end
 
 # ╔═╡ e4476a04-036e-4074-bd90-54475c00800a
@@ -3857,7 +3870,6 @@ version = "17.4.0+2"
 # ╠═e1bd5582-c734-4597-9fdd-2ee0221fb35d
 # ╠═dc3e1ed4-3e48-4bf0-9cc0-a7ce0eab226e
 # ╠═2f7afb63-22de-49af-b907-4aeb75dc9f2a
-# ╠═ad8ac04f-a061-4015-8373-913f81500d85
 # ╟─035a6f5c-3bed-4f72-abe5-17558331f8ba
 # ╟─62436d67-a417-476f-b508-da752796c774
 # ╟─84815181-244c-4f57-8bf0-7617379dda00

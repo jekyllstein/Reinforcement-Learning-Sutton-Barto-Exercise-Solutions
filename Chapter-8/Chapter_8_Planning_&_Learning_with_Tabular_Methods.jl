@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.40
+# v0.19.42
 
 using Markdown
 using InteractiveUtils
@@ -25,7 +25,7 @@ using SparseArrays
 
 # ╔═╡ 0fff8e1b-d0c2-49b8-93b4-8d1615c26690
 begin
-	using Statistics, PlutoPlotly, Random, StatsBase, PlutoUI, HypertextLiteral, DataStructures, StaticArrays, Transducers
+	using Statistics, PlutoPlotly, Random, StatsBase, PlutoUI, HypertextLiteral, DataStructures, StaticArrays, Transducers, Serialization, Arrow
 	TableOfContents()
 end
 
@@ -276,6 +276,22 @@ md"""
 ## 8.6 Trajectory Sampling
 """
 
+# ╔═╡ 72b40384-9ca1-4bc1-8e1a-8b639d39e215
+md"""
+In this section we compare two ways of distributing updates.  The classical approach, from dynamic programming, is to perform sweeps through the entire state (or state-action) space, updating each state (or state-action pair) once per sweep.  This is problematic on large tasks because there may not be time to complete even one sweep.  In many tasks, the vast majority or the states are irrelevant because they are visited only under very poor policies or with very low probability.  Exhaustive sweeps implicitely devote equal time to all parts of the state space rather than focusing where it is needed.  As we discussed in Chapter 4, exhaustive sweeps and the equal treatment of all states that they imply are not necessary properties of dynamic programming.  In principle, updates can be distributed in any way one likes (to assure convergence, all states or state-action pairs must be visited in the limit an infinite number of times; although an exception to this is discussed in Section 8.7 below), but in practice exhaustive sweeps are often used.
+
+The second approach is to sample from the state or state-action space according to some distribution.  One could sample uniformly, as in the Dyna-Q agent, but this would suffer from some of the same problems as exhaustive sweeps.  More appealing is to distribute updates according to the on-poliy distribution, that is according to the distribution observed when following the current policy.  One advantage of this distribution is that it is easily generated; one simply interacts with the model, following the current policy.  In an episodic task, one starts in a start state (or according to the starting-state distribution) and simulates until the terminal state.  In a continuing task, one starts anywhere and just keeps simulating.  In either case, sample state transitions and rewards are given by the model, and sample actions are given by the current policy.  In other words, one simulates explicit individual trajectories and performs updates at the state or state-action pairs encountered along the way.  We call this way of generating experience and updates *trajectory sampling*.
+
+Is the on-policy distribution of updates a good one?  Intuitively it seems like a good choice, at least better than the uniform distribution.  For example, if you are learning to play chess, you study positions that might arise in real games, not random positions of chess pieces.  The latter may be valid states, but to be able to accurately value them is a different skill from evaluating positions in real games.  We will also see in Part II that the on policy distribution has significant advantages when function approximation is used.  Whether or not function approximation is used, one might expect on-policy focusing to significantly improve the speed of planning.
+
+The following experiment attempts to assess empirically the value of sampling from the on policy distribution by comparing it directly to the alternative of *uniform* sampling.  In the *uniform* case, all state action pairs are updated once in place and in the *on-policy* case an episode is imulated starting from the same state and updating each state-action pair that occured under the current $\epsilon$-greedy policy $(\epsilon = 0.1)$.  The tasks were undiscounted episodic tasks, generated randomly as follows.  From each of the $\vert \mathcal{S} \vert$ states, two actions were possible, each of which results in one of $b$ next states, all equally likely, with a different random selection of $b$ states for each state-action pair.  The branching factor, $b$, was the same for all state-action pairs.  In addition, on all transitions there was a 0.1 probability of transition to the terminal state, ending the episode.  The expected reward on each transition was selected from a Gaussian distribution with mean 0 and variance 1.  At any point in the planning process one can stop and exhaustively compute $v_{\tilde \pi}(s_0)$, the true value of the start state under the greedy policy, $\tilde \pi$, given the current action-value function $Q$, as in indication of how well the agent would do on a new episode on which it acted greedily (all while assuming the model is correct).
+"""
+
+# ╔═╡ e8a6e672-b860-404f-83c1-62a080f23112
+md"""
+### Figure 8.8
+"""
+
 # ╔═╡ 04ea981e-337e-4324-a5cc-178eb3c7605b
 md"""
 ## 8.11 Monte Carlo Tree Search
@@ -294,8 +310,35 @@ rollout(;max_steps = Inf) = (mdp, s, γ) -> rollout(mdp, s, γ; max_steps = max_
 #get the value of a dictionary d at key k, defaulting to some value when the key is absent
 get_dict_value(d::Dict{K, V}, k::K; default = zero(V)) where {K, V<:Real} = haskey(d, k) ? d[k] : default 
 
+# ╔═╡ c97580f7-e661-4f77-a49f-a58af4a96a74
+@bind save_wordle_afterstate_tree_values CounterButton("Save Wordle Afterstate Tree Values")
+
+# ╔═╡ cf0269a1-4c51-44a8-a797-8070ce61c844
+#idea is instead of forming a separate subtree for trace, crate just take the top 3 words, make a subdict of those including the start state and then limit the options on the first guess to those 3 and build a single tree
+
+# ╔═╡ 4a3afb47-a0e5-48e3-b880-e4d9a4fedcea
+@bind save_subtrees CounterButton("Save subtrees")
+
 # ╔═╡ 308fd488-a009-4de0-8b27-c1f6b0677fed
 uct(counts::Dict{S, Dict{Int64, T}}, s::S, i_a::Int64, ntot::T) where {S, T<:Real} = sqrt(log(ntot)/counts[s][i_a])
+
+# ╔═╡ cffc9f11-77d7-4076-aa3b-821f1c741f58
+uct(tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, s::S, i_a::Int64, ntot::T) where {S, T<:Real} = sqrt(log(ntot)/tree_values[s][2][i_a][1])
+
+# ╔═╡ f369a092-420d-4660-b802-93f05d5e7972
+function apply_uct!(v_hold::Vector{T}, tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, s::S, c::T) where {S, T<:Real}
+	#for normal UCB selection, unvisited states have an infinite bonus
+	v_hold .= T(Inf)
+
+	d = tree_values[s][2]
+	isempty(d) && return v_hold
+	ntot = sum(t[1] for t in values(d))
+	@inbounds @fastmath for i in keys(d)
+		#note that the only bonus values computed here are for actions that have been visited
+		v_hold[i] = (d[i][2] / d[i][1]) + c * uct(tree_values, s, i, ntot)
+	end
+	return v_hold
+end
 
 # ╔═╡ 82e5719c-bbdb-4a18-b2f0-ad746b6acd41
 function make_puct(update_prior!::Function) 
@@ -381,40 +424,347 @@ md"""
 ### Wordle Example
 """
 
-# ╔═╡ 3d01b065-d944-4648-84a7-a559bb573ef3
-function sample_answer(possible_indices::BitVector)
-	n = sum(possible_indices)
-	i_a = ceil(Int64, rand()*n)
-	count = 0
-	out = 0
-	for (i, x) in enumerate(possible_indices)
-		count += x
-		if count == i_a
-			out = i
-		end
-	end
-	return out
+# ╔═╡ f567d3ac-ffd8-4c02-a0b9-47cb98bd02e7
+md"""
+#### Wordle MDP Functions
+"""
+
+# ╔═╡ b1866c34-07ce-40e5-88ea-69b2e777343e
+import Base.:(==)
+
+# ╔═╡ 5d4ca9de-8d80-4480-8f5f-39894f859d14
+import Base.hash
+
+# ╔═╡ 4aced2ac-72f2-4774-8072-101dae43729f
+# ╠═╡ disabled = true
+#=╠═╡
+const greedy_information_gain_root_afterstate_values = Dict(begin
+	v = wordle_greedy_information_gain_afterstate_value(WordleAfterState(wordle_start, guess_index))
+	@info "Done evaluating guess $(nyt_valid_words[guess_index]) with a rank of $i and a value of $v"
+	guess_index => v
+end
+for (i, guess_index) in enumerate(sortperm(guess_score_lookup[wordle_start], rev=true)[1:5_000]))
+  ╠═╡ =#
+
+# ╔═╡ 9fe1ae22-dc24-4eee-b776-f6e3fe98f80b
+# ╠═╡ disabled = true
+#=╠═╡
+sort([(guess = nyt_valid_words[a[1]], value = a[2], rank = root_guess_ranks[a[1]]) for a in greedy_information_gain_root_afterstate_values]; by = a -> a.value, rev=true)
+  ╠═╡ =#
+
+# ╔═╡ dc6149ee-306c-45cf-a32b-13697353df87
+@bind run_greedy_policy_iteration CounterButton("Run one step policy iteration")
+
+# ╔═╡ c64c467e-e87c-4d7d-8d80-b5b6e4ffb5a6
+md"""
+The mean score for a randomly played game except for the final guess in which case only a possible answer is chosen.  Also if at an earlier turn only one possible answer remains then that is selected and if only two possible answers remain, then it is assumed with equal probability a win will occur on the current or following guess.
+"""
+
+# ╔═╡ 4779d6ad-2303-4321-b344-ac4792a40efc
+@bind run_random_game_stats CounterButton("Evaluate Random Game Stats")
+
+# ╔═╡ c4897b9b-c271-4585-81ed-17b0b27611e5
+md"""
+For a randomly played game, this is the expected number of possible answers left after each guess.  From this it seems reasonable to have a full solution to the game after the third guess when only 10-11 possible answers are left.  From this point there would only be about 1024 states left with 15000 actions in a fully stochastic problem
+"""
+
+# ╔═╡ 473441f0-fbdd-4ceb-8547-fe552f8071a3
+@bind run_entropy_game_stats CounterButton("Evaluate Entropy Game Stats")
+
+# ╔═╡ d3311374-9817-49aa-8aa6-07cae624953e
+@bind run_first_guess_policy_iteration CounterButton("Run first guess random policy iteration")
+
+# ╔═╡ b3622a76-0cf1-4655-9f06-7851e1e16dc0
+@bind run_entropy_first_guess_policy_iteration CounterButton("Run first guess entropy policy iteration")
+
+# ╔═╡ b605e087-fa4c-4dba-908d-cb482d6c14f0
+md"""
+#### Wordle Normal Mode Plain MCTS
+"""
+
+# ╔═╡ d3fd0986-6503-4c84-9a2f-c8ca69973cce
+@bind reset_eval Button("Reset Eval After Stop")
+
+# ╔═╡ 0cf9b9e2-b66b-42e2-9c55-71a08993293f
+begin 
+	reset_eval
+	@bind stop_mcts_eval CounterButton("Click to stop MCTS Wordle Evaluation")
 end
 
-# ╔═╡ cf953ae4-eae9-495e-ba07-1a4f8019fc29
-function wordle_rollout(mdp, s, γ::T; π = s -> rand(mdp.actions), stepkwargs...) where T <: Real
-	#for a stochastic game, if a guess produces a non-terminal state that has only one possible remaining answer, then complete the evaluation by automatically picking it next.  Also if the non-terminal state has more than one remaining answer, but we only have one guess left, then automatically randomly pick among the remaining answers weighted by the answer probability
-	rtot = zero(T)
+# ╔═╡ 806513f4-f772-444b-aec2-960861dfcb06
+begin stop_mcts_eval 
+	@bind counter CounterButton("Click to run MCTS Wordle Evaluation")
+end
+
+# ╔═╡ 694eec04-9310-44de-8662-9e4708970441
+md"""
+##### Wordle First Guess Options
+"""
+
+# ╔═╡ 94b08be9-10f0-4e78-8cb6-80d656b8b581
+#for the random rollout vest the best word is "clint" with over half of the visits after 10 million sims.  This matches the best result from the one step lookahead first pick estimating the action values for this policy which has a value estimate of -3.9675.  With MCTS the value estimate is -3.96 which is better as expected but it is possible the exploration constant isn't high enough to find other optimum values
+
+# ╔═╡ 41f38d60-1182-452d-b3d2-256e85beafed
+#for simple vest the top values are -5.97 with about 800 visits after 8.3 million sims with teh top words of metro, salon, sauce, power, bingo
+
+# ╔═╡ 55c35042-6b63-4171-9917-e5f3ac1f4aa7
+#value estimation here just assumes the game will be a loss from the current state.  This ensures that the state estimation is always an underestimate of the true state value following the tree policy.  the only mechanism speeding up the convergence is that the tree policy will choose one of the remaining answer words if it is on the final guess or will immediately select the correct answer if that is the only possibility left.  After about 100k sims, the best value estimate is -5.6 with the rest of the words having a value of -6 indicating a loss.  Even the values determined to be promising will decline from their initial improvement over -6, but for this method to be a success, the top value would have to start declining again which may only happen after 10k visits to just that one node
+
+# ╔═╡ 119f5a23-4695-475b-b470-884efada8db9
+#another question is after 1, 2, 3, 4, 5 random guesses, how many possible words are actually left?
+
+# ╔═╡ cbd05245-8d1a-42bb-adb0-57cab40ca207
+@bind compute_mcts_options CounterButton("Compute New Word Options")
+
+# ╔═╡ 746d9e90-4c21-4a68-8f01-bba85f7705da
+isdone, setdone = @use_state(false)
+
+# ╔═╡ 6738ecb1-dae2-4b09-a5a5-27fafb21555e
+@bind compute_policy_iteration_options CounterButton("Compute New Word Options")
+
+# ╔═╡ cd70997f-df01-4e28-8a7e-ab9ffad1bbd4
+const feedback_counts_hold = zeros(Int64, 243)
+
+# ╔═╡ 86177801-c230-477e-92cf-cf05d11c4cae
+md"""
+#### Other Wordle Tests
+"""
+
+# ╔═╡ 9a97626c-769f-4db1-8e7c-2de3e75b5f60
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_rand_vest2(s; γ = 1f0, answer_index = sample(nyt_valid_indices, weights(get_possible_indices(s))))
+	# mdp = create_wordle_mdp(answer_index)
+	rtot = 0f0
 	step = 0
-	while !mdp.isterm(s)
-		a = π(s)
-		r, s′ = mdp.step(s, a; stepkwargs...)
+	while !wordle_determ_game.isterm(s)
+		a = rand(wordle_determ_game.actions)
+		r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
 		rtot += γ^step * r
 		s = s′
 		step += 1
 	end
 	return rtot
 end
+  ╠═╡ =#
+
+# ╔═╡ ec912b7c-4929-4814-8703-81593f049936
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_rand_vest3(s; possible_indices = copy(baseinds), γ = 1f0)
+	wordle_determ_game.isterm(s) && return 0f0
+	
+	get_possible_indices!(possible_indices, s)
+	possible_indices .*= wordle_original_inds
+
+	n = sum(possible_indices)
+	l = length(s.guess_list)
+
+	pwin = 1f0/n
+	plose = 1f0 - pwin
+
+	#on last guess assume random success rate of which words remain possible answers
+	(l == 5) && return -1f0 + pwin
+
+	answer_index = sample(nyt_valid_indices, weights(possible_indices))
+	# mdp = create_wordle_mdp(answer_index)
+	rtot = 0f0
+	step = 0
+	
+	while !wordle_determ_game.isterm(s)
+		if l == 5
+			n = sum(possible_indices)
+			rtot += γ^step * (-1f0 + 1f0/n)
+			break
+		else
+			a = rand(wordle_determ_game.actions)
+			r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
+			rtot += γ^step * r
+			s = s′
+			possible_indices .*= get_possible_indices(a, last(s′.feedback_list))
+			l += 1
+			step += 1
+		end
+	end
+	return rtot
+end
+  ╠═╡ =#
+
+# ╔═╡ 198f54d8-4445-4fc8-b817-507273016301
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_rand_vest4(s; possible_indices = copy(baseinds), γ = 1f0)
+	wordle_determ_game.isterm(s) && return 0f0
+	
+	get_possible_indices!(possible_indices, s)
+	possible_indices .*= wordle_original_inds
+
+	n = sum(possible_indices)
+	l = length(s.guess_list)
+	guesses_left = 6-l
+	pwin = 1f0/n
+	sum((1/(n-i))*((1f0 - i/nplose^(i-1))*(-1f0 * (i-1)) for i in 1:guesses_left) + -1f0*guesses_left*(plose^i))
+end
+  ╠═╡ =#
+
+# ╔═╡ 030b1ef8-1fb6-4959-a9bc-330f180b4513
+#establishing which words are possible remaining answers is still kinda slow.  I need to test different ways of computing it and whether other vectors are faster than bitvectors.  So it takes about 100 ns to update the possible indices in place from a previous value.  It takes about 20 ns to copy one vector into another.  It takes about 51 ns to count the number of words from a bit vector
+
+# ╔═╡ 9b011de7-eb21-4112-b831-6509f676b1c4
+# ╠═╡ disabled = true
+#=╠═╡
+@btime get_possible_indices(1, 1) .* get_possible_indices(6, 3) .* get_possible_indices(4, 5) .* get_possible_indices(9, 1)
+  ╠═╡ =#
+
+# ╔═╡ 201b3f62-e7c9-49aa-81b1-e8a1dea9d9a1
+# ╠═╡ disabled = true
+#=╠═╡
+@btime sum($wordle_original_inds)
+  ╠═╡ =#
+
+# ╔═╡ 38b801dd-4cd5-4177-8e81-690db1444277
+# ╠═╡ disabled = true
+#=╠═╡
+@btime test_possible_indices .= true
+  ╠═╡ =#
+
+# ╔═╡ 1aa3bb1d-e18d-4908-a814-b2d82424207c
+# ╠═╡ disabled = true
+#=╠═╡
+@btime wordle_determ_game.step(wordle_start, 1)
+  ╠═╡ =#
+
+# ╔═╡ fff8cf2c-0b9d-4c4d-9eac-58c2acfe4f42
+# ╠═╡ disabled = true
+#=╠═╡
+@btime get_possible_indices(1, 1) .* wordle_original_inds
+  ╠═╡ =#
+
+# ╔═╡ 398efb2a-50d0-4b21-b500-7ee96e666a3d
+# ╠═╡ disabled = true
+#=╠═╡
+@btime get_possible_indices!(test_possible_indices, [(1, 1)])
+  ╠═╡ =#
+
+# ╔═╡ 159e91f1-236f-462c-979f-7d21b4ab1b73
+# ╠═╡ disabled = true
+#=╠═╡
+@btime wordle_rollout($wordle_determ_game, $wordle_start, 1f0)
+  ╠═╡ =#
+
+# ╔═╡ e25f0625-71cd-423a-bf8b-c1f103c358c4
+# ╠═╡ disabled = true
+#=╠═╡
+@btime wordle_rand_vest($wordle_start, $(first(wordle_original_dense_inds)); possible_indices = $test_possible_indices)
+  ╠═╡ =#
+
+# ╔═╡ 1e934cc4-67a5-4d76-b342-3f39a6c1c11e
+# ╠═╡ disabled = true
+#=╠═╡
+@btime wordle_rand_vest2($wordle_start; answer_index = rand($wordle_original_dense_inds))
+  ╠═╡ =#
+
+# ╔═╡ e16e20e0-aea6-44d8-8c9f-bdd0efe56b8f
+# ╠═╡ disabled = true
+#=╠═╡
+@btime wordle_rand_vest3($wordle_start; possible_indices = $test_possible_indices)
+  ╠═╡ =#
+
+# ╔═╡ 74beda6b-ab05-4057-8562-e607321f527a
+# ╠═╡ disabled = true
+#=╠═╡
+@btime wordle_rollout($wordle_determ_game, $wordle_start, 1f0)
+  ╠═╡ =#
+
+# ╔═╡ 14321f1e-efec-4e56-96a1-9092bd9a1d61
+# ╠═╡ disabled = true
+#=╠═╡
+@btime wordle_rollout($wordle_stochastic_game, $wordle_start, 1f0; possible_indices = $test_possible_indices)
+  ╠═╡ =#
+
+# ╔═╡ c4bdbcda-e822-40f1-833a-1a2a70091adb
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_hardmode_rollout(mdp, s, γ::T; hard_mode_indices = copy(baseinds), sampling_weights = ones(T, length(hard_mode_indices)), ϵ = one(T)/10, stepkwargs...) where T <: Real
+	step = 0
+	rtot = zero(T)
+	get_possible_indices!(hard_mode_indices, s)
+	ntot = sum(baseinds)
+	while !mdp.isterm(s)
+		# sampling_weights .= (hard_mode_indices .* ϵ) .+ (hard_mode_indices .* wordle_original_inds)
+		nhard = sum(hard_mode_indices)
+		if ntot == nhard
+			sampling_weights .=  hard_mode_indices
+		else
+			sampling_weights .= hard_mode_indices .+ (ϵ/(ntot-nhard) .* baseinds)
+		end
+		a = sample(mdp.actions, weights(sampling_weights))
+		r, s′ = mdp.step(s, a; stepkwargs...)
+		rtot += γ^step * r
+		hard_mode_indices .*= get_possible_indices(a, last(s′.feedback_list))
+		num = sum(hard_mode_indices)
+		s = s′
+		step += 1
+	end
+	return rtot
+end
+  ╠═╡ =#
+
+# ╔═╡ ece29669-ddf4-4566-9e3f-370390113d5e
+# ╠═╡ disabled = true
+#=╠═╡
+entropy_game_stats = @spawn evaluate_game_stats(s -> wordle_entropy_policy(s, wordle_original_weights), 10_000)
+  ╠═╡ =#
+
+# ╔═╡ ac1658fa-d74c-415c-9951-42bed3884d63
+# ╠═╡ disabled = true
+#=╠═╡
+istaskdone(entropy_game_stats)
+  ╠═╡ =#
 
 # ╔═╡ 7193a66c-a685-4d57-b1b0-88f5e9e9af62
 # ╠═╡ disabled = true
 #=╠═╡
 fetch(entropy_game_stats)
+  ╠═╡ =#
+
+# ╔═╡ 3d5e2c56-d2ec-482a-81cb-449a6248251a
+# ╠═╡ disabled = true
+#=╠═╡
+begin
+	entropy_solar_game_stats = @spawn evaluate_game_stats(s -> wordle_entropy_π(s; start_guess = word_index["solar"]), 1_000)
+	@async begin
+		@info "solar game assessment running"
+		while !istaskdone(entropy_solar_game_stats)
+			sleep(1)
+		end
+		@info "solar game assessment finished"
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ 5c1a0f11-d56d-4628-85d7-b889db4dfb72
+# ╠═╡ disabled = true
+#=╠═╡
+fetch(entropy_solar_game_stats)
+  ╠═╡ =#
+
+# ╔═╡ da5d6e73-8eba-45cb-999b-0f7e39900058
+# ╠═╡ disabled = true
+#=╠═╡
+entropy_trace_game_stats = @spawn summarystats([wordle_rollout(wordle_stochastic_game, test_game_start, 1f0; π = s -> wordle_entropy_π(s; start_guess = word_index["trace"]), possible_indices = test_possible_indices) for _ in 1:10_000])
+  ╠═╡ =#
+
+# ╔═╡ b147016c-168f-4c57-81da-31b31ed19b3b
+# ╠═╡ disabled = true
+#=╠═╡
+@async begin
+	@info "trace game assessment running"
+	while !istaskdone(entropy_trace_game_stats)
+		sleep(1)
+	end
+	@info "trace game assessment finished"
+end
   ╠═╡ =#
 
 # ╔═╡ dfb0b191-56f0-4e8e-b6ec-1d5e8a2b244f
@@ -441,34 +791,108 @@ summarystats([wordle_rollout(wordle_stochastic_game, WordleState(), 1f0) for _ i
 summarystats([wordle_hardmode_rollout(wordle_stochastic_game, WordleState(), 1f0) for _ in 1:10_000])
   ╠═╡ =#
 
-# ╔═╡ d3fd0986-6503-4c84-9a2f-c8ca69973cce
-@bind reset_eval Button("Reset Eval After Stop")
-
-# ╔═╡ 0cf9b9e2-b66b-42e2-9c55-71a08993293f
-begin 
-	reset_eval
-	@bind stop_mcts_eval CounterButton("Click to stop MCTS Wordle Evaluation")
+# ╔═╡ 958ab525-bd40-4536-a0b7-24a203d6b152
+# ╠═╡ disabled = true
+#=╠═╡
+function show_word_hardmode_options(;s0 = gamestart, nsims = 100, depth = 10_000, c::T = 1f0) where T <: Real
+	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_vest, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_visits, Q = wordle_qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s0]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s0]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:10]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:10]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	greedyword = nyt_valid_words[wordindex],
+	totalsims = sum(values(visits[s0])))
 end
+  ╠═╡ =#
 
-# ╔═╡ 806513f4-f772-444b-aec2-960861dfcb06
-begin stop_mcts_eval 
-	@bind counter CounterButton("Click to run MCTS Wordle Evaluation")
+# ╔═╡ b2948c3c-eeae-4744-9bd2-854904624e29
+# ╠═╡ disabled = true
+#=╠═╡
+begin
+	const (_, wordle_visits, wordle_qs) = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, wordle_start; nsims = 1, make_step_kwargs = k -> (answer_index = get_answer_index(k)), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
+	const hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
+	const sampling_weights = ones(Float32, length(hard_mode_indices))
+	const possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	wordle_vest(mdp, s, γ) = wordle_hardmode_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0, possible_indices = possible_indices)
+	function update_hard_mode_policy!(v, s)
+		get_possible_indices!(possible_indices, s)
+		v .*= possible_indices
+		# for i in eachindex(v)
+		# 	v[i] = ifelse(possible_indices[i], v[i], 0f0)
+		# end
+		make_greedy_policy!(v)
+	end
+
+	const (_, wordle_normal_visits, wordle_normal_qs) = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, gamestart; nsims = 1)
+	const normal_hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
+	const normal_sampling_weights = ones(Float32, length(hard_mode_indices))
+	const normal_possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	wordle_normal_vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = normal_hard_mode_indices, sampling_weights = normal_sampling_weights, possible_indices = normal_possible_indices)
 end
+  ╠═╡ =#
 
-# ╔═╡ 694eec04-9310-44de-8662-9e4708970441
-md"""
-#### Wordle First Guess Options
-"""
+# ╔═╡ 71366c5f-0e44-41d8-ab80-f2c77e51bfb8
+# ╠═╡ disabled = true
+#=╠═╡
+function show_word_new_options(s; nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
+	
+	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, s; nsims = nsims, depth = depth, c = c, apply_bonus! = apply_bonus!)
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	greedyword = nyt_valid_words[wordindex],
+	totalsims = sum(values(visits[s])))
+end
+  ╠═╡ =#
 
-# ╔═╡ 2f4c42a5-8677-41e8-be9e-6d0faf9cb8ef
-md"""
-#### Wordle Hard Mode First Guess Options
-"""
+# ╔═╡ 2352ab2b-ddaf-485a-a849-4c53f0cf66b6
+# ╠═╡ disabled = true
+#=╠═╡
+show_word_new_options(WordleState([word_index["plant"], word_index["tired"], word_index["story"]], [0x0051, 0x000a, 0x0030]); nsims = 1000)
+  ╠═╡ =#
+
+# ╔═╡ 775e9b74-1cf2-411e-be69-a1acb9503219
+# ╠═╡ disabled = true
+#=╠═╡
+show_word_new_options(WordleState([word_index["plant"]], [0x0051]); nsims = 100)
+  ╠═╡ =#
 
 # ╔═╡ bdb30c10-677f-4d04-97d2-3489617475e1
 md"""
 Best value for normal and hard mode was -5.917 and -4.65 respectively.  Using random rollouts and normal tree policy with the modification for the normal mode game that if the number of possible answers has been reduced to 1, the rollout will pick it and it will pick from only remaining possible answers on the final guess.  MDP rewards are assigned as -1 for every guess and an additional -1 penalty if the game ends in a loss.  Normal mode if optimal should always have higher value estimates than hard mode because there are more options.  Those values were reached after 10 million iterations with the top visited word of clint visited over 300k times.  Normal mode favored all c words with clint, clart, clipt, chirt, clapt, clept, clift, and crept.  Hard mode favored plast, slant, spelt, and clept.  
 """
+
+# ╔═╡ 81f741c0-fceb-464f-9b25-c115e4ec5365
+# ╠═╡ disabled = true
+#=╠═╡
+wordle_mcts_ep = run_wordle_game(word; nsims = 10)
+  ╠═╡ =#
+
+# ╔═╡ 24bc0ca1-87fe-45a5-8326-a6d9a8ef61f9
+# ╠═╡ disabled = true
+#=╠═╡
+#game guesses
+[nyt_valid_words[i] for i in wordle_mcts_ep[2]]
+  ╠═╡ =#
+
+# ╔═╡ 1b328344-9f26-41f6-9787-fa6c7e8b3474
+# ╠═╡ disabled = true
+#=╠═╡
+run_wordle_mcts_trials(word; nsims = 100, trials = 10) |> summarystats
+  ╠═╡ =#
 
 # ╔═╡ 5aeabcb0-6dcf-45dd-add3-0f700708e959
 function score_wordle_episode(ep)
@@ -479,20 +903,53 @@ function score_wordle_episode(ep)
 	return r
 end
 
+# ╔═╡ 7a0210f0-03b5-477d-8ab1-a7fad0061c54
+# ╠═╡ disabled = true
+#=╠═╡
+wordle_random_ep = runepisode(create_wordle_mdp(word), s -> rand(collect(1:length(nyt_valid_words))[get_possible_indices(s)]))
+  ╠═╡ =#
+
+# ╔═╡ 85207dcc-b562-4968-bc08-8deeb1582ca6
+# ╠═╡ disabled = true
+#=╠═╡
+#game guesses
+[nyt_valid_words[i] for i in wordle_random_ep[2]]
+  ╠═╡ =#
+
+# ╔═╡ 275eb69b-4ede-41d3-8e1c-280fb8acabb2
+# ╠═╡ disabled = true
+#=╠═╡
+#possible words left at the end of the game
+get_possible_words(wordle_mcts_ep[1][end])
+  ╠═╡ =#
+
 # ╔═╡ 7225270f-5c8c-4a32-af95-02b16891dd00
 md"""
 ### Entropy Method
 """
 
+# ╔═╡ 57c03a96-45ae-46be-85f8-a80b95a20e46
+@bind reset_entropy_mcts Button("Reset after stop")
+
+# ╔═╡ f82b750b-03d1-4b8b-9561-1027e7fa8b5b
+begin reset_entropy_mcts
+	@bind stop_entropy_mcts_eval CounterButton("Click to stop MCTS Wordle Evaluation")
+end
+
 # ╔═╡ 925e26fb-4d4e-4454-b932-6a8658921e3d
-begin stop_mcts_eval 
+begin stop_entropy_mcts_eval 
 	@bind entropy_counter CounterButton("Click to run MCTS Wordle Evaluation")
 end
 
-# ╔═╡ bd721132-8d2c-4496-b029-0751d0db5b4b
+# ╔═╡ 7ba03410-3cd2-496a-9b54-f208604e243b
+@bind eval_mcts_information_gain CounterButton("Eval MCTS Guesses")
+
+# ╔═╡ ebad3990-b937-4717-a6ab-29b9f8ab4da5
 # ╠═╡ disabled = true
 #=╠═╡
-show_entropy_new_word_options(WordleState([word_index["lions"], word_index["phony"]], [0x000, 0x00de]); nsims = 100_000)
+if eval_mcts_information_gain > 0
+	show_entropy_word_options(;s0 = eval_state, nsims = 10_000, c = 10f0, sim_message=true, update_tree_policy! = wordle_update_gumbel_information_tree_policy!)
+end
   ╠═╡ =#
 
 # ╔═╡ 263d6d7c-d5f4-4b57-9a8c-94ef73883229
@@ -500,6 +957,18 @@ md"""
 Number of Simulations: 
 $(@bind new_options_sims confirm(NumberField(1:1_000_000, default = 100)))
 """
+
+# ╔═╡ 61e5ab45-a216-43ba-8c0e-c28e48697949
+# ╠═╡ disabled = true
+#=╠═╡
+show_entropy_new_word_options(WordleState([word_index["solar"]], [0x00a8]); nsims = new_options_sims)
+  ╠═╡ =#
+
+# ╔═╡ bfae51d1-708c-4110-a99a-fcbcd03e95cb
+# ╠═╡ disabled = true
+#=╠═╡
+show_ranked_priors(WordleState([word_index["delta"], word_index["phony"]], [0x000, 0x00de]))
+  ╠═╡ =#
 
 # ╔═╡ 321bdf5a-bff7-4181-986f-d3884ea96d27
 md"""
@@ -534,11 +1003,11 @@ end
 sample_action(v::Vector{T}) where T<:AbstractFloat = sample(1:length(v), weights(v))
 
 # ╔═╡ c04c91be-de42-4dfc-bd0d-b9fbdde0c9cf
-function simulate!(visit_counts, Q, mdp, γ::T, v_est, s, depth, c::T, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!; stepkwargs...) where T<:Real
+function simulate!(visit_counts, Q, mdp, γ::T, v_est, s, depth, c::T, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, step_kwargs, est_kwargs) where T<:Real
 	#if the state is terminal, produce a value of 0
 	mdp.isterm(s) && return zero(T)
 	
-	depth ≤ 0 && return v_est(mdp, s, γ)
+	depth ≤ 0 && return v_est(mdp, s, γ; est_kwargs...)
 	
 	#for a state where no actions have been attempted, expand a new node
 	if !haskey(visit_counts, s)
@@ -546,7 +1015,7 @@ function simulate!(visit_counts, Q, mdp, γ::T, v_est, s, depth, c::T, v_hold, u
 		# visit_counts[s] = sparse(q_hold)
 		Q[s] = Dict{Int64, T}()
 		visit_counts[s] = Dict{Int64, T}()
-		return v_est(mdp, s, γ)
+		return v_est(mdp, s, γ; est_kwargs...)
 	end
 
 	apply_bonus!(v_hold, Q, visit_counts, s, c)
@@ -554,8 +1023,8 @@ function simulate!(visit_counts, Q, mdp, γ::T, v_est, s, depth, c::T, v_hold, u
 	update_tree_policy!(v_hold, s)
 	i_a = sample_action(v_hold)
 	a = mdp.actions[i_a]
-	r, s′ = mdp.step(s, a; stepkwargs...)
-	q = r + γ*simulate!(visit_counts, Q, mdp, γ, v_est, s′, depth - 1, c, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!; stepkwargs...)
+	r, s′ = mdp.step(s, a; step_kwargs...)
+	q = r + γ*simulate!(visit_counts, Q, mdp, γ, v_est, s′, depth - 1, c, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, step_kwargs, est_kwargs)
 	
 	updateV!(visit_counts, one(T), s, i_a)
 
@@ -594,6 +1063,57 @@ rollout(mdp::MDP{S, A, F, G, H}, s::S, γ::T; max_steps = Inf) where {S, A, F, G
 # ╔═╡ 1eb9a2ad-4584-4d32-8abb-e0e0bc0a771b
 #if no value estimation function is provided, use a random rollout
 monte_carlo_tree_search(mdp::MDP{S, A, F, G, H}, γ::T, s::S; kwargs...) where {S, A, F, G, H, T<:Real} = monte_carlo_tree_search(mdp, γ, rollout, s; kwargs...)
+
+# ╔═╡ 47ce2eda-b2c4-4f81-8d91-955bc35bab49
+begin
+	struct AfterstateMDP_MC{S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
+		init_states::Vector{S}
+		init_afterstates::Dict{Tuple{S, A}, AS}
+		actions::Vector{A}
+		afterstate_step::F #deterministic function that produces a reward and afterstate given a state action pair
+		afterstate_transition::G #stochastic function that preduces a probability distribution of reward, state pairs given an afterstate
+		state_init::H #function that produces an initial state for an episode
+		isterm::I #function that returns true if the state input is terminal
+		action_index::Dict{A, Int64}
+		function AfterstateMDP_MC(init_states::Vector{S}, actions::Vector{A}, afterstate_step::F, afterstate_transition::G, isterm::I) where {S, A, F<:Function, G<:Function, I<:Function}
+			state_init() = rand(init_states)
+			init_afterstates = Dict((s, a) => afterstate_step(s, a)[2] for a in actions for s in init_states)
+			action_index = makelookup(actions)
+			new{S, typeof(init_afterstates[first(init_states), first(actions)]), A, F, G, typeof(state_init), I}(init_states, init_afterstates, actions, afterstate_step, afterstate_transition, state_init, isterm, action_index)
+		end	
+	end
+end
+
+# ╔═╡ f143446c-e44b-4d75-baa7-3b24eafad003
+#need to decide which tree statistics to collect like state values or afterstate values and what expansion means vs normal mcts.  I know that when I visit a new afterstate which is the same as a new action selection, I want to estimate it with a weighted sum of the value estimates of all the sucessor states but I don't necessarily want the tree search to continue down all those paths and split although it could so a single simulation would split into all the successor states avoiding the need to make a selection.  For doing sample updates though, I want to just pick one of those branches to go down by sampling from the distribution so then the simulation function itself should handle the case of an unvisited state which would look at the afterstate values that lead from that state if any exist and well this is the problem is which values should be saved and what does it mean to estimate the value of something for one of the unvisited states
+function simulate!(s::S, visit::Bool, tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, mdp::AfterstateMDP_MC{S, AS, A, F, G, H, I}, γ::T, v_est::Function, depth::Integer, c::T, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs) where {T<:Real, S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
+	#if the state is terminal, produce a value of 0
+	mdp.isterm(s) && return zero(T)
+
+	depth ≤ 0 && return v_est(mdp, s, γ; est_kwargs...)
+	
+	#for a state where no actions have been attempted, expand a new node
+	if !haskey(tree_values, s)
+		v = v_est(mdp, s, γ; est_kwargs...)
+		tree_values[s] = (v, Dict{Int64, Tuple{T, T}}()) 
+		return v
+	end
+
+	!visit && return max(tree_values[s][1], maximum(t[2]/t[1] for t in values(tree_values[s][2]); init = zero(T))) #if not visiting this state then just return the best value estimate and do not update the tree values
+
+	#compute value estimates and bonus applies to each potential action
+	apply_bonus!(v_hold, tree_values, s, c)
+	update_tree_policy!(v_hold, s)
+
+	#select an action from the tree policy
+	i_a = sample_action(v_hold)
+	a = mdp.actions[i_a]
+	r1, w = mdp.afterstate_step(s, a; step_kwargs...) #take a step with the action and get the afterstate
+	v_w = simulate!(w, tree_values, mdp, γ, v_est, depth, c, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs)
+	v_a = r1 + v_w #value for the visited action
+	update_tree!(tree_values, v_a, s, i_a)
+	return max(tree_values[s][1], maximum(t[2]/t[1] for t in values(tree_values[s][2]); init = zero(T))) #the value that was just updated will be included in this maximum
+end
 
 # ╔═╡ 304e6afd-11e0-4011-9929-85889b988400
 struct MDP_MC{S, A, F<:Function, G<:Function, H<:Function} <: MDP{S, A, F, G, H}
@@ -635,17 +1155,6 @@ initialize_state_value(mdp::MDP_TD; vinit::T = 0.0f0) where T<:AbstractFloat = o
 # ╔═╡ 7ae23e8e-d554-4d26-a08a-83dab507af13
 initialize_state_action_value(mdp::MDP_TD; qinit::T = 0.0f0) where T<:AbstractFloat = ones(T, length(mdp.actions), length(mdp.states)) .* qinit
 
-# ╔═╡ eb9ba23d-bee5-4bb1-b3e1-fe40d9f681dc
-function check_policy(π::Matrix{T}, mdp::MDP_TD) where {T <: AbstractFloat}
-#checks to make sure that a policy is defined over the same space as an MDP
-	(n, m) = size(π)
-	num_actions = length(mdp.actions)
-	num_states = length(mdp.states)
-	@assert n == num_actions "The policy distribution length $n does not match the number of actions in the mdp of $(num_actions)"
-	@assert m == num_states "The policy is defined over $m states which does not match the mdp state count of $num_states"
-	return nothing
-end
-
 # ╔═╡ 618b5f35-2df5-4ffb-a34f-add542691080
 #take a step in the environment from state s using policy π represented by a distribution over state-action pairs
 function takestep(mdp, π::Matrix{T}, s) where T<:Real
@@ -663,6 +1172,272 @@ function takestep(mdp, π::Function, s)
 	a = π(s)
 	(r, s′) = mdp.step(s, a)
 	return (0, 0, r, s′, a, 0)
+end
+
+# ╔═╡ 6612f482-2f10-43fa-9b7b-2f0c6a94b8e8
+runepisode(mdp::MDP_TD; kwargs...) = runepisode(mdp, make_random_policy(mdp); kwargs...)
+
+# ╔═╡ e43513e8-2517-43b7-9a16-e57d4125edc4
+runepisode(mdp::MDP_MC; kwargs...) = runepisode(mdp, s -> rand(mdp.actions); kwargs...)
+
+# ╔═╡ 94b339bb-6e2d-422f-8043-615e8be9a217
+begin
+	abstract type CompleteMDP{T<:Real, S, A} end
+	struct FiniteMDP{T<:Real, S, A} <: CompleteMDP{T, S, A} 
+		states::Vector{S}
+		actions::Vector{A}
+		rewards::Vector{T}
+		# ptf::Dict{Tuple{S, A}, Matrix{T}}
+		ptf::Array{T, 4}
+		action_scratch::Vector{T}
+		state_scratch::Vector{T}
+		reward_scratch::Vector{T}
+		state_index::Dict{S, Int64}
+		action_index::Dict{A, Int64}
+		function FiniteMDP{T, S, A}(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A}
+			new(states, actions, rewards, ptf, Vector{T}(undef, length(actions)), Vector{T}(undef, length(states)+1), Vector{T}(undef, length(rewards)), Dict(zip(states, eachindex(states))), Dict(zip(actions, eachindex(actions))))
+		end	
+	end
+	FiniteMDP(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A} = FiniteMDP{T, S, A}(states, actions, rewards, ptf)
+	
+	struct FiniteDeterministicMDP{T<:Real, S, A} <: CompleteMDP{T, S, A}
+		states::Vector{S}
+		actions::Vector{A}
+		state_index::Dict{S, Int64}
+		action_index::Dict{A, Int64}
+		state_transition_map::Matrix{Int64} #index of state reached from the state corresponding to the column when taking action corresponding to the row
+		reward_transition_map::Matrix{T} #reward received for the transition from the state corresponding to the column when taking action corresponding to the row
+	end
+	FiniteDeterministicMDP(states::Vector{S}, actions::Vector{A}, state_transition_map::Matrix{Int64}, reward_transition_map::Matrix{T}) where {T<:Real, S, A} = FiniteDeterministicMDP{T, S, A}(states, actions, makelookup(states), makelookup(actions), state_transition_map, reward_transition_map)
+	
+	struct FiniteStochasticMDP{T<:Real, S, A} <: CompleteMDP{T, S, A}
+		states::Vector{S}
+		actions::Vector{A}
+		state_index::Dict{S, Int64}
+		action_index::Dict{A, Int64}
+		ptf::Dict{Tuple{Int64, Int64}, Dict{Int64, Tuple{T, T}}} #for each state action pair index there is a corresponding dictionary mapping each transition state index to the probability of that transition and the average reward received
+	end
+	FiniteStochasticMDP(states::Vector{S}, actions::Vector{A}, ptf::Dict{Tuple{Int64, Int64}, Dict{Int64, Tuple{T, T}}}) where {T<:Real, S, A} = FiniteStochasticMDP{T, S, A}(states, actions, makelookup(states), makelookup(actions), ptf)
+end
+
+# ╔═╡ 81f2f335-6606-4506-bfb3-d0d95e651f24
+function bellman_optimal_update!(Q::Matrix{T}, i_s::Int64, i_a::Int64, mdp::FiniteStochasticMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	#perform a bellman optimal update for a given state action pair index and return the percentage change in value
+	q_avg = zero(T)
+	r_avg = zero(T)
+	ptf = mdp.ptf[(i_a, i_s)]
+	x = zero(T)
+	for i_s′ in keys(ptf)
+		(p, r) = ptf[i_s′]
+		maxvalue = typemin(T)
+		@inbounds @fastmath @simd for i_a′ in eachindex(mdp.actions)
+			maxvalue = max(maxvalue, Q[i_a′, i_s′])
+		end
+		x += p*(r + γ * maxvalue)
+	end
+	delt = abs(x - Q[i_a, i_s]) / (eps(abs(Q[i_a, i_s])) + abs(Q[i_a, i_s]))
+	Q[i_a, i_s] = x
+	return delt
+end
+
+# ╔═╡ a8ec05ad-8333-4423-ab42-883ab806ebd7
+function uniform_bellman_optimal_value!(Q::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	delt = zero(T)
+	num_updates = 0
+	for i_s in eachindex(mdp.states)
+		for i_a in eachindex(mdp.actions)
+			delt = max(delt, bellman_optimal_update!(Q, i_s, i_a, mdp, γ))
+			num_updates += 1
+		end
+	end
+	return delt, num_updates
+end
+
+# ╔═╡ 094321bc-2d44-4e67-9ac6-5216a42e0cd3
+function bellman_policy_update!(Q::Matrix{T}, π::Matrix{T}, i_s::Int64, i_a::Int64, mdp::FiniteStochasticMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	#perform a bellman optimal update for a given state action pair index and return the percentage change in value
+	q_avg = zero(T)
+	r_avg = zero(T)
+	ptf = mdp.ptf[(i_a, i_s)]
+	x = zero(T)
+	for i_s′ in keys(ptf)
+		(p, r) = ptf[i_s′]
+		v = zero(T)
+		@inbounds @fastmath @simd for i_a′ in eachindex(mdp.actions)
+			v += π[i_a′, i_s′] * Q[i_a′, i_s′]
+		end
+		x += p*(r + γ * v)
+	end
+	delt = abs(x - Q[i_a, i_s]) / (eps(abs(Q[i_a, i_s])) + abs(Q[i_a, i_s]))
+	Q[i_a, i_s] = x
+	return delt
+end
+
+# ╔═╡ 6e273f2b-a1af-421f-aca7-772a836b89ef
+function uniform_bellman_policy_value!(Q::Matrix{T}, π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	delt = zero(T)
+	num_updates = 0
+	for i_s in eachindex(mdp.states)
+		for i_a in eachindex(mdp.actions)
+			delt = max(delt, bellman_policy_update!(Q, π, i_s, i_a, mdp, γ))
+			num_updates += 1
+		end
+	end
+	return delt, num_updates
+end
+
+# ╔═╡ ffdd925e-b2b4-4cb1-9d6f-b8c9397729f6
+function q_policy_evaluation!(Q::Matrix{T}, π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, γ::T; max_updates = typemax(Int64), θ = eps(zero(T))) where {T <: Real, S, A}
+	delt, num_updates = uniform_bellman_policy_value!(Q, π, mdp, γ)
+	total_updates = num_updates
+	while (delt > θ) && (total_updates <= max_updates)
+		delt, num_updates = uniform_bellman_policy_value!(Q, π, mdp, γ)
+		total_updates += num_updates
+	end
+	return Q
+end
+
+# ╔═╡ 6605b946-3010-47ed-8d88-3c4dca993cf8
+begin_value_iteration_q(mdp::CompleteMDP{T,S,A}, γ::T; Qinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_q(mdp, γ, Qinit .* ones(T, length(mdp.actions), length(mdp.states)); kwargs...)
+
+# ╔═╡ 636d768c-670d-4485-a1dd-2bab6cf086d0
+function make_random_mdp(num_states, b)
+ 	states = collect(1:num_states)
+	actions = [1, 2]
+	next_states = [rand(states, b) for _ in 1:num_states*2]
+
+	rterm = randn()
+	ptf = Dict((i_a, i_s) => Dict(zip([num_states+1; next_states[i_s*i_a]], zip([0.1; fill((1-0.1)/b, b)], [rterm; randn(b)]))) for i_s in eachindex(states) for i_a in eachindex(actions))
+
+	#all transitions from terminal state lead to terminal state
+	ptf[(1, num_states + 1)] = Dict([num_states+1 => (1., 0.0)])
+	ptf[(2, num_states + 1)] = Dict([num_states+1 => (1., 0.0)])
+	
+	# function step(s, a)
+	# 	r = randn()
+	# 	rand() <= 0.1 && return (r, 0)
+		
+	# 	#each action result in one of b next states all equally likely with a different random selection of b states for each state-action pair
+	# 	s′ = rand(next_states[s*a])
+	# 	return (r, s′)
+	# end
+ 
+	# MDP_TD([states; 0], actions, () -> 1, step, s -> s == 0)
+	FiniteStochasticMDP([states; 0], actions, ptf)
+end
+
+# ╔═╡ f8bf29fe-568f-437f-ba82-6b861988a18e
+function make_greedy_policy!(π::Matrix{T}, mdp::FiniteDeterministicMDP{T, S, A}, V::Vector{T}, γ::T) where {T<:Real,S,A}
+	for i_s in eachindex(mdp.states)
+		maxv = -Inf
+		for i_a in eachindex(mdp.actions)
+			i_s′ = mdp.state_transition_map[i_a, i_s]
+			r = mdp.reward_transition_map[i_a, i_s]
+			x = r + γ*V[i_s′]
+			maxv = max(maxv, x)
+			π[i_a, i_s] = x
+		end
+		π[:, i_s] .= (π[:, i_s] .≈ maxv)
+		π[:, i_s] ./= sum(π[:, i_s])
+	end
+	return π
+end
+
+# ╔═╡ 82e1ceb8-b1bb-4dea-b041-bf462041793f
+function make_greedy_policy!(π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, V::Vector{T}, γ::T) where {T<:Real,S,A}
+	for i_s in eachindex(mdp.states)
+		maxv = -Inf
+		for i_a in eachindex(mdp.actions)
+			r_avg = zero(T)
+			v_avg = zero(T)
+			ptf = mdp.ptf[(i_a, i_s)]
+			for i_s′ in keys(ptf)
+				p = ptf[i_s′][1]
+				v_avg += p*V[i_s′]
+				r_avg += p*ptf[i_s′][2]
+			end
+			x = r_avg + γ*v_avg
+			maxv = max(maxv, x)
+			π[i_a, i_s] = x
+		end
+		π[:, i_s] .= (π[:, i_s] .≈ maxv)
+		π[:, i_s] ./= sum(π[:, i_s])
+	end
+	return π
+end
+
+# ╔═╡ e4f73889-af82-4304-89d5-ee50172eb3da
+function make_greedy_policy!(π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, Q::Matrix{T}) where {T<:Real,S,A}
+	for i_s in eachindex(mdp.states)
+		maxq = -Inf
+		for i_a in eachindex(mdp.actions)
+			maxq = max(maxq, Q[i_a, i_s])
+		end
+		π[:, i_s] .= (Q[:, i_s] .≈ maxq)
+		π[:, i_s] ./= sum(π[:, i_s])
+	end
+	return π
+end
+
+# ╔═╡ ecd8742c-2e10-4814-b477-7024e85b7fa6
+function make_ϵ_greedy_policy!(π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, Q::Matrix{T}, ϵ::T) where {T<:Real,S,A}
+	n = length(mdp.actions)
+	for i_s in eachindex(mdp.states)
+		maxq = -Inf
+		for i_a in eachindex(mdp.actions)
+			maxq = max(maxq, Q[i_a, i_s])
+		end
+		π[:, i_s] .= (Q[:, i_s] .≈ maxq)
+		π[:, i_s] ./= (sum(π[:, i_s]) / (one(T) - ϵ))
+		π[:, i_s] .+= ϵ / actions
+	end
+	return π
+end
+
+# ╔═╡ 8168bb85-2c96-4ef3-9ec7-3adc68b88701
+md"""
+# Bookmark
+"""
+
+# ╔═╡ fc137613-7b4b-414c-93af-eeb2ace5d67f
+function make_ϵ_greedy_policy!(π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, Q::Matrix{T}, ϵ::T, i_s::Int64) where {T<:Real,S,A}
+	n = length(mdp.actions)
+	maxq = -Inf
+	for i_a in eachindex(mdp.actions)
+		π[i_a, i_s] = Q[i_a, i_s]
+		maxq = max(maxq, Q[i_a, i_s])
+	end
+	π[:, i_s] .= (π[:, i_s] .≈ maxq)
+	π[:, i_s] ./= (sum(π[:, i_s]) / (one(T) - ϵ))
+	π[:, i_s] .+= ϵ / n
+	if isnan(π[1, i_s])
+		@info "Q = $(Q[:, i_s]), maxq = $maxq"
+	end
+	return π
+end
+
+# ╔═╡ 6c8cd429-2c2e-4515-98b2-d0394962e479
+function takestep(mdp::FiniteDeterministicMDP{T, S, A}, π::Matrix{T}, s) where {T<:Real, S, A}
+	i_s = mdp.state_index[s]
+	i_a = sample_action(π, i_s)
+	i_s′ = mdp.state_transition_map[i_a, i_s]
+	r = mdp.reward_transition_map[i_a, i_s]
+	s′ = mdp.states[i_s′]
+	a = mdp.actions[i_a]
+	return (i_s, i_s′, r, s′, a, i_a)
+end
+
+# ╔═╡ 3b4e27e7-8065-44b3-bc2a-e540913aa540
+function takestep(mdp::FiniteStochasticMDP{T, S, A}, π::Matrix{T}, s) where {T<:Real, S, A}
+	i_s = mdp.state_index[s]
+	i_a = sample_action(π, i_s)
+	ptf = mdp.ptf[(i_a, i_s)]
+	probabilities = [ptf[i_s′][1] for i_s′ in keys(ptf)]
+	i_s′ = sample(collect(keys(ptf)), weights(probabilities))
+	s′ = mdp.states[i_s′]
+	r = ptf[i_s′][2]
+	a = mdp.actions[i_a]
+	return (i_s, i_s′, r, s′, a, i_a)
 end
 
 # ╔═╡ b15f1262-1acf-40e5-87a7-bc4b1b437a42
@@ -698,36 +1473,42 @@ function runepisode(mdp::MDP{S, A, F, G, H}, π; max_steps = Inf) where {S, A, F
 	return states, actions, rewards, sterm
 end
 
-# ╔═╡ 6612f482-2f10-43fa-9b7b-2f0c6a94b8e8
-runepisode(mdp::MDP_TD; kwargs...) = runepisode(mdp, make_random_policy(mdp); kwargs...)
-
-# ╔═╡ e43513e8-2517-43b7-9a16-e57d4125edc4
-runepisode(mdp::MDP_MC; kwargs...) = runepisode(mdp, s -> rand(mdp.actions); kwargs...)
-
-# ╔═╡ 94b339bb-6e2d-422f-8043-615e8be9a217
-begin
-	abstract type CompleteMDP{T<:Real} end
-	struct FiniteMDP{T<:Real, S, A} <: CompleteMDP{T} 
-		states::Vector{S}
-		actions::Vector{A}
-		rewards::Vector{T}
-		# ptf::Dict{Tuple{S, A}, Matrix{T}}
-		ptf::Array{T, 4}
-		action_scratch::Vector{T}
-		state_scratch::Vector{T}
-		reward_scratch::Vector{T}
-		state_index::Dict{S, Int64}
-		action_index::Dict{A, Int64}
-		function FiniteMDP{T, S, A}(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A}
-			new(states, actions, rewards, ptf, Vector{T}(undef, length(actions)), Vector{T}(undef, length(states)+1), Vector{T}(undef, length(rewards)), Dict(zip(states, eachindex(states))), Dict(zip(actions, eachindex(actions))))
-		end	
+# ╔═╡ 250ea9da-dea3-4bf3-932d-cdda6756ae33
+function runepisode(mdp::CompleteMDP{T, S, A}, s0::S, isterm::Function, π::Matrix{T}; max_steps = Inf) where {T<:Real, S, A}
+	s = s0
+	states = Vector{S}()
+	actions = Vector{A}()
+	push!(states, s)
+	(_, _, r, s′, a, _) = takestep(mdp, π, s)
+	push!(actions, a)
+	rewards = [r]
+	step = 2
+	sterm = s
+	if isterm(s′)
+		sterm = s′
+	else
+		sterm = s
 	end
-	FiniteMDP(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A} = FiniteMDP{T, S, A}(states, actions, rewards, ptf)
+	s = s′
+
+	#note that the terminal state will not be added to the state list
+	while !isterm(s) && (step <= max_steps)
+		push!(states, s)
+		(_, _, r, s′, a, _) = takestep(mdp, π, s)
+		push!(actions, a)
+		push!(rewards, r)
+		s = s′
+		step += 1
+		if isterm(s′)
+			sterm = s′
+		end
+	end
+	return states, actions, rewards, sterm
 end
 
 # ╔═╡ 726af565-8905-4409-864f-a5c1b5767e09
 #forms a random policy for a generic finite state mdp.  The policy is a matrix where the rows represent actions and the columns represent states.  Each column is a probability distribution of actions over that state.
-form_random_policy(mdp::CompleteMDP{T}) where T = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
+form_random_policy(mdp::CompleteMDP{T, S, A}) where {T, S, A} = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
 
 # ╔═╡ 33f66659-1a87-4890-9137-dbc7776a19d8
 function make_greedy_policy!(π::Matrix{T}, mdp::FiniteMDP{T, S, A}, V::Vector{T}, γ::T) where {T<:Real,S,A}
@@ -769,6 +1550,65 @@ function bellman_optimal_value!(V::Vector{T}, mdp::FiniteMDP{T, S, A}, γ::T) wh
 	return delt
 end
 
+# ╔═╡ 16c68a13-c295-4a64-bc2b-2ae8451f332f
+function bellman_optimal_value!(V::Vector{T}, mdp::FiniteDeterministicMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	delt = zero(T)
+	@inbounds @fastmath @simd for i_s in eachindex(mdp.states)
+		maxvalue = typemin(T)
+		@inbounds @fastmath @simd for i_a in eachindex(mdp.actions)
+			i_s′ = mdp.state_transition_map[i_a, i_s]
+			r = mdp.reward_transition_map[i_a, i_s]
+			x = r + γ*V[i_s′]
+			maxvalue = max(maxvalue, x)
+		end
+		delt = max(delt, abs(maxvalue - V[i_s]) / (eps(abs(V[i_s])) + abs(V[i_s])))
+		V[i_s] = maxvalue
+	end
+	return delt
+end
+
+# ╔═╡ 44364e7f-1910-421a-b961-63fbbaac8230
+function bellman_optimal_value!(V::Vector{T}, mdp::FiniteStochasticMDP{T, S, A}, γ::T) where {T <: Real, S, A}
+	delt = zero(T)
+	@inbounds @fastmath @simd for i_s in eachindex(mdp.states)
+		maxvalue = typemin(T)
+		@inbounds @fastmath @simd for i_a in eachindex(mdp.actions)
+			r_avg = zero(T)
+			v_avg = zero(T)
+			ptf = mdp.ptf[(i_a, i_s)]
+			for i_s′ in keys(ptf)
+				p = ptf[i_s′][1]
+				r = ptf[i_s′][2]
+				v_avg += p*V[i_s′]
+				r_avg += p*r
+			end
+			x = r_avg + γ*v_avg
+			maxvalue = max(maxvalue, x)
+		end
+		delt = max(delt, abs(maxvalue - V[i_s]) / (eps(abs(V[i_s])) + abs(V[i_s])))
+		V[i_s] = maxvalue
+	end
+	return delt
+end
+
+# ╔═╡ 4b2a4fb1-7395-4293-9ff9-e2f9da50f56b
+function value_iteration_q!(Q, θ, mdp, γ, nmax)
+	nmax <= 0 && return Q
+	
+	#update value function
+	delt = bellman_optimal_value!(Q, mdp, γ)
+
+	#halt when value function is no longer changing
+	delt <= θ && return Q
+	
+	value_iteration_q!(Q, θ, mdp, γ, nmax - 1)	
+end
+
+# ╔═╡ 6778296c-ab05-47e7-86d2-e98c075a8a0c
+function begin_value_iteration_q(mdp::M, γ::T, Q::Matrix{T}; θ = eps(zero(T)), nmax=typemax(Int64)) where {T<:Real, M <: CompleteMDP{T, S, A} where {S, A}}
+	value_iteration_q!(Q, θ, mdp, γ, nmax)
+end
+
 # ╔═╡ 80affd41-b5e6-4b9c-b827-4e3b39bd7767
 function value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
 	nmax <= 0 && return valuelist
@@ -784,6 +1624,9 @@ function value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
 	
 	value_iteration_v!(V, θ, mdp, γ, nmax - 1, valuelist)	
 end
+
+# ╔═╡ 2fa207dd-749f-4dc0-b4ab-159edf1d9bce
+begin_value_iteration_v(mdp::CompleteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, length(mdp.states)); kwargs...)
 
 # ╔═╡ 6cf35193-dba5-4f78-a4ac-245dda7a0846
 begin_value_iteration_v(mdp::FiniteMDP{T,S,A}, γ::T; Vinit::T = zero(T), kwargs...) where {T<:Real,S,A} = begin_value_iteration_v(mdp, γ, Vinit .* ones(T, size(mdp.ptf, 1)); kwargs...)
@@ -806,79 +1649,21 @@ function make_ϵ_greedy_policy!(v::AbstractVector{T}, ϵ::T; valid_inds = eachin
 	return v
 end
 
-# ╔═╡ 0adcbce8-2be5-48ef-af43-04815e10dc5c
-function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
-	(vmin, vmax) = extrema(v)
-	isnan(vmin) && error("NaN values in vector")
-	if isinf(vmax)
-		v .= T.(isinf.(v))
-		v ./= sum(v)
-	elseif vmin == vmax
-		v .= zero(T)
-		v .= one(T) / length(v)
-	else
-		v .= (v .- vmax) ./ abs(vmin - vmax)
-		v .= exp.(c .* v)
-		v ./= sum(v)
+# ╔═╡ d0b18699-7d3a-418d-9d15-be41f1643f09
+function trajectory_bellman_optimal_value!(Q::Matrix{T}, π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, γ::T, ϵ::T, s0::S, isterm::Function) where {T <: Real, S, A}
+	delt = zero(T)
+	num_updates = 0
+	s = s0
+	i_s = mdp.state_index[s]
+	make_ϵ_greedy_policy!(π, mdp, Q, ϵ, i_s)
+	while !isterm(s)
+		(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+		delt = max(delt, bellman_optimal_update!(Q, i_s, i_a, mdp, γ))
+		make_ϵ_greedy_policy!(π, mdp, Q, ϵ, i_s′)
+		num_updates += 1
+		s = s′
 	end
-	return v
-end
-
-# ╔═╡ 466b1cbf-586f-4b53-8b4b-2dc32e1c8b0a
-#perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
-function monte_carlo_tree_search(mdp::MDP{S, A, F, G, H}, γ::T, v_est::Function, s::S; 
-	depth = 10, 
-	nsims = 100, 
-	c = one(T), 
-	# visit_counts = Dict{S, SparseVector{T, Int64}}(), 
-	visit_counts = Dict{S, Dict{Int64, T}}(),
-	# Q = Dict{S, SparseVector{T, Int64}}(),
-	Q = Dict{S, Dict{Int64, T}}(),
-	update_tree_policy! = (v, s) -> make_greedy_policy!(v), 
-	v_hold = zeros(T, length(mdp.actions)),
-	updateQ! = function(Q, x, s, i_a)
-		# Q[s][i_a] += x
-		Q[s][i_a] = get_dict_value(Q[s], i_a) + x
-	end,
-	updateV! = function(V, x, s, i_a)
-		# V[s][i_a] += x
-		V[s][i_a] = get_dict_value(V[s], i_a) + x
-	end,
-	apply_bonus! = apply_uct!,
-	stepkwargs...) where {S, A, F, G, H, T<:Real}
-
-	q_hold = zeros(T, length(mdp.actions))
-	for k in 1:nsims
-		simulate!(visit_counts, Q, mdp, γ, v_est, s, depth, c, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!; stepkwargs...)
-	end
-	
-	# v_hold .= Q[s]
-	for i in eachindex(v_hold)
-		v_hold[i] = get_dict_value(Q[s], i; default = T(-1e20))
-	end
-	make_greedy_policy!(v_hold)
-	return mdp.actions[sample_action(v_hold)], visit_counts, Q
-end
-
-# ╔═╡ 0899f37c-5def-4d15-8ca3-ebdec8e96b43
-function begin_value_iteration_v(mdp::M, γ::T, V::Vector{T}; θ = eps(zero(T)), nmax=typemax(Int64)) where {T<:Real, M <: CompleteMDP{T}}
-	valuelist = [copy(V)]
-	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
-
-	π = form_random_policy(mdp)
-	make_greedy_policy!(π, mdp, V, γ)
-	return (valuelist, π)
-end
-
-# ╔═╡ 9a1b250f-b404-4db3-a4b7-4cd33b79d921
-function create_greedy_policy(Q::Matrix{T}; c = 1000, π = copy(Q)) where T<:Real
-	vhold = zeros(T, size(Q, 1))
-	for j in 1:size(Q, 2)
-		vhold .= Q[:, j]
-		make_greedy_policy!(vhold; c = c)
-		π[:, j] .= vhold
-	end
-	return π
+	return delt, num_updates
 end
 
 # ╔═╡ 324181f0-b890-4198-9b4b-c36547e6629a
@@ -1035,180 +1820,6 @@ function tabular_dynaQplus(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T;
 	return Q, steps, rewards, history, state_transition_map, reward_transition_map
 end
 
-# ╔═╡ 269f4505-e807-446c-8fd8-3458482e00ab
-function tabular_dynaQplus′(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; 
-	num_episodes = 1000, max_steps = 10000, n = 100, qinit = zero(T), ϵinit = one(T)/10, 
-	Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), 
-	decay_ϵ = false, history_state::S = first(mdp.states), 
-	save_history = false, update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), 
-	history = zeros(Int64, length(mdp.actions), length(mdp.states)),
-	#each column contains the index of the state reached from the state represented by the column index while taking the action represented by the row index.  the values are initialized to produce transitions to the original state
-	state_transition_map = mapreduce(i_s -> i_s .* ones(Int64, length(mdp.actions)), hcat, eachindex(mdp.states)),
-	#each column contains the reward received from the state represented by the column index while taking the action represented by the row index.  the state_transition_map can be used to determine if any of these values have been updated from the zero initialization
-	reward_transition_map = zeros(T, length(mdp.actions), length(mdp.states)),
-	κ = 0.1f0, 
-	init_step = 0) where {S, A, F, G, H, T<:AbstractFloat}
-
-	π = copy(πinit)
-	Q = copy(Qinit)
-	ϵ = ϵinit
-	terminds = findall(mdp.isterm(s) for s in mdp.states)
-	Q[:, terminds] .= zero(T)
-	
-	vhold = zeros(T, length(mdp.actions))
-	#keep track of rewards per step and steps per episode
-	rewards = zeros(T, max_steps)
-	steps = zeros(Int64, num_episodes)
-
-	function updateQ!(Q, i_s, i_a, i_s′, r)
-		qmax = maximum(Q[i, i_s′] for i in eachindex(mdp.actions))
-		Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
-	end
-
-	function q_planning!(Q, history)
-		for _ in 1:n
-			i_s = ceil(Int64, rand()*length(mdp.states))
-			i_a = ceil(Int64, rand()*length(mdp.actions))
-			i_s′ = state_transition_map[i_a, i_s]
-			r = reward_transition_map[i_a, i_s]
-			updateQ!(Q, i_s, i_a, i_s′, r)
-		end
-	end
-
-	step = 1
-	ep = 1
-	while (ep <= num_episodes) && (step <= max_steps)
-		s = mdp.state_init()
-		l = 0
-		
-		while !mdp.isterm(s) && step <= max_steps
-			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
-			updateQ!(Q, i_s, i_a, i_s′, r)
-			state_transition_map[i_a, i_s] = i_s′
-			reward_transition_map[i_a, i_s] = r
-			
-			#save the step for which that state action pair was visited
-			history[i_a, i_s] = step + init_step
-			rewards[step] = r
-			q_planning!(Q, history)
-			step += 1
-			π .= Q .+ κ .* sqrt.(T.(step .+ init_step .- history))
-			π = create_greedy_policy(π; π = π)
-			s = s′
-			l += 1
-			
-		end
-		steps[ep] = l
-		
-		ep += 1
-	end
-	return Q, steps, rewards, history, state_transition_map, reward_transition_map
-end
-
-# ╔═╡ 898f1b06-a34f-496b-99db-9ca23498cbee
-function prioritized_sweeping_deterministic(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; 
-	num_episodes = 1000, max_steps = 10000, n = 100, qinit = zero(T), ϵinit = one(T)/10, 
-	Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), 
-	decay_ϵ = false, history_state::S = first(mdp.states), 
-	save_history = false, update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), 
-	history = zeros(Int64, length(mdp.actions), length(mdp.states)),
-	#each column contains the index of the state reached from the state represented by the column index while taking the action represented by the row index.  the values are initialized at 0 which represents a transition that has not occured
-	state_transition_map = zeros(Int64, length(mdp.actions), length(mdp.states)),
-	#each column contains the reward received from the state represented by the column index while taking the action represented by the row index.  the state_transition_map can be used to determine if any of these values have been updated from the zero initialization
-	reward_transition_map = zeros(T, length(mdp.actions), length(mdp.states)),
-	θ = one(T)/100,
-	init_step = 0,
-	isoptimal = l -> false) where {S, A, F, G, H, T<:AbstractFloat}
-
-	π = copy(πinit)
-	Q = copy(Qinit)
-	ϵ = ϵinit
-	terminds = findall(mdp.isterm(s) for s in mdp.states)
-	Q[:, terminds] .= zero(T)
-	num_updates = 0
-	
-	vhold = zeros(T, length(mdp.actions))
-	#keep track of rewards per step and steps per episode
-	rewards = zeros(T, max_steps)
-	steps = zeros(Int64, num_episodes)
-
-	#maintains a queue of state action pairs ranked by their priority with the largest value first
-	priority_queue = PriorityQueue{Tuple{Int64, Int64}, T}(Base.Order.Reverse)
-
-	function updateQ!(Q, i_s, i_a, i_s′, r)
-		qmax = calculate_qmax(Q, i_s′)
-		Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
-		num_updates += 1
-	end
-
-	calculate_priority(r, qmax, i_s, i_a) = abs(r + γ*qmax - Q[i_a, i_s])
-	calculate_qmax(Q, i_s) = maximum(Q[i, i_s] for i in eachindex(mdp.actions))
-
-	function q_planning!(Q, queue)
-		step = 1
-		while (step <= n) && !isempty(queue)
-			(i_a, i_s) = first(keys(queue))
-			delete!(queue, (i_a, i_s))
-			i_s′ = state_transition_map[i_a, i_s]
-			r = reward_transition_map[i_a, i_s]
-			updateQ!(Q, i_s, i_a, i_s′, r)
-			#loop for all state action pairs that the model predicts will lead to s
-			qmax = calculate_qmax(Q, i_s)
-			for i_s̄ in eachindex(mdp.states)
-				for i_ā in eachindex(mdp.actions)
-					if state_transition_map[i_ā, i_s̄] == i_s
-						r̄ = reward_transition_map[i_ā, i_s̄]
-						p = calculate_priority(r̄, qmax, i_s̄, i_ā)
-						if p > θ
-							priority_queue[(i_ā, i_s̄)] = p
-						end
-					end
-				end
-			end
-			step += 1
-		end
-	end
-
-	step = 1
-	ep = 1
-	optimal_path = false
-	while (ep <= num_episodes) && (step <= max_steps) && !optimal_path
-		s = mdp.state_init()
-		l = 0
-		
-		while !mdp.isterm(s) && step <= max_steps
-			#take policy action based on Q
-			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
-
-			#replace model value with observed transition
-			state_transition_map[i_a, i_s] = i_s′
-			reward_transition_map[i_a, i_s] = r
-
-			#calculate expected update from previous Q value
-			p = calculate_priority(r, calculate_qmax(Q, i_s′), i_s, i_a)
-			if p > θ
-				priority_queue[(i_a, i_s)] = p
-			end
-			
-			rewards[step] = r
-			q_planning!(Q, priority_queue)
-			step += 1
-			s = s′
-			
-			#update policy for next state action selection
-			vhold .= Q[:, i_s′]
-			update_policy!(vhold, ϵ, s′)
-			π[:, i_s′] .= vhold
-			l += 1
-		end
-		steps[ep] = l
-		optimal_path = isoptimal(l)
-		
-		ep += 1
-	end
-	return Q, steps, rewards, state_transition_map, reward_transition_map, num_updates
-end
-
 # ╔═╡ 0f37ec0a-b737-478b-bf6a-027899250c4e
 #take a step in the environment from state s using policy π and generate the subsequent action selection as well
 function sarsa_step(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}, s::S, a::A) where {S, A, F<:Function, G<:Function, H<:Function, T<:Real}
@@ -1226,242 +1837,6 @@ function init_step(mdp::MDP_TD{S, A, F, G, H}, π::Matrix{T}, s::S) where {S, A,
 	i_a = sample_action(π, i_s)
 	a = mdp.actions[i_a]
 	return (i_s, i_a, a)
-end
-
-# ╔═╡ 4494cb61-ee2c-467b-9bf6-0afb59023e91
-function sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), history_state::S = first(mdp.states), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), save_history = false, decay_ϵ = false) where {S, A, F, G, H, T<:AbstractFloat}
-	terminds = findall(mdp.isterm(s) for s in mdp.states)
-	Q = copy(Qinit)
-	Q[:, terminds] .= zero(T)
-	π = copy(πinit)
-	vhold = zeros(T, length(mdp.actions))
-	#keep track of rewards and steps per episode as a proxy for training speed
-	rewards = zeros(T, num_episodes)
-	steps = zeros(Int64, num_episodes)
-
-	if save_history
-		action_history = Vector{A}(undef, num_episodes)
-	end
-
-	for ep in 1:num_episodes
-		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
-		s = mdp.state_init()
-		(i_s, i_a, a) = init_step(mdp, π, s)
-		rtot = zero(T)
-		l = 0
-		while !mdp.isterm(s)
-			(s′, i_s′, r, a′, i_a′) = sarsa_step(mdp, π, s, a)
-			if save_history && (s == history_state)
-				action_history[ep] = a
-			end
-			Q[i_a, i_s] += α * (r + γ*Q[i_a′, i_s′] - Q[i_a, i_s])
-			
-			#update terms for next step
-			vhold .= Q[:, i_s]
-			update_policy!(vhold, ϵ, s)
-			π[:, i_s] .= vhold
-			s = s′
-			a = a′
-			i_s = i_s′
-			i_a = i_a′
-			
-			l+=1
-			rtot += r
-		end
-		steps[ep] = l
-		rewards[ep] = rtot
-	end
-
-	default_return =  Q, π, steps, rewards
-	save_history && return (default_return..., action_history)
-	return default_return
-end
-
-# ╔═╡ 143fff7d-0bb2-43b4-b810-53784fe848bd
-function q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), decay_ϵ = false, history_state::S = first(mdp.states), save_history = false, update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ)) where {S, A, F, G, H, T<:AbstractFloat}
-	terminds = findall(mdp.isterm(s) for s in mdp.states)
-	Q = copy(Qinit)
-	Q[:, terminds] .= zero(T)
-	π = copy(πinit)
-	vhold = zeros(T, length(mdp.actions))
-	#keep track of rewards and steps per episode as a proxy for training speed
-	rewards = zeros(T, num_episodes)
-	steps = zeros(Int64, num_episodes)
-	
-	if save_history
-		history_actions = Vector{A}(undef, num_episodes)
-	end
-	
-	for ep in 1:num_episodes
-		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
-		s = mdp.state_init()
-		rtot = zero(T)
-		l = 0
-		while !mdp.isterm(s)
-			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
-			if save_history && (s == history_state)
-				history_actions[ep] = a
-			end
-			qmax = maximum(Q[i, i_s′] for i in eachindex(mdp.actions))
-			Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
-			
-			#update terms for next step
-			vhold .= Q[:, i_s]
-			update_policy!(vhold, ϵ, s)
-			π[:, i_s] .= vhold
-			s = s′
-			
-			l+=1
-			rtot += r
-		end
-		steps[ep] = l
-		rewards[ep] = rtot
-	end
-
-	save_history && return Q, π, steps, rewards, history_actions
-	return Q, π, steps, rewards
-end
-
-# ╔═╡ 9be963b9-f3a1-4f92-8ff9-f5be75ed52f2
-function expected_sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), decay_ϵ = false, save_history = false, save_state = first(mdp.states)) where {S, A, F, G, H, T<:AbstractFloat}
-	terminds = findall(mdp.isterm(s) for s in mdp.states)
-	Q = copy(Qinit)
-	Q[:, terminds] .= zero(T)
-	π = copy(πinit)
-	vhold = zeros(T, length(mdp.actions))
-	#keep track of rewards and steps per episode as a proxy for training speed
-	rewards = zeros(T, num_episodes)
-	steps = zeros(Int64, num_episodes)
-	if save_history
-		action_history = Vector{A}(undef, num_episodes)
-	end
-	
-	for ep in 1:num_episodes
-		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
-		s = mdp.state_init()
-		rtot = zero(T)
-		l = 0
-		while !mdp.isterm(s)
-			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
-			if save_history && (s == save_state)
-				action_history[ep] = a
-			end
-			q_expected = sum(π[i, i_s′]*Q[i, i_s′] for i in eachindex(mdp.actions))
-			Q[i_a, i_s] += α*(r + γ*q_expected - Q[i_a, i_s])
-			
-			#update terms for next step
-			vhold .= Q[:, i_s]
-			update_policy!(vhold, ϵ, s)
-			π[:, i_s] .= vhold
-			s = s′
-			
-			l+=1
-			rtot += r
-		end
-		steps[ep] = l
-		rewards[ep] = rtot
-	end
-
-	base_return = (Q, π, steps, rewards)
-	save_history && return (base_return..., action_history)
-	return base_return
-end
-
-# ╔═╡ 113d2bc2-1f77-479f-86e5-a65b20672d7a
-function double_expected_sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit::Matrix{T} = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false, target_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), behavior_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), πinit_target::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), πinit_behavior::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), save_state::S = first(mdp.states), save_history = false) where {S, A, F, G, H, T<:AbstractFloat}
-	terminds = findall(mdp.isterm(s) for s in mdp.states)
-	
-	Q1 = copy(Qinit)
-	Q2 = copy(Qinit) 
-	Q1[:, terminds] .= zero(T)
-	Q2[:, terminds] .= zero(T)
-	π_target1 = copy(πinit_target)
-	π_target2 = copy(πinit_target)
-	π_behavior = copy(πinit_behavior)
-	vhold1 = zeros(T, length(mdp.actions))
-	vhold2 = zeros(T, length(mdp.actions))
-	vhold3 = zeros(T, length(mdp.actions))
-	#keep track of rewards and steps per episode as a proxy for training speed
-	rewards = zeros(T, num_episodes)
-	steps = zeros(Int64, num_episodes)
-
-	if save_history
-		action_history = Vector{A}(undef, num_episodes)
-	end
-	
-	for ep in 1:num_episodes
-		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
-		s = mdp.state_init()
-		rtot = zero(T)
-		l = 0
-		while !mdp.isterm(s)
-			
-			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π_behavior, s)
-			if save_history && (s == save_state)
-				action_history[ep] = a
-			end
-			
-			# q_expected = sum(π_target[i, i_s′]*(Q1[i, i_s′]*toggle + Q2[i, i_s′]*(1-toggle)) for i in eachindex(mdp.actions))
-			toggle = rand() < 0.5
-			q_expected = if toggle 
-				sum(π_target2[i, i_s′]*Q1[i, i_s′] for i in eachindex(mdp.actions))
-			else
-				sum(π_target1[i, i_s′]*Q2[i, i_s′] for i in eachindex(mdp.actions))
-			end
-
-			if toggle
-				Q2[i_a, i_s] += α*(r + γ*q_expected - Q2[i_a, i_s])
-			else
-				Q1[i_a, i_s] += α*(r + γ*q_expected - Q1[i_a, i_s])
-			end
-			
-			#update terms for next step
-			if toggle
-				vhold2 .= Q2[:, i_s]
-				target_policy_function!(vhold2, ϵ, s)
-				π_target2[:, i_s] .= vhold2
-			else
-				vhold1 .= Q1[:, i_s]
-				target_policy_function!(vhold1, ϵ, s)
-				π_target1[:, i_s] .= vhold1
-			end
-			
-			vhold3 .= vhold1 .+ vhold2
-			behavior_policy_function!(vhold3, ϵ, s)
-			π_behavior[:, i_s] .= vhold3
-			
-			s = s′
-
-			l+=1
-			rtot += r
-		end
-		steps[ep] = l
-		rewards[ep] = rtot
-	end
-
-	Q1 .+= Q2
-	Q1 ./= 2
-	plain_return = Q1, create_greedy_policy(Q1), steps, rewards
-
-	save_history && return (plain_return..., action_history)
-	return plain_return
-end
-
-# ╔═╡ 5d2abde0-7128-41c3-bd1f-b6940492d1ae
-function double_q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; 
-	num_episodes = 1000, 
-	qinit = zero(T), 
-	ϵinit = one(T)/10, 
-	Qinit::Matrix{T} = initialize_state_action_value(mdp; qinit=qinit), 
-	decay_ϵ = false, 
-	target_policy_function! = (v, ϵ, s) -> make_greedy_policy!(v), 
-	behavior_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), 
-	πinit_target::Matrix{T} = create_greedy_policy(Qinit), 
-	πinit_behavior::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), 
-	save_state::S = first(mdp.states), 
-	save_history = false) where {S, A, F, G, H, T<:AbstractFloat} 
-	
-	double_expected_sarsa(mdp, α, γ; num_episodes = num_episodes, qinit = qinit, ϵinit = ϵinit, Qinit = Qinit, decay_ϵ = decay_ϵ, target_policy_function! = target_policy_function!, behavior_policy_function! = behavior_policy_function!, πinit_target = πinit_target, πinit_behavior = πinit_behavior, save_state = save_state, save_history = save_history)
 end
 
 # ╔═╡ 4e1c115a-4020-4a5a-a79a-56056892a953
@@ -1501,115 +1876,6 @@ begin
 	apply_wind(w, x, y) = (x, y+w)
 	const wind_vals = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
 end
-
-# ╔═╡ bb439641-30bd-495d-ba70-06b2e27efdbd
-function make_gridworld(;actions = rook_actions, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, stepreward = 0.0f0, termreward = 1.0f0, iscliff = s -> false, iswall = s -> false, cliffreward = -100f0, goal2 = GridworldState(start.x, ymax), goal2reward = 0.0f0, usegoal2 = false)
-	
-	states = [GridworldState(x, y) for x in 1:xmax for y in 1:ymax]
-	
-	boundstate(x::Int64, y::Int64) = (clamp(x, 1, xmax), clamp(y, 1, ymax))
-	
-	function step(s::GridworldState, a::GridworldAction)
-		(x, y) = move(a, s.x, s.y)
-		s′ = GridworldState(boundstate(x, y)...)
-		iswall(s′) && return s
-		return s′
-	end
-		
-	function isterm(s::GridworldState) 
-		s == sterm && return true
-		usegoal2 && (s == goal2) && return true
-		return false
-	end
-
-	function tr(s::GridworldState, a::GridworldAction) 
-		isterm(s) && return (0f0, s)
-		s′ = step(s, a)
-		iscliff(s′) && return (cliffreward, start)
-		x = Float32(isterm(s′))
-		usegoal2 && (s′ == goal2) && return (goal2reward, goal2)
-		r = (1f0 - x)*stepreward + x*termreward
-		(r, s′)
-	end	
-	MDP_TD(states, actions, () -> start, tr, isterm)
-end	
-
-# ╔═╡ c04c803c-cdca-4b8b-9c9d-e456ee677906
-begin
-	const maze_walls = Set(GridworldState(x, y) for (x, y) in [(3, 3), (3, 4), (3, 5), (6, 2), (8, 4), (8, 5), (8, 6)])
-	const dyna_maze = make_gridworld(;xmax = 9, ymax = 6, sterm = GridworldState(9, 6), iswall = s -> in(s, maze_walls))
-end
-
-# ╔═╡ cd139745-1877-43a2-97a0-3333e544cbd8
-function figure8_2(;num_episodes = 50, α = 0.1f0, nlist = [0, 5, 50], γ = 0.95f0, samples = 5)
-	traces = [begin
-		step_avg = zeros(Int64, num_episodes)
-		for s in 1:samples
-			Random.seed!(s)
-			(Q, steps, rewards, _, _) = tabular_dynaQ(dyna_maze, α, γ; num_episodes = num_episodes, n = n)
-			step_avg .+= steps
-		end
-		scatter(x = 2:num_episodes, y = step_avg[2:end] ./ samples, name = "$n planning steps")
-	end
-	for n in nlist]
-	plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "Steps per episode"))
-end
-
-# ╔═╡ 8dbc76fd-ac73-47ca-983e-0e90023390e3
-figure8_2()
-
-# ╔═╡ beae0491-ed11-4edf-a136-d384578b088b
-monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 10_000),  dyna_maze.state_init(); nsims = 100, depth = 10, c = 1f0)
-
-# ╔═╡ 41bb1f78-b83a-4a45-ba5c-faa94e112f45
-function get_mcts_statistics()
-	# visit_counts = Dict{GridworldState, Vector{Int64}}()
-	# Q = Dict{GridworldState, Vector{Float32}}()
-	mean(runepisode(dyna_maze, s -> monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 10),  s; nsims = 100, depth = 100, c = 1f0)[1]) |> first |> length for _ in 1:10)
-end
-
-# ╔═╡ 39ae7727-ea72-48f3-8d63-e03a9f607f87
-function make_dyna_maze(scale)
-	scale_value(v) = ceil(Int64, v*scale)
-	xmax = scale_value(9)
-	ymax = scale_value(6)
-	sterm = GridworldState(xmax, ymax)
-	wall1 = Set(GridworldState(scale_value(3), y) for y in scale_value(3):scale_value(5))
-	wall2 = Set([GridworldState(scale_value(6), scale_value(3) - 1)])
-	wall3 = Set(GridworldState(xmax - 1, y) for y in scale_value(4):ymax)
-	walls = union(wall1, wall2, wall3)
-	iswall(s) = in(s, walls)
-	start = GridworldState(1, scale_value(4))
-	optimal_length = xmax - 1 + (ymax - scale_value(3) + 1) + start.y - scale_value(3) + 1
-	(maze = make_gridworld(;start = start, xmax=xmax, ymax=ymax, sterm = sterm, iswall = iswall), iswall = iswall, optimal_length = optimal_length)
-end
-
-# ╔═╡ fb00aedd-e103-4463-b4f8-d0dce6275c64
-function example_8_4(;α = 1f0, n = 5, γ = 0.95f0, samples = 2, maze_scales = [1, 1.25, 1.5, 2])
-	function get_optimal_steps(algo, mdp, optimal_steps)
-		updates_until_optimal = 0
-		for s in 1:samples
-			Random.seed!(s)
-			out = algo(mdp, α, γ; n = n, ϵinit = 0.1f0, isoptimal = l -> l == optimal_steps)
-			updates_until_optimal += last(out)
-		end
-		return updates_until_optimal / samples
-	end
-
-	mazes = [make_dyna_maze(s) for s in maze_scales]
-
-	function make_trace(algo, name)
-		y = mazes |> Map(maze -> get_optimal_steps(algo, maze.maze, maze.optimal_length)) |> tcollect
-		x = [length(maze.maze.states) for maze in mazes]
-		scatter(x = x, y = y, name = name)
-	end
-	
-	traces = [make_trace(prioritized_sweeping_deterministic, "prioritized sweeping"), make_trace(tabular_dynaQ, "Dyna-Q")]
-	plot(traces, Layout(yaxis_type = "log", xaxis_type = "log", xaxis_title = "Maze States", yaxis_title = "Updates until optimal solution"))
-end
-
-# ╔═╡ b3a5adcb-5343-44e9-9466-1c51c1143a0d
-example_8_4()
 
 # ╔═╡ 77fde69f-2119-41eb-8993-a93b2c47ca7e
 md"""
@@ -1654,215 +1920,11 @@ end
 # ╔═╡ 502a7125-4460-4d39-be14-4852fb6d9ad2
 plot_path(mdp; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, make_random_policy(mdp); title = title, kwargs...)
 
-# ╔═╡ 5ae2d740-13c7-4568-8f04-25bc82fecbdb
-begin
-	const block1 = Set(GridworldState(x, 3) for x in 1:8)
-	const block2 = Set(GridworldState(x, 3) for x in 2:9)
-	const block_maze_base_args = (xmax = 9, ymax = 6, sterm = GridworldState(9, 6), start = GridworldState(4, 1))
-	const blocking_maze1 = make_gridworld(;iswall = s -> in(s, block1), block_maze_base_args...)
-	const blocking_maze2 = make_gridworld(;iswall = s -> in(s, block2), block_maze_base_args...)
-	[plot_path(blocking_maze1, iswall = s -> in(s, block1), max_steps = 2000, title = "Blocking Maze Steps <= 1000") plot_path(blocking_maze2, iswall = s -> in(s, block2), max_steps = 1000, title = "Blocking Maze Steps > 1000")]
-end
-
-# ╔═╡ 2ff6d187-e06f-47b5-9834-d06bfc820c26
-function figure_8_4(; max_steps1 = 1000, max_steps2 = 2000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0)
-	y = zeros(max_steps1 + max_steps2)
-	x = 1:(max_steps1 + max_steps2)
-	for _ in 1:ntrials
-		(Q, steps, rewards, history, stm, rtm) = tabular_dynaQ(blocking_maze1, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
-		(Q2, steps2, rewards2, _, _) = tabular_dynaQ(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm)
-		y .+= cumsum([rewards; rewards2])
-	end
-	plot(scatter(x = x, y = y ./ ntrials))
-end
-
-# ╔═╡ 4d1f0065-e5ab-46fa-8ab1-a0bbcf523c27
-figure_8_4(;ntrials = 10, ϵ = 0.1f0, α = 0.8f0, fig_8_4_params...)
-
-# ╔═╡ 5b688057-06c7-4ae4-95d6-0a2ff451f11c
-function figure_8_4′(; max_steps1 = 1000, max_steps2 = 2000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0, κ = 0.01f0)
-	x = 1:(max_steps1 + max_steps2)
-	function test_algo(f)
-		y = zeros(max_steps1 + max_steps2)
-		for _ in 1:ntrials
-			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze1, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
-			(Q2, steps2, rewards2, _, _) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
-
-			y .+= cumsum([rewards; rewards2])
-		end
-		return x, y
-	end
-
-	(x1, y1) = test_algo(tabular_dynaQ)
-	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
-	
-	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+")])
-end
-
-# ╔═╡ 0dbd2b87-d000-408b-8d04-25fc0fa512d1
-figure_8_4′(;ntrials = 10, ϵ = 0.2f0, α = 1.0f0, κ = 0.0001f0, n = 50)
-
-# ╔═╡ cd1980ff-2f35-4599-b08c-2037ddf5e995
-function figure_8_4′′(; max_steps1 = 1000, max_steps2 = 2000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0, κ = 0.01f0)
-	x = 1:(max_steps1 + max_steps2)
-	function test_algo(f)
-		y = zeros(max_steps1 + max_steps2)
-		for _ in 1:ntrials
-			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze1, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
-			(Q2, steps2, rewards2, _, _) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
-
-			y .+= cumsum([rewards; rewards2])
-		end
-		return x, y
-	end
-
-	(x1, y1) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
-	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus′(args...; κ = κ, kwargs...))
-	
-	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q+"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+′")])
-end
-
-# ╔═╡ c31f4646-aa8a-41e3-9c68-ae8a349d4ed1
-figure_8_4′′(;ntrials = 10, ϵ = 0.1f0, α = 1.0f0, κ = 0.0001f0, n = 50, max_steps1 = 1000, max_steps2 = 2000)
-
-# ╔═╡ db66615e-fbbc-4ea8-b529-bdc14e58a215
-begin
-	const block3 = Set(GridworldState(x, 3) for x in 2:8)
-	const blocking_maze3 = make_gridworld(;iswall = s -> in(s, block3), block_maze_base_args...)
-	[plot_path(blocking_maze2, iswall = s -> in(s, block2), max_steps = 2000, title = "Shortcut Maze Steps <= 3000") plot_path(blocking_maze3, iswall = s -> in(s, block3), max_steps = 2000, title = "Shortcut Maze Steps > 3000")]
-end
-
-# ╔═╡ 562e824c-34b5-415d-b186-d8e2cf1980e7
-function figure_8_5(; max_steps = 3000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0)
-	x = 1:2*max_steps
-	y = zeros(2*max_steps)
-	for _ in 1:ntrials
-		(Q, steps, rewards, history, stm, rtm) = tabular_dynaQ(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps, n = n)
-		(Q2, steps2, rewards2, _, _) = tabular_dynaQ(blocking_maze3, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm)
-	
-		y .+= cumsum([rewards; rewards2])
-	end
-	plot(scatter(x = x, y = y ./ ntrials))
-end
-
-# ╔═╡ 98547223-05a6-43da-80b2-63c67d2de283
-figure_8_5(;ntrials = 10, n = 10)
-
-# ╔═╡ aee1f6a8-de43-402e-b375-86c0f2f9e6b8
-function figure_8_5′(; max_steps1 = 3000, max_steps2 = 3000, ntrials = 10, n = 50, α = 0.5f0, ϵ = 0.2f0, κ = 0.001f0)
-	x = 1:(max_steps1 + max_steps2)
-	function test_algo(f)
-		y = zeros(max_steps1 + max_steps2)
-		for _ in 1:ntrials
-			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
-			(Q2, steps2, rewards2, _, _) = f(blocking_maze3, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
-
-			y .+= cumsum([rewards; rewards2])
-		end
-		return x, y
-	end
-
-	(x1, y1) = test_algo(tabular_dynaQ)
-	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
-	
-	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+")])
-end
-
-# ╔═╡ f0e88db8-e3ee-4b74-923e-c34038024824
-figure_8_5′()
-
-# ╔═╡ c32d0943-ba8f-438f-83b6-5ed42221f630
-function figure_8_5′′(; max_steps1 = 3000, max_steps2 = 3000, ntrials = 10, n = 50, α = 0.5f0, ϵ = 0.2f0, κ = 0.001f0)
-	x = 1:(max_steps1 + max_steps2)
-	function test_algo(f)
-		y = zeros(max_steps1 + max_steps2)
-		for _ in 1:ntrials
-			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
-			(Q2, steps2, rewards2, _, _) = f(blocking_maze3, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
-
-			y .+= cumsum([rewards; rewards2])
-		end
-		return x, y
-	end
-
-	(x1, y1) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
-	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus′(args...; κ = κ, kwargs...))
-	
-	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q+"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+′")])
-end
-
-# ╔═╡ 1aa76f3d-6041-4886-a6cd-787bdf1ec63c
-figure_8_5′′(;ϵ = 0.01f0)
-
-# ╔═╡ 4b424a47-dfeb-4380-8ab8-8bd24a080c2e
-begin
-	newmaze = make_dyna_maze(2)
-	newmaze2 = make_dyna_maze(3)
-	[plot_path(dyna_maze; iswall = s -> in(s, maze_walls)) plot_path(newmaze.maze; iswall = newmaze.iswall) plot_path(newmaze2.maze; iswall = newmaze2.iswall)]
-end
-
-# ╔═╡ 2c587d5b-7b62-4835-ad02-9575c13d5874
-function show_mcts_solution()
-	# visit_counts = Dict{GridworldState, SparseVector{Float32, Int64}}()
-	visit_counts = Dict{GridworldState, Dict{Int64, Float32}}()
-	# Q = Dict{GridworldState, SparseVector{Float32, Int64}}()
-	Q = Dict{GridworldState, Dict{Int64, Float32}}()
-	plot_path(dyna_maze, s -> monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 100),  s; nsims = 100, depth = 100, c = 1.0f0, visit_counts = visit_counts, Q = Q)[1]; max_steps = 1000, iswall = s -> in(s, maze_walls))
-end
-
-# ╔═╡ 6a4116c9-87cf-4ee7-8030-aa1150853984
-show_mcts_solution()
-
 # ╔═╡ 4b3604db-0c1b-4770-95b1-5f5bb34d071b
 function addelements(e1, e2)
 	@htl("""
 	$e1
 	$e2
-	""")
-end
-
-# ╔═╡ 39c96fc8-8259-46e3-88a0-a14eb6752b5c
-function show_grid_value(mdp, Q, name; scale = 1.0, title = "", sigdigits = 2)
-	width = maximum(s.x for s in mdp.states)
-	height = maximum(s.y for s in mdp.states)
-	start = mdp.state_init()
-	termind = findfirst(mdp.isterm, mdp.states)
-	sterm = mdp.states[termind]
-	ngrid = width*height
-
-	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
-	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
-	@htl("""
-		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px;">
-			<div>
-				$title
-				<div class = "gridworld $name value">
-					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 12px; color: black; $(displayvalue(Q, i) != 0 ? "background-color: lightblue;" : "")">$(displayvalue(Q, i))</div>""", *, eachindex(mdp.states))))
-				</div>
-			</div>
-		</div>
-	
-		<style>
-			.$name.value.gridworld {
-				display: grid;
-				grid-template-columns: repeat($width, 20px);
-				grid-template-rows: repeat($height, 20px);
-				background-color: white;
-			}
-
-			.$name.value[x="$(start.x)"][y="$(start.y)"] {
-				content: '';
-				background-color: rgba(0, 255, 0, 0.5);
-				
-			}
-
-			.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
-				content: '';
-				background-color: rgba(255, 0, 0, 0.5);
-				
-			}
-
-		</style>
 	""")
 end
 
@@ -1888,14 +1950,6 @@ const rook_action_display = @htl("""
 	<div class = "downarrow" style = "position: absolute;"></div>
 	</div>
 	<div>Actions</div>
-</div>
-""")
-
-# ╔═╡ 563b6dbd-ce51-4904-b1cc-d766bd1fd1d6
-@htl("""
-<div style = "background-color: white; color: black; display: flex; align-items: center; justify-content: center;">
-<div>$(plot_path(dyna_maze; title = "Random policy path example in Dyna Maze", max_steps = 10000, iswall = s -> in(s, maze_walls)))</div>
-<div>$rook_action_display</div>
 </div>
 """)
 
@@ -1943,23 +1997,6 @@ function show_grid_policy(mdp, π, name; display_function = display_rook_policy,
 		</style>
 	""")
 end
-
-# ╔═╡ 0d0bbf62-b1ac-45f6-8a92-1e77b0709cb3
-function figure8_3(num_episodes; α = 0.1f0, nlist = [0, 50], γ = 0.95f0,)
-	(Q1, _) = tabular_dynaQ(dyna_maze, α, γ; num_episodes = num_episodes, n = first(nlist))
-	d1 = show_grid_policy(dyna_maze, create_greedy_policy(Q1), "test")
-	(Q2, _) = tabular_dynaQ(dyna_maze, α, γ; num_episodes = num_episodes, n = last(nlist))
-	d2 = show_grid_policy(dyna_maze, create_greedy_policy(Q2), "test")
-	@htl("""
-	<div style = "display: flex;">
-	<div>Without planning (n = $(first(nlist)))$d1</div>
-	<div>With planning (n = $(last(nlist)))$d2</div>
-	</div>
-	""")
-end
-
-# ╔═╡ 4d4baa61-b5bd-4bcf-a491-9a35a1695f0b
-figure8_3(num_episodes_8_3)
 
 # ╔═╡ 0f9080af-f166-4a78-a003-8df07f6c27d4
 HTML("""
@@ -2047,35 +2084,6 @@ const letters = collect('a':'z')
 # ╔═╡ fb885bfa-f0d9-4803-9913-ab3fcce78fbb
 const letterlookup = Dict(zip(letters, UInt8.(1:length(letters))))
 
-# ╔═╡ 7be538ed-ef59-468d-ba12-dcec648090aa
-function get_feedback(guess::SVector{5, Char}, answer::SVector{5, Char})
-	output = zeros(UInt8, 5)
-	counts = zeros(UInt8, 26)
-
-	#green pass
-	for (i, c) in enumerate(answer)
-		j = letterlookup[c]
-		#add to letter count in answer
-		counts[j] += 0x01
-		#exact match
-		if c == guess[i]
-			output[i] = EXACT
-			#exclude one count from yellow pass
-			counts[j] -= 0x01
-		end
-	end
-
-	#yellow pass
-	for (i, c) in enumerate(guess)
-		j = letterlookup[c]
-		if (output[i] == 0) && (counts[j] > 0)
-			output[i] = MISPLACED
-			counts[j] -= 0x01
-		end
-	end
-	return SVector{5}(output)
-end
-
 # ╔═╡ f6271cf5-16cf-47b5-9dad-1da19a16552a
 get_feedback(guess::AbstractString, answer::AbstractString) = get_feedback(SVector{5, Char}(collect(lowercase(guess))), SVector{5, Char}(collect(lowercase(answer))))
 
@@ -2108,6 +2116,9 @@ function get_feedback_bytes(guess::SVector{5, UInt8}, answer::SVector{5, UInt8};
 	end
 	return feedback
 end
+
+# ╔═╡ 8a89798b-1248-4103-b03d-9425cf06ca50
+convert_bytes(v::AbstractVector{T}) where T <: Integer = enumerate(v) |> Map(a -> a[2]*3^(a[1]-1)) |> sum
 
 # ╔═╡ bcc58a57-cf87-450f-adfd-df02a8c6788c
 md"""
@@ -4429,6 +4440,9 @@ zonal
 # ╔═╡ a93321b4-ce24-47dd-94e0-f5c4aa5cd7e7
 const wordle_original_answers = split(wordle_original_answers_raw, '\n') |> Filter(!isempty) |> Map(String) |> collect
 
+# ╔═╡ ba3d3ace-ea6f-4574-b199-4ef59e5854c9
+const wordle_original_entropy = Float32(log2(length(wordle_original_answers)))
+
 # ╔═╡ 7e57daf9-e8d0-4420-9f19-923f982c346b
 word = rand(wordle_original_answers)
 
@@ -4438,6 +4452,18 @@ const nyt_valid_words = ["aahed","aalii","aapas","aargh","aarti","abaca","abaci"
 
 # ╔═╡ 207ce089-4f6a-4570-8242-9c1e22694bdd
 const nyt_valid_indices = collect(eachindex(nyt_valid_words))
+
+# ╔═╡ 6d64f35b-254d-4d6d-810b-6eaf540d1bc0
+const gumbel_score_vector = zeros(Float32, length(nyt_valid_indices))
+
+# ╔═╡ 69c4c7f7-105f-434c-9968-8ee9857f4679
+const testv = zeros(Float32, length(nyt_valid_indices))
+
+# ╔═╡ 9e499977-f429-420c-9315-19973c3dd2b5
+function show_best_options(best_values)
+	inds = sortperm(best_values, rev = true)
+	[(guess = nyt_valid_words[i], value = best_values[i]) for i in inds]
+end
 
 # ╔═╡ 5e49504e-9623-48f9-aeb5-360906b92a09
 vholdtest = [[1f0, 1f0, 1f0]; fill(Inf32, length(nyt_valid_words) - 3)]
@@ -4459,12 +4485,21 @@ const word_index = Dict(zip(nyt_valid_words, eachindex(nyt_valid_words)))
 # ╔═╡ b534a6e3-a02f-40a2-a398-d34b4ff243aa
 create_wordle_mdp(answer::AbstractString) = create_wordle_mdp(word_index[answer])
 
+# ╔═╡ 64e731e7-22d0-4aaa-a062-6cb243eab05a
+create_wordle_mdp_v2(answer::AbstractString) = create_wordle_mdp_v2(word_index[answer])
+
+# ╔═╡ 8ce704b3-d0e2-4767-af5b-ac43204c6f85
+estimate_guess_lookahead_value(guess::AbstractString) = estimate_guess_lookahead_value(word_index[guess])
+
 # ╔═╡ 3ee02281-cbf2-442a-bed2-313801547e8b
 guess_random_word() = rand(nyt_valid_words)
 
 # ╔═╡ b2931c88-2683-45a9-bda7-ac31ec0f10ff
 #select a random word according to the occurence frequencies stored in `word_frequencies`  this won't match the wordle answers because certain rules like the answer never being a plural won't be followed
 sample_answer() = wsample(collect(keys(word_frequencies)), collect(values(word_frequencies)))
+
+# ╔═╡ fda6fd5a-78ab-44ea-9386-a8efd38dbcb3
+const includewords = Set(["laser", "lemma", "pious", "misty", "petit", "anion", "alias", "boron", "aloha", "ilium", "swipe", "squid", "cocky", "liter", "algal", "saber", "tuple", "bogus", "combo", "servo", "halal", "agora", "codon", "tapas", "levee", "largo", "chink", "scoot", "xerox", "exons", "prana", "toner", "clunk", "yucca", "bruin", "exude"])
 
 # ╔═╡ 0390e3ca-71c8-4cbf-9c53-8580b0f6fc36
 const wordcdf = eachindex(wordle_original_answers) ./ length(wordle_original_answers)
@@ -4526,15 +4561,19 @@ begin
 	end
 
 	WordleState() = WordleState(Vector{Int64}(), Vector{UInt16}())
-	function WordleState(wordlist::Vector{S}, feedbacklist::Vector) where S <: AbstractString
+	function WordleState(wordlist::Vector{S}, feedbacklist::Vector{T}) where {S <: AbstractString, T<:Real}
 		guess_list = [word_index[w] for w in wordlist]
-		WordleState(guess_list, feedbacklist)
+		WordleState(guess_list, [UInt16(f) for f in feedbacklist])
 	end
 
+	function Base.:(==)(s1::WordleState, s2::WordleState)
+		(s1.guess_list == s2.guess_list) && (s1.feedback_list == s2.feedback_list)
+	end
+	
 	const wordle_init_states = [WordleState()]
 
 	get_possible_indices(s::WordleState) = get_possible_indices(zip(s.guess_list, s.feedback_list))
-	get_possible_indices!(inds::BitVector, s::WordleState) = get_possible_indices!(inds, zip(s.guess_list, s.feedback_list))
+	get_possible_indices!(inds::BitVector, s::WordleState; kwargs...) = get_possible_indices!(inds, zip(s.guess_list, s.feedback_list); kwargs...)
 	function isterm(s::WordleState) 
 		isempty(s.guess_list) && return false
 		(length(s.guess_list) == 6) && return true
@@ -4542,28 +4581,1124 @@ begin
 	end
 end
 
-# ╔═╡ cb8eb6af-489a-4729-b8f7-df79b8c41029
-const test_game_start = WordleState()
+# ╔═╡ c9c0a237-c854-4da3-9080-087f8c033f83
+const new_wordle_state = WordleState([word_index["trace"]], [convert_bytes([0, 0, 1, 0, 0])])
+# const new_wordle_state = wordle_start
 
-# ╔═╡ 2f9abc83-88ee-4d78-9aef-8608512d8dcb
-const gamestart = WordleState()
+# ╔═╡ 73c35920-a0a7-4c54-b702-45940786c3af
+function show_afterstate_mcts_guesses(tree_values, s::WordleState)
+	new_state_dict = tree_values[s][2]
+	vest = tree_values[s][1]
+	(vest = vest, ranked_guesses = sort([(word = nyt_valid_words[k], visits = new_state_dict[k][1], values = new_state_dict[k][2]/new_state_dict[k][1]) for k in keys(new_state_dict)]; by = t -> t.values, rev=true))
+end
+
+# ╔═╡ 9110ecef-1b13-4de3-9f90-0f713b90dad8
+Base.hash(s::WordleState) = hash(s.guess_list) + hash(s.feedback_list)
+
+# ╔═╡ 2e5cca97-153c-4d25-aff0-014f63dbd589
+struct WordleAfterState
+	state::WordleState
+	guess_index::Int64
+end
+
+# ╔═╡ 2bafe84d-74dd-413c-b2f2-0434f4d0c2c8
+Base.hash(w::WordleAfterState) = hash(w.state) + hash(w.guess_index)
+
+# ╔═╡ b20d8abe-ddda-4e35-bbdb-a87d2c68d5c0
+function Base.:(==)(w1::WordleAfterState, w2::WordleAfterState)
+		(w1.state == w2.state) && (w1.guess_index == w2.guess_index)
+	end
+
+# ╔═╡ 898f1b06-a34f-496b-99db-9ca23498cbee
+function prioritized_sweeping_deterministic(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; 
+	num_episodes = 1000, max_steps = 10000, n = 100, qinit = zero(T), ϵinit = one(T)/10, 
+	Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), 
+	decay_ϵ = false, history_state::S = first(mdp.states), 
+	save_history = false, update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), 
+	history = zeros(Int64, length(mdp.actions), length(mdp.states)),
+	#each column contains the index of the state reached from the state represented by the column index while taking the action represented by the row index.  the values are initialized at 0 which represents a transition that has not occured
+	state_transition_map = zeros(Int64, length(mdp.actions), length(mdp.states)),
+	#each column contains the reward received from the state represented by the column index while taking the action represented by the row index.  the state_transition_map can be used to determine if any of these values have been updated from the zero initialization
+	reward_transition_map = zeros(T, length(mdp.actions), length(mdp.states)),
+	θ = one(T)/100,
+	init_step = 0,
+	isoptimal = l -> false) where {S, A, F, G, H, T<:AbstractFloat}
+
+	π = copy(πinit)
+	Q = copy(Qinit)
+	ϵ = ϵinit
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q[:, terminds] .= zero(T)
+	num_updates = 0
+	
+	vhold = zeros(T, length(mdp.actions))
+	#keep track of rewards per step and steps per episode
+	rewards = zeros(T, max_steps)
+	steps = zeros(Int64, num_episodes)
+
+	#maintains a queue of state action pairs ranked by their priority with the largest value first
+	priority_queue = PriorityQueue{Tuple{Int64, Int64}, T}(Base.Order.Reverse)
+
+	function updateQ!(Q, i_s, i_a, i_s′, r)
+		qmax = calculate_qmax(Q, i_s′)
+		Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
+		num_updates += 1
+	end
+
+	calculate_priority(r, qmax, i_s, i_a) = abs(r + γ*qmax - Q[i_a, i_s])
+	calculate_qmax(Q, i_s) = maximum(Q[i, i_s] for i in eachindex(mdp.actions))
+
+	function q_planning!(Q, queue)
+		step = 1
+		while (step <= n) && !isempty(queue)
+			(i_a, i_s) = first(keys(queue))
+			delete!(queue, (i_a, i_s))
+			i_s′ = state_transition_map[i_a, i_s]
+			r = reward_transition_map[i_a, i_s]
+			updateQ!(Q, i_s, i_a, i_s′, r)
+			#loop for all state action pairs that the model predicts will lead to s
+			qmax = calculate_qmax(Q, i_s)
+			for i_s̄ in eachindex(mdp.states)
+				for i_ā in eachindex(mdp.actions)
+					if state_transition_map[i_ā, i_s̄] == i_s
+						r̄ = reward_transition_map[i_ā, i_s̄]
+						p = calculate_priority(r̄, qmax, i_s̄, i_ā)
+						if p > θ
+							priority_queue[(i_ā, i_s̄)] = p
+						end
+					end
+				end
+			end
+			step += 1
+		end
+	end
+
+	step = 1
+	ep = 1
+	optimal_path = false
+	while (ep <= num_episodes) && (step <= max_steps) && !optimal_path
+		s = mdp.state_init()
+		l = 0
+		
+		while !mdp.isterm(s) && step <= max_steps
+			#take policy action based on Q
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+
+			#replace model value with observed transition
+			state_transition_map[i_a, i_s] = i_s′
+			reward_transition_map[i_a, i_s] = r
+
+			#calculate expected update from previous Q value
+			p = calculate_priority(r, calculate_qmax(Q, i_s′), i_s, i_a)
+			if p > θ
+				priority_queue[(i_a, i_s)] = p
+			end
+			
+			rewards[step] = r
+			q_planning!(Q, priority_queue)
+			step += 1
+			s = s′
+			
+			#update policy for next state action selection
+			vhold .= Q[:, i_s′]
+			update_policy!(vhold, ϵ, s′)
+			π[:, i_s′] .= vhold
+			l += 1
+		end
+		steps[ep] = l
+		optimal_path = isoptimal(l)
+		
+		ep += 1
+	end
+	return Q, steps, rewards, state_transition_map, reward_transition_map, num_updates
+end
+
+# ╔═╡ 00c8f62f-dee2-476c-b896-68d3ab57a168
+function figure_8_8(num_states; expected_updates_max = 20_000, num_samples = 200, blist = [1, 3, 10])
+	function get_uniform_value(num_states, b)
+		Q = zeros(2, num_states + 1)
+		Qref = copy(Q)
+		π = copy(Q)
+		mdp = make_random_mdp(num_states, b)
+		total_updates = 0
+		x = Vector{Int64}()
+		y = Vector{Float64}()
+		while total_updates <= expected_updates_max
+			(delt, num_updates) = uniform_bellman_optimal_value!(Q, mdp, 1.0)
+			# make_greedy_policy!(π, mdp, Q)
+			# q_policy_evaluation!(Qref, π, mdp, 1.0)
+			# qval = maximum(Qref[:, 1])
+			qval = maximum(Q[:, 1])
+			total_updates += num_updates
+			push!(x, num_updates)
+			push!(y, qval)
+		end
+		return x, y
+	end
+
+	function get_on_policy_value(num_states, b)
+		Q = zeros(2, num_states + 1)
+		π = copy(Q)
+		mdp = make_random_mdp(num_states, b)
+		total_updates = 0
+		x = Vector{Int64}()
+		y = Vector{Float64}()
+		while total_updates <= expected_updates_max
+			(delt, num_updates) = trajectory_bellman_optimal_value!(Q, π, mdp, 1.0, 0.1, 1, s -> s == 0)
+			qval = maximum(Q[:, 1])
+			total_updates += num_updates
+			push!(x, total_updates)
+			push!(y, qval)
+		end
+		updatecounts = collect(1:num_states*2:expected_updates_max)
+		values = [y[min(searchsortedfirst(x, c), length(y))] for c in updatecounts]
+		return updatecounts, values
+	end
+	
+	uniform_traces = [begin
+		out = 1:num_samples |> Map(_ -> get_uniform_value(num_states, b)) |> foldxt((x, y) -> ((x[1] .+ y[1]), (x[2] .+ y[2])))
+		trace = scatter(x = [0; cumsum(out[1] ./ num_samples)], y = [0; out[2] ./ num_samples], name = "b = $b, uniform")
+	end
+	for b in blist]
+
+	on_policy_traces = [begin
+		out = 1:num_samples |> Map(_ -> get_on_policy_value(num_states, b)) |> foldxt((x, y) -> ((x[1] .+ y[1]), (x[2] .+ y[2])))
+		trace = scatter(x = [0; out[1] ./ num_samples], y = [0; out[2] ./ num_samples], name = "b = $b, on-policy")
+	end
+	for b in blist]
+	
+	plot([uniform_traces; on_policy_traces], Layout(xaxis_title = "Computation time, in expected updates", yaxis_title = "Value of start state under greedy policy"))
+end
+
+# ╔═╡ 8586d633-7c50-49ba-9b74-b5bdad27c317
+figure_8_8(1000; num_samples = 200)
+
+# ╔═╡ fcaddc19-c0c9-4e8e-8f84-adc7a02cc1f5
+figure_8_8(10_000; blist = [1, 3], num_samples = 10, expected_updates_max = 200_000)
+
+# ╔═╡ 56914777-eb91-4f86-bd77-f2d78b77de47
+function get_state_subdict(tree_values::Dict, s::WordleState)
+	function valid_entry(a)
+		k = a[1]
+		isempty(k.guess_list) && return false
+		l = length(s.guess_list)
+		(length(k.guess_list) < l) && return false
+		all((s.guess_list[i] == k.guess_list[i]) && (s.feedback_list[i] == k.feedback_list[i]) for i in 1:l)
+	end
+	filter(valid_entry, tree_values)
+end
+
+# ╔═╡ 13f08473-f0d8-47d1-aa48-de3e4a083dbf
+function simulate!(w::AS, tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, mdp::AfterstateMDP_MC{S, AS, A, F, G, H, I}, γ::T, v_est::Function, depth::Integer, c::T, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs) where {T<:Real, S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
+	dist = mdp.afterstate_transition(w; transition_kwargs...) #get the distribution of states following the transition
+	k_sample = sample(collect(keys(dist)), weights(collect(values(dist)))) #sample one of the transition states to visit in the tree
+	sum(begin
+		(r, s) = k
+		p = dist[k]
+		v′ = simulate!(s, k == k_sample, tree_values, mdp, γ, v_est, depth - 1, c, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs)
+		p * (r + γ * v′) 
+	end
+	for k in keys(dist))
+end
+
+# ╔═╡ a3fcec04-2676-4b0f-a43e-a5b1e8af22c6
+function wordle_afterstate_step(s::WordleState, a::Int64)
+	isterm(s) && error("Cannot make guess from terminal state $s")
+	(0f0, WordleAfterState(s, a))
+end
+
+# ╔═╡ 3ee97faf-b295-48b9-96c2-93331f642bfd
+const wordle_afterstate_transition_lookup = Dict{WordleAfterState, Dict{Tuple{Float32, WordleState}, Float32}}()
+
+# ╔═╡ a8656689-50da-4098-b2fe-a2e3ec123d9d
+const wordle_start = WordleState()
+
+# ╔═╡ 240f09cb-7ef2-403b-bc6c-fcec8b5a51aa
+function get_word_subdict(tree_values::Dict, word::AbstractString)
+	i = word_index[word]
+	function valid_entry(a)
+		k = a[1]
+		(k == wordle_start) && return true
+		isempty(k.guess_list) && return false
+		first(k.guess_list) == i
+	end
+	filter(valid_entry, tree_values)
+end
+
+# ╔═╡ e7a55f06-d97c-4812-861a-2b869eb48abb
+wordle_afterstate_transition_lookup[WordleAfterState(wordle_start, word_index["trace"])]
+
+# ╔═╡ d92630e4-c811-4e89-9f65-f6fba05bea91
+if compute_policy_iteration_options > 0
+	clint9guess = how_best_guesses(WordleState(["clint"], [9]); num_samples = 100)
+end
+
+# ╔═╡ ab61e2f4-58e5-4452-936f-845f2d4411ce
+const entropy_policy_lookup = Dict{WordleState, Int64}()
+
+# ╔═╡ 6d898971-de3b-4ab3-a83c-908fb6a10d6e
+eval_state = WordleState([word_index["trace"]], [UInt16(convert_bytes([0, 0, 0, 1, 0]))])
+
+# ╔═╡ eb9ba23d-bee5-4bb1-b3e1-fe40d9f681dc
+function check_policy(π::Matrix{T}, mdp::MDP_TD) where {T <: AbstractFloat}
+#checks to make sure that a policy is defined over the same space as an MDP
+	(n, m) = size(π)
+	num_actions = length(mdp.actions)
+	num_states = length(mdp.states)
+	@assert n == num_actions "The policy distribution length $n does not match the number of actions in the mdp of $(num_actions)"
+	@assert m == num_states "The policy is defined over $m states which does not match the mdp state count of $num_states"
+	return nothing
+end
+
+# ╔═╡ 0adcbce8-2be5-48ef-af43-04815e10dc5c
+function make_greedy_policy!(v::AbstractVector{T}; c = 1000) where T<:Real
+	(vmin, vmax) = extrema(v)
+	isnan(vmin) && error("NaN values in vector")
+	if isinf(vmax)
+		v .= T.(isinf.(v))
+		v ./= sum(v)
+	elseif vmin == vmax
+		v .= zero(T)
+		v .= one(T) / length(v)
+	else
+		v .= (v .- vmax) ./ abs(vmin - vmax)
+		v .= exp.(c .* v)
+		v ./= sum(v)
+	end
+	return v
+end
+
+# ╔═╡ 466b1cbf-586f-4b53-8b4b-2dc32e1c8b0a
+#perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
+function monte_carlo_tree_search(mdp::MDP{S, A, F, G, H}, γ::T, v_est::Function, s::S; 
+	depth = 10, 
+	nsims = 100, 
+	c = one(T), 
+	# visit_counts = Dict{S, SparseVector{T, Int64}}(), 
+	visit_counts = Dict{S, Dict{Int64, T}}(),
+	# Q = Dict{S, SparseVector{T, Int64}}(),
+	Q = Dict{S, Dict{Int64, T}}(),
+	update_tree_policy! = (v, s) -> make_greedy_policy!(v), 
+	v_hold = zeros(T, length(mdp.actions)),
+	updateQ! = function(Q, x, s, i_a)
+		# Q[s][i_a] += x
+		Q[s][i_a] = get_dict_value(Q[s], i_a) + x
+	end,
+	updateV! = function(V, x, s, i_a)
+		# V[s][i_a] += x
+		V[s][i_a] = get_dict_value(V[s], i_a) + x
+	end,
+	apply_bonus! = apply_uct!,
+	make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
+	make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
+	sim_message = false
+	) where {S, A, F, G, H, T<:Real}
+
+	q_hold = zeros(T, length(mdp.actions))
+	#I want to have a way of possible a kwargs such as the answer index to the simulator that can change with each simulation
+	t = time()
+	last_time = t
+	for k in 1:nsims
+		seed = rand(UInt64)
+		if sim_message
+			elapsed = time() - last_time
+			if elapsed > 5
+				last_time = time()
+				pct_done = k/nsims
+				total_time = time() - t
+				ett = total_time / pct_done
+				eta = ett - total_time
+				@info """Completed simulation $k of $nsims after $(round(Int64, total_time/60)) minutes
+				ETA: $(round(Int64, eta/60)) minutes"""
+			end
+		end
+		simulate!(visit_counts, Q, mdp, γ, v_est, s, depth, c, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed))
+	end
+
+	minv = minimum(Q[s][k] for k in keys(Q[s]))
+	# v_hold .= Q[s]
+	for i in eachindex(v_hold)
+		v_hold[i] = get_dict_value(Q[s], i; default = minv)
+	end
+	make_greedy_policy!(v_hold)
+	if sim_message
+		@info "Finished MCTS evaluation of state $s"
+	end
+	return mdp.actions[sample_action(v_hold)], visit_counts, Q
+end
+
+# ╔═╡ bf7950f2-05fa-4455-ad08-27735148d95c
+#perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
+function monte_carlo_tree_search(mdp::AfterstateMDP_MC{S, AS, A, F, G, H, I}, γ::T, v_est::Function, s::S; 
+	depth = 10, 
+	nsims = 100, 
+	c = one(T), 
+	tree_values = Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}(),
+	update_tree_policy! = (v, s) -> make_greedy_policy!(v), 
+	v_hold = zeros(T, length(mdp.actions)),
+	update_tree! = function(tree_values, v::T, s::S, i_a::Integer)
+		d = tree_values[s][2]
+		new_value = if haskey(d, i_a)
+			(d[i_a][1]+1, d[i_a][2]+v)
+		else
+			(1f0, v)
+		end
+		tree_values[s][2][i_a] = new_value
+	end,
+	apply_bonus! = apply_uct!,
+	make_step_kwargs = k -> NamedTuple(), #option to create mdp afterstate step arguments that depend on the simulation number
+	make_transition_kwargs = k -> NamedTuple(), #option to create mdp afterstate transition arguments that depend on the simulation number
+	make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
+	sim_message = false
+	) where {S, AS, A, F, G, H, I, T<:Real}
+
+	q_hold = zeros(T, length(mdp.actions))
+	#I want to have a way of possible a kwargs such as the answer index to the simulator that can change with each simulation
+	t = time()
+	last_time = t
+	for k in 1:nsims
+		seed = rand(UInt64)
+		if sim_message
+			elapsed = time() - last_time
+			if elapsed > 5
+				last_time = time()
+				pct_done = k/nsims
+				total_time = time() - t
+				ett = total_time / pct_done
+				eta = ett - total_time
+				@info """Completed simulation $k of $nsims after $(round(Int64, total_time/60)) minutes
+				ETA: $(round(Int64, eta/60)) minutes"""
+			end
+		end
+		simulate!(s, true, tree_values, mdp, γ, v_est, depth, c, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, make_step_kwargs(seed), make_transition_kwargs(seed), make_est_kwargs(seed))
+	end
+
+	minv = minimum(t[2]/t[1] for t in values(tree_values[s][2]))
+	for i in eachindex(v_hold)
+		if haskey(tree_values[s][2], i)
+			v_hold[i] = tree_values[s][2][i][2] / tree_values[s][2][i][1]
+		else
+			v_hold[i] = minv
+		end
+	end
+	make_greedy_policy!(v_hold)
+	if sim_message
+		@info "Finished MCTS evaluation of state $s"
+	end
+	return mdp.actions[sample_action(v_hold)], tree_values
+end
+
+# ╔═╡ 0899f37c-5def-4d15-8ca3-ebdec8e96b43
+function begin_value_iteration_v(mdp::M, γ::T, V::Vector{T}; θ = eps(zero(T)), nmax=typemax(Int64)) where {T<:Real, M <: CompleteMDP{T, S, A} where {S, A}}
+	valuelist = [copy(V)]
+	value_iteration_v!(V, θ, mdp, γ, nmax, valuelist)
+
+	π = form_random_policy(mdp)
+	make_greedy_policy!(π, mdp, V, γ)
+	return (valuelist, π)
+end
+
+# ╔═╡ 9a1b250f-b404-4db3-a4b7-4cd33b79d921
+function create_greedy_policy(Q::Matrix{T}; c = 1000, π = copy(Q)) where T<:Real
+	vhold = zeros(T, size(Q, 1))
+	for j in 1:size(Q, 2)
+		vhold .= Q[:, j]
+		make_greedy_policy!(vhold; c = c)
+		π[:, j] .= vhold
+	end
+	return π
+end
+
+# ╔═╡ 269f4505-e807-446c-8fd8-3458482e00ab
+function tabular_dynaQplus′(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; 
+	num_episodes = 1000, max_steps = 10000, n = 100, qinit = zero(T), ϵinit = one(T)/10, 
+	Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), 
+	decay_ϵ = false, history_state::S = first(mdp.states), 
+	save_history = false, update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), 
+	history = zeros(Int64, length(mdp.actions), length(mdp.states)),
+	#each column contains the index of the state reached from the state represented by the column index while taking the action represented by the row index.  the values are initialized to produce transitions to the original state
+	state_transition_map = mapreduce(i_s -> i_s .* ones(Int64, length(mdp.actions)), hcat, eachindex(mdp.states)),
+	#each column contains the reward received from the state represented by the column index while taking the action represented by the row index.  the state_transition_map can be used to determine if any of these values have been updated from the zero initialization
+	reward_transition_map = zeros(T, length(mdp.actions), length(mdp.states)),
+	κ = 0.1f0, 
+	init_step = 0) where {S, A, F, G, H, T<:AbstractFloat}
+
+	π = copy(πinit)
+	Q = copy(Qinit)
+	ϵ = ϵinit
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q[:, terminds] .= zero(T)
+	
+	vhold = zeros(T, length(mdp.actions))
+	#keep track of rewards per step and steps per episode
+	rewards = zeros(T, max_steps)
+	steps = zeros(Int64, num_episodes)
+
+	function updateQ!(Q, i_s, i_a, i_s′, r)
+		qmax = maximum(Q[i, i_s′] for i in eachindex(mdp.actions))
+		Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
+	end
+
+	function q_planning!(Q, history)
+		for _ in 1:n
+			i_s = ceil(Int64, rand()*length(mdp.states))
+			i_a = ceil(Int64, rand()*length(mdp.actions))
+			i_s′ = state_transition_map[i_a, i_s]
+			r = reward_transition_map[i_a, i_s]
+			updateQ!(Q, i_s, i_a, i_s′, r)
+		end
+	end
+
+	step = 1
+	ep = 1
+	while (ep <= num_episodes) && (step <= max_steps)
+		s = mdp.state_init()
+		l = 0
+		
+		while !mdp.isterm(s) && step <= max_steps
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+			updateQ!(Q, i_s, i_a, i_s′, r)
+			state_transition_map[i_a, i_s] = i_s′
+			reward_transition_map[i_a, i_s] = r
+			
+			#save the step for which that state action pair was visited
+			history[i_a, i_s] = step + init_step
+			rewards[step] = r
+			q_planning!(Q, history)
+			step += 1
+			π .= Q .+ κ .* sqrt.(T.(step .+ init_step .- history))
+			π = create_greedy_policy(π; π = π)
+			s = s′
+			l += 1
+			
+		end
+		steps[ep] = l
+		
+		ep += 1
+	end
+	return Q, steps, rewards, history, state_transition_map, reward_transition_map
+end
+
+# ╔═╡ 4494cb61-ee2c-467b-9bf6-0afb59023e91
+function sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), history_state::S = first(mdp.states), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), save_history = false, decay_ϵ = false) where {S, A, F, G, H, T<:AbstractFloat}
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(T)
+	π = copy(πinit)
+	vhold = zeros(T, length(mdp.actions))
+	#keep track of rewards and steps per episode as a proxy for training speed
+	rewards = zeros(T, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_history
+		action_history = Vector{A}(undef, num_episodes)
+	end
+
+	for ep in 1:num_episodes
+		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
+		s = mdp.state_init()
+		(i_s, i_a, a) = init_step(mdp, π, s)
+		rtot = zero(T)
+		l = 0
+		while !mdp.isterm(s)
+			(s′, i_s′, r, a′, i_a′) = sarsa_step(mdp, π, s, a)
+			if save_history && (s == history_state)
+				action_history[ep] = a
+			end
+			Q[i_a, i_s] += α * (r + γ*Q[i_a′, i_s′] - Q[i_a, i_s])
+			
+			#update terms for next step
+			vhold .= Q[:, i_s]
+			update_policy!(vhold, ϵ, s)
+			π[:, i_s] .= vhold
+			s = s′
+			a = a′
+			i_s = i_s′
+			i_a = i_a′
+			
+			l+=1
+			rtot += r
+		end
+		steps[ep] = l
+		rewards[ep] = rtot
+	end
+
+	default_return =  Q, π, steps, rewards
+	save_history && return (default_return..., action_history)
+	return default_return
+end
+
+# ╔═╡ 143fff7d-0bb2-43b4-b810-53784fe848bd
+function q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), decay_ϵ = false, history_state::S = first(mdp.states), save_history = false, update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ)) where {S, A, F, G, H, T<:AbstractFloat}
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(T)
+	π = copy(πinit)
+	vhold = zeros(T, length(mdp.actions))
+	#keep track of rewards and steps per episode as a proxy for training speed
+	rewards = zeros(T, num_episodes)
+	steps = zeros(Int64, num_episodes)
+	
+	if save_history
+		history_actions = Vector{A}(undef, num_episodes)
+	end
+	
+	for ep in 1:num_episodes
+		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
+		s = mdp.state_init()
+		rtot = zero(T)
+		l = 0
+		while !mdp.isterm(s)
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+			if save_history && (s == history_state)
+				history_actions[ep] = a
+			end
+			qmax = maximum(Q[i, i_s′] for i in eachindex(mdp.actions))
+			Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
+			
+			#update terms for next step
+			vhold .= Q[:, i_s]
+			update_policy!(vhold, ϵ, s)
+			π[:, i_s] .= vhold
+			s = s′
+			
+			l+=1
+			rtot += r
+		end
+		steps[ep] = l
+		rewards[ep] = rtot
+	end
+
+	save_history && return Q, π, steps, rewards, history_actions
+	return Q, π, steps, rewards
+end
+
+# ╔═╡ 9be963b9-f3a1-4f92-8ff9-f5be75ed52f2
+function expected_sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit = initialize_state_action_value(mdp; qinit=qinit), πinit = create_ϵ_greedy_policy(Qinit, ϵinit), update_policy! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), decay_ϵ = false, save_history = false, save_state = first(mdp.states)) where {S, A, F, G, H, T<:AbstractFloat}
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	Q = copy(Qinit)
+	Q[:, terminds] .= zero(T)
+	π = copy(πinit)
+	vhold = zeros(T, length(mdp.actions))
+	#keep track of rewards and steps per episode as a proxy for training speed
+	rewards = zeros(T, num_episodes)
+	steps = zeros(Int64, num_episodes)
+	if save_history
+		action_history = Vector{A}(undef, num_episodes)
+	end
+	
+	for ep in 1:num_episodes
+		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
+		s = mdp.state_init()
+		rtot = zero(T)
+		l = 0
+		while !mdp.isterm(s)
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π, s)
+			if save_history && (s == save_state)
+				action_history[ep] = a
+			end
+			q_expected = sum(π[i, i_s′]*Q[i, i_s′] for i in eachindex(mdp.actions))
+			Q[i_a, i_s] += α*(r + γ*q_expected - Q[i_a, i_s])
+			
+			#update terms for next step
+			vhold .= Q[:, i_s]
+			update_policy!(vhold, ϵ, s)
+			π[:, i_s] .= vhold
+			s = s′
+			
+			l+=1
+			rtot += r
+		end
+		steps[ep] = l
+		rewards[ep] = rtot
+	end
+
+	base_return = (Q, π, steps, rewards)
+	save_history && return (base_return..., action_history)
+	return base_return
+end
+
+# ╔═╡ 113d2bc2-1f77-479f-86e5-a65b20672d7a
+function double_expected_sarsa(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; num_episodes = 1000, qinit = zero(T), ϵinit = one(T)/10, Qinit::Matrix{T} = initialize_state_action_value(mdp; qinit=qinit), decay_ϵ = false, target_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), behavior_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), πinit_target::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), πinit_behavior::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), save_state::S = first(mdp.states), save_history = false) where {S, A, F, G, H, T<:AbstractFloat}
+	terminds = findall(mdp.isterm(s) for s in mdp.states)
+	
+	Q1 = copy(Qinit)
+	Q2 = copy(Qinit) 
+	Q1[:, terminds] .= zero(T)
+	Q2[:, terminds] .= zero(T)
+	π_target1 = copy(πinit_target)
+	π_target2 = copy(πinit_target)
+	π_behavior = copy(πinit_behavior)
+	vhold1 = zeros(T, length(mdp.actions))
+	vhold2 = zeros(T, length(mdp.actions))
+	vhold3 = zeros(T, length(mdp.actions))
+	#keep track of rewards and steps per episode as a proxy for training speed
+	rewards = zeros(T, num_episodes)
+	steps = zeros(Int64, num_episodes)
+
+	if save_history
+		action_history = Vector{A}(undef, num_episodes)
+	end
+	
+	for ep in 1:num_episodes
+		ϵ = decay_ϵ ? ϵinit/ep : ϵinit
+		s = mdp.state_init()
+		rtot = zero(T)
+		l = 0
+		while !mdp.isterm(s)
+			
+			(i_s, i_s′, r, s′, a, i_a) = takestep(mdp, π_behavior, s)
+			if save_history && (s == save_state)
+				action_history[ep] = a
+			end
+			
+			# q_expected = sum(π_target[i, i_s′]*(Q1[i, i_s′]*toggle + Q2[i, i_s′]*(1-toggle)) for i in eachindex(mdp.actions))
+			toggle = rand() < 0.5
+			q_expected = if toggle 
+				sum(π_target2[i, i_s′]*Q1[i, i_s′] for i in eachindex(mdp.actions))
+			else
+				sum(π_target1[i, i_s′]*Q2[i, i_s′] for i in eachindex(mdp.actions))
+			end
+
+			if toggle
+				Q2[i_a, i_s] += α*(r + γ*q_expected - Q2[i_a, i_s])
+			else
+				Q1[i_a, i_s] += α*(r + γ*q_expected - Q1[i_a, i_s])
+			end
+			
+			#update terms for next step
+			if toggle
+				vhold2 .= Q2[:, i_s]
+				target_policy_function!(vhold2, ϵ, s)
+				π_target2[:, i_s] .= vhold2
+			else
+				vhold1 .= Q1[:, i_s]
+				target_policy_function!(vhold1, ϵ, s)
+				π_target1[:, i_s] .= vhold1
+			end
+			
+			vhold3 .= vhold1 .+ vhold2
+			behavior_policy_function!(vhold3, ϵ, s)
+			π_behavior[:, i_s] .= vhold3
+			
+			s = s′
+
+			l+=1
+			rtot += r
+		end
+		steps[ep] = l
+		rewards[ep] = rtot
+	end
+
+	Q1 .+= Q2
+	Q1 ./= 2
+	plain_return = Q1, create_greedy_policy(Q1), steps, rewards
+
+	save_history && return (plain_return..., action_history)
+	return plain_return
+end
+
+# ╔═╡ 5d2abde0-7128-41c3-bd1f-b6940492d1ae
+function double_q_learning(mdp::MDP_TD{S, A, F, G, H}, α::T, γ::T; 
+	num_episodes = 1000, 
+	qinit = zero(T), 
+	ϵinit = one(T)/10, 
+	Qinit::Matrix{T} = initialize_state_action_value(mdp; qinit=qinit), 
+	decay_ϵ = false, 
+	target_policy_function! = (v, ϵ, s) -> make_greedy_policy!(v), 
+	behavior_policy_function! = (v, ϵ, s) -> make_ϵ_greedy_policy!(v, ϵ), 
+	πinit_target::Matrix{T} = create_greedy_policy(Qinit), 
+	πinit_behavior::Matrix{T} = create_ϵ_greedy_policy(Qinit, ϵinit), 
+	save_state::S = first(mdp.states), 
+	save_history = false) where {S, A, F, G, H, T<:AbstractFloat} 
+	
+	double_expected_sarsa(mdp, α, γ; num_episodes = num_episodes, qinit = qinit, ϵinit = ϵinit, Qinit = Qinit, decay_ϵ = decay_ϵ, target_policy_function! = target_policy_function!, behavior_policy_function! = behavior_policy_function!, πinit_target = πinit_target, πinit_behavior = πinit_behavior, save_state = save_state, save_history = save_history)
+end
+
+# ╔═╡ bb439641-30bd-495d-ba70-06b2e27efdbd
+function make_gridworld(;actions = rook_actions, sterm = GridworldState(8, 4), start = GridworldState(1, 4), xmax = 10, ymax = 7, stepreward = 0.0f0, termreward = 1.0f0, iscliff = s -> false, iswall = s -> false, cliffreward = -100f0, goal2 = GridworldState(start.x, ymax), goal2reward = 0.0f0, usegoal2 = false)
+	
+	states = [GridworldState(x, y) for x in 1:xmax for y in 1:ymax]
+	
+	boundstate(x::Int64, y::Int64) = (clamp(x, 1, xmax), clamp(y, 1, ymax))
+	
+	function step(s::GridworldState, a::GridworldAction)
+		(x, y) = move(a, s.x, s.y)
+		s′ = GridworldState(boundstate(x, y)...)
+		iswall(s′) && return s
+		return s′
+	end
+		
+	function isterm(s::GridworldState) 
+		s == sterm && return true
+		usegoal2 && (s == goal2) && return true
+		return false
+	end
+
+	function tr(s::GridworldState, a::GridworldAction) 
+		isterm(s) && return (0f0, s)
+		s′ = step(s, a)
+		iscliff(s′) && return (cliffreward, start)
+		x = Float32(isterm(s′))
+		usegoal2 && (s′ == goal2) && return (goal2reward, goal2)
+		r = (1f0 - x)*stepreward + x*termreward
+		(r, s′)
+	end	
+	MDP_TD(states, actions, () -> start, tr, isterm)
+end	
+
+# ╔═╡ c04c803c-cdca-4b8b-9c9d-e456ee677906
+begin
+	const maze_walls = Set(GridworldState(x, y) for (x, y) in [(3, 3), (3, 4), (3, 5), (6, 2), (8, 4), (8, 5), (8, 6)])
+	const dyna_maze = make_gridworld(;xmax = 9, ymax = 6, sterm = GridworldState(9, 6), iswall = s -> in(s, maze_walls))
+end
+
+# ╔═╡ 563b6dbd-ce51-4904-b1cc-d766bd1fd1d6
+@htl("""
+<div style = "background-color: white; color: black; display: flex; align-items: center; justify-content: center;">
+<div>$(plot_path(dyna_maze; title = "Random policy path example in Dyna Maze", max_steps = 10000, iswall = s -> in(s, maze_walls)))</div>
+<div>$rook_action_display</div>
+</div>
+""")
+
+# ╔═╡ cd139745-1877-43a2-97a0-3333e544cbd8
+function figure8_2(;num_episodes = 50, α = 0.1f0, nlist = [0, 5, 50], γ = 0.95f0, samples = 5)
+	traces = [begin
+		step_avg = zeros(Int64, num_episodes)
+		for s in 1:samples
+			Random.seed!(s)
+			(Q, steps, rewards, _, _) = tabular_dynaQ(dyna_maze, α, γ; num_episodes = num_episodes, n = n)
+			step_avg .+= steps
+		end
+		scatter(x = 2:num_episodes, y = step_avg[2:end] ./ samples, name = "$n planning steps")
+	end
+	for n in nlist]
+	plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "Steps per episode"))
+end
+
+# ╔═╡ 8dbc76fd-ac73-47ca-983e-0e90023390e3
+figure8_2()
+
+# ╔═╡ 0d0bbf62-b1ac-45f6-8a92-1e77b0709cb3
+function figure8_3(num_episodes; α = 0.1f0, nlist = [0, 50], γ = 0.95f0,)
+	(Q1, _) = tabular_dynaQ(dyna_maze, α, γ; num_episodes = num_episodes, n = first(nlist))
+	d1 = show_grid_policy(dyna_maze, create_greedy_policy(Q1), "test")
+	(Q2, _) = tabular_dynaQ(dyna_maze, α, γ; num_episodes = num_episodes, n = last(nlist))
+	d2 = show_grid_policy(dyna_maze, create_greedy_policy(Q2), "test")
+	@htl("""
+	<div style = "display: flex;">
+	<div>Without planning (n = $(first(nlist)))$d1</div>
+	<div>With planning (n = $(last(nlist)))$d2</div>
+	</div>
+	""")
+end
+
+# ╔═╡ 4d4baa61-b5bd-4bcf-a491-9a35a1695f0b
+figure8_3(num_episodes_8_3)
+
+# ╔═╡ beae0491-ed11-4edf-a136-d384578b088b
+monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 10_000),  dyna_maze.state_init(); nsims = 100, depth = 10, c = 1f0)
+
+# ╔═╡ 2c587d5b-7b62-4835-ad02-9575c13d5874
+function show_mcts_solution()
+	# visit_counts = Dict{GridworldState, SparseVector{Float32, Int64}}()
+	visit_counts = Dict{GridworldState, Dict{Int64, Float32}}()
+	# Q = Dict{GridworldState, SparseVector{Float32, Int64}}()
+	Q = Dict{GridworldState, Dict{Int64, Float32}}()
+	plot_path(dyna_maze, s -> monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 100),  s; nsims = 100, depth = 100, c = 1.0f0, visit_counts = visit_counts, Q = Q)[1]; max_steps = 1000, iswall = s -> in(s, maze_walls))
+end
+
+# ╔═╡ 6a4116c9-87cf-4ee7-8030-aa1150853984
+show_mcts_solution()
+
+# ╔═╡ 41bb1f78-b83a-4a45-ba5c-faa94e112f45
+function get_mcts_statistics()
+	# visit_counts = Dict{GridworldState, Vector{Int64}}()
+	# Q = Dict{GridworldState, Vector{Float32}}()
+	mean(runepisode(dyna_maze, s -> monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 10),  s; nsims = 100, depth = 100, c = 1f0)[1]) |> first |> length for _ in 1:10)
+end
+
+# ╔═╡ 39ae7727-ea72-48f3-8d63-e03a9f607f87
+function make_dyna_maze(scale)
+	scale_value(v) = ceil(Int64, v*scale)
+	xmax = scale_value(9)
+	ymax = scale_value(6)
+	sterm = GridworldState(xmax, ymax)
+	wall1 = Set(GridworldState(scale_value(3), y) for y in scale_value(3):scale_value(5))
+	wall2 = Set([GridworldState(scale_value(6), scale_value(3) - 1)])
+	wall3 = Set(GridworldState(xmax - 1, y) for y in scale_value(4):ymax)
+	walls = union(wall1, wall2, wall3)
+	iswall(s) = in(s, walls)
+	start = GridworldState(1, scale_value(4))
+	optimal_length = xmax - 1 + (ymax - scale_value(3) + 1) + start.y - scale_value(3) + 1
+	(maze = make_gridworld(;start = start, xmax=xmax, ymax=ymax, sterm = sterm, iswall = iswall), iswall = iswall, optimal_length = optimal_length)
+end
+
+# ╔═╡ 4b424a47-dfeb-4380-8ab8-8bd24a080c2e
+begin
+	newmaze = make_dyna_maze(2)
+	newmaze2 = make_dyna_maze(3)
+	[plot_path(dyna_maze; iswall = s -> in(s, maze_walls)) plot_path(newmaze.maze; iswall = newmaze.iswall) plot_path(newmaze2.maze; iswall = newmaze2.iswall)]
+end
+
+# ╔═╡ fb00aedd-e103-4463-b4f8-d0dce6275c64
+function example_8_4(;α = 1f0, n = 5, γ = 0.95f0, samples = 2, maze_scales = [1, 1.25, 1.5, 2])
+	function get_optimal_steps(algo, mdp, optimal_steps)
+		updates_until_optimal = 0
+		for s in 1:samples
+			Random.seed!(s)
+			out = algo(mdp, α, γ; n = n, ϵinit = 0.1f0, isoptimal = l -> l == optimal_steps)
+			updates_until_optimal += last(out)
+		end
+		return updates_until_optimal / samples
+	end
+
+	mazes = [make_dyna_maze(s) for s in maze_scales]
+
+	function make_trace(algo, name)
+		y = mazes |> Map(maze -> get_optimal_steps(algo, maze.maze, maze.optimal_length)) |> tcollect
+		x = [length(maze.maze.states) for maze in mazes]
+		scatter(x = x, y = y, name = name)
+	end
+	
+	traces = [make_trace(prioritized_sweeping_deterministic, "prioritized sweeping"), make_trace(tabular_dynaQ, "Dyna-Q")]
+	plot(traces, Layout(yaxis_type = "log", xaxis_type = "log", xaxis_title = "Maze States", yaxis_title = "Updates until optimal solution"))
+end
+
+# ╔═╡ b3a5adcb-5343-44e9-9466-1c51c1143a0d
+example_8_4()
+
+# ╔═╡ 5ae2d740-13c7-4568-8f04-25bc82fecbdb
+begin
+	const block1 = Set(GridworldState(x, 3) for x in 1:8)
+	const block2 = Set(GridworldState(x, 3) for x in 2:9)
+	const block_maze_base_args = (xmax = 9, ymax = 6, sterm = GridworldState(9, 6), start = GridworldState(4, 1))
+	const blocking_maze1 = make_gridworld(;iswall = s -> in(s, block1), block_maze_base_args...)
+	const blocking_maze2 = make_gridworld(;iswall = s -> in(s, block2), block_maze_base_args...)
+	[plot_path(blocking_maze1, iswall = s -> in(s, block1), max_steps = 2000, title = "Blocking Maze Steps <= 1000") plot_path(blocking_maze2, iswall = s -> in(s, block2), max_steps = 1000, title = "Blocking Maze Steps > 1000")]
+end
+
+# ╔═╡ 2ff6d187-e06f-47b5-9834-d06bfc820c26
+function figure_8_4(; max_steps1 = 1000, max_steps2 = 2000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0)
+	y = zeros(max_steps1 + max_steps2)
+	x = 1:(max_steps1 + max_steps2)
+	for _ in 1:ntrials
+		(Q, steps, rewards, history, stm, rtm) = tabular_dynaQ(blocking_maze1, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
+		(Q2, steps2, rewards2, _, _) = tabular_dynaQ(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm)
+		y .+= cumsum([rewards; rewards2])
+	end
+	plot(scatter(x = x, y = y ./ ntrials))
+end
+
+# ╔═╡ 4d1f0065-e5ab-46fa-8ab1-a0bbcf523c27
+figure_8_4(;ntrials = 10, ϵ = 0.1f0, α = 0.8f0, fig_8_4_params...)
+
+# ╔═╡ 5b688057-06c7-4ae4-95d6-0a2ff451f11c
+function figure_8_4′(; max_steps1 = 1000, max_steps2 = 2000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0, κ = 0.01f0)
+	x = 1:(max_steps1 + max_steps2)
+	function test_algo(f)
+		y = zeros(max_steps1 + max_steps2)
+		for _ in 1:ntrials
+			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze1, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
+			(Q2, steps2, rewards2, _, _) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
+
+			y .+= cumsum([rewards; rewards2])
+		end
+		return x, y
+	end
+
+	(x1, y1) = test_algo(tabular_dynaQ)
+	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
+	
+	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+")])
+end
+
+# ╔═╡ 0dbd2b87-d000-408b-8d04-25fc0fa512d1
+figure_8_4′(;ntrials = 10, ϵ = 0.2f0, α = 1.0f0, κ = 0.0001f0, n = 50)
+
+# ╔═╡ cd1980ff-2f35-4599-b08c-2037ddf5e995
+function figure_8_4′′(; max_steps1 = 1000, max_steps2 = 2000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0, κ = 0.01f0)
+	x = 1:(max_steps1 + max_steps2)
+	function test_algo(f)
+		y = zeros(max_steps1 + max_steps2)
+		for _ in 1:ntrials
+			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze1, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
+			(Q2, steps2, rewards2, _, _) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
+
+			y .+= cumsum([rewards; rewards2])
+		end
+		return x, y
+	end
+
+	(x1, y1) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
+	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus′(args...; κ = κ, kwargs...))
+	
+	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q+"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+′")])
+end
+
+# ╔═╡ c31f4646-aa8a-41e3-9c68-ae8a349d4ed1
+figure_8_4′′(;ntrials = 10, ϵ = 0.1f0, α = 1.0f0, κ = 0.0001f0, n = 50, max_steps1 = 1000, max_steps2 = 2000)
+
+# ╔═╡ db66615e-fbbc-4ea8-b529-bdc14e58a215
+begin
+	const block3 = Set(GridworldState(x, 3) for x in 2:8)
+	const blocking_maze3 = make_gridworld(;iswall = s -> in(s, block3), block_maze_base_args...)
+	[plot_path(blocking_maze2, iswall = s -> in(s, block2), max_steps = 2000, title = "Shortcut Maze Steps <= 3000") plot_path(blocking_maze3, iswall = s -> in(s, block3), max_steps = 2000, title = "Shortcut Maze Steps > 3000")]
+end
+
+# ╔═╡ 562e824c-34b5-415d-b186-d8e2cf1980e7
+function figure_8_5(; max_steps = 3000, ntrials = 10, n = 10, α = 0.1f0, ϵ = 0.1f0)
+	x = 1:2*max_steps
+	y = zeros(2*max_steps)
+	for _ in 1:ntrials
+		(Q, steps, rewards, history, stm, rtm) = tabular_dynaQ(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps, n = n)
+		(Q2, steps2, rewards2, _, _) = tabular_dynaQ(blocking_maze3, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm)
+	
+		y .+= cumsum([rewards; rewards2])
+	end
+	plot(scatter(x = x, y = y ./ ntrials))
+end
+
+# ╔═╡ 98547223-05a6-43da-80b2-63c67d2de283
+figure_8_5(;ntrials = 10, n = 10)
+
+# ╔═╡ aee1f6a8-de43-402e-b375-86c0f2f9e6b8
+function figure_8_5′(; max_steps1 = 3000, max_steps2 = 3000, ntrials = 10, n = 50, α = 0.5f0, ϵ = 0.2f0, κ = 0.001f0)
+	x = 1:(max_steps1 + max_steps2)
+	function test_algo(f)
+		y = zeros(max_steps1 + max_steps2)
+		for _ in 1:ntrials
+			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
+			(Q2, steps2, rewards2, _, _) = f(blocking_maze3, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
+
+			y .+= cumsum([rewards; rewards2])
+		end
+		return x, y
+	end
+
+	(x1, y1) = test_algo(tabular_dynaQ)
+	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
+	
+	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+")])
+end
+
+# ╔═╡ f0e88db8-e3ee-4b74-923e-c34038024824
+figure_8_5′()
+
+# ╔═╡ c32d0943-ba8f-438f-83b6-5ed42221f630
+function figure_8_5′′(; max_steps1 = 3000, max_steps2 = 3000, ntrials = 10, n = 50, α = 0.5f0, ϵ = 0.2f0, κ = 0.001f0)
+	x = 1:(max_steps1 + max_steps2)
+	function test_algo(f)
+		y = zeros(max_steps1 + max_steps2)
+		for _ in 1:ntrials
+			(Q, steps, rewards, history, stm, rtm) = f(blocking_maze2, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps1, n = n)
+			(Q2, steps2, rewards2, _, _) = f(blocking_maze3, α, 0.95f0; ϵinit = ϵ, max_steps = max_steps2, n = n, Qinit = Q, history = history, state_transition_map = stm, reward_transition_map = rtm, init_step = max_steps1)
+
+			y .+= cumsum([rewards; rewards2])
+		end
+		return x, y
+	end
+
+	(x1, y1) = test_algo((args...; kwargs...) -> tabular_dynaQplus(args...; κ = κ, kwargs...))
+	(x2, y2) = test_algo((args...; kwargs...) -> tabular_dynaQplus′(args...; κ = κ, kwargs...))
+	
+	plot([scatter(x = x, y = y1 ./ ntrials, name = "Dyna-Q+"), scatter(x = x, y = y2 ./ ntrials, name = "Dyna-Q+′")])
+end
+
+# ╔═╡ 1aa76f3d-6041-4886-a6cd-787bdf1ec63c
+figure_8_5′′(;ϵ = 0.01f0)
+
+# ╔═╡ 39c96fc8-8259-46e3-88a0-a14eb6752b5c
+function show_grid_value(mdp, Q, name; scale = 1.0, title = "", sigdigits = 2)
+	width = maximum(s.x for s in mdp.states)
+	height = maximum(s.y for s in mdp.states)
+	start = mdp.state_init()
+	termind = findfirst(mdp.isterm, mdp.states)
+	sterm = mdp.states[termind]
+	ngrid = width*height
+
+	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
+	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
+	@htl("""
+		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px;">
+			<div>
+				$title
+				<div class = "gridworld $name value">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 12px; color: black; $(displayvalue(Q, i) != 0 ? "background-color: lightblue;" : "")">$(displayvalue(Q, i))</div>""", *, eachindex(mdp.states))))
+				</div>
+			</div>
+		</div>
+	
+		<style>
+			.$name.value.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, 20px);
+				grid-template-rows: repeat($height, 20px);
+				background-color: white;
+			}
+
+			.$name.value[x="$(start.x)"][y="$(start.y)"] {
+				content: '';
+				background-color: rgba(0, 255, 0, 0.5);
+				
+			}
+
+			.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
+				content: '';
+				background-color: rgba(255, 0, 0, 0.5);
+				
+			}
+
+		</style>
+	""")
+end
+
+# ╔═╡ 7be538ed-ef59-468d-ba12-dcec648090aa
+function get_feedback(guess::SVector{5, Char}, answer::SVector{5, Char})
+	output = zeros(UInt8, 5)
+	counts = zeros(UInt8, 26)
+
+	#green pass
+	for (i, c) in enumerate(answer)
+		j = letterlookup[c]
+		#add to letter count in answer
+		counts[j] += 0x01
+		#exact match
+		if c == guess[i]
+			output[i] = EXACT
+			#exclude one count from yellow pass
+			counts[j] -= 0x01
+		end
+	end
+
+	#yellow pass
+	for (i, c) in enumerate(guess)
+		j = letterlookup[c]
+		if (output[i] == 0) && (counts[j] > 0)
+			output[i] = MISPLACED
+			counts[j] -= 0x01
+		end
+	end
+	return SVector{5}(output)
+end
 
 # ╔═╡ 279f9c4f-341b-46ca-ae13-d427e12d67af
 function create_wordle_mdp(answer_index::Int64)
 	init_states = deepcopy(wordle_init_states)
-	function wordle_step(s::WordleState, guess_index::Int64)
+	function wordle_step(s::WordleState, guess_index::Int64; answer_index = answer_index)
 		isterm(s) && return (0.0f0, s)
 		feedback = feedback_matrix[guess_index, answer_index]
-		solved = guess_index == answer_index
-		guessnum = length(s.guess_list) + 1
-		penalty = Float32(!solved && (guessnum == 6))
-		r = -1f0 - penalty
+		solved = Float32(guess_index == answer_index)
+		r = -1f0 + solved
 		s′ = WordleState(vcat(s.guess_list, guess_index), vcat(s.feedback_list, feedback))
 		return (r, s′)
 	end
 	
 	MDP_MC(init_states, wordle_actions, wordle_step, isterm)
 end
+
+# ╔═╡ ded3299c-6c48-4e38-a55e-5a5beead75cd
+const feedback_matrix′ = collect(transpose(feedback_matrix))
 
 # ╔═╡ 8626cae1-c9ad-492e-b46b-74ca36dac2ad
 function init_feedback_sets(feedback_matrix)
@@ -4611,6 +5746,192 @@ function calculate_guess_feedback_distribution(guess_index::Integer, answer_weig
 	BLAS.gemv!('T', 1f0, A, answer_weights, 0f0, output)
 	return output
 end
+
+# ╔═╡ a22a0582-7d6b-40df-980e-b387dd826344
+compute_guess_two_step_score(word::AbstractString; kwargs...) = compute_guess_two_step_score(word_index[word]; kwargs...)
+
+# ╔═╡ 488ffc66-85b9-4c6c-b9c1-b1001facdb92
+const test_game_state = WordleState([12726, 8071, 14413, 12738], [0x0054, 0x0000, 0x0007, 0x00ba])
+
+# ╔═╡ cf909eb2-50ea-4499-8e1f-7e813b1f7367
+# ╠═╡ disabled = true
+#=╠═╡
+const trace_two_step_score = compute_guess_two_step_score("trace")
+  ╠═╡ =#
+
+# ╔═╡ 6c9c4b98-89b9-4437-b2c0-defca59505f6
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const reast_two_step_score = compute_guess_two_step_score(8885)
+  ╠═╡ =#
+
+# ╔═╡ db8c1019-49de-49f7-a9f1-e969f9591277
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const tarse_two_step_score = compute_guess_two_step_score("tarse")
+  ╠═╡ =#
+
+# ╔═╡ 9608a53f-aa95-472c-ab83-7fee8472d952
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const crane_two_step_score = compute_guess_two_step_score("crane")
+  ╠═╡ =#
+
+# ╔═╡ 8da4d04c-80e4-435f-b23d-eeb41db8f193
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const crate_two_step_score = compute_guess_two_step_score(12592)
+  ╠═╡ =#
+
+# ╔═╡ 53b5e5e7-edf5-49d0-88bc-f3c983bd8b73
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const slate_two_step_score = compute_guess_two_step_score("slate")
+  ╠═╡ =#
+
+# ╔═╡ de5316be-a766-4c78-86d5-74501e91d811
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const least_two_step_score = compute_guess_two_step_score("least")
+  ╠═╡ =#
+
+# ╔═╡ 6823d330-7cb5-4a6b-8059-d6e045171e8a
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const cater_two_step_score = compute_guess_two_step_score("cater")
+  ╠═╡ =#
+
+# ╔═╡ 34de31cd-c153-4873-b847-c41045779fce
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const raise_two_step_score = compute_guess_two_step_score("raise")
+  ╠═╡ =#
+
+# ╔═╡ 795c6ee8-d7c3-4d51-a593-e554f24ac8ad
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const siren_two_step_score = compute_guess_two_step_score("siren")
+  ╠═╡ =#
+
+# ╔═╡ e270c061-aeee-4a9a-abd2-e60e2f09f12d
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const salet_two_step_score = compute_guess_two_step_score(9464)
+  ╠═╡ =#
+
+# ╔═╡ cf0850f0-d143-43a0-9a7b-05fe7b3706c5
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const trace_two_step_score = compute_guess_two_step_score(12726)
+  ╠═╡ =#
+
+# ╔═╡ 2311a3a6-7a51-4e91-9c4d-9045f8ef01be
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const carte_two_step_score = compute_guess_two_step_score(1673)
+  ╠═╡ =#
+
+# ╔═╡ 1868e971-be35-48b9-8027-0a138b5f4c18
+display_two_step_guesses(output) = sort(output[2]; by = t -> t.score, rev = true) |> Map(t -> (nyt_valid_words[t.guess_index], t)) |> collect
+
+# ╔═╡ 97b523bf-1536-4376-bb8d-a8489cb5b441
+function display_one_step_guesses(output)
+	inds = sortperm(output.guess_scores, rev = true)
+	[(word = nyt_valid_words[i], score = output.guess_scores[i]) for i in inds]
+end
+
+# ╔═╡ 755d4645-96cd-4102-a469-0d65aed5f66a
+const information_gain_fname = "information_gain_lookup.arrow"
+
+# ╔═╡ 18b13bec-efda-4258-8a4d-0ffe22b2e75d
+const guess_score_fname = "guess_score_lookup.arrow"
+
+# ╔═╡ 954e4227-e7d5-41c7-bcab-d7b5ef875785
+begin
+	convert_state(s::WordleState) = (s.guess_list, s.feedback_list)
+	convert_state(w::WordleAfterState) = (w.state.guess_list, w.state.feedback_list, w.guess_index)
+	convert_state(t::Tuple{Vector{Int64}, Vector{UInt16}}) = WordleState(t[1], t[2])
+	convert_state(t::Tuple{Vector{Int64}, Vector{UInt16}, Int64}) = WordleAfterState(WordleState(t[1], t[2]), t[3])
+	convert_dict(d::AbstractDict) = Dict(convert_state(k) => d[k] for k in keys(d))
+end
+
+# ╔═╡ 2aeae653-37b5-4a33-91eb-09219e397cc6
+begin
+	convert_values(t::Tuple) = Tuple(convert_values(a) for a in t)
+	convert_values(t::AbstractVector) = Vector(t)
+	convert_values(t) = identity(t)
+end
+
+# ╔═╡ 2521aa03-c3a6-4439-bd93-7bd3aa4ffaf5
+function save_dictionary(fname::AbstractString, d::AbstractDict)
+	table = (k = convert_state.(collect(keys(d))), v = collect(values(d)))
+	open(fname, "w") do f
+		Arrow.write(f, table)
+	end
+end
+
+# ╔═╡ be3f9ab9-9370-409d-b8c5-5b9a24e23b65
+function load_dictionary(fname::AbstractString)
+	arrow_table = open(fname, "r") do f
+		Arrow.Table(f)
+	end
+	keys = arrow_table[:k]
+	values = arrow_table[:v]
+	Dict(begin
+		convert_state(keys[i]) => convert_values(values[i])
+		# convert_state(keys[i]) => values[i]
+	end
+	for i in eachindex(keys))
+end
+
+# ╔═╡ 43a15c05-2913-4ee5-9f48-4a758cf1b76f
+begin
+	const information_gain_lookup = if isfile(information_gain_fname)
+		try
+			d = load_dictionary(information_gain_fname)
+		catch
+			Dict{WordleState, @NamedTuple{best_guess::Int64, starting_entropy::Float32, final_entropy::Float32, score::Float32}}()
+		end
+	else
+		Dict{WordleState, @NamedTuple{best_guess::Int64, starting_entropy::Float32, final_entropy::Float32, score::Float32}}()
+	end
+	const guess_score_lookup = if isfile(guess_score_fname)
+		try
+			d = load_dictionary(guess_score_fname)
+		catch
+			Dict{WordleState, Vector{Float32}}()
+		end
+	else
+		Dict{WordleState, Vector{Float32}}()
+	end
+end
+
+# ╔═╡ 856faa95-1ee8-4b99-90f8-01c5e5778674
+const root_guess_ranks = Dict(zip(sortperm(guess_score_lookup[wordle_start], rev=true), eachindex(nyt_valid_words)))
+
+# ╔═╡ cf67585e-4e32-4b1c-a4f2-4e49245e5b90
+@bind save_information_gain CounterButton("Save information gain scores")
+
+# ╔═╡ 70f397dd-7207-46fb-a53d-104e32168797
+if save_information_gain > 0
+	save_dictionary(information_gain_fname, information_gain_lookup)
+	save_dictionary(guess_score_fname, guess_score_lookup)
+end
+
+# ╔═╡ aee540a7-9008-43b9-b6c8-2c181ccbd287
+const two_step_information_gain_lookup = Dict{WordleState, Vector{@NamedTuple{guess_index::Int64, starting_entropy::Float32, final_entropy::Float32, score::Float32}}}()
 
 # ╔═╡ 98039f05-89e3-4a4a-b9af-df31f0deb220
 function calculate_entropy(p::AbstractVector{T}) where T <: Real
@@ -4723,11 +6044,30 @@ end
 # ╔═╡ cb0d3512-83c1-4388-a61b-9329ca5fe043
 const feedback_sets = make_feedback_sets(feedback_matrix, savedata)
 
+# ╔═╡ 9eb64b71-7926-489d-9895-70b3d115a01a
+const feedback_sets′ = collect(transpose(feedback_sets))
+
 # ╔═╡ 3de16be2-ec6d-4223-bd0d-01bcaf1b8020
 const feedback_set_sums = map(sum, feedback_sets)
 
 # ╔═╡ c7e09857-fc41-42d1-accf-0c612c4fec20
 const baseinds = BitVector(true for _ in eachindex(nyt_valid_words))
+
+# ╔═╡ 33378c3d-0711-48e5-88fd-9be6c75bac25
+function make_information_gain_kwargs()
+	(possible_indices = copy(baseinds), feedback_counts = zeros(Int64, 243), possible_answers = copy(nyt_valid_indices))
+end
+
+# ╔═╡ 1b10397c-df09-42a9-98c0-2beff29ea3c8
+begin
+	const entropy_sort_inds_lookup = Dict{WordleState, Vector{Int64}}()
+	const entropy_possible_indices = copy(baseinds)
+	const information_kwargs = make_information_gain_kwargs()
+	const entropy_pct_cutoff = 0.99
+end
+
+# ╔═╡ 56e95a0c-53ea-47d1-8dd9-98ce9861723a
+const test_information_gain_kwargs = make_information_gain_kwargs()
 
 # ╔═╡ f79ebbed-1cd6-420f-a69e-b9072b6038cc
 const test_possible_indices = copy(baseinds)
@@ -4759,11 +6099,11 @@ get_possible_indices(guess::AbstractString, feedback::AbstractVector) = get_poss
 get_possible_indices(guess_index::Integer, feedback::AbstractVector) = get_possible_indices(guess_index, convert_bytes(feedback))
 
 # ╔═╡ f4c7cd0c-6a23-4c84-8ae2-9e5bc4fbec23
-get_possible_indices(gamesteps; output = copy(baseinds)) = get_possible_indices!(output, gamesteps)
+get_possible_indices(gamesteps; output = copy(baseinds), kwargs...) = get_possible_indices!(output, gamesteps; kwargs...)
 
 # ╔═╡ a8ed5887-dd16-4eeb-9211-345b122db0d5
-function get_possible_indices!(output::BitVector, gamesteps)
-	output .= true
+function get_possible_indices!(output::BitVector, gamesteps; baseline = baseinds)
+	output .= baseline
 	isempty(gamesteps) && return output
 	for a in gamesteps
 		v = get_possible_indices(a...)
@@ -4773,43 +6113,6 @@ function get_possible_indices!(output::BitVector, gamesteps)
 		# end
 	end
 	return output
-end
-
-# ╔═╡ c4bdbcda-e822-40f1-833a-1a2a70091adb
-function wordle_hardmode_rollout(mdp, s, γ::T; hard_mode_indices = copy(baseinds), sampling_weights = ones(T, length(hard_mode_indices)), ϵ = one(T)/10, stepkwargs...) where T <: Real
-	step = 0
-	rtot = zero(T)
-	get_possible_indices!(hard_mode_indices, s)
-	ntot = sum(baseinds)
-	while !mdp.isterm(s)
-		# sampling_weights .= (hard_mode_indices .* ϵ) .+ (hard_mode_indices .* wordle_original_inds)
-		nhard = sum(hard_mode_indices)
-		if ntot == nhard
-			sampling_weights .=  hard_mode_indices
-		else
-			sampling_weights .= hard_mode_indices .+ (ϵ/(ntot-nhard) .* baseinds)
-		end
-		a = sample(mdp.actions, weights(sampling_weights))
-		r, s′ = mdp.step(s, a; stepkwargs...)
-		rtot += γ^step * r
-		hard_mode_indices .*= get_possible_indices(a, last(s′.feedback_list))
-		num = sum(hard_mode_indices)
-		s = s′
-		step += 1
-	end
-	return rtot
-end
-
-# ╔═╡ 43e52a0d-9d22-44fd-8f6d-4f1e10b994ee
-function wordle_entropy_policy(s::WordleState, answer_weights::Vector{Float32}; possible_indices = copy(baseinds), kwargs...)
-	get_possible_indices!(possible_indices, s)
-	possible_indices .*= (answer_weights .!= 0)
-	(length(s.guess_list) == 5) && return sample(eachindex(nyt_valid_words), weights(possible_indices))
-	num_possible = sum(possible_indices)
-	(num_possible == 1) && return findfirst(possible_indices)
-	(num_possible == 2) && return sample(findall(possible_indices), weights(answer_weights[possible_indices]))
-	priors = calculate_guess_priors(answer_weights; possible_indices = possible_indices, kwargs...)
-	argmax(priors)
 end
 
 # ╔═╡ 2bf41479-a2bb-4f89-8fb0-5f8ca438f39f
@@ -4850,6 +6153,102 @@ end
 # ╔═╡ 47b077b3-7dd9-4479-b5fd-e347a0ce44b5
 const wordle_original_inds = BitVector(in(nyt_valid_words[i], wordle_original_answers) for i in eachindex(nyt_valid_words))
 
+# ╔═╡ 72674800-293c-454d-80d8-e0fdb7a6fe4a
+function scoregame(s::WordleState)
+	!isterm(s) && return 0f0
+	l = length(s.feedback_list)
+	if s.feedback_list[end] == first(feedback_matrix)
+		wordle_original_entropy/l
+	else
+		(wordle_original_entropy - Float32(log2(sum(get_possible_indices(s; baseline = wordle_original_inds)))))/7
+	end
+end
+
+# ╔═╡ dad020ac-e723-4368-be50-52949f597853
+function wordle_afterstate_transition(w::WordleAfterState; possible_indices = copy(baseinds), possible_answers = wordle_original_inds, use_cache = true)
+	(use_cache && haskey(wordle_afterstate_transition_lookup, w)) && return wordle_afterstate_transition_lookup[w]
+	get_possible_indices!(possible_indices, w.state; baseline = possible_answers)
+	n = sum(possible_indices)
+	output = zeros(Float32, 243)
+	for answer_index in view(nyt_valid_indices, possible_indices)
+		f = feedback_matrix′[answer_index, w.guess_index]
+		output[f+1] += 1f0
+	end
+	output ./= n
+	dist = Dict{Tuple{Float32, WordleState}, Float32}()
+	new_guess_list = [w.state.guess_list; w.guess_index]
+	for i in eachindex(output)
+		if output[i] != 0
+			s′ = WordleState(new_guess_list, [w.state.feedback_list; UInt16(i-1)])
+			r = scoregame(s′)
+			dist[(r, s′)] = output[i]
+		end
+	end
+	use_cache && (wordle_afterstate_transition_lookup[w] = dist)
+	return dist
+end
+
+# ╔═╡ 2459ace2-b0bd-4556-a732-3caced5f3c20
+function create_wordle_afterstate_mdp()
+	init_states = wordle_init_states
+	actions = wordle_actions
+	AfterstateMDP_MC(init_states, actions, wordle_afterstate_step, wordle_afterstate_transition, isterm)
+end
+
+# ╔═╡ 526199eb-6715-4962-af60-f2f8f99cd704
+const wordle_afterstate_mdp = create_wordle_afterstate_mdp()
+
+# ╔═╡ eb1aff1f-10d6-4a93-a6df-e9434afcf3d4
+function wordle_afterstate_rollout(s::WordleState, π::Function)
+	isterm(s) && return 0f0
+	a = π(s) #get action from policy
+	(r, w) = wordle_afterstate_step(s, a) #produce single afterstate
+	dist = wordle_afterstate_transition(w) #get distribution of states from afterstate
+	r + sum(dist[k]*(k[1] + wordle_afterstate_rollout(k[2], π)) for k in keys(dist)) #average the result of a rollout on all the transition states weighted by their relative probabilities
+end
+
+# ╔═╡ cf953ae4-eae9-495e-ba07-1a4f8019fc29
+function wordle_rollout(mdp, s, γ::T; π = s -> rand(mdp.actions), stepkwargs...) where T <: Real
+	isterm(s) && scoregame(s)
+	#for a stochastic game, if a guess produces a non-terminal state that has only one possible remaining answer, then complete the evaluation by automatically picking it next.  Also if the non-terminal state has more than one remaining answer, but we only have one guess left, then automatically randomly pick among the remaining answers weighted by the answer probability
+	rtot = zero(T)
+	step = 0
+	while !mdp.isterm(s)
+		a = π(s)
+		r, s′ = mdp.step(s, a; stepkwargs...)
+		rtot += γ^step * r
+		s = s′
+		step += 1
+	end
+	return rtot
+end
+
+# ╔═╡ b8b35817-9ce6-410d-8cbe-add19ac63c75
+function create_wordle_mdp_v2(answer_index::Int64)
+	init_states = deepcopy(wordle_init_states)
+	function wordle_step(s::WordleState, guess_index::Int64; answer_index = answer_index, possible_indices::BitVector = copy(baseinds))
+		isterm(s) && return (0.0f0, s)
+		feedback = feedback_matrix[guess_index, answer_index]
+		solved = guess_index == answer_index
+		s′ = WordleState(vcat(s.guess_list, guess_index), vcat(s.feedback_list, feedback))
+		l = length(s.guess_list)
+		r = if solved
+			wordle_original_entropy/(l+1)
+		elseif (l == 5)
+			get_possible_indices!(possible_indices, s′; baseline = wordle_original_inds)
+			(wordle_original_entropy - Float32(log2(sum(possible_indices))))/(l+2)
+		else
+			0f0
+		end
+		return (r, s′)
+	end
+	
+	MDP_MC(init_states, wordle_actions, wordle_step, isterm)
+end
+
+# ╔═╡ 58e76d92-4af1-49e2-bacd-1a0bbcd6215b
+const wordle_determ_game_v2 = create_wordle_mdp_v2("apple")
+
 # ╔═╡ 6faf7f7e-57a2-446b-b9b2-b33cb8a5ae5e
 function create_wordle_mdp()
 	init_states = deepcopy(wordle_init_states)
@@ -4859,10 +6258,8 @@ function create_wordle_mdp()
 		possible_indices .*= wordle_original_inds
 		answer_index = sample(wordle_actions, weights(possible_indices))
 		feedback = feedback_matrix[guess_index, answer_index]
-		solved = guess_index == answer_index
-		guessnum = length(s.guess_list) + 1
-		penalty = Float32(!solved && (guessnum == 6))
-		r = -1f0 - penalty
+		solved = Float32(guess_index == answer_index)
+		r = -1f0 + solved
 		s′ = WordleState(vcat(s.guess_list, guess_index), vcat(s.feedback_list, feedback))
 		return (r, s′)
 	end
@@ -4873,9 +6270,6 @@ end
 # ╔═╡ 97726300-a24d-4f9d-81cb-25c372294e25
 const wordle_determ_game = create_wordle_mdp("apple")
 
-# ╔═╡ ac30943f-796a-4115-842a-6cd774d5bcee
-@btime wordle_rollout($wordle_determ_game, $test_game_start, 1f0)
-
 # ╔═╡ ec92c8f2-31c3-4916-bb3b-360a8f3d0f5d
 const wordle_stochastic_game = create_wordle_mdp()
 
@@ -4884,128 +6278,6 @@ function evaluate_game_stats(π, n)
 	possible_indices = copy(test_possible_indices)
 	summarystats([wordle_rollout(wordle_stochastic_game, test_game_start, 1f0; π = π, possible_indices = possible_indices) for _ in 1:n])
 end
-
-# ╔═╡ 71366c5f-0e44-41d8-ab80-f2c77e51bfb8
-function show_word_new_options(s; nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
-	
-	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, s; nsims = nsims, depth = depth, c = c, apply_bonus! = apply_bonus!)
-	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s]]
-	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s]]
-	# topvisitinds = sortperm(visits[s0], rev = true)
-	# topqinds = sortperm(qs[s0], rev = true)
-	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
-	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
-	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
-	(top10visits = top10visits,
-	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
-	top10values = top10values,
-	greedyword = nyt_valid_words[wordindex],
-	totalsims = sum(values(visits[s])))
-end
-
-# ╔═╡ 2352ab2b-ddaf-485a-a849-4c53f0cf66b6
-show_word_new_options(WordleState([word_index["plant"], word_index["tired"], word_index["story"]], [0x0051, 0x000a, 0x0030]); nsims = 1000)
-
-# ╔═╡ 775e9b74-1cf2-411e-be69-a1acb9503219
-show_word_new_options(WordleState([word_index["plant"]], [0x0051]); nsims = 100)
-
-# ╔═╡ b2948c3c-eeae-4744-9bd2-854904624e29
-begin
-	const (_, wordle_visits, wordle_qs) = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, gamestart; nsims = 1)
-	const hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
-	const sampling_weights = ones(Float32, length(hard_mode_indices))
-	const possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
-	wordle_vest(mdp, s, γ) = wordle_hardmode_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0, possible_indices = possible_indices)
-	function update_hard_mode_policy!(v, s)
-		get_possible_indices!(possible_indices, s)
-		v .*= possible_indices
-		# for i in eachindex(v)
-		# 	v[i] = ifelse(possible_indices[i], v[i], 0f0)
-		# end
-		make_greedy_policy!(v)
-	end
-
-	const (_, wordle_normal_visits, wordle_normal_qs) = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, gamestart; nsims = 1)
-	const normal_hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
-	const normal_sampling_weights = ones(Float32, length(hard_mode_indices))
-	const normal_possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
-	wordle_normal_vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = normal_hard_mode_indices, sampling_weights = normal_sampling_weights, possible_indices = normal_possible_indices)
-end
-
-# ╔═╡ 958ab525-bd40-4536-a0b7-24a203d6b152
-function show_word_hardmode_options(;s0 = gamestart, nsims = 100, depth = 10_000, c::T = 1f0) where T <: Real
-	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_vest, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_visits, Q = wordle_qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)
-	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s0]]
-	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s0]]
-	# topvisitinds = sortperm(visits[s0], rev = true)
-	# topqinds = sortperm(qs[s0], rev = true)
-	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:10]
-	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:10]
-	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
-	(top10visits = top10visits,
-	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
-	top10values = top10values,
-	greedyword = nyt_valid_words[wordindex],
-	totalsims = sum(values(visits[s0])))
-end
-
-# ╔═╡ fa1b90c9-d845-45ac-8fe2-befe7178519e
-function show_word_options(;s0 = gamestart, nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
-	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_normal_visits, Q = wordle_normal_qs, apply_bonus! = apply_bonus!, possible_indices = normal_possible_indices)
-	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s0]]
-	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s0]]
-	# topvisitinds = sortperm(visits[s0], rev = true)
-	# topqinds = sortperm(qs[s0], rev = true)
-	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
-	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
-	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
-	(top10visits = top10visits,
-	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
-	top10values = top10values,
-	greedyword = nyt_valid_words[wordindex],
-	totalsims = sum(values(visits[s0])))
-end
-
-# ╔═╡ 6dbf1bd0-242c-4604-849f-a9c9813c2007
-begin
-	normal_hard_mode_indices
-	const base_normal_word_options = show_word_options(;nsims = 10)
-	const base_word_options = show_word_hardmode_options(;nsims = 10)
-	const normal_word_options, set_normal_word_options = @use_state(base_normal_word_options)
-	const word_options, set_word_options = @use_state(base_word_options)
-	const track_run, set_run = @use_state("Completed")
-end
-
-# ╔═╡ 6363ec1b-75e8-41f4-9a89-94dd8791a5c8
-if counter != 0
-	@use_effect([]) do
-		t = time()
-		schedule(Task() do
-			nruns = 1000
-			for i in 1:nruns
-				stop_mcts_eval != 0 && break
-				elapsed_minutes = round(Int64, (time() - t)/60)
-				etr = round(Int64, elapsed_minutes * nruns / i) - elapsed_minutes
-				set_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $etr minutes left")
-				outhard = @spawn show_word_hardmode_options(;nsims = 10_000)
-				outnormal = @spawn show_word_options(;nsims = 10_000)
-				set_word_options(fetch(outhard))
-				set_normal_word_options(fetch(outnormal))
-				sleep(1)
-			end
-			set_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
-		end)
-	end
-end
-
-# ╔═╡ 05427e12-c2e1-4fc1-a8f6-05d439448b0b
-track_run
-
-# ╔═╡ 505a9c9d-b29e-415b-8877-13c288117880
-normal_word_options
-
-# ╔═╡ 599b1973-5455-48db-8243-1b57f3169061
-word_options
 
 # ╔═╡ 720560c2-5970-4547-b0d5-82886a7f03ba
 function run_wordle_game(answer; nsims = 10, depth = 10_000, c::T = 1f0) where T<:Real
@@ -5019,17 +6291,6 @@ function run_wordle_game(answer; nsims = 10, depth = 10_000, c::T = 1f0) where T
 	π(s) = monte_carlo_tree_search(wordle_stochastic_game, 0.95f0, vest, s; nsims = nsims, depth = depth, c = c, visit_counts = visit_counts, Q = qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)[1]
 	runepisode(mdp, π)
 end
-
-# ╔═╡ 81f741c0-fceb-464f-9b25-c115e4ec5365
-wordle_mcts_ep = run_wordle_game(word; nsims = 10)
-
-# ╔═╡ 24bc0ca1-87fe-45a5-8326-a6d9a8ef61f9
-#game guesses
-[nyt_valid_words[i] for i in wordle_mcts_ep[2]]
-
-# ╔═╡ 275eb69b-4ede-41d3-8e1c-280fb8acabb2
-#possible words left at the end of the game
-get_possible_words(wordle_mcts_ep[1][end])
 
 # ╔═╡ e672f702-7981-43ab-b9ac-54ea7e8712db
 function run_wordle_mcts_trials(answer; nsims = 10, depth = 10_000, c::T = 1f0, trials = 100) where T<:Real
@@ -5047,9 +6308,6 @@ function run_wordle_mcts_trials(answer; nsims = 10, depth = 10_000, c::T = 1f0, 
 	end
 end
 
-# ╔═╡ 1b328344-9f26-41f6-9787-fa6c7e8b3474
-run_wordle_mcts_trials(word; nsims = 100, trials = 10) |> summarystats
-
 # ╔═╡ 77eec152-03da-4c6e-a0cb-cb19511f1181
 function get_score_statistics(word, π)
 	mdp = create_wordle_mdp(word)
@@ -5059,77 +6317,446 @@ function get_score_statistics(word, π)
 	end
 end
 
-# ╔═╡ 7a0210f0-03b5-477d-8ab1-a7fad0061c54
-wordle_random_ep = runepisode(create_wordle_mdp(word), s -> rand(collect(1:length(nyt_valid_words))[get_possible_indices(s)]))
-
-# ╔═╡ 85207dcc-b562-4968-bc08-8deeb1582ca6
-#game guesses
-[nyt_valid_words[i] for i in wordle_random_ep[2]]
-
-# ╔═╡ f78e6701-b7a6-4f16-87d1-4593282f9888
-function create_wordle_mdpv2()
-	init_states = deepcopy(wordle_init_states)
-	function wordle_step(s::WordleState, guess_index::Int64; possible_indices::BitVector = copy(baseinds))
-		isterm(s) && return (0.0f0, s)
-		get_possible_indices!(possible_indices, s)
-		possible_indices .*= wordle_original_inds
-		# answer_index = rand(nyt_valid_indices[possible_indices])
-		answer_index = sample_answer(possible_indices)
-		feedback = feedback_matrix[guess_index, answer_index]
-		solved = guess_index == answer_index
-		guessnum = length(s.guess_list) + 1
-		penalty = Float32(!solved && (guessnum == 6))
-		r = -1f0 - penalty
-		s′ = WordleState(vcat(s.guess_list, guess_index), vcat(s.feedback_list, feedback))
-		return (r, s′)
+# ╔═╡ 3d3f7f97-7f9e-434b-ae9a-eb2a0eaa65a3
+function wordle_rand_vest(s, answer_index; possible_indices = copy(baseinds), γ = 1f0)
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	# answer_index = sample(nyt_valid_indices, weights(possible_indices))
+	# mdp = create_wordle_mdp(answer_index)
+	rtot = 0f0
+	step = 0
+	while !wordle_determ_game.isterm(s)
+		l = length(s.guess_list)
+		n = sum(possible_indices)
+		iszero(n) && error("No possible answers left")
+		if (l == 5)
+			#on last guess take result from random guess
+			pwin = 1f0/n
+			rtot += γ^step * (-1f0 + pwin)
+			break
+		elseif n == 1 #if only one answer remains assume a win
+			break
+		elseif n == 2 #if only two answers remain then a win is guaranteed within the next two turns
+			rtot += γ^step * 0.5f0 * -1f0
+			break
+		else
+			a = rand(wordle_determ_game.actions)
+			r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
+			rtot += γ^step * r
+			s = s′
+			step += 1
+			possible_indices .*= get_possible_indices(a, last(s.feedback_list))
+		end
 	end
-	
-	MDP_MC(init_states, wordle_actions, wordle_step, isterm)
+	return rtot
 end
 
-# ╔═╡ 5421ba3f-c931-49ab-9c68-c83976af6b10
-@btime wordle_rollout($(create_wordle_mdpv2()), $test_game_start, 1f0; possible_indices = $(copy(baseinds)))
+# ╔═╡ 2a5b0b45-bad8-45f1-9d22-b6116c8393d0
+function wordle_rand_vest_v2(s, answer_index; possible_indices = copy(baseinds), γ = 1f0)
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	# answer_index = sample(nyt_valid_indices, weights(possible_indices))
+	# mdp = create_wordle_mdp(answer_index)
+	rtot = 0f0
+	step = 0
+	while !wordle_determ_game_v2.isterm(s)
+		l = length(s.guess_list)
+		n = sum(possible_indices)
+		iszero(n) && error("No possible answers left")
+		a = if (l == 5) || (n <= 2)
+			#on last guess take result from random guess
+			sample(nyt_valid_indices, weights(possible_indices))
+		else
+			rand(wordle_determ_game_v2.actions)
+		end
+		r, s′ = wordle_determ_game_v2.step(s, a; answer_index = answer_index, possible_indices = possible_indices)
+		rtot += γ^step * r
+		s = s′
+		step += 1
+		possible_indices .*= get_possible_indices(a, last(s.feedback_list))
+	end
+	return rtot
+end
+
+# ╔═╡ 3682ff2d-dd38-4ccf-8cb7-207196048605
+function wordle_rand_count_remaining(answer_index; possible_indices = copy(baseinds), γ = 1f0)
+	# get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	possible_indices .= wordle_original_inds
+	# answer_index = sample(nyt_valid_indices, weights(possible_indices))
+	# mdp = create_wordle_mdp(answer_index)
+	answers_left = zeros(Int64, 7)
+	s = wordle_start
+	while !wordle_determ_game.isterm(s)
+		l = length(s.guess_list)
+		n = sum(possible_indices)
+		answers_left[l+1] = n
+		iszero(n) && error("No possible answers left")
+		a = rand(wordle_determ_game.actions)
+		r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)	
+		s = s′
+		possible_indices .*= get_possible_indices(a, last(s.feedback_list))
+	end
+	n = sum(possible_indices)
+	answers_left[end] = n
+	return answers_left
+end
+
+# ╔═╡ 24972163-b8d2-4b46-9ae6-7cb78a437879
+function wordle_update_tree_policy!(v, s; possible_indices = copy(baseinds)) 
+#here v is a vector with indices representing the action space and s is the current state. by default v is filled with the existing q value estimates plus the UCT bonus and we would select the action greedily.  To match the behavior of the rollout though, here we make a few changes to the action selection.  If there have already been 5 guesses, then the tree policy will always choose from one of the remaining possible answers.
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	n = sum(possible_indices)
+	l = length(s.guess_list)
+	if (l == 5)
+		v .= possible_indices ./ n
+	elseif n <= 2
+		v .= possible_indices ./ n
+	else
+		make_greedy_policy!(v)
+	end
+end
+
+# ╔═╡ fcda3b7f-de53-4d37-9163-01690f64232f
+get_possible_indices(WordleState(["trace", "lions"], [0, 0]); baseline = wordle_original_inds) |> count
+
+# ╔═╡ cfd222a4-5767-4b93-9a2a-3c1875ae7453
+const wordle_original_dense_inds = nyt_valid_indices[wordle_original_inds]
+
+# ╔═╡ 33315ed8-f7ec-44e3-8a32-8e8603bebb6e
+function wordle_rand_vest(mdp, s, γ; answer_index = first(wordle_original_dense_inds), possible_indices = copy(baseinds))
+	wordle_rand_vest(s, answer_index; possible_indices = possible_indices, γ = γ)
+end
+
+# ╔═╡ 5d6d7a92-5fb3-4e01-8912-3b58fa2cca39
+function estimate_guess_value(s, guess_index; num_samples = 10)
+	possible_indices = copy(baseinds)
+	possible_answers = nyt_valid_indices[get_possible_indices(s; baseline = wordle_original_inds)]
+	new_guess_list = vcat(s.guess_list, guess_index)
+	isempty(possible_answers) && error("Not a valid state")
+	v = mean(begin
+		s′ = WordleState(new_guess_list, vcat(s.feedback_list, feedback_matrix[guess_index, answer_index]))
+		get_possible_indices!(possible_indices, s′; baseline = wordle_original_inds)
+		n = sum(possible_indices)
+		used_samples = if n <= 2
+			1
+		else
+			num_samples
+		end
+		mean(wordle_rand_vest(s′, answer_index; possible_indices = possible_indices) for _ in 1:used_samples)
+		# mean(wordle_rand_vest(s, answer_index) for _ in 1:num_samples)
+	end
+	for answer_index in possible_answers)
+	v - 1f0
+end
+
+# ╔═╡ 7dec3414-70b1-4f8f-bcff-dbcceffe12c9
+function show_best_guesses(s; kwargs...)
+	values = nyt_valid_indices |> Map(guess_index -> estimate_guess_value(s, guess_index; kwargs...)) |> tcollect
+	inds = sortperm(values, rev = true)
+	[(guess = nyt_valid_words[i], value = values[i]) for i in inds]
+end
+
+# ╔═╡ 7fe35ca2-d689-4eb0-9088-43b0e9897b99
+function show_new_normal_word_options(s; nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
+	possible_answers = nyt_valid_indices[get_possible_indices(s; baseline = wordle_original_inds)]
+	
+	function get_answer_index(seed::UInt64) 
+		Random.seed!(seed)
+		rand(possible_answers)
+	end
+	
+	wordindex, visits, qs = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, s; nsims = nsims, depth = depth, c = c, update_tree_policy! = wordle_update_tree_policy!, apply_bonus! = apply_bonus!, make_step_kwargs = k -> (answer_index = get_answer_index(k),), make_est_kwargs = k -> (possible_indices = copy(baseinds), answer_index = get_answer_index(k)))
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2], values = qs[s][a[1]]) for a in visits[s]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2], visits = visits[s][a[1]]) for a in qs[s]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	greedyword = nyt_valid_words[wordindex],
+	totalsims = sum(values(visits[s])))
+end
+
+# ╔═╡ b07a52b1-4f8b-46f4-a7b2-a3bf48c80d3a
+if compute_mcts_options > 0
+	@info "running new word options"
+	new_word_options = @spawn show_new_normal_word_options(WordleState(["clint"], [9]); nsims = 1_000_000, c = 10f0)
+	@use_effect([]) do
+		@async begin
+			while !istaskdone(new_word_options)
+				sleep(1)
+			end
+			setdone(true)
+		end
+	end
+end
+
+# ╔═╡ 8f4c19d9-d7fc-4878-a779-ec8da99086a9
+if isdone
+	fetch(new_word_options)
+else
+	md"""
+	Waiting for new word mcts options
+	"""
+end
+
+# ╔═╡ c4022d28-fbd6-4038-b7d2-3612a9731222
+function wordle_rand_vest_v2(mdp, s, γ; answer_index = first(wordle_original_dense_inds), possible_indices = copy(baseinds))
+	wordle_rand_vest_v2(s, answer_index; possible_indices = possible_indices, γ = γ)
+end
+
+# ╔═╡ 5a92edca-66db-4f3e-8b00-b64f2089f2dc
+function estimate_state_value_v2(s, answer_index; num_samples = 10)
+	test_possible_indices = copy(baseinds)
+	game_scores = 1:num_samples |> Map() do _
+		wordle_rand_vest_v2(s, answer_index; possible_indices = test_possible_indices)
+	end |> foldxl(+)
+	game_scores /= num_samples
+end
+
+# ╔═╡ c8aaf5a8-c6e6-4753-ac55-a14a1e691ce5
+function wordle_entropy_vest(mdp, s, γ; answer_index = first(wordle_original_dense_inds), kwargs...)
+	wordle_entropy_vest(s, answer_index; kwargs...)
+end
+
+# ╔═╡ e2cca0de-83a1-4a11-bf2e-68e72663cc9c
+function wordle_simple_vest(mdp, s, γ; answer_index = first(wordle_original_dense_inds), possible_indices = copy(baseinds))
+	guesses_left = 6 - length(s.guess_list)
+	# sum(-1f0*γ^(i-1) for i in 1:guesses_left)
+	-1f0 * guesses_left
+end
+
+# ╔═╡ b99a78c4-0151-4f34-b856-b31fa894e6d6
+if run_random_game_stats > 0 
+	random_game_stats = mean(mean(wordle_rand_vest(wordle_start, i; possible_indices = test_possible_indices) for i in wordle_original_dense_inds) for _ in 1:1000)
+end
+
+# ╔═╡ fb0adff2-ea5f-4082-b5eb-2699d19c1b88
+if run_random_game_stats > 0
+	num_trials = 1000
+	random_game_stats_v2 = 1:num_trials |> Map() do _
+		test_possible_indices = copy(baseinds)
+		mean(wordle_rand_vest_v2(wordle_start, i; possible_indices = test_possible_indices) for i in wordle_original_dense_inds)
+	end |> foldxt(+)
+	random_game_stats_v2 /= num_trials
+end
+
+# ╔═╡ eaabbc5b-8830-4cf7-bde1-b0772b70276f
+mean(mean(wordle_rand_count_remaining(answer_index; possible_indices = test_possible_indices) for _ in 1:10) for answer_index in wordle_original_dense_inds)
+
+# ╔═╡ 888885e3-7fd7-44f0-afe0-c23db48ca5b3
+function estimate_first_guess_value(guess_index; num_samples = 10)
+	t = time()
+	v = wordle_original_dense_inds |> Map() do answer_index
+		s = WordleState([guess_index], [feedback_matrix′[answer_index, guess_index]])
+		possible_indices = copy(baseinds)
+		mean(wordle_rand_vest(s, answer_index; possible_indices = possible_indices) for _ in 1:num_samples)
+		# mean(wordle_rand_vest(s, answer_index) for _ in 1:num_samples)
+	end |> foldxt(+)
+	v /= length(wordle_original_dense_inds)
+	v -= 1f0
+	@info "Done evaluating guess number $guess_index $(nyt_valid_words[guess_index]).  Value is $v after $(time() - t) seconds"
+	return v
+end
+
+# ╔═╡ 17ea9eb2-a93d-4844-91b1-c21aaee2ba12
+# ╠═╡ show_logs = false
+if run_first_guess_policy_iteration > 0
+	const first_guess_random_values = eachindex(nyt_valid_words) |> Map(guess_index -> estimate_first_guess_value(guess_index; num_samples = 100)) |> collect
+end
+
+# ╔═╡ 677f3fb4-3494-488f-872f-47393db1f5ed
+function estimate_first_guess_value_v2(guess_index; num_samples = 10)
+	t = time()
+	v = wordle_original_dense_inds |> Map() do answer_index
+		s = WordleState([guess_index], [feedback_matrix′[answer_index, guess_index]])
+		# mean(wordle_rand_vest_v2(s, answer_index; possible_indices = possible_indices) for _ in 1:num_samples)
+		# mean(wordle_rand_vest(s, answer_index) for _ in 1:num_samples)
+		estimate_state_value_v2(s, answer_index; num_samples = num_samples)
+	end |> foldxt(+)
+	v /= length(wordle_original_dense_inds)
+	@info "Done evaluating guess number $guess_index $(nyt_valid_words[guess_index]).  Value is $v after $(time() - t) seconds"
+	return v
+end
+
+# ╔═╡ e6904a29-876b-464c-9fed-ad2cc2d3bdbb
+# ╠═╡ show_logs = false
+if run_first_guess_policy_iteration > 0
+	const first_guess_random_values_v2 = eachindex(nyt_valid_words) |> Map(guess_index -> estimate_first_guess_value_v2(guess_index; num_samples = 100)) |> collect
+end
+
+# ╔═╡ b6f8c855-e90a-4706-90f2-005a8b50874d
+if run_first_guess_policy_iteration > 0
+const one_step_first_inds = sortperm(first_guess_random_values, rev = true)
+const one_step_first_inds_v2 = sortperm(first_guess_random_values_v2, rev = true)
+end
+
+# ╔═╡ b98acb66-78be-49cd-9823-75a3508cb786
+if run_first_guess_policy_iteration > 0
+const one_step_best_first_guesses = [(guess = nyt_valid_words[i], value = first_guess_random_values[i]) for i in one_step_first_inds]
+end
+
+# ╔═╡ 39630f12-3b92-441c-93c3-bc37ce629dad
+if run_first_guess_policy_iteration > 0
+const one_step_best_first_guesses_v2 = [(guess = nyt_valid_words[i], value = first_guess_random_values_v2[i]) for i in one_step_first_inds_v2]
+end
+
+# ╔═╡ fbca8dd6-51b1-4d7c-a7d1-5a5d09b51fa8
+function get_answer_index(seed::UInt64; inds = wordle_original_dense_inds) 
+	Random.seed!(seed)
+	rand(inds)
+end
+
+# ╔═╡ 45eb450e-aa4f-47f2-a82d-59b4a807931a
+begin
+	const normal_possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	const (_, wordle_normal_visits, wordle_normal_qs) = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, wordle_start; nsims = 10, update_tree_policy! = wordle_update_tree_policy!, make_step_kwargs = k -> (answer_index = get_answer_index(k),), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
+end
+
+# ╔═╡ fa1b90c9-d845-45ac-8fe2-befe7178519e
+function show_normal_word_options(;s0 = wordle_start, nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
+	wordindex, visits, qs = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_normal_visits, Q = wordle_normal_qs, update_tree_policy! = wordle_update_tree_policy!, apply_bonus! = apply_bonus!, make_step_kwargs = k -> (answer_index = get_answer_index(k),), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2], values = qs[s0][a[1]]) for a in visits[s0]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2], visits = visits[s0][a[1]]) for a in qs[s0]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	greedyword = nyt_valid_words[wordindex],
+	totalsims = sum(values(visits[s0])))
+end
+
+# ╔═╡ fa649626-cb2d-4f77-8ba8-25e32ad29d9f
+const base_normal_word_options = show_normal_word_options(;nsims = 10)
+
+# ╔═╡ 6dbf1bd0-242c-4604-849f-a9c9813c2007
+begin
+	const normal_word_options, set_normal_word_options = @use_state(base_normal_word_options)
+	const track_run, set_run = @use_state("Completed")
+end
+
+# ╔═╡ 05427e12-c2e1-4fc1-a8f6-05d439448b0b
+track_run
+
+# ╔═╡ 505a9c9d-b29e-415b-8877-13c288117880
+normal_word_options
+
+# ╔═╡ 0753c910-99be-487d-bad0-5589131c378e
+if counter != 0
+	@use_effect([]) do
+		t = time()
+		schedule(Task() do
+			nruns = 10_000
+			for i in 1:nruns
+				stop_mcts_eval != 0 && break
+				elapsed_minutes = round(Int64, (time() - t)/60)
+				etr = round(Int64, elapsed_minutes * nruns / i) - elapsed_minutes
+				set_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $etr minutes left")
+				# outhard = @spawn show_word_hardmode_options(;nsims = 10_000)
+				outnormal = @spawn show_normal_word_options(;nsims = 5_000, c = 10f0)
+				# set_word_options(fetch(outhard))
+				# outnormal = show_normal_word_options(;nsims = 1_000)
+				# set_normal_word_options(outnormal)
+				set_normal_word_options(fetch(outnormal))
+				sleep(1)
+			end
+			set_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
+		end)
+	end
+end
+
+# ╔═╡ 43e52a0d-9d22-44fd-8f6d-4f1e10b994ee
+function wordle_entropy_policy(s::WordleState, answer_weights::Vector{Float32}; possible_indices = copy(baseinds), kwargs...)
+	if haskey(entropy_policy_lookup, s) 
+		entropy_policy_lookup[s]
+	else
+		get_possible_indices!(possible_indices, s; baseline=wordle_original_inds)
+		# possible_indices .*= (answer_weights .!= 0)
+		(length(s.guess_list) == 5) && return sample(eachindex(nyt_valid_words), weights(possible_indices))
+		num_possible = sum(possible_indices)
+		(num_possible == 1) && return findfirst(possible_indices)
+		(num_possible == 2) && return sample(findall(possible_indices), weights(answer_weights[possible_indices]))
+		if haskey(entropy_prior_lookup, s)
+			priors = entropy_prior_lookup[s]
+		else
+			priors = calculate_guess_priors(answer_weights; possible_indices = possible_indices, kwargs...)
+		end
+		a = argmax(priors)
+		push!(entropy_policy_lookup, s => a)
+		return a
+	end
+end
 
 # ╔═╡ 2d09c684-d827-4907-8620-edc828ca574e
 const wordle_original_weights = Float32.(wordle_original_inds) / sum(wordle_original_inds)
 
-# ╔═╡ ece29669-ddf4-4566-9e3f-370390113d5e
-entropy_game_stats = @spawn evaluate_game_stats(s -> wordle_entropy_policy(s, wordle_original_weights), 10_000)
-
-# ╔═╡ 4bef885c-7e09-4c3c-9e71-65331c6eed52
-begin
-	const entropy_prior = zeros(Float32, length(nyt_valid_words))
-	const entropy_possible_indices = copy(baseinds)
-	const entropy_feedback_probabilities = zeros(Float32, 243)
-	const entropy_select_weights = zeros(Float32, length(nyt_valid_words))
-	const entropy_feedback_inds = zeros(UInt16, length(nyt_valid_words))
-	
-	wordle_entropy_vest(mdp, s, γ) = wordle_rollout(mdp, s, 1f0; π = s -> wordle_entropy_policy(s, wordle_original_weights; prior = entropy_prior, possible_indices = entropy_possible_indices, feedback_probabilities = entropy_feedback_probabilities, selectweights = entropy_select_weights, feedbackinds = entropy_feedback_inds), possible_indices = entropy_possible_indices)
-	
-	const (_, wordle_entropy_visits, wordle_entropy_qs) = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_entropy_vest, gamestart; nsims = 1)
-
-	const entropy_prior_lookup = Dict{WordleState, Vector{Float32}}()
-
-	function update_entropy_prior!(v_hold, s)
-		if haskey(entropy_prior_lookup, s)
-			v_hold .= entropy_prior_lookup[s]
+# ╔═╡ 06848289-3e41-4f79-850e-73750176c5a1
+function wordle_entropy_vest(s, answer_index; possible_indices = copy(baseinds), γ = 1f0, prior = zeros(Float32, length(nyt_valid_indices)), feedback_probabilities = zeros(Float32, 243), selectweights = zeros(Float32, length(nyt_valid_words)), feedbackinds = zeros(UInt16, length(nyt_valid_words)))
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	# answer_index = sample(nyt_valid_indices, weights(possible_indices))
+	# mdp = create_wordle_mdp(answer_index)
+	rtot = 0f0
+	step = 0
+	while !wordle_determ_game.isterm(s)
+		l = length(s.guess_list)
+		n = sum(possible_indices)
+		iszero(n) && error("No possible answers left")
+		if (l == 5)
+			#on last guess take result from random guess
+			pwin = 1f0/n
+			rtot += γ^step * (-1f0 + pwin)
+			break
+		elseif n == 1 #if only one answer remains assume a win
+			break
+		elseif n == 2 #if only two answers remain then a win is guaranteed within the next two turns
+			rtot += γ^step * 0.5f0 * -1f0
+			break
 		else
-			get_possible_indices!(entropy_possible_indices, s)
-			entropy_possible_indices .*= (wordle_original_weights .!= 0)
-			#if on final guess or there are 2 or fewer possible answers left then only consider guesses that are possible answers
-			if (length(s.guess_list) == 5) || (sum(entropy_possible_indices) <= 2) 
-				v_hold .= entropy_possible_indices
-			else
-				calculate_guess_priors(wordle_original_weights; prior = v_hold, possible_indices = entropy_possible_indices, feedback_probabilities = entropy_feedback_probabilities, selectweights = entropy_select_weights, feedbackinds = entropy_feedback_inds)
-			end
-			normalize_vector!(v_hold)
-			entropy_prior_lookup[s] = copy(v_hold)
+			a = wordle_entropy_policy(s, wordle_original_weights; possible_indices = possible_indices, prior = prior, feedback_probabilities = feedback_probabilities, selectweights = selectweights, feedbackinds = feedbackinds)
+			# @info "guess is $(nyt_valid_words[a])"
+			r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
+			rtot += γ^step * r
+			s = s′
+			step += 1
+			get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+			# @info "rtot = $rtot"
 		end
-		return v_hold
 	end
-	
-	apply_entropy_puct! = make_puct(update_entropy_prior!)
-	apply_entropy_uct_plus! = make_uct_plus(update_entropy_prior!)
+	return rtot
+end
+
+# ╔═╡ e595a9a1-8f48-4a30-83c8-c98ea615941d
+function estimate_entropy_first_guess_value(guess_index; kwargs...)
+	v = mean(begin
+		s = WordleState([guess_index], [feedback_matrix[guess_index, answer_index]])
+		wordle_entropy_vest(s, answer_index; kwargs...) 
+	end
+	for answer_index in wordle_original_dense_inds)
+	v - 1f0
+end
+
+# ╔═╡ 7384c01b-58d2-4e7c-bf9e-c077df67da6e
+function estimate_entropy_guess_value(s, guess_index)
+	possible_indices = copy(baseinds)
+	possible_answers = nyt_valid_indices[get_possible_indices(s; baseline = wordle_original_inds)]
+	new_guess_list = vcat(s.guess_list, guess_index)
+	isempty(possible_answers) && error("Not a valid state")
+	prior = zeros(Float32, length(nyt_valid_indices))
+	feedback_probabilities = zeros(Float32, 243)
+	selectweights = zeros(Float32, length(nyt_valid_words))
+	feedbackinds = zeros(UInt16, length(nyt_valid_words))
+	v = mean(begin
+		s′ = WordleState(new_guess_list, vcat(s.feedback_list, feedback_matrix[guess_index, answer_index]))
+		get_possible_indices!(possible_indices, s′; baseline = wordle_original_inds)
+		wordle_entropy_vest(s′, answer_index; possible_indices = possible_indices, prior = prior, feedback_probabilities = feedback_probabilities, selectweights = selectweights, feedbackinds = feedbackinds)
+	end
+	for answer_index in possible_answers)
+	v - 1f0
 end
 
 # ╔═╡ 26ca0740-daaf-4f26-9522-6e7ce079d9db
@@ -5149,61 +6776,38 @@ function show_entropy_new_word_options(s::WordleState; nsims = 100, depth = 10_0
 	totalsims = sum(values(visits[s])))
 end
 
-# ╔═╡ 61e5ab45-a216-43ba-8c0e-c28e48697949
-show_entropy_new_word_options(WordleState([word_index["solar"]], [0x00a8]); nsims = new_options_sims)
+# ╔═╡ 86572161-4057-47ac-a3c1-a61e6a603d6f
+make_entropy_kwargs() = (prior = copy(wordle_original_weights), possible_indices = copy(baseinds), feedback_probabilities = zeros(Float32, 243), selectweights = zeros(Float32, length(nyt_valid_words)), feedbackinds = zeros(UInt16, length(nyt_valid_words)))
 
-# ╔═╡ b7eef9f6-aa97-42ff-ab4c-8fc4bcbbec10
-function show_entropy_word_options(;s0 = gamestart, nsims = 100, depth = 10_000, c::T = 1f0) where T <: Real
-	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_entropy_vest, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_entropy_visits, Q = wordle_entropy_qs, possible_indices = entropy_possible_indices, apply_bonus! = apply_entropy_uct_plus!)
-	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2], values = qs[s0][a[1]]) for a in visits[s0]]
-	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2], visits = visits[s0][a[1]]) for a in qs[s0]]
-	# topvisitinds = sortperm(visits[s0], rev = true)
-	# topqinds = sortperm(qs[s0], rev = true)
-	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
-	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
-	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
-	(top10visits = top10visits,
-	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
-	top10values = top10values,
-	greedyword = nyt_valid_words[wordindex],
-	totalsims = sum(values(visits[s0])))
+# ╔═╡ 53f816af-f101-41fb-a196-bca33239568a
+function estimate_guess_lookahead_value(guess_index::Integer)
+	feedback_distribution = calculate_guess_feedback_distribution(guess_index, wordle_original_weights)
+	feedback_scores = [(;feedback = f-1, probability = feedback_distribution[f],  show_best_guesses(WordleState([guess_index], [f-1]); num_samples = 100)[1]...) for f in findall(feedback_distribution .> 0)]
+	best_guess_expected_value = sum(a.value*a.probability for a in feedback_scores)
+	(value = best_guess_expected_value, feedback_scores = feedback_scores)
 end
 
-# ╔═╡ 027cf9bf-48c8-49b4-aef8-7e62a4383be0
-begin
-	entropy_prior
-	const base_entropy_word_options = show_entropy_word_options(;nsims = 10, c = 1f0)
-	const entropy_word_options, set_entropy_word_options = @use_state(base_entropy_word_options)
-	const entropy_track_run, set_entropy_run = @use_state("Completed")
+# ╔═╡ 68955ae4-899c-48e2-8f1b-268b322c40e1
+if compute_policy_iteration_options > 0
+	const clint_lookahead_values = estimate_guess_lookahead_value("clint")
 end
 
-# ╔═╡ 28fc66bd-e50e-4e31-8b14-3677c8137976
-if entropy_counter != 0
-	@use_effect([]) do
-		t = time()
-		schedule(Task() do
-			nruns = 10_000
-			for i in 1:nruns
-				stop_mcts_eval != 0 && break
-				elapsed_minutes = round(Int64, (time() - t)/60)
-				etr = round(Int64, elapsed_minutes * nruns / i) - elapsed_minutes
-				set_entropy_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $etr minutes left")
-				# out = @spawn show_entropy_word_options(;nsims = 100)
-				# sleep(1)
-				# set_entropy_word_options(fetch(out))
-				set_entropy_word_options(show_entropy_word_options(;nsims = 100, c = 1f0))
-				sleep(1)
-			end
-			set_entropy_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
-		end)
-	end
+# ╔═╡ 91eb453f-25b5-4365-9aa1-af811fee90f5
+const starting_entropy_priors = calculate_guess_priors(wordle_original_weights)
+
+# ╔═╡ 78b657c5-ae4e-479f-afc5-2c6019a80fd9
+function show_entropy_first_guess_values(;prior = copy(wordle_original_weights), possible_indices = copy(baseinds), feedback_probabilities = zeros(Float32, 243), selectweights = zeros(Float32, length(nyt_valid_words)), feedbackinds = zeros(UInt16, length(nyt_valid_words)))
+	#prioritize guesses that have high entropy, the top choice here is the policy action
+	guess_inds = nyt_valid_indices[sortperm(starting_entropy_priors; rev=true)][1:1000]
+	guess_values = [estimate_entropy_first_guess_value(guess_index; prior = prior, possible_indices = possible_indices, feedback_probabilities = feedback_probabilities, selectweights = selectweights, feedbackinds = feedbackinds) for guess_index in guess_inds]
+	inds = sortperm(guess_values, rev = true)
+	[(guess = nyt_valid_words[guess_inds[i]], value = guess_values[i]) for i in inds]
 end
 
-# ╔═╡ 8809ddaa-ac37-4588-9225-d0fdb37e1513
-entropy_track_run
-
-# ╔═╡ 2aa38e11-af55-4763-9576-4569dc1fad43
-entropy_word_options
+# ╔═╡ 3234af92-f821-430f-83c2-5b8f75470f0c
+if run_entropy_first_guess_policy_iteration > 0
+const one_step_best_entropy_first_guesses = show_entropy_first_guess_values()
+end
 
 # ╔═╡ 51cd79a4-cd6f-4f2b-a3d0-6f869f7b06a3
 function show_ranked_priors(s::WordleState)
@@ -5213,8 +6817,8 @@ function show_ranked_priors(s::WordleState)
 	(ranked_priors = [nyt_valid_words[i] for i in sortperm(priors, rev=true)], remaining_words = nyt_valid_words[possible_indices])
 end
 
-# ╔═╡ bfae51d1-708c-4110-a99a-fcbcd03e95cb
-show_ranked_priors(WordleState([word_index["delta"], word_index["phony"]], [0x000, 0x00de]))
+# ╔═╡ 90145602-bec7-431f-92c8-17b440b74a70
+show_ranked_priors(WordleState(["clint"], [2]))
 
 # ╔═╡ 25f6c662-0459-4686-908f-0b760008f8e8
 const testprior = copy(wordle_original_weights)
@@ -5226,33 +6830,6 @@ function wordle_entropy_π(s; start_guess = word_index["lions"])
 	else
 		wordle_entropy_policy(s, wordle_original_weights; prior = testprior, possible_indices = test_possible_indices, feedback_probabilities = testout, selectweights = testselectweights, feedbackinds = testfeedbackinds)
 	end
-end
-
-# ╔═╡ 3d5e2c56-d2ec-482a-81cb-449a6248251a
-begin
-	entropy_solar_game_stats = @spawn evaluate_game_stats(s -> wordle_entropy_π(s; start_guess = word_index["solar"]), 1_000)
-	@async begin
-		@info "solar game assessment running"
-		while !istaskdone(entropy_solar_game_stats)
-			sleep(1)
-		end
-		@info "solar game assessment finished"
-	end
-end
-
-# ╔═╡ 5c1a0f11-d56d-4628-85d7-b889db4dfb72
-fetch(entropy_solar_game_stats)
-
-# ╔═╡ da5d6e73-8eba-45cb-999b-0f7e39900058
-entropy_trace_game_stats = @spawn summarystats([wordle_rollout(wordle_stochastic_game, test_game_start, 1f0; π = s -> wordle_entropy_π(s; start_guess = word_index["trace"]), possible_indices = test_possible_indices) for _ in 1:10_000])
-
-# ╔═╡ b147016c-168f-4c57-81da-31b31ed19b3b
-@async begin
-	@info "trace game assessment running"
-	while !istaskdone(entropy_trace_game_stats)
-		sleep(1)
-	end
-	@info "trace game assessment finished"
 end
 
 # ╔═╡ f750e42b-3370-424d-9386-957098b6d5ae
@@ -5377,7 +6954,7 @@ const wordranks = [word_freq_rank[word_index[w]] for w in wordle_original_answer
 
 # ╔═╡ 01090503-bae6-447c-8e49-f0d7db60c78d
 #these are common words that are excluded from the original wordle list.  most of these are plurals and passed tense and eliminating these from the sampling will give a better representative distribution
-const excludewords = setdiff(nyt_valid_words[freqsortinds][1:4000], wordle_original_answers)
+const excludewords = setdiff(setdiff(nyt_valid_words[freqsortinds][1:4000], wordle_original_answers), includewords)
 
 # ╔═╡ 639e02d7-3a55-4f20-bce6-7bacaa0d2424
 const excludeinds = Set(word_index[w] for w in excludewords)
@@ -5395,7 +6972,7 @@ const wordle_answer_weights = normalize_vector!(Float32.(make_pdf_weights(8000))
 
 # ╔═╡ c978b4cb-4842-4024-a0c6-c52c9954da8a
 function calculate_wordle_prior_guesses(s::WordleState; weights = wordle_answer_weights, possible_indices = copy(baseinds), feedback_counts = zeros(Int64, 243), feedback_probabilities = zeros(Float32, 243), prior = zeros(Float32, length(nyt_valid_words)), heuristic = :entropy)
-	get_possible_indices!(possible_indices, s)
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
 	for i in eachindex(nyt_valid_words)
 		eval = eval_group(i, possible_indices, weights; feedback_counts = feedback_counts, feedback_probabilities = feedback_probabilities)
 		prior[i] = eval[heuristic]
@@ -5434,12 +7011,692 @@ end
 #create a list of wordle answers for the game to use upon reset by sampling accoridng to the pdf from the valid guess list without replacement
 make_pdf_answer_index(maxrank, numwords) = wsample(eachindex(nyt_valid_words), make_pdf_weights(maxrank), numwords, replace=false)
 
+# ╔═╡ 5a5e7963-31d8-4ed7-a9c2-7d60c36e8bba
+const wordle_original_pdf = make_pdf_weights(8000) |> normalize_vector!
+
+# ╔═╡ 2e624d80-d31d-41a3-b9e3-db9e083f0fd3
+const wordle_pdf_answer_indices = findall(!iszero, wordle_original_pdf)
+
+# ╔═╡ 6dc8cabf-837b-49d9-8f5c-8bdb878a8920
+const wordle_pdf_answer_bitvector = BitVector(wordle_original_pdf .> 0)
+
+# ╔═╡ d5af3423-7816-4461-a723-fa9aadd6bc20
+#figure out which guess we would expectc produce the largest increase in information given a state
+function eval_guess_information_gain(s::WordleState, prior_weights::Vector{Float32}; feedback_counts = zeros(Int64, 243), possible_indices = copy(baseinds), possible_answers = copy(nyt_valid_indices), save_all_scores = false)
+	isterm(s) && error("Cannot make guess for a completed game")
+	haskey(information_gain_lookup, s) && !save_all_scores && return information_gain_lookup[s]
+	haskey(guess_score_lookup, s) && save_all_scores && return (best_guess = information_gain_lookup[s], guess_scores = guess_score_lookup[s])
+	
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	l = sum(possible_indices)
+	# starting_entropy = log2(l)
+
+	if iszero(l) 
+		@info "Warning for state $s: answer is not in the original wordle list.  Evaluating based on pdf instead"
+		get_possible_indices!(possible_indices, s; baseline = wordle_pdf_answer_bitvector)
+		l = sum(possible_indices)
+		original_entropy = calculate_entropy(wordle_original_pdf)
+	else
+		original_entropy = log2(length(wordle_original_answers))
+	end
+	
+	view(possible_answers, 1:l) .= view(nyt_valid_indices, possible_indices)
+	num_guesses = length(s.guess_list)
+
+	if save_all_scores
+		guess_scores = zeros(Float32, length(nyt_valid_indices))
+	end
+		
+	
+	if l == 1
+		answer_index = first(possible_answers)
+		information_gain = original_entropy
+		best_score = information_gain / (num_guesses + 1) #the best score will be for the answer
+		if save_all_scores
+			guess_scores .= information_gain / (num_guesses + 2)
+			guess_scores[answer_index] = best_score
+		end
+
+
+		out = (best_guess = answer_index, starting_entropy = Float32(original_entropy), final_entropy = 0f0, score = Float32(best_score))
+		information_gain_lookup[s] = out
+
+		if save_all_scores
+			guess_score_lookup[s] = guess_scores
+			return (best_guess = out, guess_scores = guess_scores)
+		else
+			return out
+		end
+	end
+			
+
+	best_guess = 1
+	best_entropy = original_entropy
+	best_score = 0.0
+	
+	for guess_index in nyt_valid_indices
+		# feedback_counts .= 0
+		final_entropy = 0.0
+		score = 0.0
+		@fastmath @inbounds @simd for i in view(possible_answers, 1:l)
+			#for the case where the guess is the answer, this will reduce the entropy to zero, but I want to treat that differently than the case where the guess is incorrect and there is only one possible remaining answer.  the latter case requires one additional guess minimum while the former case ends the game immediately.  I could keep track of information gain per incorrect guess + 1 in which case all the other values would be divided by 2.  But this metric has to be valid for an expected value by averaging up the results.  This function will evaluate the final score for a word from the original state so that means accounting for the total entropy gain from the start.  Assuming the game start was the original wordle words, this starting entropy is just log2(length(wordle_original_answers)).  Then I will calculate the total entropy gain and divide by the minimum number of turns before the game ends.  This will be an underestimate of the true best score since a certain information gain guess that doesn't end the game will have a score as if no further information gain occurs and the game lasts an additional turn at least
+			f = feedback_matrix′[i, guess_index]
+			n = dot(get_possible_indices(guess_index, f), possible_indices)
+			entropy = log2(n)
+			information_gain = original_entropy - entropy
+			# bonus = 6 - num_guesses - 1 - (guess_index != i) #if we haven't won the game yet then another guess will be used up
+			# final_entropy += entropy
+			# information_gain_per_minimum_guess += ((starting_entropy - entropy) / (2 - (guess_index == answer_index)))
+			final_entropy += entropy
+
+			#unless entropy is 0, assume we use every additional turn.  This will ensure the one step score is always an underestimate of the true best score
+			score += information_gain / (iszero(final_entropy)*(num_guesses + iszero(final_entropy) + (guess_index != i)) + !iszero(final_entropy)*6)
+		end
+		
+		# final_entropy = 0.0
+		# #loop through all feedbacks
+		# for f in 0:242
+		# 	# n = dot(feedback_sets′[f, guess_index], possible_indices)
+		# 	n = dot(get_possible_indices(guess_index, f), possible_indices)
+		# 	if n > 0 
+		# 		final_entropy += feedback_counts[f+1] * log2(n)
+		# 	end
+		# end
+		final_entropy /= l
+		score /= l
+		if score > best_score
+			best_score = score
+			best_entropy = final_entropy
+			best_guess = guess_index
+		end
+
+		if save_all_scores
+			guess_scores[guess_index] = score
+		end
+	end
+	out = (best_guess = best_guess, starting_entropy = Float32(original_entropy), final_entropy = Float32(best_entropy), score = Float32(best_score))
+	information_gain_lookup[s] = out
+
+	if save_all_scores
+		# @info "adding scores for state $s"
+		guess_score_lookup[s] = guess_scores
+		return (best_guess = out, guess_scores = guess_scores)
+	else 
+		return out
+	end
+end
+
+# ╔═╡ 99928c75-9f5a-4889-bb0d-cdf9e44eae51
+function wordle_update_gumbel_information_tree_policy!(v, s; topn = 100, score_vector = gumbel_score_vector, possible_indices = entropy_possible_indices, information_gain_kwargs = information_kwargs, min_samples_explore = 10, explore_probability = 0.01) 
+#here v is a vector with indices representing the action space and s is the current state. by default v is filled with the existing q value estimates plus the UCT bonus and we would select the action greedily.  To match the behavior of the rollout though, here we make a few changes to the action selection.  If there have already been 5 guesses, then the tree policy will always choose from one of the remaining possible answers.
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	n = sum(possible_indices)
+	l = length(s.guess_list)
+	if (l == 5) || (n <= 2) #for the final guess and if only two answers remain only consider possible answers
+		v .*= possible_indices
+		make_greedy_policy!(v)
+	else
+		sampled_inds = findall(!isinf, v) #these are actions that have already been sampled, always include them
+		if (length(sampled_inds) < min_samples_explore) || (rand() < explore_probability) #some percent of the time, sample new indices
+			one_step_scores = eval_guess_information_gain(s, wordle_original_weights; save_all_scores = true, information_gain_kwargs...).guess_scores
+			#convert scores to log probabilities and add gumbel random variable
+			score_vector .= 100 .* log.(one_step_scores) .- log.(-log.(rand(Float32, length(v))))
+			# @inbounds @fastmath @simd for i in eachindex(one_step_scores)
+				# score_vector[i] = 100 * log(one_step_scores[i]) - log(-log(rand(Float32)))
+			# end
+			
+			include_indices = [partialsortperm(score_vector, 1:topn; rev=true); sampled_inds]
+			v_select = argmax(v[i] for i in include_indices)
+			# score_vector .= 0f0
+			# score_vector[include_indices] .= v[include_indices]
+			# v .= score_vector
+			v .= 0f0
+			v[include_indices[v_select]] = 1f0
+			# exclude_indices = partialsortperm(score_vector, 1:length(v)-topn)
+			# v_include = v[include_indices]
+			# one_step_sort_inds = partialsortperm(score_vector; rev=true)
+			# exclude_indices = view(one_step_sort_inds, 1:topn) #only sample the top n values which is equivalent to sampling n values without replacement from the distribution of scores
+			# v[exclude_indices] .= 0f0 #set these to a value lower than any estimate with samples
+			# v .= 0f0
+			# v[include_indices] .= v_include
+		else
+			unsampled_inds = findall(isinf, v) #these are all actions that have not yet been sampled
+			v[unsampled_inds] .= 0f0 #99% of the time only consider actions that have already been sampled
+			make_greedy_policy!(v)
+		end
+	end
+	# make_greedy_policy!(v)
+	return v
+end
+
+# ╔═╡ c7dbde95-7a5e-4df6-bfbc-0a582b3a5fe2
+function update_trace_tree_policy!(v, s)
+	if s == wordle_start
+		v .= 0f0
+		v[word_index["trace"]] = 1f0
+		return v
+	else
+		wordle_update_gumbel_information_tree_policy!(v, s; topn = 10, explore_probability = 1.0)
+	end
+end
+
+# ╔═╡ 42667a97-7b1f-470a-a5ee-83ec087623dd
+function make_guess_tree_policy(guess::AbstractString)
+	guess_index = word_index[guess]
+	function update_trace_tree_policy!(v, s)
+		if s == wordle_start
+			v .= 0f0
+			v[guess_index] = 1f0
+			return v
+		else
+			wordle_update_gumbel_information_tree_policy!(v, s; topn = 10, explore_probability = 1.0)
+		end
+	end
+end
+
+# ╔═╡ 2ca62a4d-965d-458f-bbf5-3c7d8d6be538
+log.(sort(eval_guess_information_gain(wordle_start, wordle_original_weights; save_all_scores=true).guess_scores; rev=true))
+
+# ╔═╡ 72d7f7c0-1939-4a4c-9844-4677ec5b8290
+test_ind_rank = Dict(zip(sortperm(eval_guess_information_gain(wordle_start, wordle_original_weights; save_all_scores=true).guess_scores; rev=true), eachindex(nyt_valid_words)))
+
+# ╔═╡ ff1ff4f9-1173-4627-8e32-72ba9716723c
+[test_ind_rank[i] for i in ((100 .*log.(eval_guess_information_gain(wordle_start, wordle_original_weights; save_all_scores=true).guess_scores) .- log.(-log.(rand(Float32, length(nyt_valid_indices)))) |> v -> sortperm(v; rev=true))[1:100])] |> summarystats
+
+# ╔═╡ 95afae86-735c-4410-8391-1335a8cc9d42
+eval_guess_information_gain(eval_state, wordle_original_weights; save_all_scores = true) |> display_one_step_guesses
+
+# ╔═╡ a8e313ca-d49f-4f72-b80c-c37e2ec87318
+eval_guess_information_gain(WordleState([12726, 13986], [0x005a, 0x0033]), wordle_original_weights; save_all_scores=true) |> display_one_step_guesses
+
+# ╔═╡ f28053e2-c1b8-4a8e-a3a5-20169225e700
+wordle_start_scores = eval_guess_information_gain(wordle_start, wordle_original_weights; save_all_scores = true, test_information_gain_kwargs...)
+
+# ╔═╡ 1ac54ffa-39a4-4573-a865-9c8869552f86
+display_one_step_guesses(wordle_start_scores)
+
+# ╔═╡ 73b471fd-87ee-44ad-a4ae-928d758fd3ce
+eval_guess_information_gain(WordleState([10812], [0x003]), wordle_original_weights; save_all_scores = true, test_information_gain_kwargs...) |> display_one_step_guesses
+
+# ╔═╡ df33a472-e1b1-46c5-8735-0f5183f2a2e0
+function wordle_greedy_information_gain_π(s::WordleState; kwargs...)
+	score = eval_guess_information_gain(s, wordle_original_weights; kwargs...)
+	score.best_guess
+end
+
+# ╔═╡ a29468c9-7903-48dc-8370-9fa57d6814e0
+test_tree_values = try 
+	convert_dict(deserialize("tree_values_wordle_afterstate.bin"))
+catch
+	monte_carlo_tree_search(wordle_afterstate_mdp, 1f0, (mdp, s, γ) -> wordle_afterstate_rollout(s, s -> wordle_greedy_information_gain_π(s; information_kwargs...)), wordle_start; nsims = 2, update_tree_policy! = wordle_update_gumbel_information_tree_policy!, sim_message = true)[2]
+end
+
+# ╔═╡ 292ea7a8-46c9-4dd3-95be-354ca687488a
+if save_wordle_afterstate_tree_values > 0
+	serialize("tree_values_wordle_afterstate.bin", convert_dict(test_tree_values))
+end
+
+# ╔═╡ 32bfe82c-0170-4ed3-b9fc-fb8a2486b1f2
+const trace_tree_base = get_word_subdict(test_tree_values, "trace")
+
+# ╔═╡ 42b16077-e5aa-4b8b-90c7-0fe4879cc898
+const trace_tree = if isfile("trace_tree_values_wordle_afterstate.bin")
+	convert_dict(deserialize("tree_values_wordle_afterstate.bin"))
+else
+	deepcopy(trace_tree_base)
+end
+
+# ╔═╡ 22466ece-1b0b-4b86-93d9-6582a6c6b0e5
+const new_tree_base = get_state_subdict(trace_tree, new_wordle_state)
+
+# ╔═╡ 148ccd64-252b-4df7-adf2-6252c60cc0ae
+show_afterstate_mcts_guesses(new_tree_base, new_wordle_state)
+
+# ╔═╡ c3184760-c008-4f97-aeac-f954b87c2f2f
+if save_subtrees > 0
+	serialize("trace_tree_values_wordle_afterstate.bin", convert_dict(trace_tree))
+end
+
+# ╔═╡ b47a4ea5-6a6d-4e49-80d1-f8cd405ac19f
+const crate_tree = if isfile("crate_tree_values_wordle_afterstate.bin")
+	convert_dict(deserialize("crate_tree_values_wordle_afterstate.bin"))
+	# deserialize("crate_tree_values_wordle_afterstate.bin")
+else
+	get_word_subdict(test_tree_values, "crate")
+end
+
+# ╔═╡ 3461de30-6e94-4d6c-9479-4b1826315d4e
+if save_subtrees > 0
+	serialize("crate_tree_values_wordle_afterstate.bin", convert_dict(crate_tree))
+end
+
+# ╔═╡ 142c67fe-db8f-4117-9c8c-f74bc0b75bcc
+afterstate_mcts_test = monte_carlo_tree_search(wordle_afterstate_mdp, 1f0, (mdp, s, γ) -> wordle_afterstate_rollout(s, s -> wordle_greedy_information_gain_π(s; information_kwargs...)), wordle_start; nsims = 10, update_tree_policy! = (v, s) -> wordle_update_gumbel_information_tree_policy!(v, s; topn = 10, explore_probability = 1.0), sim_message = true, tree_values = test_tree_values)
+
+# ╔═╡ 00b3db2a-8b08-4d1e-9378-7f3dbf0dbf83
+sorted_afterstate_mcts_root_guesses = show_afterstate_mcts_guesses(afterstate_mcts_test[2], wordle_start)
+
+# ╔═╡ cc2a282c-8123-454e-8a1a-875541624079
+sum(a.visits for a in sorted_afterstate_mcts_root_guesses[2])
+
+# ╔═╡ 50c088e0-29e7-4752-b3b6-6f9e2a1732b9
+new_tree_values = monte_carlo_tree_search(wordle_afterstate_mdp, 1f0, (mdp, s, γ) -> wordle_afterstate_rollout(s, s -> wordle_greedy_information_gain_π(s; information_kwargs...)), new_wordle_state; nsims = 10_000, update_tree_policy! = (v, s) -> wordle_update_gumbel_information_tree_policy!(v, s; topn = 10, explore_probability = 1.0), sim_message = true, tree_values = new_tree_base)[2]
+
+# ╔═╡ 8ff9264f-d808-465a-8e1e-43f8ca4f76a8
+show_afterstate_mcts_guesses(new_tree_values, new_wordle_state)
+
+# ╔═╡ e4ca606e-215e-42dd-9b43-20667a0f73fc
+const trace_mcts_test = monte_carlo_tree_search(wordle_afterstate_mdp, 1f0, (mdp, s, γ) -> wordle_afterstate_rollout(s, s -> wordle_greedy_information_gain_π(s; information_kwargs...)), wordle_start; nsims = 400_000, update_tree_policy! = update_trace_tree_policy!, sim_message = true, tree_values = trace_tree)
+
+# ╔═╡ b3392393-b470-43a5-9cd8-be936c78c608
+show_afterstate_mcts_guesses(trace_mcts_test[2], wordle_start)
+
+# ╔═╡ 8c62de51-9217-4821-b384-f10975f7e98d
+const crate_mcts_test = monte_carlo_tree_search(wordle_afterstate_mdp, 1f0, (mdp, s, γ) -> wordle_afterstate_rollout(s, s -> wordle_greedy_information_gain_π(s; information_kwargs...)), wordle_start; nsims = 400_000, update_tree_policy! = make_guess_tree_policy("crate"), sim_message = true, tree_values = crate_tree)
+
+# ╔═╡ 8bd61632-2a52-4acd-b448-d06946d34cc1
+show_afterstate_mcts_guesses(crate_mcts_test[2], wordle_start)
+
+# ╔═╡ 1831d76f-5008-4cb6-b6e7-c8297835e950
+wordle_afterstate_rollout(wordle_start, s -> wordle_greedy_information_gain_π(s; information_kwargs...))
+
+# ╔═╡ edfc70de-db94-4153-9357-239fbd66bf69
+function wordle_greedy_information_gain_afterstate_value(w::WordleAfterState)
+	π(s) = wordle_greedy_information_gain_π(s; information_kwargs...)
+	dist = wordle_afterstate_transition(w)
+	sum(dist[k]*(k[1] + wordle_afterstate_rollout(k[2], π)) for k in keys(dist))
+end
+
+# ╔═╡ a1f98546-1c05-4ed2-a38e-724dbf091f57
+function wordle_greedy_information_gain_vest(s; information_gain_kwargs = make_information_gain_kwargs(), possible_indices = copy(baseinds))
+	isterm(s) && return scoregame(s)
+	# information_gain_kwargs = make_information_gain_kwargs()
+	# possible_indices = copy(baseinds)
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	possible_answer_indices = nyt_valid_indices[possible_indices]
+	mean(wordle_rollout(wordle_determ_game_v2, s, 1f0; π = s -> wordle_greedy_information_gain_π(s; information_gain_kwargs...), answer_index = answer_index, possible_indices = possible_indices) for answer_index in possible_answer_indices)
+end
+
+# ╔═╡ 4bef885c-7e09-4c3c-9e71-65331c6eed52
+begin
+	# const entropy_prior = zeros(Float32, length(nyt_valid_words))
+	# const entropy_feedback_probabilities = zeros(Float32, 243)
+	# const entropy_select_weights = zeros(Float32, length(nyt_valid_words))
+	# const entropy_feedback_inds = zeros(UInt16, length(nyt_valid_words))
+	# const entropy_guess_inds = collect(eachindex(nyt_valid_words))
+
+	function wordle_update_entropy_tree_policy!(v, s; pct_cutoff = entropy_pct_cutoff) 
+	#here v is a vector with indices representing the action space and s is the current state. by default v is filled with the existing q value estimates plus the UCT bonus and we would select the action greedily.  To match the behavior of the rollout though, here we make a few changes to the action selection.  If there have already been 5 guesses, then the tree policy will always choose from one of the remaining possible answers.
+		get_possible_indices!(entropy_possible_indices, s; baseline = wordle_original_inds)
+		n = sum(entropy_possible_indices)
+		l = length(s.guess_list)
+		if (l == 5) || (n <= 2) #for the final guess and if only two answers remain only consider possible answers
+			v .*= entropy_possible_indices
+		else
+			one_step_scores = eval_guess_information_gain(s, wordle_original_weights; save_all_scores = true, information_kwargs...)
+			if !haskey(entropy_sort_inds_lookup, s)
+				entropy_sort_inds_lookup[s] = sortperm(one_step_scores.guess_scores)
+			end
+			one_step_sort_inds = entropy_sort_inds_lookup[s]
+			sorted_scores = one_step_scores.guess_scores[one_step_sort_inds]
+			cutoff_score = quantile(sorted_scores, pct_cutoff)
+			cutoff_ind = searchsortedfirst(sorted_scores, cutoff_score)
+			exclude_indices = one_step_sort_inds[1:cutoff_ind-1]
+			
+			# exclude_indices = view(prior_sorts, topn+1:length(prior_sorts))
+			# @info "from state $s only considering guesses $([nyt_valid_words[i] for i in include_indices])"
+			v[exclude_indices] .= 0f0 #set these to a value lower than any estimate with samples
+			# v[include_indices] .= 1f0 / topn
+			# v[ignore_indices] .= -Inf
+			# v[keepindex] = 1
+			# v[entropy_guess_inds[topn+1:end]] .= -Inf
+		end
+		make_greedy_policy!(v)
+		return v
+	end
+
+	wordle_information_gain_score(mdp, s, γ) = eval_guess_information_gain(s, wordle_original_weights; information_kwargs...).score
+
+	wordle_greedy_information_gain_one_rollout_vest(mdp, s, γ; kwargs...) = wordle_rollout(wordle_determ_game_v2, s, 1f0; π = s -> wordle_greedy_information_gain_π(s; information_kwargs...), possible_indices = entropy_possible_indices, kwargs...)
+	
+	wordle_greedy_information_gain_vest(mdp, s, γ) = wordle_greedy_information_gain_vest(s; information_gain_kwargs = information_kwargs, possible_indices = entropy_possible_indices)
+	
+	# wordle_entropy_vest(mdp, s, γ) = wordle_rollout(mdp, s, 1f0; π = s -> wordle_entropy_policy(s, wordle_original_weights; prior = entropy_prior, possible_indices = entropy_possible_indices, feedback_probabilities = entropy_feedback_probabilities, selectweights = entropy_select_weights, feedbackinds = entropy_feedback_inds), possible_indices = entropy_possible_indices)
+
+	function execute_root_entropy_mcts(nsims::Integer; kwargs...)
+		valid_answer_indices = wordle_original_dense_inds
+		monte_carlo_tree_search(wordle_determ_game_v2, 1f0, wordle_greedy_information_gain_one_rollout_vest, wordle_start; nsims = nsims, depth = 10_000, c = 1f0, update_tree_policy! = wordle_update_gumbel_information_tree_policy!, make_step_kwargs = k -> (answer_index = get_answer_index(k; inds = valid_answer_indices), possible_indices = entropy_possible_indices),
+		# kwargs...)
+		make_est_kwargs = k -> (answer_index = get_answer_index(k; inds = valid_answer_indices),), kwargs...)
+	end
+	
+	function execute_entropy_mcts(s::WordleState, nsims::Integer; kwargs...) 
+		valid_answer_indices = nyt_valid_indices[get_possible_indices(s; baseline = wordle_original_inds)]
+		monte_carlo_tree_search(wordle_determ_game_v2, 1f0, wordle_greedy_information_gain_one_rollout_vest, s; nsims = nsims, depth = 10_000, c = 1f0, update_tree_policy! = wordle_update_gumbel_information_tree_policy!, make_step_kwargs = k -> (answer_index = get_answer_index(k; inds = valid_answer_indices), possible_indices = entropy_possible_indices),
+		# kwargs...)
+		make_est_kwargs = k -> (answer_index = get_answer_index(k; inds = valid_answer_indices),), kwargs...)
+	end
+	const (_, wordle_entropy_visits, wordle_entropy_qs) = execute_entropy_mcts(wordle_start, 10)
+
+
+	# function update_entropy_prior!(v_hold, s)
+	# 	if haskey(entropy_prior_lookup, s)
+	# 		v_hold .= entropy_prior_lookup[s]
+	# 	else
+	# 		get_possible_indices!(entropy_possible_indices, s; baseline = wordle_original_inds)
+	# 		#if on final guess or there are 2 or fewer possible answers left then only consider guesses that are possible answers
+	# 		if (length(s.guess_list) == 5) || (sum(entropy_possible_indices) <= 2) 
+	# 			v_hold .= entropy_possible_indices
+	# 		else
+	# 			calculate_guess_priors(wordle_original_weights; prior = v_hold, possible_indices = entropy_possible_indices, feedback_probabilities = entropy_feedback_probabilities, selectweights = entropy_select_weights, feedbackinds = entropy_feedback_inds)
+	# 		end
+	# 		normalize_vector!(v_hold)
+	# 		entropy_prior_lookup[s] = copy(v_hold)
+	# 	end
+	# 	return v_hold
+	# end
+	
+	# apply_entropy_puct! = make_puct(update_entropy_prior!)
+	# apply_entropy_uct_plus! = make_uct_plus(update_entropy_prior!)
+end
+
+# ╔═╡ 42bc1cc9-f034-441f-a17a-4b0a346fac75
+function wordle_greedy_information_gain_guess_value(s, guess_index)
+	possible_answers = nyt_valid_indices[get_possible_indices(s; baseline=wordle_original_inds)]
+	possible_answers |> Map() do answer_index
+		feedback = feedback_matrix′[answer_index, guess_index]
+		s′ = WordleState([s.guess_list; guess_index], [s.feedback_list; feedback])
+		v = wordle_greedy_information_gain_vest(s′)
+	end |> foldxl(+) |> v -> v / length(possible_answers)
+end
+
+# ╔═╡ 9e0ff3b4-44b6-4b8c-9a2f-39489b2c4e0a
+function wordle_greedy_information_gain_one_step_policy_iteration(s; num_evaluations = length(nyt_valid_indices))
+	best_guess = 1
+	best_rank = 1
+	best_score = 0f0
+	t0 = time()
+	last_time = time()
+	output = zeros(Float32, num_evaluations)
+
+	guess_scores = eval_guess_information_gain(s, wordle_original_weights; save_all_scores = true)
+	scoreinds = sortperm(guess_scores.guess_scores; rev = true)[1:num_evaluations]
+	for (i, guess_index) in enumerate(scoreinds)
+		v = wordle_greedy_information_gain_guess_value(s, guess_index)
+		output[i] = v
+		elapsed = time() - t0
+		pct_done = i / length(scoreinds)
+		estimated_total_time = elapsed / pct_done
+		if v > best_score
+			best_guess = guess_index
+			best_score = v
+			best_rank = i
+		end
+		if (time() - last_time) > 5
+			last_time = time()
+			@info """Guess number $i of $(length(scoreinds)) is $(nyt_valid_words[guess_index]) with a score of $v
+			After $(round(Int64, elapsed / 60)) minutes best guess is $(nyt_valid_words[best_guess]) with a rank of $best_rank and a score of $best_score. ETA=$(round(Int64, estimated_total_time/60)) minutes"""
+		end
+	end
+	sorted_inds = sortperm(output; rev=true)
+	(best_guess = best_guess, best_score = best_score, sorted_guesses = [(guess = nyt_valid_words[guess_index], guess_index = guess_index, score = output[i], information_gain_rank = i) for (i, guess_index) in enumerate(scoreinds)][sorted_inds])
+end
+
+# ╔═╡ 46eef729-94a7-4732-a63e-8b41f898457a
+if run_greedy_policy_iteration > 0
+	const greedy_information_gain_one_step_policy_iteration = wordle_greedy_information_gain_one_step_policy_iteration(wordle_start; num_evaluations = 1_000)
+end
+
+# ╔═╡ 12365e11-66f8-4b50-820d-32117b726c7b
+if run_entropy_game_stats > 0 
+	information_gain_game_stats = wordle_greedy_information_gain_vest(wordle_start)
+end
+
+# ╔═╡ 438e6442-7a28-487f-89d1-0bbbec602071
+wordle_greedy_information_gain_vest(WordleState([word_index["trace"]], [0x0000]))
+
+# ╔═╡ b7eef9f6-aa97-42ff-ab4c-8fc4bcbbec10
+function show_entropy_word_options(;s0 = wordle_start, nsims = 100, kwargs...)
+	wordindex, visits, qs = execute_entropy_mcts(s0, nsims; kwargs...)
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2], values = qs[s0][a[1]]) for a in visits[s0]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2], visits = visits[s0][a[1]]) for a in qs[s0]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	greedyword = nyt_valid_words[wordindex],
+	totalsims = sum(values(visits[s0])))
+end
+
+# ╔═╡ a7270c87-6d77-4bae-aff2-7b05214e0962
+function show_entropy_root_word_options(s0)
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2], values = wordle_entropy_qs[s0][a[1]]) for a in wordle_entropy_visits[s0]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2], visits = wordle_entropy_visits[s0][a[1]]) for a in wordle_entropy_qs[s0]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	totalsims = sum(values(wordle_entropy_visits[s0])))
+end
+
+# ╔═╡ 027cf9bf-48c8-49b4-aef8-7e62a4383be0
+begin
+	reset_entropy_mcts
+	const base_entropy_word_options = show_entropy_word_options(;nsims = 10, visit_counts = wordle_entropy_visits, Q = wordle_entropy_qs)
+	const entropy_word_options, set_entropy_word_options = @use_state(base_entropy_word_options)
+	const entropy_track_run, set_entropy_run = @use_state("Completed")
+end
+
+# ╔═╡ 4cc06fa0-e3f1-4362-afe0-028f12bf388a
+entropy_track_run
+
+# ╔═╡ be6f54f7-35df-40cb-b5e5-19519be47d64
+entropy_word_options
+
+# ╔═╡ 28fc66bd-e50e-4e31-8b14-3677c8137976
+@use_effect([]) do
+	if entropy_counter != 0
+		set_entropy_run("Beginning entropy run evaluation")
+		t = time()
+		schedule(Task() do
+			nruns = 10_000
+			last_time = 0.0
+			for i in 1:nruns
+				stop_entropy_mcts_eval != 0 && break
+				execute_root_entropy_mcts(100; visit_counts = wordle_entropy_visits, Q = wordle_entropy_qs, c = 10f0)
+				# sleep(1)
+				# fetch(out)
+				# set_entropy_word_options(show_entropy_word_options(;nsims = 100, c = 1f0))
+				# elapsed = time() - last_time
+				# if elapsed > 60
+					elapsed_seconds = time() - t
+					etr = (elapsed_seconds * nruns / i) - elapsed_seconds
+					set_entropy_run("Running $i of $nruns after $(round(Int64, elapsed_seconds/60)) minutes.  Estimated $(round(Int64, etr/60)) minutes left")
+					word_options = show_entropy_root_word_options(wordle_start)
+					set_entropy_word_options(word_options)
+					# last_time = time()
+					sleep(.01)
+				# end
+				# 	@info """Completed simulation $i out of $nruns after $(round(Int64, elapsed/60)) minutes
+				# 	Highest action value so far is $(first(word_options.top10values))"""
+				# end
+				# if i == nruns
+					# word_options = show_entropy_root_word_options(wordle_start)
+					# set_entropy_word_options(word_options)
+				# end
+			end
+			set_entropy_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
+		end)
+		set_entropy_run("Ending entropy run evaluation")
+	else
+		set_entropy_run("Waiting for button press to begin entropy run evaluation")
+	end
+end
+
+# ╔═╡ 2499b467-90e3-4844-a46d-1d0c8e0e4772
+#figure out which guess we would expect to produce the largest increase in information given a state
+function eval_two_step_guess_information_gain(s::WordleState, prior_weights::Vector{Float32}; possible_indices = copy(baseinds), possible_answers = copy(nyt_valid_indices), score_pct_cutoff = 0.99, print_all_steps = false)
+	# haskey(two_step_information_gain_lookup, s) && return two_step_information_gain_lookup[s]
+	
+	#consider all the games that exist from this state looking ahead two steps
+	
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	l = sum(possible_indices)
+	if iszero(l) 
+		@info "Warning: answer is not in the original wordle list.  Evaluating based on pdf instead"
+		get_possible_indices!(possible_indices, s; baseline = wordle_pdf_answer_bitvector)
+		l = sum(possible_indices)
+		original_entropy = calculate_entropy(wordle_original_pdf)
+	else
+		original_entropy = log2(length(wordle_original_answers))
+	end
+	starting_entropy = Float32(log2(l))
+	original_entropy = log2(length(wordle_original_answers))
+	view(possible_answers, 1:l) .= view(nyt_valid_indices, possible_indices)
+
+	
+	best_score = 0f0
+	best_entropy = original_entropy
+
+	num_guesses = length(s.guess_list)
+
+	iszero(l) && error("Not a valid state") 
+	
+	if l == 1
+		output = Vector{@NamedTuple{guess_index::Int64, starting_entropy::Float32, final_entropy::Float32, score::Float32}}(undef, length(nyt_valid_words))
+		answer_index = first(possible_answers)
+		information_gain = original_entropy
+		best_score = information_gain / (num_guesses + 1) #the best score will be for the answer
+		other_score = information_gain / (num_guesses + 2) #the score for every other answer
+		for guess_index in nyt_valid_indices
+			output[guess_index] = (guess_index = guess_index, starting_entropy = original_entropy, final_entropy = 0f0, score = other_score)
+		end
+		output[answer_index] = (guess_index = answer_index, starting_entropy = original_entropy, final_entropy = 0f0, score = best_score)
+
+		best_output = (best_guess = answer_index, starting_entropy = original_entropy, final_entropy = 0f0, best_score = best_score)
+		return (best_output, output)
+	end
+
+	information_gain_kwargs = make_information_gain_kwargs()
+
+	#instead of going through each possible guess, iterate through in the order of scores just looking ahead one step
+	one_step_scores = eval_guess_information_gain(s, prior_weights; save_all_scores = true, information_gain_kwargs...)
+	one_step_sort_inds = sortperm(one_step_scores.guess_scores)
+	sorted_scores = one_step_scores.guess_scores[one_step_sort_inds]
+	one_percent_score = quantile(sorted_scores, score_pct_cutoff) #only consider guesses that score in the top 1% of the one step lookahead scores by default
+	cutoff_ind = searchsortedfirst(sorted_scores, one_percent_score)
+	sorted_guesses = nyt_valid_indices[one_step_sort_inds[end:-1:cutoff_ind]]
+	output = Vector{@NamedTuple{guess_index::Int64, starting_entropy::Float32, final_entropy::Float32, score::Float32}}(undef, length(sorted_guesses))
+	best_one_step_score = one_step_scores.guess_scores[one_step_sort_inds[1]]
+	# sorted_guesses = nyt_valid_indices[1:num_guesses]
+	t = time()
+	best_guess = first(sorted_guesses)
+	best_guess_rank = 1
+	for (i, guess_index) in enumerate(sorted_guesses)
+		#consider all the games that exist from this state looking ahead another step
+		final_entropy = 0f0
+		final_score = 0f0
+		for answer_index in view(possible_answers, 1:l)
+			if answer_index == guess_index # game is over
+				information_gain = original_entropy
+				score = information_gain / (num_guesses + 1)
+				final_score += Float32(score)
+			else
+				f = feedback_matrix′[answer_index, guess_index]
+				s′ = WordleState([s.guess_list; guess_index], [s.feedback_list; f])
+				out = eval_guess_information_gain(s′, prior_weights; information_gain_kwargs...)
+				final_entropy += out.final_entropy
+				final_score += out.score
+			end
+		end
+
+		final_entropy /= l
+		final_score /= l
+		
+		if final_score > best_score
+			best_score = final_score
+			best_guess = guess_index
+			best_guess_rank = i
+			best_entropy = final_entropy
+		end
+
+		elapsed = time() - t
+		percent_done = i / length(sorted_guesses)
+		eta = elapsed / percent_done
+		etr = round((eta - elapsed)/60, sigdigits = 2)
+		
+		if print_all_steps
+			@info """Finished evaluating guess $i out of $(length(sorted_guesses)) after $(round(elapsed/60, sigdigits = 2)) minutes.
+			Guess $(uppercase(nyt_valid_words[guess_index])) has a score of $(final_score)
+			Estimated remaining time = $etr minutes.  
+			Best guess so far is $(uppercase(nyt_valid_words[best_guess])) with a score of $best_score and a one step rank of $best_guess_rank"""
+		end
+
+		output[i] = (guess_index = guess_index, starting_entropy = original_entropy, final_entropy = final_entropy, score = final_score)
+	end
+
+	
+	@info """Finished evaluating state $s after $(round(time() - t, sigdigits = 2)) seconds.  
+	Best guess found is $(uppercase(nyt_valid_words[best_guess])) with a score of $best_score and a one step rank of $best_guess_rank""" 
+	# two_step_information_gain_lookup[s] = out
+	if (best_score + eps(best_score)) < best_one_step_score
+		@info("Warning: Best one step score was $best_one_step_score while best lookahead score was $best_score")
+	end
+	best_output = (best_guess = best_guess, starting_entropy = original_entropy, final_entropy = best_entropy, best_score = best_score)
+	return (best_output, output)
+end
+
+# ╔═╡ bccaa87b-7fa8-4d5e-8969-35fccf68ea05
+# ╠═╡ show_logs = false
+eval_two_step_guess_information_gain(eval_state, wordle_original_weights)
+
+# ╔═╡ 6e099447-e938-409b-bc15-b54dedcf7427
+# ╠═╡ show_logs = false
+eval_two_step_guess_information_gain(eval_state, wordle_original_weights; print_all_steps = true) |> display_two_step_guesses
+
+# ╔═╡ 7a63fe17-8037-4c2d-9463-590d450711b5
+function compute_guess_two_step_score(guess_index::Integer; score_pct_cutoff = 0.99)
+	feedback_distribution = calculate_guess_feedback_distribution(guess_index, wordle_original_weights)
+	two_step_guess_information_gain = sum(begin
+		@info "------------On Feedback $(f-1) With Guess $(nyt_valid_words[guess_index])-----------"
+		p = feedback_distribution[f]
+		if f == 243 #this game is already won
+			score = log2(length(wordle_original_answers))
+			p * score
+		else
+			best_guess = eval_two_step_guess_information_gain(WordleState([guess_index], [UInt16(f-1)]), wordle_original_weights; score_pct_cutoff = score_pct_cutoff)
+			p * best_guess[1].best_score
+		end
+	end
+	for f in findall(!iszero, feedback_distribution))
+	# sum(a.p * (a.best_guess)[1].best_score for a in two_step_guess_information_gain)
+end
+
+# ╔═╡ 7ee9cf97-b7d0-492d-8d79-2132403e29a4
+eval_two_step_guess_information_gain(WordleState([12726, 13986], [0x005a, 0x0033]), wordle_original_weights) |> display_two_step_guesses
+
+# ╔═╡ 2db19adc-7afe-44c4-ad48-452b16629157
+# ╠═╡ show_logs = false
+const wordle_start_two_step_guess_information_gain = eval_two_step_guess_information_gain(wordle_start, wordle_original_weights; print_all_steps = true)
+
+# ╔═╡ 31b7db7e-daaa-41f5-a146-58309a4959bc
+display_two_step_guesses(wordle_start_two_step_guess_information_gain)
+
 # ╔═╡ fcc41aa0-5633-4068-8ddd-65eb2188263c
 const valid_word_ranks = [word_freq_rank[i] for i in eachindex(nyt_valid_words)]
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
@@ -5449,6 +7706,7 @@ PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
@@ -5456,6 +7714,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]
+Arrow = "~2.7.2"
 BenchmarkTools = "~1.5.0"
 DataStructures = "~0.18.18"
 HypertextLiteral = "~0.9.5"
@@ -5472,9 +7731,9 @@ Transducers = "~0.4.81"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.2"
+julia_version = "1.10.3"
 manifest_format = "2.0"
-project_hash = "a624a24cbdb8ab3350eef5fbbdb389996ac496f7"
+project_hash = "1191b103c0f69ff1cec503936c29fd49b03d199c"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -5527,6 +7786,18 @@ version = "2.3.0"
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
 version = "1.1.1"
 
+[[deps.Arrow]]
+deps = ["ArrowTypes", "BitIntegers", "CodecLz4", "CodecZstd", "ConcurrentUtilities", "DataAPI", "Dates", "EnumX", "LoggingExtras", "Mmap", "PooledArrays", "SentinelArrays", "Tables", "TimeZones", "TranscodingStreams", "UUIDs"]
+git-tree-sha1 = "f8d411d1b45459368567dc51f683ed78a919d795"
+uuid = "69666777-d1a9-59fb-9406-91d4454c9d45"
+version = "2.7.2"
+
+[[deps.ArrowTypes]]
+deps = ["Sockets", "UUIDs"]
+git-tree-sha1 = "404265cd8128a2515a81d5eae16de90fdef05101"
+uuid = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
+version = "2.3.0"
+
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
@@ -5571,6 +7842,24 @@ git-tree-sha1 = "f1dff6729bc61f4d49e140da1af55dcd1ac97b2f"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.5.0"
 
+[[deps.BitIntegers]]
+deps = ["Random"]
+git-tree-sha1 = "a55462dfddabc34bc97d3a7403a2ca2802179ae6"
+uuid = "c3b6d118-76ef-56ca-8cc7-ebb389d030a1"
+version = "0.3.1"
+
+[[deps.CodecLz4]]
+deps = ["Lz4_jll", "TranscodingStreams"]
+git-tree-sha1 = "b8aecef9f90530cf322a8386630ec18485c17991"
+uuid = "5ba52731-8f18-5e0d-9241-30f10d1ec561"
+version = "0.4.3"
+
+[[deps.CodecZstd]]
+deps = ["TranscodingStreams", "Zstd_jll"]
+git-tree-sha1 = "23373fecba848397b1705f6183188a0c0bc86917"
+uuid = "6b39b394-51ab-5f42-8807-6242bab2b4c2"
+version = "0.8.2"
+
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
 git-tree-sha1 = "67c1f244b991cad9b0aa4b7540fb758c2488b129"
@@ -5614,7 +7903,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.1.1+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -5624,6 +7913,12 @@ weakdeps = ["InverseFunctions"]
 
     [deps.CompositionsBase.extensions]
     CompositionsBaseInverseFunctionsExt = "InverseFunctions"
+
+[[deps.ConcurrentUtilities]]
+deps = ["Serialization", "Sockets"]
+git-tree-sha1 = "6cbbd4d241d7e6579ab354737f4dd95ca43946e1"
+uuid = "f0e56b4a-5159-44fe-b623-3e5288b988bb"
+version = "2.4.1"
 
 [[deps.ConstructionBase]]
 deps = ["LinearAlgebra"]
@@ -5685,6 +7980,16 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
+[[deps.EnumX]]
+git-tree-sha1 = "bdb1942cd4c45e3c678fd11569d5cccd80976237"
+uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
+version = "1.0.4"
+
+[[deps.ExprTools]]
+git-tree-sha1 = "27415f162e6028e81c72b82ef756bf321213b6ec"
+uuid = "e2ba6199-217a-4e67-a87a-7c52f15ade04"
+version = "0.1.10"
+
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
 git-tree-sha1 = "82d8afa92ecf4b52d78d869f038ebfb881267322"
@@ -5738,6 +8043,12 @@ git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
 uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
 version = "0.3.1"
 
+[[deps.InlineStrings]]
+deps = ["Parsers"]
+git-tree-sha1 = "9cc2baf75c6d09f9da536ddf58eb2f29dedaf461"
+uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+version = "1.4.0"
+
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -5761,6 +8072,12 @@ version = "0.2.2"
 git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
 uuid = "82899510-4779-5014-852e-03e436cf321d"
 version = "1.0.0"
+
+[[deps.JLLWrappers]]
+deps = ["Artifacts", "Preferences"]
+git-tree-sha1 = "7e5d6779a1e09a36db2a7b6cff50942a0a7d0fca"
+uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
+version = "1.5.0"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
@@ -5829,6 +8146,18 @@ version = "0.3.27"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
+[[deps.LoggingExtras]]
+deps = ["Dates", "Logging"]
+git-tree-sha1 = "c1dd6d7978c12545b4179fb6153b9250c96b0075"
+uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
+version = "1.0.3"
+
+[[deps.Lz4_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "6c26c5e8a4203d43b5497be3ec5d4e0c3cde240a"
+uuid = "5ced341a-0733-55b8-9ab6-a4889d929147"
+version = "1.9.4+0"
+
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
@@ -5863,6 +8192,12 @@ version = "1.1.0"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+
+[[deps.Mocking]]
+deps = ["Compat", "ExprTools"]
+git-tree-sha1 = "bf17d9cb4f0d2882351dfad030598f64286e5936"
+uuid = "78c3b35d-d492-501b-9361-3d52fe80e533"
+version = "0.7.8"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
@@ -5937,6 +8272,12 @@ git-tree-sha1 = "71a22244e352aa8c5f0f2adde4150f62368a3f2e"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 version = "0.7.58"
 
+[[deps.PooledArrays]]
+deps = ["DataAPI", "Future"]
+git-tree-sha1 = "36d8b4b899628fb92c2749eb488d884a926614d3"
+uuid = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
+version = "1.4.3"
+
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
 git-tree-sha1 = "5aa36f7049a63a1528fe8f7c3f2113413ffd4e1f"
@@ -5985,6 +8326,18 @@ version = "1.3.0"
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 version = "0.7.0"
+
+[[deps.Scratch]]
+deps = ["Dates"]
+git-tree-sha1 = "3bac05bc7e74a75fd9cba4295cde4045d9fe2386"
+uuid = "6c6a2e73-6563-6170-7368-637461726353"
+version = "1.2.1"
+
+[[deps.SentinelArrays]]
+deps = ["Dates", "Random"]
+git-tree-sha1 = "363c4e82b66be7b9f7c7c7da7478fdae07de44b9"
+uuid = "91c51154-3ec4-41a3-a24f-3f23e20d615c"
+version = "1.4.2"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -6061,6 +8414,12 @@ deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
 
+[[deps.TZJData]]
+deps = ["Artifacts"]
+git-tree-sha1 = "1607ad46cf8d642aa779a1d45af1c8620dbf6915"
+uuid = "dc5dba14-91b3-4cab-a142-028a31da12f7"
+version = "1.2.0+2024a"
+
 [[deps.TableTraits]]
 deps = ["IteratorInterfaceExtensions"]
 git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
@@ -6087,6 +8446,27 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[[deps.TimeZones]]
+deps = ["Dates", "Downloads", "InlineStrings", "Mocking", "Printf", "Scratch", "TZJData", "Unicode", "p7zip_jll"]
+git-tree-sha1 = "96793c9316d6c9f9be4641f2e5b1319a205e6f27"
+uuid = "f269a46b-ccf7-5d73-abea-4c690281aa53"
+version = "1.15.0"
+
+    [deps.TimeZones.extensions]
+    TimeZonesRecipesBaseExt = "RecipesBase"
+
+    [deps.TimeZones.weakdeps]
+    RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+
+[[deps.TranscodingStreams]]
+git-tree-sha1 = "5d54d076465da49d6746c647022f3b3674e64156"
+uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
+version = "0.10.8"
+weakdeps = ["Random", "Test"]
+
+    [deps.TranscodingStreams.extensions]
+    TestExt = ["Test", "Random"]
 
 [[deps.Transducers]]
 deps = ["Accessors", "Adapt", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "ConstructionBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "SplittablesBase", "Tables"]
@@ -6134,6 +8514,12 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.2.13+1"
+
+[[deps.Zstd_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "e678132f07ddb5bfa46857f0d7620fb9be675d3b"
+uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
+version = "1.5.6+0"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -6209,6 +8595,21 @@ version = "17.4.0+2"
 # ╠═df62fd47-6627-4931-b429-964c65960446
 # ╟─3b0d2c55-2123-4b51-b946-6bc352e3d00a
 # ╟─aab6ca56-57ca-421e-9b71-e3e96681c4c5
+# ╟─72b40384-9ca1-4bc1-8e1a-8b639d39e215
+# ╠═a8ec05ad-8333-4423-ab42-883ab806ebd7
+# ╠═d0b18699-7d3a-418d-9d15-be41f1643f09
+# ╠═81f2f335-6606-4506-bfb3-d0d95e651f24
+# ╠═094321bc-2d44-4e67-9ac6-5216a42e0cd3
+# ╠═6e273f2b-a1af-421f-aca7-772a836b89ef
+# ╠═ffdd925e-b2b4-4cb1-9d6f-b8c9397729f6
+# ╠═00c8f62f-dee2-476c-b896-68d3ab57a168
+# ╟─e8a6e672-b860-404f-83c1-62a080f23112
+# ╠═8586d633-7c50-49ba-9b74-b5bdad27c317
+# ╠═fcaddc19-c0c9-4e8e-8f84-adc7a02cc1f5
+# ╠═4b2a4fb1-7395-4293-9ff9-e2f9da50f56b
+# ╠═6778296c-ab05-47e7-86d2-e98c075a8a0c
+# ╠═6605b946-3010-47ed-8d88-3c4dca993cf8
+# ╠═636d768c-670d-4485-a1dd-2bab6cf086d0
 # ╟─04ea981e-337e-4324-a5cc-178eb3c7605b
 # ╟─ee0f55c6-e9c6-4199-9f27-5706f3c84863
 # ╠═f9e4baec-c988-4abd-9bb0-c618c0ec07b9
@@ -6216,12 +8617,44 @@ version = "17.4.0+2"
 # ╠═f9cdd5a8-3a9b-4be4-9a33-bb0047ac4a96
 # ╠═d4e1e807-7e87-4b43-9c36-f59999dfcd2d
 # ╠═466b1cbf-586f-4b53-8b4b-2dc32e1c8b0a
+# ╠═a29468c9-7903-48dc-8370-9fa57d6814e0
+# ╟─c97580f7-e661-4f77-a49f-a58af4a96a74
+# ╠═292ea7a8-46c9-4dd3-95be-354ca687488a
+# ╠═142c67fe-db8f-4117-9c8c-f74bc0b75bcc
+# ╠═cf0269a1-4c51-44a8-a797-8070ce61c844
+# ╠═00b3db2a-8b08-4d1e-9378-7f3dbf0dbf83
+# ╠═cc2a282c-8123-454e-8a1a-875541624079
+# ╠═240f09cb-7ef2-403b-bc6c-fcec8b5a51aa
+# ╠═56914777-eb91-4f86-bd77-f2d78b77de47
+# ╠═32bfe82c-0170-4ed3-b9fc-fb8a2486b1f2
+# ╠═42b16077-e5aa-4b8b-90c7-0fe4879cc898
+# ╠═c9c0a237-c854-4da3-9080-087f8c033f83
+# ╠═22466ece-1b0b-4b86-93d9-6582a6c6b0e5
+# ╠═148ccd64-252b-4df7-adf2-6252c60cc0ae
+# ╠═50c088e0-29e7-4752-b3b6-6f9e2a1732b9
+# ╠═8ff9264f-d808-465a-8e1e-43f8ca4f76a8
+# ╠═c7dbde95-7a5e-4df6-bfbc-0a582b3a5fe2
+# ╠═42667a97-7b1f-470a-a5ee-83ec087623dd
+# ╠═e4ca606e-215e-42dd-9b43-20667a0f73fc
+# ╠═b3392393-b470-43a5-9cd8-be936c78c608
+# ╟─4a3afb47-a0e5-48e3-b880-e4d9a4fedcea
+# ╠═c3184760-c008-4f97-aeac-f954b87c2f2f
+# ╠═b47a4ea5-6a6d-4e49-80d1-f8cd405ac19f
+# ╠═8c62de51-9217-4821-b384-f10975f7e98d
+# ╠═8bd61632-2a52-4acd-b448-d06946d34cc1
+# ╠═3461de30-6e94-4d6c-9479-4b1826315d4e
+# ╠═73c35920-a0a7-4c54-b702-45940786c3af
+# ╠═bf7950f2-05fa-4455-ad08-27735148d95c
+# ╠═f143446c-e44b-4d75-baa7-3b24eafad003
+# ╠═13f08473-f0d8-47d1-aa48-de3e4a083dbf
+# ╠═c04c91be-de42-4dfc-bd0d-b9fbdde0c9cf
 # ╠═1eb9a2ad-4584-4d32-8abb-e0e0bc0a771b
 # ╠═308fd488-a009-4de0-8b27-c1f6b0677fed
+# ╠═cffc9f11-77d7-4076-aa3b-821f1c741f58
+# ╠═f369a092-420d-4660-b802-93f05d5e7972
 # ╠═82e5719c-bbdb-4a18-b2f0-ad746b6acd41
 # ╠═f6486854-4892-4fb6-a805-de56b19b3571
 # ╠═aa898360-f802-438a-9081-a2e517230db2
-# ╠═c04c91be-de42-4dfc-bd0d-b9fbdde0c9cf
 # ╟─bc295bb5-addb-4bcf-a3e3-c839ccc346bd
 # ╠═beae0491-ed11-4edf-a136-d384578b088b
 # ╠═6a4116c9-87cf-4ee7-8030-aa1150853984
@@ -6229,25 +8662,137 @@ version = "17.4.0+2"
 # ╠═41bb1f78-b83a-4a45-ba5c-faa94e112f45
 # ╟─245d9616-e0d2-497e-bfdd-4729a7215bfd
 # ╟─68055a19-c20f-4d04-af58-ec6958d886e6
+# ╟─f567d3ac-ffd8-4c02-a0b9-47cb98bd02e7
+# ╠═b1866c34-07ce-40e5-88ea-69b2e777343e
+# ╠═5d4ca9de-8d80-4480-8f5f-39894f859d14
+# ╠═9110ecef-1b13-4de3-9f90-0f713b90dad8
+# ╠═2bafe84d-74dd-413c-b2f2-0434f4d0c2c8
 # ╠═1fc262e7-0ca6-4e8b-9add-0e2a4878cdf6
+# ╠═2e5cca97-153c-4d25-aff0-014f63dbd589
+# ╠═b20d8abe-ddda-4e35-bbdb-a87d2c68d5c0
+# ╠═a3fcec04-2676-4b0f-a43e-a5b1e8af22c6
+# ╠═3ee97faf-b295-48b9-96c2-93331f642bfd
+# ╠═e7a55f06-d97c-4812-861a-2b869eb48abb
+# ╠═dad020ac-e723-4368-be50-52949f597853
+# ╠═2459ace2-b0bd-4556-a732-3caced5f3c20
+# ╠═526199eb-6715-4962-af60-f2f8f99cd704
 # ╠═279f9c4f-341b-46ca-ae13-d427e12d67af
+# ╠═ba3d3ace-ea6f-4574-b199-4ef59e5854c9
+# ╠═72674800-293c-454d-80d8-e0fdb7a6fe4a
+# ╠═b8b35817-9ce6-410d-8cbe-add19ac63c75
 # ╠═6faf7f7e-57a2-446b-b9b2-b33cb8a5ae5e
 # ╠═207ce089-4f6a-4570-8242-9c1e22694bdd
-# ╠═3d01b065-d944-4648-84a7-a559bb573ef3
-# ╠═f78e6701-b7a6-4f16-87d1-4593282f9888
 # ╠═b534a6e3-a02f-40a2-a398-d34b4ff243aa
+# ╠═64e731e7-22d0-4aaa-a062-6cb243eab05a
 # ╠═97726300-a24d-4f9d-81cb-25c372294e25
+# ╠═58e76d92-4af1-49e2-bacd-1a0bbcd6215b
+# ╠═a8656689-50da-4098-b2fe-a2e3ec123d9d
+# ╠═3d3f7f97-7f9e-434b-ae9a-eb2a0eaa65a3
+# ╠═856faa95-1ee8-4b99-90f8-01c5e5778674
+# ╠═4aced2ac-72f2-4774-8072-101dae43729f
+# ╠═9fe1ae22-dc24-4eee-b776-f6e3fe98f80b
+# ╠═1831d76f-5008-4cb6-b6e7-c8297835e950
+# ╠═edfc70de-db94-4153-9357-239fbd66bf69
+# ╠═eb1aff1f-10d6-4a93-a6df-e9434afcf3d4
+# ╠═2a5b0b45-bad8-45f1-9d22-b6116c8393d0
+# ╠═a1f98546-1c05-4ed2-a38e-724dbf091f57
+# ╠═42bc1cc9-f034-441f-a17a-4b0a346fac75
+# ╠═9e0ff3b4-44b6-4b8c-9a2f-39489b2c4e0a
+# ╟─dc6149ee-306c-45cf-a32b-13697353df87
+# ╠═46eef729-94a7-4732-a63e-8b41f898457a
+# ╠═06848289-3e41-4f79-850e-73750176c5a1
+# ╠═3682ff2d-dd38-4ccf-8cb7-207196048605
+# ╠═33315ed8-f7ec-44e3-8a32-8e8603bebb6e
+# ╠═c4022d28-fbd6-4038-b7d2-3612a9731222
+# ╠═c8aaf5a8-c6e6-4753-ac55-a14a1e691ce5
+# ╠═e2cca0de-83a1-4a11-bf2e-68e72663cc9c
+# ╟─c64c467e-e87c-4d7d-8d80-b5b6e4ffb5a6
+# ╟─4779d6ad-2303-4321-b344-ac4792a40efc
+# ╠═b99a78c4-0151-4f34-b856-b31fa894e6d6
+# ╠═fb0adff2-ea5f-4082-b5eb-2699d19c1b88
+# ╟─c4897b9b-c271-4585-81ed-17b0b27611e5
+# ╠═eaabbc5b-8830-4cf7-bde1-b0772b70276f
+# ╟─473441f0-fbdd-4ceb-8547-fe552f8071a3
+# ╠═12365e11-66f8-4b50-820d-32117b726c7b
+# ╟─d3311374-9817-49aa-8aa6-07cae624953e
+# ╠═17ea9eb2-a93d-4844-91b1-c21aaee2ba12
+# ╠═e6904a29-876b-464c-9fed-ad2cc2d3bdbb
+# ╠═b6f8c855-e90a-4706-90f2-005a8b50874d
+# ╠═b98acb66-78be-49cd-9823-75a3508cb786
+# ╠═39630f12-3b92-441c-93c3-bc37ce629dad
+# ╟─b3622a76-0cf1-4655-9f06-7851e1e16dc0
+# ╠═3234af92-f821-430f-83c2-5b8f75470f0c
+# ╠═9e499977-f429-420c-9315-19973c3dd2b5
+# ╠═888885e3-7fd7-44f0-afe0-c23db48ca5b3
+# ╠═677f3fb4-3494-488f-872f-47393db1f5ed
+# ╠═5a92edca-66db-4f3e-8b00-b64f2089f2dc
+# ╠═438e6442-7a28-487f-89d1-0bbbec602071
+# ╠═86572161-4057-47ac-a3c1-a61e6a603d6f
+# ╠═78b657c5-ae4e-479f-afc5-2c6019a80fd9
+# ╠═e595a9a1-8f48-4a30-83c8-c98ea615941d
+# ╠═7384c01b-58d2-4e7c-bf9e-c077df67da6e
+# ╠═5d6d7a92-5fb3-4e01-8912-3b58fa2cca39
+# ╠═7dec3414-70b1-4f8f-bcff-dbcceffe12c9
+# ╠═24972163-b8d2-4b46-9ae6-7cb78a437879
+# ╠═fbca8dd6-51b1-4d7c-a7d1-5a5d09b51fa8
+# ╟─b605e087-fa4c-4dba-908d-cb482d6c14f0
+# ╠═45eb450e-aa4f-47f2-a82d-59b4a807931a
+# ╠═fa1b90c9-d845-45ac-8fe2-befe7178519e
+# ╠═fa649626-cb2d-4f77-8ba8-25e32ad29d9f
+# ╠═6dbf1bd0-242c-4604-849f-a9c9813c2007
+# ╟─806513f4-f772-444b-aec2-960861dfcb06
+# ╟─0cf9b9e2-b66b-42e2-9c55-71a08993293f
+# ╟─d3fd0986-6503-4c84-9a2f-c8ca69973cce
+# ╠═0753c910-99be-487d-bad0-5589131c378e
+# ╟─05427e12-c2e1-4fc1-a8f6-05d439448b0b
+# ╟─694eec04-9310-44de-8662-9e4708970441
+# ╠═505a9c9d-b29e-415b-8877-13c288117880
+# ╠═94b08be9-10f0-4e78-8cb6-80d656b8b581
+# ╠═41f38d60-1182-452d-b3d2-256e85beafed
+# ╠═55c35042-6b63-4171-9917-e5f3ac1f4aa7
+# ╠═119f5a23-4695-475b-b470-884efada8db9
+# ╠═7fe35ca2-d689-4eb0-9088-43b0e9897b99
+# ╟─cbd05245-8d1a-42bb-adb0-57cab40ca207
+# ╠═746d9e90-4c21-4a68-8f01-bba85f7705da
+# ╠═b07a52b1-4f8b-46f4-a7b2-a3bf48c80d3a
+# ╠═8f4c19d9-d7fc-4878-a779-ec8da99086a9
+# ╟─6738ecb1-dae2-4b09-a5a5-27fafb21555e
+# ╠═d92630e4-c811-4e89-9f65-f6fba05bea91
+# ╠═68955ae4-899c-48e2-8f1b-268b322c40e1
+# ╠═90145602-bec7-431f-92c8-17b440b74a70
+# ╠═cd70997f-df01-4e28-8a7e-ab9ffad1bbd4
+# ╠═fcda3b7f-de53-4d37-9163-01690f64232f
+# ╠═53f816af-f101-41fb-a196-bca33239568a
+# ╠═8ce704b3-d0e2-4767-af5b-ac43204c6f85
+# ╟─86177801-c230-477e-92cf-cf05d11c4cae
+# ╠═9a97626c-769f-4db1-8e7c-2de3e75b5f60
+# ╠═ec912b7c-4929-4814-8703-81593f049936
+# ╠═198f54d8-4445-4fc8-b817-507273016301
+# ╠═030b1ef8-1fb6-4959-a9bc-330f180b4513
+# ╠═9b011de7-eb21-4112-b831-6509f676b1c4
+# ╠═201b3f62-e7c9-49aa-81b1-e8a1dea9d9a1
+# ╠═38b801dd-4cd5-4177-8e81-690db1444277
+# ╠═1aa3bb1d-e18d-4908-a814-b2d82424207c
+# ╠═fff8cf2c-0b9d-4c4d-9eac-58c2acfe4f42
+# ╠═398efb2a-50d0-4b21-b500-7ee96e666a3d
+# ╠═159e91f1-236f-462c-979f-7d21b4ab1b73
+# ╠═cfd222a4-5767-4b93-9a2a-3c1875ae7453
+# ╠═e25f0625-71cd-423a-bf8b-c1f103c358c4
+# ╠═1e934cc4-67a5-4d76-b342-3f39a6c1c11e
+# ╠═e16e20e0-aea6-44d8-8c9f-bdd0efe56b8f
+# ╠═74beda6b-ab05-4057-8562-e607321f527a
+# ╠═14321f1e-efec-4e56-96a1-9092bd9a1d61
+# ╠═cf953ae4-eae9-495e-ba07-1a4f8019fc29
 # ╠═ec92c8f2-31c3-4916-bb3b-360a8f3d0f5d
 # ╠═a8aabaaa-96be-4242-b820-dbd0770ebb28
 # ╠═c4bdbcda-e822-40f1-833a-1a2a70091adb
-# ╠═cf953ae4-eae9-495e-ba07-1a4f8019fc29
-# ╠═5421ba3f-c931-49ab-9c68-c83976af6b10
-# ╠═ac30943f-796a-4115-842a-6cd774d5bcee
+# ╠═ab61e2f4-58e5-4452-936f-845f2d4411ce
 # ╠═43e52a0d-9d22-44fd-8f6d-4f1e10b994ee
-# ╠═cb8eb6af-489a-4729-b8f7-df79b8c41029
+# ╠═91eb453f-25b5-4365-9aa1-af811fee90f5
 # ╠═04f72ea4-a0de-4f5f-b49f-9dde8ce457c7
 # ╠═e528b911-9b63-441b-b8f2-750d3283c3f1
 # ╠═ece29669-ddf4-4566-9e3f-370390113d5e
+# ╠═ac1658fa-d74c-415c-9951-42bed3884d63
 # ╠═7193a66c-a685-4d57-b1b0-88f5e9e9af62
 # ╠═3d5e2c56-d2ec-482a-81cb-449a6248251a
 # ╠═5c1a0f11-d56d-4628-85d7-b889db4dfb72
@@ -6259,24 +8804,12 @@ version = "17.4.0+2"
 # ╠═cadf4308-46c2-4763-8949-f83539781bd9
 # ╠═7e60a977-ac32-4ee3-a56d-24dccc23437a
 # ╠═709eb45c-6f48-46cd-b748-f1a60e8ecd4e
-# ╠═2f9abc83-88ee-4d78-9aef-8608512d8dcb
 # ╠═958ab525-bd40-4536-a0b7-24a203d6b152
-# ╠═fa1b90c9-d845-45ac-8fe2-befe7178519e
+# ╠═b2948c3c-eeae-4744-9bd2-854904624e29
 # ╠═71366c5f-0e44-41d8-ab80-f2c77e51bfb8
 # ╠═d5f3ac61-0696-41aa-a547-24d436ac8d77
 # ╠═2352ab2b-ddaf-485a-a849-4c53f0cf66b6
 # ╠═775e9b74-1cf2-411e-be69-a1acb9503219
-# ╠═b2948c3c-eeae-4744-9bd2-854904624e29
-# ╠═6dbf1bd0-242c-4604-849f-a9c9813c2007
-# ╟─806513f4-f772-444b-aec2-960861dfcb06
-# ╟─0cf9b9e2-b66b-42e2-9c55-71a08993293f
-# ╟─d3fd0986-6503-4c84-9a2f-c8ca69973cce
-# ╠═6363ec1b-75e8-41f4-9a89-94dd8791a5c8
-# ╟─05427e12-c2e1-4fc1-a8f6-05d439448b0b
-# ╟─694eec04-9310-44de-8662-9e4708970441
-# ╟─505a9c9d-b29e-415b-8877-13c288117880
-# ╟─2f4c42a5-8677-41e8-be9e-6d0faf9cb8ef
-# ╟─599b1973-5455-48db-8243-1b57f3169061
 # ╟─bdb30c10-677f-4d04-97d2-3489617475e1
 # ╠═720560c2-5970-4547-b0d5-82886a7f03ba
 # ╠═e672f702-7981-43ab-b9ac-54ea7e8712db
@@ -6292,14 +8825,29 @@ version = "17.4.0+2"
 # ╠═275eb69b-4ede-41d3-8e1c-280fb8acabb2
 # ╠═26ca0740-daaf-4f26-9522-6e7ce079d9db
 # ╟─7225270f-5c8c-4a32-af95-02b16891dd00
-# ╠═b7eef9f6-aa97-42ff-ab4c-8fc4bcbbec10
+# ╠═1b10397c-df09-42a9-98c0-2beff29ea3c8
 # ╠═4bef885c-7e09-4c3c-9e71-65331c6eed52
+# ╠═6d64f35b-254d-4d6d-810b-6eaf540d1bc0
+# ╠═69c4c7f7-105f-434c-9968-8ee9857f4679
+# ╠═99928c75-9f5a-4889-bb0d-cdf9e44eae51
+# ╠═b7eef9f6-aa97-42ff-ab4c-8fc4bcbbec10
+# ╠═a7270c87-6d77-4bae-aff2-7b05214e0962
 # ╠═027cf9bf-48c8-49b4-aef8-7e62a4383be0
 # ╟─925e26fb-4d4e-4454-b932-6a8658921e3d
+# ╟─f82b750b-03d1-4b8b-9561-1027e7fa8b5b
+# ╟─57c03a96-45ae-46be-85f8-a80b95a20e46
 # ╠═28fc66bd-e50e-4e31-8b14-3677c8137976
-# ╟─8809ddaa-ac37-4588-9225-d0fdb37e1513
-# ╠═2aa38e11-af55-4763-9576-4569dc1fad43
-# ╠═bd721132-8d2c-4496-b029-0751d0db5b4b
+# ╠═4cc06fa0-e3f1-4362-afe0-028f12bf388a
+# ╠═be6f54f7-35df-40cb-b5e5-19519be47d64
+# ╟─7ba03410-3cd2-496a-9b54-f208604e243b
+# ╠═6d898971-de3b-4ab3-a83c-908fb6a10d6e
+# ╠═2ca62a4d-965d-458f-bbf5-3c7d8d6be538
+# ╠═bccaa87b-7fa8-4d5e-8969-35fccf68ea05
+# ╠═72d7f7c0-1939-4a4c-9844-4677ec5b8290
+# ╠═ff1ff4f9-1173-4627-8e32-72ba9716723c
+# ╠═ebad3990-b937-4717-a6ab-29b9f8ab4da5
+# ╠═95afae86-735c-4410-8391-1335a8cc9d42
+# ╠═6e099447-e938-409b-bc15-b54dedcf7427
 # ╟─263d6d7c-d5f4-4b57-9a8c-94ef73883229
 # ╠═61e5ab45-a216-43ba-8c0e-c28e48697949
 # ╠═51cd79a4-cd6f-4f2b-a3d0-6f869f7b06a3
@@ -6312,6 +8860,7 @@ version = "17.4.0+2"
 # ╠═6858ef8b-1ca7-4e96-b57e-26553423cc13
 # ╠═037f1804-b24e-46e7-b2a8-6747e669db66
 # ╠═e25ec0d5-f70f-4269-b2a1-efa194936f72
+# ╠═47ce2eda-b2c4-4f81-8d91-955bc35bab49
 # ╠═304e6afd-11e0-4011-9929-85889b988400
 # ╠═c62cc32c-0d29-4ea2-8284-ac4c883df6db
 # ╠═fb5601b0-06d4-43c4-81a6-23a4a8f29f00
@@ -6324,11 +8873,23 @@ version = "17.4.0+2"
 # ╠═6612f482-2f10-43fa-9b7b-2f0c6a94b8e8
 # ╠═e43513e8-2517-43b7-9a16-e57d4125edc4
 # ╠═94b339bb-6e2d-422f-8043-615e8be9a217
+# ╠═f8bf29fe-568f-437f-ba82-6b861988a18e
+# ╠═82e1ceb8-b1bb-4dea-b041-bf462041793f
+# ╠═e4f73889-af82-4304-89d5-ee50172eb3da
+# ╠═ecd8742c-2e10-4814-b477-7024e85b7fa6
+# ╟─8168bb85-2c96-4ef3-9ec7-3adc68b88701
+# ╠═fc137613-7b4b-414c-93af-eeb2ace5d67f
+# ╠═6c8cd429-2c2e-4515-98b2-d0394962e479
+# ╠═3b4e27e7-8065-44b3-bc2a-e540913aa540
+# ╠═250ea9da-dea3-4bf3-932d-cdda6756ae33
 # ╠═726af565-8905-4409-864f-a5c1b5767e09
 # ╠═33f66659-1a87-4890-9137-dbc7776a19d8
 # ╠═195d2a34-c44c-4088-8ec4-dece3107f16d
+# ╠═16c68a13-c295-4a64-bc2b-2ae8451f332f
+# ╠═44364e7f-1910-421a-b961-63fbbaac8230
 # ╠═80affd41-b5e6-4b9c-b827-4e3b39bd7767
 # ╠═0899f37c-5def-4d15-8ca3-ebdec8e96b43
+# ╠═2fa207dd-749f-4dc0-b4ab-159edf1d9bce
 # ╠═6cf35193-dba5-4f78-a4ac-245dda7a0846
 # ╠═96bd8d33-d4e8-45bf-9b75-43e8bda6fa07
 # ╠═5e49504e-9623-48f9-aeb5-360906b92a09
@@ -6343,7 +8904,7 @@ version = "17.4.0+2"
 # ╠═9be963b9-f3a1-4f92-8ff9-f5be75ed52f2
 # ╠═113d2bc2-1f77-479f-86e5-a65b20672d7a
 # ╠═5d2abde0-7128-41c3-bd1f-b6940492d1ae
-# ╠═4e1c115a-4020-4a5a-a79a-56056892a953
+# ╟─4e1c115a-4020-4a5a-a79a-56056892a953
 # ╠═729197ce-2c27-467d-ba5f-47a1ecd539f2
 # ╠═bb439641-30bd-495d-ba70-06b2e27efdbd
 # ╠═77fde69f-2119-41eb-8993-a93b2c47ca7e
@@ -6366,6 +8927,7 @@ version = "17.4.0+2"
 # ╠═7be538ed-ef59-468d-ba12-dcec648090aa
 # ╠═f6271cf5-16cf-47b5-9dad-1da19a16552a
 # ╠═07c841dc-c336-4feb-a7be-42a005607f68
+# ╠═8a89798b-1248-4103-b03d-9425cf06ca50
 # ╟─bcc58a57-cf87-450f-adfd-df02a8c6788c
 # ╟─c45fa0f8-8b8c-4914-b496-812268209a03
 # ╠═a93321b4-ce24-47dd-94e0-f5c4aa5cd7e7
@@ -6380,6 +8942,7 @@ version = "17.4.0+2"
 # ╠═3ee02281-cbf2-442a-bed2-313801547e8b
 # ╠═b2931c88-2683-45a9-bda7-ac31ec0f10ff
 # ╠═01090503-bae6-447c-8e49-f0d7db60c78d
+# ╠═fda6fd5a-78ab-44ea-9386-a8efd38dbcb3
 # ╠═5c9ac5f0-f835-4b3a-b2e0-d050ebdf789c
 # ╠═0390e3ca-71c8-4cbf-9c53-8580b0f6fc36
 # ╠═ae632a63-1504-4992-ad6c-fd0156a53fc5
@@ -6392,10 +8955,54 @@ version = "17.4.0+2"
 # ╠═68795768-d538-4ec8-a02f-dd2df36a0c32
 # ╠═2c4cde98-6153-4961-a951-a0aee1e34a56
 # ╠═83d8501b-a061-47b8-80a3-84a42e025952
+# ╠═ded3299c-6c48-4e38-a55e-5a5beead75cd
 # ╠═8626cae1-c9ad-492e-b46b-74ca36dac2ad
 # ╠═61f2e2c3-f489-4a58-bd19-5c1760c57516
 # ╠═23675049-2fb5-4dde-b919-a457ed837192
 # ╠═3b491841-de32-4bd8-bae8-1e197bdc0026
+# ╠═56e95a0c-53ea-47d1-8dd9-98ce9861723a
+# ╠═33378c3d-0711-48e5-88fd-9be6c75bac25
+# ╠═a22a0582-7d6b-40df-980e-b387dd826344
+# ╠═7a63fe17-8037-4c2d-9463-590d450711b5
+# ╠═a8e313ca-d49f-4f72-b80c-c37e2ec87318
+# ╠═7ee9cf97-b7d0-492d-8d79-2132403e29a4
+# ╠═488ffc66-85b9-4c6c-b9c1-b1001facdb92
+# ╠═cf909eb2-50ea-4499-8e1f-7e813b1f7367
+# ╠═6c9c4b98-89b9-4437-b2c0-defca59505f6
+# ╠═db8c1019-49de-49f7-a9f1-e969f9591277
+# ╠═9608a53f-aa95-472c-ab83-7fee8472d952
+# ╠═8da4d04c-80e4-435f-b23d-eeb41db8f193
+# ╠═53b5e5e7-edf5-49d0-88bc-f3c983bd8b73
+# ╠═de5316be-a766-4c78-86d5-74501e91d811
+# ╠═6823d330-7cb5-4a6b-8059-d6e045171e8a
+# ╠═34de31cd-c153-4873-b847-c41045779fce
+# ╠═795c6ee8-d7c3-4d51-a593-e554f24ac8ad
+# ╠═e270c061-aeee-4a9a-abd2-e60e2f09f12d
+# ╠═cf0850f0-d143-43a0-9a7b-05fe7b3706c5
+# ╠═2311a3a6-7a51-4e91-9c4d-9045f8ef01be
+# ╠═1868e971-be35-48b9-8027-0a138b5f4c18
+# ╠═97b523bf-1536-4376-bb8d-a8489cb5b441
+# ╠═2db19adc-7afe-44c4-ad48-452b16629157
+# ╠═31b7db7e-daaa-41f5-a146-58309a4959bc
+# ╠═1ac54ffa-39a4-4573-a865-9c8869552f86
+# ╠═f28053e2-c1b8-4a8e-a3a5-20169225e700
+# ╠═73b471fd-87ee-44ad-a4ae-928d758fd3ce
+# ╠═755d4645-96cd-4102-a469-0d65aed5f66a
+# ╠═18b13bec-efda-4258-8a4d-0ffe22b2e75d
+# ╠═954e4227-e7d5-41c7-bcab-d7b5ef875785
+# ╠═2aeae653-37b5-4a33-91eb-09219e397cc6
+# ╠═2521aa03-c3a6-4439-bd93-7bd3aa4ffaf5
+# ╠═be3f9ab9-9370-409d-b8c5-5b9a24e23b65
+# ╠═43a15c05-2913-4ee5-9f48-4a758cf1b76f
+# ╟─cf67585e-4e32-4b1c-a4f2-4e49245e5b90
+# ╠═70f397dd-7207-46fb-a53d-104e32168797
+# ╠═df33a472-e1b1-46c5-8735-0f5183f2a2e0
+# ╠═d5af3423-7816-4461-a723-fa9aadd6bc20
+# ╠═aee540a7-9008-43b9-b6c8-2c181ccbd287
+# ╠═5a5e7963-31d8-4ed7-a9c2-7d60c36e8bba
+# ╠═2e624d80-d31d-41a3-b9e3-db9e083f0fd3
+# ╠═6dc8cabf-837b-49d9-8f5c-8bdb878a8920
+# ╠═2499b467-90e3-4844-a46d-1d0c8e0e4772
 # ╠═7995ae22-7dc0-4159-98f1-880dc7bab17e
 # ╠═98039f05-89e3-4a4a-b9af-df31f0deb220
 # ╠═88d82565-cada-4730-9141-fb9970f94ed9
@@ -6412,6 +9019,7 @@ version = "17.4.0+2"
 # ╠═6f3c8bfd-6fdf-431b-967c-23df2b78767f
 # ╠═3d0e9926-445a-47d1-9afd-39b9f85c3a3d
 # ╠═cb0d3512-83c1-4388-a61b-9329ca5fe043
+# ╠═9eb64b71-7926-489d-9895-70b3d115a01a
 # ╠═3de16be2-ec6d-4223-bd0d-01bcaf1b8020
 # ╠═c7e09857-fc41-42d1-accf-0c612c4fec20
 # ╠═64895574-21cf-4a12-97f5-584ba56ffc9a
