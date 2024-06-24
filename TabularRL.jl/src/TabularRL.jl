@@ -28,7 +28,7 @@ export monte_carlo_policy_prediction, monte_carlo_policy_prediction_v, monte_car
 export td0_policy_prediction, td0_policy_prediction_v, td0_policy_prediction_q#, sarsa, expected_sarsa, q_learning
 
 #----------Gridworld Environment------------
-export GridworldState, GridworldAction, rook_actions, make_gridworld
+export GridworldState, GridworldAction, rook_actions, make_deterministic_gridworld, make_stochastic_gridworld
 
 @setup_workload begin
     γ = 0.9f0
@@ -36,7 +36,8 @@ export GridworldState, GridworldAction, rook_actions, make_gridworld
     α = 0.1f0
     max_steps = 100
     @compile_workload begin
-        (mdp, isterm, init_state) = make_gridworld()
+        for f in [make_deterministic_gridworld, make_stochastic_gridworld]
+        (mdp, isterm, init_state) = f()
         policy_iteration_v(mdp, γ)
         value_iteration_v(mdp, γ)
         sample_mdp = SampleTabularMDP(mdp, () -> init_state)
@@ -48,6 +49,7 @@ export GridworldState, GridworldAction, rook_actions, make_gridworld
         # sarsa(sample_mdp, γ, num_episodes, α)
         # expected_sarsa(sample_mdp, γ, num_episodes, α)
         # q_learning(sample_mdp, γ, num_episodes, α)
+        end
     end
 end
 end # module TabularRL
