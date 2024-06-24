@@ -2506,6 +2506,37 @@ To calculate the possible remaining answers, we must use the feedback informatio
 # ╔═╡ 783d068c-77b0-43e1-907b-e532317c5afd
 import Base.:(==)
 
+# ╔═╡ bb5ef5ff-93fe-4985-a920-442862e4498b
+import Base.hash
+
+# ╔═╡ 1d5ba870-3110-4576-a116-a8d0a4d84edc
+begin
+	const wordle_actions = collect(eachindex(nyt_valid_words))
+
+	struct WordleState{N}
+		guess_list::SVector{N, UInt16}
+		feedback_list::SVector{N, UInt8}
+	end
+
+	#initialize a game start
+	WordleState() = WordleState(SVector{0, UInt16}(), SVector{0, UInt8}())
+	
+	function Base.:(==)(s1::WordleState{N}, s2::WordleState{N}) where N
+		(s1.guess_list == s2.guess_list) && (s1.feedback_list == s2.feedback_list)
+	end
+
+	Base.:(==)(s1::WordleState{N}, s2::WordleState{M}) where {N, M} = false
+
+	const wordle_init_states = [WordleState()]
+
+	get_possible_indices!(inds::BitVector, s::WordleState; kwargs...) = get_possible_indices!(inds, s.guess_list, s.feedback_list; kwargs...)
+
+	get_possible_indices(s::WordleState; inds = copy(nyt_valid_inds), kwargs...) = get_possible_indices(inds, s; kwargs...)
+
+	#games are over after 6 guesses
+	isterm(s::WordleState{N}) where N = (N >= 6)
+end
+
 # ╔═╡ 05b55c5f-0471-4032-9e7a-b61c58b33ce1
 begin
 	"""
@@ -2602,37 +2633,6 @@ function make_feedback_sets(feedback_matrix)
 	end
 	#bit vectors that represent the indices of possible answers consistent with a combination of guess and feedback
 	return out
-end
-
-# ╔═╡ bb5ef5ff-93fe-4985-a920-442862e4498b
-import Base.hash
-
-# ╔═╡ 1d5ba870-3110-4576-a116-a8d0a4d84edc
-begin
-	const wordle_actions = collect(eachindex(nyt_valid_words))
-
-	struct WordleState{N} where N
-		guess_list::SVector{N, UInt16}
-		feedback_list::SVector{N, UInt8}
-	end
-
-	#initialize a game start
-	WordleState() = WordleState(SVector{0, UInt16}(), SVector{0, UInt8}())
-	
-	function Base.:(==)(s1::WordleState{N}, s2::WordleState{N}) where N
-		(s1.guess_list == s2.guess_list) && (s1.feedback_list == s2.feedback_list)
-	end
-
-	Base.:(==)(s1::WordleState{N}, s2::WordleState{M}) where {N, M} = false
-
-	const wordle_init_states = [WordleState()]
-
-	get_possible_indices!(inds::BitVector, s::WordleState; kwargs...) = get_possible_indices!(inds, s.guess_list, s.feedback_list; kwargs...)
-
-	get_possible_indices(s::WordleState; inds = copy(nyt_valid_inds,) kwargs...) = get_possible_indices(inds, s; kwargs...)
-
-	#games are over after 6 guesses
-	isterm(s::WordleState{N}) where N = (N >= 6)
 end
 
 # ╔═╡ 93b857e5-72db-4aaf-abb0-295beab4073c
@@ -2837,7 +2837,7 @@ const wordle_original_entropy = log2(length(wordle_original_answers))
 const information_gain_lookup = Dict{BitVector, @NamedTuple{best_guess::Int64, best_score::Float32, expected_entropy::Float32, guess_scores::Vector{Float32}, ranked_guess_inds::Vector{Int64}}}()
 
 # ╔═╡ 4eb18ec4-b327-4f97-a380-10469441cff8
-
+function eval_guess_information_gain
 
 # ╔═╡ aaf516b5-f982-44c3-bcae-14d46ad72e82
 md"""

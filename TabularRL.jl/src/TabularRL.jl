@@ -6,7 +6,7 @@ include(joinpath(@__DIR__, "..", "..", "Tabular-Methods-Summary", "tabular_metho
 
 #---------Types------------
 #dynamic programming mdp types
-export AbstractMDP, AbstractTabularMDP, AbstractCompleteMDP, FiniteDeterministicMDP, FiniteStochasticMDP
+export AbstractMDP, AbstractTabularMDP, AbstractCompleteMDP, FiniteDeterministicMDP, FiniteStochasticMDP, AbstractAfterstateMDP, AbstractTabularAfterstateMDP, FiniteAfterstateMDP, SampleAfterstateMDP
 
 #sample mdp types
 export AbstractSampleTabularMDP, SampleTabularMDP
