@@ -6,10 +6,10 @@ include(joinpath(@__DIR__, "..", "..", "Tabular-Methods-Summary", "tabular_metho
 
 #---------Types------------
 #dynamic programming mdp types
-export AbstractMDP, AbstractTabularMDP, AbstractCompleteMDP, FiniteDeterministicMDP, FiniteStochasticMDP, AbstractAfterstateMDP, AbstractTabularAfterstateMDP, FiniteAfterstateMDP, SampleAfterstateMDP
+export AbstractMDP, AbstractTabularMDP, AbstractCompleteMDP, FiniteDeterministicMDP, FiniteStochasticMDP, AbstractAfterstateMDP, AbstractTabularAfterstateMDP, FiniteAfterstateMDP, AfterstateMDP
 
 #sample mdp types
-export AbstractSampleTabularMDP, SampleTabularMDP
+export AbstractSampleTabularMDP, SampleTabularMDP, SampleMDP
 
 #sampling and averaging types
 export AbstractAveragingMethod, SampleAveraging, ConstantStepAveraging
@@ -26,6 +26,9 @@ export monte_carlo_policy_prediction, monte_carlo_policy_prediction_v, monte_car
 
 #temporal difference solution methods
 export td0_policy_prediction, td0_policy_prediction_v, td0_policy_prediction_q#, sarsa, expected_sarsa, q_learning
+
+#planning solution methods
+export monte_carlo_tree_search, rollout, uct, apply_uct!
 
 #----------Gridworld Environment------------
 export GridworldState, GridworldAction, rook_actions, make_deterministic_gridworld, make_stochastic_gridworld

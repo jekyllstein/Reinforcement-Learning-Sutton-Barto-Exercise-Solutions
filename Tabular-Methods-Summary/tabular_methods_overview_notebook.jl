@@ -1305,6 +1305,16 @@ function make_greedy_policy!(π::Matrix{T}, mdp::FiniteDeterministicMDP{T, S, A}
 	return π
 end
 
+#take a value distribution over actions and convert it into a greedy policy
+function make_greedy_policy!(v::Vector{T}) where T<:Real
+	maxv = -Inf
+	for i in eachindex(v)
+		maxv = max(maxv, v[i])
+	end
+	v .= (v .≈ maxv)
+	v ./= sum(v)
+end
+
 function make_greedy_policy!(π::Matrix{T}, mdp::FiniteStochasticMDP{T, S, A}, V::Vector{T}, γ::T) where {T<:Real,S,A}
 	for i_s in eachindex(mdp.states)
 		maxv = -Inf
@@ -2112,11 +2122,14 @@ begin
 		state_init::H #function that produces an initial state for an episode
 		isterm::I #function that returns true if the state input is terminal
 		action_index::Dict{A, Int64}
-		function AfterstateMDP(state_init::H, actions::Vector{A}, afterstate_step::F, afterstate_transition::G, isterm::I) where {A, F<:Function, G<:Function, H<:Function, I<:Function}
+		function AfterstateMDP{T, S, AS}(state_init::H, actions::Vector{A}, afterstate_step::F, afterstate_transition::G, isterm::I) where {T<:Real, S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
 			s0 = state_init()
-			(r, w) = afterstate_step(s0, 1)
+			(r, w) = afterstate_step(s0, first(actions))
 			action_index = makelookup(actions)
-			new{typeof(r), typeof(s0), typeof(w), A, F, G, H, I}(actions, afterstate_step, afterstate_transition, state_init, isterm, action_index)
+			@assert typeof(s0) <: S
+			@assert typeof(w) <: AS
+			@assert typeof(r) <: T
+			new{T, S, AS, A, F, G, H, I}(actions, afterstate_step, afterstate_transition, state_init, isterm, action_index)
 		end	
 	end
 end
@@ -2688,6 +2701,90 @@ runepisode(mdp::SampleTabularMDP{T, S, A, F, G, H}; π::Matrix{T} = make_random_
 
 end
 
+# ╔═╡ 854fa686-914c-4a56-a975-486a542c0a9b
+function episode_update!(v::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, α::T) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+i_s = mdp.state_init()
+	while !mdp.isterm(i_s)
+		(r, i_s′, i_a) = takestep(mdp, π, i_s)
+		v[i_s] += α * (r + γ*v[i_s′] - v[i_s])
+		i_s = i_s′
+	end
+end
+
+# ╔═╡ 337b9905-9284-4bd7-a06b-f3e8bb44679c
+function td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T, initialize_value_function::Function; save_value_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
+	value_estimate = initialize_value_function(mdp) #default is 0 initialization
+	if save_value_history
+		value_history = zeros(T, size(value_estimate)..., num_episodes)
+	end
+	
+	for ep in 1:num_episodes
+		episode_update!(value_estimate, mdp, π, γ, α)
+		save_value_history && update_value_history!(value_history, value_estimate, ep)
+	end
+	final_v = value_estimate
+	if save_value_history
+		return (final_value_estimate = final_v, value_estimate_history = value_history)
+	else
+		return value_estimate
+	end
+end
+
+# ╔═╡ ac7606f4-5986-4110-9acb-d7b089e9c98a
+td0_policy_prediction_v(args...; kwargs...) = td0_policy_prediction(args..., initialize_state_value; kwargs...)
+
+# ╔═╡ 034734a7-e7f0-4ea5-b252-5916f67c65d4
+@skip_as_script td0v = td0_policy_prediction_v(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
+
+# ╔═╡ 6e2a99bc-7f49-4455-8b23-11392e47f24d
+td0_policy_prediction_q(args...; kwargs...) = td0_policy_prediction(args..., initialize_state_action_value; kwargs...)
+
+# ╔═╡ 749b5691-506f-4c7f-baa2-6d3e9b2607b9
+@skip_as_script td0q = td0_policy_prediction_q(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
+
+# ╔═╡ b67ca69e-24ab-4893-90a2-85275b6fa306
+begin
+#note that for this type of MDP we can no longer refer to everything by its index and the policy must now be a function of the state rather than a matrix
+function runepisode(mdp::SampleMDP{T, S, A, F, G, H}, π::Function, s0::S, a0::A; max_steps = Inf) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
+	s = s0
+	a = a0
+	states = Vector{S}()
+	actions = Vector{A}()
+	push!(states, s)
+	(r, s′, a) = takestep(mdp, s, a)
+	push!(actions, a)
+	rewards = [r]
+	step = 2
+	sterm = s
+	if mdp.isterm(s′)
+		sterm = s′
+	else
+		sterm = s
+	end
+	s = s′
+
+	#note that the terminal state will not be added to the state list
+	while !mdp.isterm(s) && (step <= max_steps)
+		push!(states, s)
+		a = π(s)
+		(r, s′, a) = takestep(mdp, s, a)
+		push!(actions, a)
+		push!(rewards, r)
+		s = s′
+		step += 1
+		if mdp.isterm(s′)
+			sterm = s′
+		end
+	end
+	return states, actions, rewards, sterm
+end
+
+#define default behavior for leaving out the policy function (default to random policy), the initial state (use the state_init function), or the initial action (use the policy from the starting state)
+runepisode(mdp::SampleMDP{T, S, A, F, G, H}, π::Function, s0::S; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function} = runepisode(mdp, π, s0, π(s0); kwargs...)
+runepisode(mdp::SampleMDP{T, S, A, F, G, H}, s0::S; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function} = runepisode(mdp, make_random_policy(mdp), s0; kwargs...)
+runepisode(mdp::SampleMDP; kwargs...) = runepisode(mdp, make_random_policy(mdp), mdp.state_init(); kwargs...)
+end
+
 # ╔═╡ 1fed0e8d-0014-4484-8b61-29807caa8ef7
 @skip_as_script runepisode(deterministic_gridworld.mdp, deterministic_gridworld.init_state, deterministic_gridworld.isterm)
 
@@ -2866,97 +2963,13 @@ end
 # ╔═╡ d4435765-167c-433b-99ea-5cb9f1f3ac82
 @skip_as_script off_policy_control_gridworld = monte_carlo_off_policy_control(deterministic_sample_gridworld, 0.9f0, 10_000)
 
-# ╔═╡ 854fa686-914c-4a56-a975-486a542c0a9b
-function episode_update!(v::Vector{T}, mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, α::T) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-i_s = mdp.state_init()
-	while !mdp.isterm(i_s)
-		(r, i_s′, i_a) = takestep(mdp, π, i_s)
-		v[i_s] += α * (r + γ*v[i_s′] - v[i_s])
-		i_s = i_s′
-	end
-end
-
-# ╔═╡ 337b9905-9284-4bd7-a06b-f3e8bb44679c
-function td0_policy_prediction(mdp::AbstractSampleTabularMDP{T, S, A, F, G, H}, π::Matrix{T}, γ::T, num_episodes::Integer, α::T, initialize_value_function::Function; save_value_history = false, kwargs...) where {T<:Real,S, A, F<:Function, G<:Function, H<:Function}
-	value_estimate = initialize_value_function(mdp) #default is 0 initialization
-	if save_value_history
-		value_history = zeros(T, size(value_estimate)..., num_episodes)
-	end
-	
-	for ep in 1:num_episodes
-		episode_update!(value_estimate, mdp, π, γ, α)
-		save_value_history && update_value_history!(value_history, value_estimate, ep)
-	end
-	final_v = value_estimate
-	if save_value_history
-		return (final_value_estimate = final_v, value_estimate_history = value_history)
-	else
-		return value_estimate
-	end
-end
-
-# ╔═╡ ac7606f4-5986-4110-9acb-d7b089e9c98a
-td0_policy_prediction_v(args...; kwargs...) = td0_policy_prediction(args..., initialize_state_value; kwargs...)
-
-# ╔═╡ 034734a7-e7f0-4ea5-b252-5916f67c65d4
-@skip_as_script td0v = td0_policy_prediction_v(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
-
-# ╔═╡ 6e2a99bc-7f49-4455-8b23-11392e47f24d
-td0_policy_prediction_q(args...; kwargs...) = td0_policy_prediction(args..., initialize_state_action_value; kwargs...)
-
-# ╔═╡ 749b5691-506f-4c7f-baa2-6d3e9b2607b9
-@skip_as_script td0q = td0_policy_prediction_q(deterministic_sample_gridworld, example_gridworld_random_policy, 0.9f0, 10_000, 0.01f0)
-
-# ╔═╡ b67ca69e-24ab-4893-90a2-85275b6fa306
-begin
-#note that for this type of MDP we can no longer refer to everything by its index and the policy must now be a function of the state rather than a matrix
-function runepisode(mdp::SampleMDP{T, S, A, F, G, H}, π::Function, s0::S, a0::A; max_steps = Inf) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function}
-	s = s0
-	a = a0
-	states = Vector{S}()
-	actions = Vector{A}()
-	push!(states, s)
-	(r, s′, a) = takestep(mdp, s, a)
-	push!(actions, a)
-	rewards = [r]
-	step = 2
-	sterm = s
-	if mdp.isterm(s′)
-		sterm = s′
-	else
-		sterm = s
-	end
-	s = s′
-
-	#note that the terminal state will not be added to the state list
-	while !mdp.isterm(s) && (step <= max_steps)
-		push!(states, s)
-		a = π(s)
-		(r, s′, a) = takestep(mdp, s, a)
-		push!(actions, a)
-		push!(rewards, r)
-		s = s′
-		step += 1
-		if mdp.isterm(s′)
-			sterm = s′
-		end
-	end
-	return states, actions, rewards, sterm
-end
-
-#define default behavior for leaving out the policy function (default to random policy), the initial state (use the state_init function), or the initial action (use the policy from the starting state)
-runepisode(mdp::SampleMDP{T, S, A, F, G, H}, π::Function, s0::S; kwargs...) where {T<:Real, S, A, F<:Function G<:Function, H<:Function} = runepisode(mdp, π, s0, π(s0); kwargs...)
-runepisode(mdp::SampleMDP{T, S, A, F, G, H}, s0::S; kwargs...) where {T<:Real, S, A, F<:Function G<:Function, H<:Function} = runepisode(mdp, make_random_policy(mdp), s0; kwargs...)
-runepisode(mdp::SampleMDP; kwargs...) = runepisode(mdp, make_random_policy(mdp), mdp.state_init(); kwargs...)
-end
-
 # ╔═╡ d31b4e4f-18bf-4649-82f8-c603712bdbf0
-runepisode(windy_mc_gridworld)
+@skip_as_script runepisode(windy_mc_gridworld)
 
 # ╔═╡ 66f6cad5-cc5c-4a81-86d1-fb893bc4fe12
 begin
 #perform a rollout with an mdp from state s using a policy function π that produces an action selection given a state input. return value is an unbiased estimate of the value of this state under the policy
-function rollout(mdp::AbstractSampleMDP{T, S, A, G, H}, s::S, π::Function, γ::T; max_steps = Inf) where {T<:Real,S, A, G<:Function, H<:Function}
+function rollout(mdp::SampleMDP{T, S, A, G, H}, s::S, π::Function, γ::T; max_steps = Inf) where {T<:Real,S, A, G<:Function, H<:Function}
 	step = 0
 	g = zero(T)
 	while !mdp.isterm(s) && (step <= max_steps)
@@ -2970,7 +2983,7 @@ function rollout(mdp::AbstractSampleMDP{T, S, A, G, H}, s::S, π::Function, γ::
 end
 
 #if no policy is provided then the rollout will use a uniformly random policy
-rollout(mdp::AbstractSampleMDP{T, S, A, G, H}, s::S, γ::T; kwargs...) where {T<:Real, S, A, G<:Function, H<:Function} = rollout(mdp, s, make_random_policy(mdp), γ; kwargs...)
+rollout(mdp::SampleMDP{T, S, A, G, H}, s::S, γ::T; kwargs...) where {T<:Real, S, A, G<:Function, H<:Function} = rollout(mdp, s, make_random_policy(mdp), γ; kwargs...)
 
 end
 
@@ -2982,55 +2995,8 @@ end
 #get the value of a dictionary d at key k, defaulting to some value when the key is absent
 get_dict_value(d::Dict{K, V}, k::K; default = zero(V)) where {K, V<:Real} = haskey(d, k) ? d[k] : default 
 
-# ╔═╡ 300577bd-22b7-4fdd-8a85-4768ecf985c4
-monte_carlo_tree_search(mdp::AbstractMDP{T, S, A}, γ::T, v_est::Function, s::S; kwargs...) = monte_carlo_tree_search(SampleMDP(mdp), γ, v_est, s; kwargs...)
-
-# ╔═╡ 482d1c2d-0898-48eb-b122-51e22d51a265
-#need to decide which tree statistics to collect like state values or afterstate values and what expansion means vs normal mcts.  I know that when I visit a new afterstate which is the same as a new action selection, I want to estimate it with a weighted sum of the value estimates of all the sucessor states but I don't necessarily want the tree search to continue down all those paths and split although it could so a single simulation would split into all the successor states avoiding the need to make a selection.  For doing sample updates though, I want to just pick one of those branches to go down by sampling from the distribution so then the simulation function itself should handle the case of an unvisited state which would look at the afterstate values that lead from that state if any exist and well this is the problem is which values should be saved and what does it mean to estimate the value of something for one of the unvisited states
-function simulate!(s::S, visit::Bool, tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, mdp::AfterstateMDP_MC{S, AS, A, F, G, H, I}, γ::T, v_est::Function, depth::Integer, c::T, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs) where {T<:Real, S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
-	#if the state is terminal, produce a value of 0
-	mdp.isterm(s) && return zero(T)
-
-	depth ≤ 0 && return v_est(mdp, s, γ; est_kwargs...)
-	
-	#for a state where no actions have been attempted, expand a new node
-	if !haskey(tree_values, s)
-		v = v_est(mdp, s, γ; est_kwargs...)
-		tree_values[s] = (v, Dict{Int64, Tuple{T, T}}()) 
-		return v
-	end
-
-	!visit && return max(tree_values[s][1], maximum(t[2]/t[1] for t in values(tree_values[s][2]); init = zero(T))) #if not visiting this state then just return the best value estimate and do not update the tree values
-
-	#compute value estimates and bonus applies to each potential action
-	apply_bonus!(v_hold, tree_values, s, c)
-	update_tree_policy!(v_hold, s)
-
-	#select an action from the tree policy
-	i_a = sample_action(v_hold)
-	a = mdp.actions[i_a]
-	r1, w = mdp.afterstate_step(s, a; step_kwargs...) #take a step with the action and get the afterstate
-	v_w = simulate!(w, tree_values, mdp, γ, v_est, depth, c, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs)
-	v_a = r1 + v_w #value for the visited action
-	update_tree!(tree_values, v_a, s, i_a)
-	return max(tree_values[s][1], maximum(t[2]/t[1] for t in values(tree_values[s][2]); init = zero(T))) #the value that was just updated will be included in this maximum
-end
-
-# ╔═╡ 0b2e6a3c-caaa-4d79-9a3a-6b1d85037fb2
-function simulate!(w::AS, tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, mdp::AfterstateMDP_MC{S, AS, A, F, G, H, I}, γ::T, v_est::Function, depth::Integer, c::T, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs) where {T<:Real, S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
-	dist = mdp.afterstate_transition(w; transition_kwargs...) #get the distribution of states following the transition
-	k_sample = sample(collect(keys(dist)), weights(collect(values(dist)))) #sample one of the transition states to visit in the tree
-	sum(begin
-		(r, s) = k
-		p = dist[k]
-		v′ = simulate!(s, k == k_sample, tree_values, mdp, γ, v_est, depth - 1, c, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs)
-		p * (r + γ * v′) 
-	end
-	for k in keys(dist))
-end
-
 # ╔═╡ 00e567e7-ab21-4f4a-aec1-b90e45f3db2a
-function simulate!(visit_counts, Q, mdp::AbstractSampleMDP, γ::T, v_est, s, depth, c::T, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, step_kwargs, est_kwargs) where T<:Real
+function simulate!(visit_counts, Q, mdp::SampleMDP, γ::T, v_est, s, depth, c::T, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, step_kwargs, est_kwargs) where T<:Real
 	#if the state is terminal, produce a value of 0
 	mdp.isterm(s) && return zero(T)
 	
@@ -3082,7 +3048,73 @@ function apply_uct!(v_hold::Vector{T}, tree_values::Dict{S, Tuple{T, Dict{Int64,
 	return v_hold
 end
 
+# ╔═╡ 31c20ab7-e4b4-4069-ada9-418f4bb5e81d
+function apply_uct!(v_hold::Vector{T}, q_ests::Dict{S, Dict{Int64, T}}, counts::Dict{S, Dict{Int64, T}}, s::S, c::T) where {S, T<:Real}
+	ntot = sum(values(counts[s]))
+	#for normal UCB selection, unvisited states have an infinite bonus
+	v_hold .= T(Inf)
+	@inbounds @fastmath for i in keys(q_ests[s])
+		#note that the only bonus values computed here are for actions that have been visited
+		v_hold[i] = q_ests[s][i] + c * uct(counts, s, i, ntot)
+	end
+	return v_hold
+end
+
+# ╔═╡ 4e906d8c-ca74-42e3-a9e3-b3980206fbe3
+@skip_as_script md"""### *Example: Gridworld MCTS*"""
+
+# ╔═╡ 8782fff3-891c-4fa1-b686-3199503370e4
+md"""
+### Afterstate MCTS
+"""
+
+# ╔═╡ 482d1c2d-0898-48eb-b122-51e22d51a265
+#need to decide which tree statistics to collect like state values or afterstate values and what expansion means vs normal mcts.  I know that when I visit a new afterstate which is the same as a new action selection, I want to estimate it with a weighted sum of the value estimates of all the sucessor states but I don't necessarily want the tree search to continue down all those paths and split although it could so a single simulation would split into all the successor states avoiding the need to make a selection.  For doing sample updates though, I want to just pick one of those branches to go down by sampling from the distribution so then the simulation function itself should handle the case of an unvisited state which would look at the afterstate values that lead from that state if any exist and well this is the problem is which values should be saved and what does it mean to estimate the value of something for one of the unvisited states
+function simulate!(s::S, visit::Bool, tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, mdp::AfterstateMDP{T, S, AS, A, F, G, H, I}, γ::T, v_est::Function, depth::Integer, c::T, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs) where {T<:Real, S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
+	#if the state is terminal, produce a value of 0
+	mdp.isterm(s) && return zero(T)
+
+	depth ≤ 0 && return v_est(mdp, s, γ; est_kwargs...)
+	
+	#for a state where no actions have been attempted, expand a new node
+	if !haskey(tree_values, s)
+		v = v_est(mdp, s, γ; est_kwargs...)
+		tree_values[s] = (v, Dict{Int64, Tuple{T, T}}()) 
+		return v
+	end
+
+	!visit && return max(tree_values[s][1], maximum(t[2]/t[1] for t in values(tree_values[s][2]); init = zero(T))) #if not visiting this state then just return the best value estimate and do not update the tree values
+
+	#compute value estimates and bonus applies to each potential action
+	apply_bonus!(v_hold, tree_values, s, c)
+	update_tree_policy!(v_hold, s)
+
+	#select an action from the tree policy
+	i_a = sample_action(v_hold)
+	a = mdp.actions[i_a]
+	r1, w = mdp.afterstate_step(s, a; step_kwargs...) #take a step with the action and get the afterstate
+	v_w = simulate!(w, tree_values, mdp, γ, v_est, depth, c, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs)
+	v_a = r1 + v_w #value for the visited action
+	update_tree!(tree_values, v_a, s, i_a)
+	return max(tree_values[s][1], maximum(t[2]/t[1] for t in values(tree_values[s][2]); init = zero(T))) #the value that was just updated will be included in this maximum
+end
+
+# ╔═╡ 0b2e6a3c-caaa-4d79-9a3a-6b1d85037fb2
+function simulate!(w::AS, tree_values::Dict{S, Tuple{T, Dict{Int64, Tuple{T, T}}}}, mdp::AfterstateMDP{T, S, AS, A, F, G, H, I}, γ::T, v_est::Function, depth::Integer, c::T, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs) where {T<:Real, S, AS, A, F<:Function, G<:Function, H<:Function, I<:Function}
+	dist = mdp.afterstate_transition(w; transition_kwargs...) #get the distribution of states following the transition
+	k_sample = sample(collect(keys(dist)), weights(collect(values(dist)))) #sample one of the transition states to visit in the tree
+	sum(begin
+		(r, s) = k
+		p = dist[k]
+		v′ = simulate!(s, k == k_sample, tree_values, mdp, γ, v_est, depth - 1, c, v_hold, update_tree_policy!, update_tree!, q_hold, apply_bonus!, step_kwargs, transition_kwargs, est_kwargs)
+		p * (r + γ * v′) 
+	end
+	for k in keys(dist))
+end
+
 # ╔═╡ 78eda243-db35-4eb4-8e97-e845dd3da064
+begin
+	
 #perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
 function monte_carlo_tree_search(mdp::SampleMDP{T, S, A, F, G, H}, γ::T, v_est::Function, s::S; 
 	depth = 10, 
@@ -3141,9 +3173,16 @@ function monte_carlo_tree_search(mdp::SampleMDP{T, S, A, F, G, H}, γ::T, v_est:
 	return mdp.actions[sample_action(v_hold)], visit_counts, Q
 end
 
+#convert the MDP into a SampleMDP if possible
+monte_carlo_tree_search(mdp::AbstractMDP{T, S, A}, γ::T, v_est::Function, s::S; kwargs...) where {T<:Real, S, A} = monte_carlo_tree_search(SampleMDP(mdp), γ, v_est, s; kwargs...)
+
+#by default the state value estimator is a rollout with the random policy
+monte_carlo_tree_search(mdp::SampleMDP{T, S, A, F, G, H}, γ::T, s::S; kwargs...) where {T<:Real, S, A, F<:Function, G<:Function, H<:Function} = monte_carlo_tree_search(mdp, γ, (mdp, s, γ; vest_kwargs...) -> rollout(mdp, s, γ; max_steps = 1_000, vest_kwargs...), s; kwargs...)
+end
+
 # ╔═╡ b056168b-1f10-4046-9a0c-dbe89a713d6a
 #perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
-function monte_carlo_tree_search(mdp::AbstractAfterstateMDP{T, S, AS, A}, γ::T, v_est::Function, s::S; 
+function monte_carlo_tree_search(mdp::AfterstateMDP{T, S, AS, A, F, G, H, I}, γ::T, v_est::Function, s::S; 
 	depth = 10, 
 	nsims = 100, 
 	c = one(T), 
@@ -3164,7 +3203,7 @@ function monte_carlo_tree_search(mdp::AbstractAfterstateMDP{T, S, AS, A}, γ::T,
 	make_transition_kwargs = k -> NamedTuple(), #option to create mdp afterstate transition arguments that depend on the simulation number
 	make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
 	sim_message = false
-	) where {S, AS, A, F, G, H, I, T<:Real}
+	) where {T<:Real, S, AS, A, F, G, H, I}
 
 	q_hold = zeros(T, length(mdp.actions))
 	#I want to have a way of possible a kwargs such as the answer index to the simulator that can change with each simulation
@@ -3202,11 +3241,24 @@ function monte_carlo_tree_search(mdp::AbstractAfterstateMDP{T, S, AS, A}, γ::T,
 	return mdp.actions[sample_action(v_hold)], tree_values
 end
 
-# ╔═╡ 4e906d8c-ca74-42e3-a9e3-b3980206fbe3
-@skip_as_script md"""### *Example: Gridworld MCTS*"""
-
 # ╔═╡ 3e4fc9d3-1d87-431b-b348-09e7567149f0
-@skip_as_script monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 10_000),  dyna_maze.state_init(); nsims = 100, depth = 10, c = 1f0)
+@skip_as_script monte_carlo_tree_search(windy_mc_gridworld, 0.99f0, windy_mc_gridworld.state_init(); nsims = 1000, depth = 1_000, c = 1f0)
+
+# ╔═╡ 2a2d1b60-be6f-4f9c-8190-7c0a2d77d510
+@skip_as_script function show_mcts_solution()
+	# visit_counts = Dict{GridworldState, SparseVector{Float32, Int64}}()
+	visit_counts = Dict{GridworldState, Dict{Int64, Float32}}()
+	# Q = Dict{GridworldState, SparseVector{Float32, Int64}}()
+	Q = Dict{GridworldState, Dict{Int64, Float32}}()
+
+	(states, actions, rewards, goal) = runepisode(windy_mc_gridworld, s -> monte_carlo_tree_search(windy_mc_gridworld, 0.99f0, s; nsims = 10_000, depth = 1_000, c = 1.0f0, visit_counts = visit_counts, Q = Q)[1], windy_mc_gridworld.state_init())
+
+	return(states, Q, visit_counts)
+	# plot_path(states, GridworldState(8, 4), windy_mc_gridworld.state_init())
+end
+
+# ╔═╡ 8ffd78db-cfc5-4695-a1c1-6a4e6aa32348
+@skip_as_script show_mcts_solution()
 
 # ╔═╡ 796eeb6c-1152-11ef-00b7-b543ec85b526
 @skip_as_script md"""# Dependencies"""
@@ -3640,6 +3692,40 @@ end
 </style>
 """)
 
+# ╔═╡ cad8d079-b8d1-4266-8420-b1822a3ca6d0
+@skip_as_script function plot_path(episode_states::Vector{S}, goal::S, start::S; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path") where S <: GridworldState
+	xmax = maximum([s.x for s in episode_states])
+	ymax = maximum([s.y for s in episode_states])
+	
+	start_trace = scatter(x = [start.x + 0.5], y = [start.y + 0.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
+	finish_trace = scatter(x = [goal.x + .5], y = [goal.y + .5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+	
+	path_traces = [scatter(x = [episode_states[i].x + 0.5, episode_states[i+1].x + 0.5], y = [episode_states[i].y + 0.5, episode_states[i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname) for i in 1:length(episode_states)-1]
+	finalpath = scatter(x = [episode_states[end].x + 0.5, goal.x + .5], y = [episode_states[end].y + 0.5, goal.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname)
+
+	h1 = 30*ymax
+	traces = [start_trace; finish_trace; path_traces; finalpath]
+
+	cliff_squares = filter(iscliff, episode_states)
+	for s in cliff_squares
+		push!(traces, scatter(x = [s.x + 0.6], y = [s.y+0.5], mode = "text", text = ["C"], textposition = "left", showlegend = false))
+	end
+
+
+	wall_squares = filter(iswall, episode_states)
+	for s in wall_squares
+		push!(traces, scatter(x = [s.x + 0.8], y = [s.y+0.5], mode = "text", text = ["W"], textposition = "left", showlegend = false))
+	end
+
+	plot(traces, Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = fill("", 10), range = [1, xmax+1]), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
+end
+
+# ╔═╡ 4b0a655c-447d-4c52-a0a7-f81973ccd8be
+@skip_as_script function plot_path(mdp::SampleMDP, sterm, π::Function; max_steps = 100, kwargs...)
+	(states, actions, rewards, sterm) = runepisode(mdp, π, mdp.state_init(); max_steps = max_steps)
+	plot_path(states, sterm, mdp.state_init(), mdp.isterm; kwargs...)
+end
+
 # ╔═╡ 3279ba47-18a1-45a9-9d29-18b9875ed057
 @skip_as_script function plot_path(episode_states::Vector{Int64}, i_sterm::Integer, gridworld_states::Vector{S}, i_s0::Integer, isterm::Function; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path") where S <: GridworldState
 	xmax = maximum([s.x for s in gridworld_states])
@@ -3680,18 +3766,6 @@ end
 
 # ╔═╡ 3a707040-a763-42f6-9f5c-8c56a5f869f7
 @skip_as_script plot_path(deterministic_gridworld.mdp, deterministic_gridworld.init_state, deterministic_gridworld.isterm)
-
-# ╔═╡ 2a2d1b60-be6f-4f9c-8190-7c0a2d77d510
-@skip_as_script function show_mcts_solution()
-	# visit_counts = Dict{GridworldState, SparseVector{Float32, Int64}}()
-	visit_counts = Dict{GridworldState, Dict{Int64, Float32}}()
-	# Q = Dict{GridworldState, SparseVector{Float32, Int64}}()
-	Q = Dict{GridworldState, Dict{Int64, Float32}}()
-	plot_path(dyna_maze, s -> monte_carlo_tree_search(dyna_maze, 0.95f0, rollout(;max_steps = 100),  s; nsims = 100, depth = 100, c = 1.0f0, visit_counts = visit_counts, Q = Q)[1]; max_steps = 1000, iswall = s -> in(s, maze_walls))
-end
-
-# ╔═╡ 8ffd78db-cfc5-4695-a1c1-6a4e6aa32348
-@skip_as_script show_mcts_solution()
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -4633,19 +4707,20 @@ version = "17.4.0+2"
 # ╠═66f6cad5-cc5c-4a81-86d1-fb893bc4fe12
 # ╠═970f3789-f830-47af-938f-0faf5f36421b
 # ╠═63cbbd0e-388d-4f1f-8e11-95366bce37ba
-# ╠═300577bd-22b7-4fdd-8a85-4768ecf985c4
 # ╠═78eda243-db35-4eb4-8e97-e845dd3da064
-# ╠═b056168b-1f10-4046-9a0c-dbe89a713d6a
-# ╠═482d1c2d-0898-48eb-b122-51e22d51a265
-# ╠═0b2e6a3c-caaa-4d79-9a3a-6b1d85037fb2
 # ╠═00e567e7-ab21-4f4a-aec1-b90e45f3db2a
 # ╠═fa267730-d67d-4cd4-a9d5-901e79e553e5
 # ╠═b062a7a6-4776-4db0-9712-1c832d7f271c
 # ╠═3f35548e-1bfc-4262-9534-ad4bc159bcf9
-# ╠═4e906d8c-ca74-42e3-a9e3-b3980206fbe3
+# ╠═31c20ab7-e4b4-4069-ada9-418f4bb5e81d
+# ╟─4e906d8c-ca74-42e3-a9e3-b3980206fbe3
 # ╠═3e4fc9d3-1d87-431b-b348-09e7567149f0
-# ╠═8ffd78db-cfc5-4695-a1c1-6a4e6aa32348
 # ╠═2a2d1b60-be6f-4f9c-8190-7c0a2d77d510
+# ╠═8ffd78db-cfc5-4695-a1c1-6a4e6aa32348
+# ╟─8782fff3-891c-4fa1-b686-3199503370e4
+# ╠═b056168b-1f10-4046-9a0c-dbe89a713d6a
+# ╠═482d1c2d-0898-48eb-b122-51e22d51a265
+# ╠═0b2e6a3c-caaa-4d79-9a3a-6b1d85037fb2
 # ╟─796eeb6c-1152-11ef-00b7-b543ec85b526
 # ╠═0574291d-263a-4836-8cb9-78ad7de3f095
 # ╠═cbcc1cd8-7319-4076-84cf-f7ae4d0b5794
@@ -4662,6 +4737,8 @@ version = "17.4.0+2"
 # ╠═9b937c49-7216-47c9-a1ef-2ecfa6ff3b31
 # ╠═93cbc453-152e-401e-bf53-c95f1ae962c0
 # ╠═c11ab768-1da4-497b-afc1-fb64bc3fb457
+# ╠═cad8d079-b8d1-4266-8420-b1822a3ca6d0
+# ╠═4b0a655c-447d-4c52-a0a7-f81973ccd8be
 # ╠═3279ba47-18a1-45a9-9d29-18b9875ed057
 # ╠═cbeac89a-845c-4409-8067-8766fe3b8a24
 # ╠═4f193af4-9925-4047-92f9-c67eec1f4c97
