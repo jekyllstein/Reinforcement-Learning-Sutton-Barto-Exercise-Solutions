@@ -3060,6 +3060,9 @@ Using this one step lookahead method to rank the guesses, we can already come up
 # ╔═╡ a383cd80-dd49-4f9f-ba67-1f58ea7eb0b6
 @skip_as_script wordle_start_information_gain_guesses = eval_guess_information_gain(WordleState(); save_all_scores = true) |> display_one_step_guesses
 
+# ╔═╡ 3937537e-1de7-4212-b939-0b37e315ffbf
+const wordle_start_information_gain_lookup = Dict(a.word => (;a..., rank = i) for (i, a) in enumerate(wordle_start_information_gain_guesses))
+
 # ╔═╡ 2cda2a2c-caf2-474c-90a4-388f15260501
 eval_guess_information_gain(WordleState(["trace"], [convert_bytes([0, 1, 1, 0, 0])]); save_all_scores = true) |> display_one_step_guesses
 
@@ -3340,6 +3343,12 @@ const track_run, set_run = @use_state("Completed")
 # ╔═╡ 03bbb910-dfa7-4c28-b811-afa9e5ca0e63
 track_run
 
+# ╔═╡ 1ba2fd82-f651-43b3-9411-753eef787b68
+#idea to show all of the game states or the branching for the base policy from the root state or any later state.  Want to show all of the resulting games and their probability weight or maybe pieces of the tree how it branches down
+
+# ╔═╡ 0812f3c2-35ab-4e2d-87c0-35a7b44af6d4
+#another idea is to identify how many and which actions differ from the base policy using a particular starting guess so it would show a state, the policy action in that state, and the tree action instead 
+
 # ╔═╡ 6fdc99b1-beea-4c45-98bb-d257501a6878
 function show_afterstate_mcts_guesses(tree_values, s::WordleState)
 	new_state_dict = tree_values[s][2]
@@ -3354,7 +3363,97 @@ const base_mcts_options = show_afterstate_mcts_guesses(tree_values, WordleState(
 const mcts_options, set_mcts_options = @use_state(base_mcts_options)
 
 # ╔═╡ cb3b46cf-8375-43b2-8736-97882e9b5e18
-mcts_options
+[begin
+	policy_value = wordle_greedy_information_gain_guess_value(WordleState(), a.word)
+	tree_improvement = a.values - policy_value
+	(word = a.word, visits = round(Int64, a.visits), tree_value = a.values, policy_value = policy_value, policy_rank = wordle_start_information_gain_lookup[a.word].rank, tree_improvement = tree_improvement < 1f-4 ? 0.0 : round(tree_improvement; sigdigits = 2)) 
+end
+for a in mcts_options.ranked_guesses] |> DataFrame
+
+# ╔═╡ d2052e0c-c506-45b5-8deb-76d5e60d300e
+const root_guess_candidates = ["trace", "crate", "crane", "slate"]
+
+# ╔═╡ 9ee34b0a-2e11-403f-839b-4e9991bc0eac
+const root_guess_bit_filter = BitVector([in(w, root_guess_candidates) for w in nyt_valid_words])
+
+# ╔═╡ b6b40be8-90e3-4335-93ef-f8d92ef1676d
+const root_guess_candidate_tree = copy(tree_values)
+
+# ╔═╡ 2e05fa7f-7c9a-41c3-bd6d-21279fc9661f
+function wordle_root_candidate_gumbel_information_tree_policy!(v, s::WordleState{N}, root_guess_bit_filter::BitVector; topn = 10, score_vector = zeros(Float32, length(nyt_valid_inds)), possible_indices = copy(nyt_valid_inds), possible_answers = copy(wordle_actions), p_scale::Float32 = 100f0) where N
+#here v is a vector with indices representing the action space and s is the current state. by default v is filled with the existing q value estimates plus the UCT bonus and we would select the action greedily.  To match the behavior of the rollout though, here we make a few changes to the action selection.  If there have already been 5 guesses, then the tree policy will always choose from one of the remaining possible answers.
+	get_possible_indices!(possible_indices, s)
+	n = sum(possible_indices)
+	l = N
+	if N == 0 #this is the root state, only consider the candidate words
+		v .*= root_guess_bit_filter
+		make_greedy_policy!(v)
+	elseif (l == 5) || (n <= 2) #for the final guess and if only two answers remain only consider possible answers
+		v .*= possible_indices
+		make_greedy_policy!(v)
+	else
+		sampled_inds = findall(!isinf, v) #these are actions that have already been sampled, always include them
+		# if (length(sampled_inds) < min_samples_explore) || (rand() < explore_probability) #some percent of the time, sample new indices
+			information_scores = eval_guess_information_gain(s; possible_indices = possible_indices, possible_answers = possible_answers, save_all_scores = true)
+
+			min_score = information_scores.guess_scores[last(information_scores.ranked_guess_inds)]
+			guess_scores = information_scores.guess_scores
+			
+			#convert scores to log probabilities and add gumbel random variable, here c is used to amplify the effect of the score to weight the probability more towards higher scores
+			score_vector .= p_scale .* log.(guess_scores .- min_score) .- log.(-log.(rand(Float32, length(v))))
+			# @inbounds @fastmath @simd for i in eachindex(one_step_scores)
+				# score_vector[i] = 100 * log(one_step_scores[i]) - log(-log(rand(Float32)))
+			# end
+			
+			include_indices = [partialsortperm(score_vector, 1:topn; rev=true); sampled_inds]
+			v_select = argmax(v[i] for i in include_indices)
+			# score_vector .= 0f0
+			# score_vector[include_indices] .= v[include_indices]
+			# v .= score_vector
+			v .= 0f0
+			v[include_indices[v_select]] = 1f0
+			# exclude_indices = partialsortperm(score_vector, 1:length(v)-topn)
+			# v_include = v[include_indices]
+			# one_step_sort_inds = partialsortperm(score_vector; rev=true)
+			# exclude_indices = view(one_step_sort_inds, 1:topn) #only sample the top n values which is equivalent to sampling n values without replacement from the distribution of scores
+			# v[exclude_indices] .= 0f0 #set these to a value lower than any estimate with samples
+			# v .= 0f0
+			# v[include_indices] .= v_include
+		# else
+			# unsampled_inds = findall(isinf, v) #these are all actions that have not yet been sampled
+			# v[unsampled_inds] .= 0f0 #99% of the time only consider actions that have already been sampled
+			# make_greedy_policy!(v)
+		# end
+	end
+	# make_greedy_policy!(v)
+	return v
+end
+
+# ╔═╡ 53265afe-9686-4173-9ef2-2cff002eee8b
+function run_wordle_root_candidate_mcts(s::WordleState, nsims::Integer, root_guess_bit_filter::BitVector; topn = 10, p_scale = 100f0, kwargs...)
+	possible_indices = copy(nyt_valid_inds)
+	possible_answers = copy(wordle_actions)
+	score_vector = zeros(Float32, length(nyt_valid_inds))
+	(mcts_guess, tree_values) = monte_carlo_tree_search(wordle_afterstate_mdp, 1f0, (mdp, s, γ) -> wordle_greedy_information_gain_state_value(s; possible_indices = possible_indices, possible_answers = possible_answers), s; nsims = nsims, depth = 10_000, c = 1f0, update_tree_policy! = (v, s) -> wordle_root_candidate_gumbel_information_tree_policy!(v, s, root_guess_bit_filter; possible_indices = possible_indices, possible_answers = possible_answers, score_vector = score_vector, topn = topn, p_scale = p_scale), sim_message = true, kwargs...)
+	return tree_values
+end
+
+# ╔═╡ 36fb4201-8261-4551-ae38-eba073e3046b
+const root_candidate_mcts_options, set_root_candidate_mcts_options = @use_state(mcts_options)
+
+# ╔═╡ b3a7619f-82ac-4a6b-9206-ed1b5cfa0078
+const track_root_candidate_run, set_root_candidate_run = @use_state("Completed")
+
+# ╔═╡ 1642481e-8da9-475c-98b4-92e36d90065b
+track_root_candidate_run
+
+# ╔═╡ c8d9a991-ff7b-448e-820c-a1f4a89ee22e
+[begin
+	policy_value = wordle_greedy_information_gain_guess_value(WordleState(), a.word)
+	tree_improvement = a.values - policy_value
+	(word = a.word, visits = round(Int64, a.visits), tree_value = a.values, policy_value = policy_value, policy_rank = wordle_start_information_gain_lookup[a.word].rank, tree_improvement = tree_improvement < 1f-4 ? 0.0 : round(tree_improvement; sigdigits = 2)) 
+end
+for a in root_candidate_mcts_options.ranked_guesses] |> DataFrame
 
 # ╔═╡ aaf516b5-f982-44c3-bcae-14d46ad72e82
 md"""
@@ -4893,7 +4992,7 @@ if mcts_counter > 0
 		t = time()
 		schedule(Task() do
 			nruns = 1_000
-			nsims = 10
+			nsims = 100
 			for i in 1:nruns
 				stop_mcts_eval > 0 && break	
 				elapsed_minutes = (time() - t)/60
@@ -4907,6 +5006,61 @@ if mcts_counter > 0
 				set_run("Interrupted")
 			else
 				set_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
+			end
+		end)
+	end
+end
+
+# ╔═╡ 12126ca1-b728-4a91-bc53-f0dacd412265
+@bind mcts_root_candidate_reset Button("Click to reset MCTS Evaluation")
+
+# ╔═╡ bfb77472-6bcc-4a9d-9cd1-a7c2686da539
+begin 
+	mcts_root_candidate_reset
+	@bind stop_root_candidate_mcts_eval CounterButton("Click to stop MCTS Wordle Evaluation")
+end
+
+# ╔═╡ d2cf651d-3547-4b80-b837-3b5f297fffa5
+begin
+	mcts_root_candidate_reset
+	@bind root_candidate_mcts_counter CounterButton("Click to run MCTS Wordle Evaluation")
+end
+
+# ╔═╡ 6d79c363-2ff5-4489-9870-3a3813f592f3
+if stop_root_candidate_mcts_eval > 0
+	md"""
+	Evaluation stopped.  Wait for loop to end below and then press reset before running
+	"""
+elseif root_candidate_mcts_counter > 0
+	md"""
+	Evaluation started
+	"""
+else
+	md"""
+	Waiting to run mcts evaluation
+	"""
+end
+
+# ╔═╡ a5befb7c-a1e1-4d55-9b8f-c599748f6f00
+if root_candidate_mcts_counter > 0
+	@use_effect([]) do
+		t = time()
+		schedule(Task() do
+			nruns = 1_000
+			nsims = 1_000
+			for i in 1:nruns
+				stop_root_candidate_mcts_eval > 0 && break	
+				elapsed_minutes = (time() - t)/60
+				etr = (elapsed_minutes * nruns / i) - elapsed_minutes
+				set_root_candidate_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $(round(Int64, etr)) minutes left")
+				output = @spawn show_afterstate_mcts_guesses(run_wordle_root_candidate_mcts(WordleState(), nsims, root_guess_bit_filter; tree_values = root_guess_candidate_tree, sim_message = false, p_scale = 100f0), WordleState())
+				set_root_candidate_mcts_options(fetch(output))
+				sleep(.01)
+			end
+			if stop_root_candidate_mcts_eval > 0
+				set_root_candidate_run("Interrupted")
+			else
+				set_root_candidate_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
 			end
 		end)
 	end
@@ -5114,6 +5268,7 @@ visualize_afterstate_transition(isempty(example_state.guesses) ? WordleState() :
 # ╠═97d40991-d719-4e87-bd70-94551a645448
 # ╟─92cb4e96-714d-425d-a64b-eff26a5f92ef
 # ╠═a383cd80-dd49-4f9f-ba67-1f58ea7eb0b6
+# ╠═3937537e-1de7-4212-b939-0b37e315ffbf
 # ╠═2cda2a2c-caf2-474c-90a4-388f15260501
 # ╟─f2ab3716-19a2-4cbb-b46f-a13c297e086d
 # ╠═86f6910f-0187-4d38-afff-295ec67fd0c0
@@ -5155,15 +5310,31 @@ visualize_afterstate_transition(isempty(example_state.guesses) ? WordleState() :
 # ╠═889a2d4b-1adf-44cd-8d3f-22d4aa4c3de3
 # ╠═87e696f6-a9f5-4e00-8678-ec81ad530dd0
 # ╠═10d1f403-34c8-46ce-8cfc-d289608f465c
-# ╟─caaeeaee-94b7-498d-a746-a2c5c7177347
-# ╟─fb8439a3-ee95-487f-a755-ffcbd8b3c381
-# ╟─d9d54e56-a32f-4ffb-820d-df0b7918c78c
+# ╠═caaeeaee-94b7-498d-a746-a2c5c7177347
+# ╠═fb8439a3-ee95-487f-a755-ffcbd8b3c381
+# ╠═d9d54e56-a32f-4ffb-820d-df0b7918c78c
 # ╟─7cd9cb06-4731-4eaa-b745-32118278d360
 # ╟─df9a4dd8-5a36-497b-a61f-d76a830f4398
 # ╠═41e0cddb-e78d-477b-849a-124754340a3c
 # ╟─03bbb910-dfa7-4c28-b811-afa9e5ca0e63
 # ╟─cb3b46cf-8375-43b2-8736-97882e9b5e18
+# ╠═1ba2fd82-f651-43b3-9411-753eef787b68
+# ╠═0812f3c2-35ab-4e2d-87c0-35a7b44af6d4
 # ╠═6fdc99b1-beea-4c45-98bb-d257501a6878
+# ╠═d2052e0c-c506-45b5-8deb-76d5e60d300e
+# ╠═9ee34b0a-2e11-403f-839b-4e9991bc0eac
+# ╠═b6b40be8-90e3-4335-93ef-f8d92ef1676d
+# ╠═2e05fa7f-7c9a-41c3-bd6d-21279fc9661f
+# ╠═53265afe-9686-4173-9ef2-2cff002eee8b
+# ╠═36fb4201-8261-4551-ae38-eba073e3046b
+# ╠═b3a7619f-82ac-4a6b-9206-ed1b5cfa0078
+# ╟─12126ca1-b728-4a91-bc53-f0dacd412265
+# ╟─bfb77472-6bcc-4a9d-9cd1-a7c2686da539
+# ╟─d2cf651d-3547-4b80-b837-3b5f297fffa5
+# ╟─6d79c363-2ff5-4489-9870-3a3813f592f3
+# ╠═a5befb7c-a1e1-4d55-9b8f-c599748f6f00
+# ╟─1642481e-8da9-475c-98b4-92e36d90065b
+# ╟─c8d9a991-ff7b-448e-820c-a1f4a89ee22e
 # ╟─aaf516b5-f982-44c3-bcae-14d46ad72e82
 # ╠═2e75e7a8-66e7-4228-a85f-6b32ba933018
 # ╠═4225d99f-c30f-47e8-b6c1-9a167d4e937c
