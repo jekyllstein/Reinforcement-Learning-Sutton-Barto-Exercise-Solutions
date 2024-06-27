@@ -62,6 +62,14 @@ md"""
 ### Example 8.1: Dyna Maze
 """
 
+# ╔═╡ 563b6dbd-ce51-4904-b1cc-d766bd1fd1d6
+@htl("""
+<div style = "background-color: white; color: black; display: flex; align-items: center; justify-content: center;">
+<div>$(plot_path(dyna_maze; title = "Random policy path example in Dyna Maze", max_steps = 10000, iswall = s -> in(s, maze_walls)))</div>
+<div>$rook_action_display</div>
+</div>
+""")
+
 # ╔═╡ d5ac7c6f-9636-46d9-806f-34d6c8e4d4d5
 md"""
 Consider the simple maze shown above where the agent can take four actions which take it deterministically into the neighboring square unless it is blocked by a wall represented by a W in the diagram.  In this case the agent remains in its original state.  Reward is zero on all transitions except those into the goal state, on which it is +1.  After reaching the goal the agent returns to the start to begin a new episode.  This is a discounted episodic task with $\gamma = 0.95$
@@ -435,23 +443,6 @@ import Base.:(==)
 # ╔═╡ 5d4ca9de-8d80-4480-8f5f-39894f859d14
 import Base.hash
 
-# ╔═╡ 4aced2ac-72f2-4774-8072-101dae43729f
-# ╠═╡ disabled = true
-#=╠═╡
-const greedy_information_gain_root_afterstate_values = Dict(begin
-	v = wordle_greedy_information_gain_afterstate_value(WordleAfterState(wordle_start, guess_index))
-	@info "Done evaluating guess $(nyt_valid_words[guess_index]) with a rank of $i and a value of $v"
-	guess_index => v
-end
-for (i, guess_index) in enumerate(sortperm(guess_score_lookup[wordle_start], rev=true)[1:5_000]))
-  ╠═╡ =#
-
-# ╔═╡ 9fe1ae22-dc24-4eee-b776-f6e3fe98f80b
-# ╠═╡ disabled = true
-#=╠═╡
-sort([(guess = nyt_valid_words[a[1]], value = a[2], rank = root_guess_ranks[a[1]]) for a in greedy_information_gain_root_afterstate_values]; by = a -> a.value, rev=true)
-  ╠═╡ =#
-
 # ╔═╡ dc6149ee-306c-45cf-a32b-13697353df87
 @bind run_greedy_policy_iteration CounterButton("Run one step policy iteration")
 
@@ -482,6 +473,12 @@ md"""
 #### Wordle Normal Mode Plain MCTS
 """
 
+# ╔═╡ 6dbf1bd0-242c-4604-849f-a9c9813c2007
+begin
+	const normal_word_options, set_normal_word_options = @use_state(base_normal_word_options)
+	const track_run, set_run = @use_state("Completed")
+end
+
 # ╔═╡ d3fd0986-6503-4c84-9a2f-c8ca69973cce
 @bind reset_eval Button("Reset Eval After Stop")
 
@@ -496,10 +493,16 @@ begin stop_mcts_eval
 	@bind counter CounterButton("Click to run MCTS Wordle Evaluation")
 end
 
+# ╔═╡ 05427e12-c2e1-4fc1-a8f6-05d439448b0b
+track_run
+
 # ╔═╡ 694eec04-9310-44de-8662-9e4708970441
 md"""
 ##### Wordle First Guess Options
 """
+
+# ╔═╡ 505a9c9d-b29e-415b-8877-13c288117880
+normal_word_options
 
 # ╔═╡ 94b08be9-10f0-4e78-8cb6-80d656b8b581
 #for the random rollout vest the best word is "clint" with over half of the visits after 10 million sims.  This matches the best result from the one step lookahead first pick estimating the action values for this policy which has a value estimate of -3.9675.  With MCTS the value estimate is -3.96 which is better as expected but it is possible the exploration constant isn't high enough to find other optimum values
@@ -519,6 +522,29 @@ md"""
 # ╔═╡ 746d9e90-4c21-4a68-8f01-bba85f7705da
 isdone, setdone = @use_state(false)
 
+# ╔═╡ b07a52b1-4f8b-46f4-a7b2-a3bf48c80d3a
+if compute_mcts_options > 0
+	@info "running new word options"
+	new_word_options = @spawn show_new_normal_word_options(WordleState(["clint"], [9]); nsims = 1_000_000, c = 10f0)
+	@use_effect([]) do
+		@async begin
+			while !istaskdone(new_word_options)
+				sleep(1)
+			end
+			setdone(true)
+		end
+	end
+end
+
+# ╔═╡ 8f4c19d9-d7fc-4878-a779-ec8da99086a9
+if isdone
+	fetch(new_word_options)
+else
+	md"""
+	Waiting for new word mcts options
+	"""
+end
+
 # ╔═╡ 6738ecb1-dae2-4b09-a5a5-27fafb21555e
 @bind compute_policy_iteration_options CounterButton("Compute New Word Options")
 
@@ -529,83 +555,6 @@ const feedback_counts_hold = zeros(Int64, 243)
 md"""
 #### Other Wordle Tests
 """
-
-# ╔═╡ 9a97626c-769f-4db1-8e7c-2de3e75b5f60
-# ╠═╡ disabled = true
-#=╠═╡
-function wordle_rand_vest2(s; γ = 1f0, answer_index = sample(nyt_valid_indices, weights(get_possible_indices(s))))
-	# mdp = create_wordle_mdp(answer_index)
-	rtot = 0f0
-	step = 0
-	while !wordle_determ_game.isterm(s)
-		a = rand(wordle_determ_game.actions)
-		r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
-		rtot += γ^step * r
-		s = s′
-		step += 1
-	end
-	return rtot
-end
-  ╠═╡ =#
-
-# ╔═╡ ec912b7c-4929-4814-8703-81593f049936
-# ╠═╡ disabled = true
-#=╠═╡
-function wordle_rand_vest3(s; possible_indices = copy(baseinds), γ = 1f0)
-	wordle_determ_game.isterm(s) && return 0f0
-	
-	get_possible_indices!(possible_indices, s)
-	possible_indices .*= wordle_original_inds
-
-	n = sum(possible_indices)
-	l = length(s.guess_list)
-
-	pwin = 1f0/n
-	plose = 1f0 - pwin
-
-	#on last guess assume random success rate of which words remain possible answers
-	(l == 5) && return -1f0 + pwin
-
-	answer_index = sample(nyt_valid_indices, weights(possible_indices))
-	# mdp = create_wordle_mdp(answer_index)
-	rtot = 0f0
-	step = 0
-	
-	while !wordle_determ_game.isterm(s)
-		if l == 5
-			n = sum(possible_indices)
-			rtot += γ^step * (-1f0 + 1f0/n)
-			break
-		else
-			a = rand(wordle_determ_game.actions)
-			r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
-			rtot += γ^step * r
-			s = s′
-			possible_indices .*= get_possible_indices(a, last(s′.feedback_list))
-			l += 1
-			step += 1
-		end
-	end
-	return rtot
-end
-  ╠═╡ =#
-
-# ╔═╡ 198f54d8-4445-4fc8-b817-507273016301
-# ╠═╡ disabled = true
-#=╠═╡
-function wordle_rand_vest4(s; possible_indices = copy(baseinds), γ = 1f0)
-	wordle_determ_game.isterm(s) && return 0f0
-	
-	get_possible_indices!(possible_indices, s)
-	possible_indices .*= wordle_original_inds
-
-	n = sum(possible_indices)
-	l = length(s.guess_list)
-	guesses_left = 6-l
-	pwin = 1f0/n
-	sum((1/(n-i))*((1f0 - i/nplose^(i-1))*(-1f0 * (i-1)) for i in 1:guesses_left) + -1f0*guesses_left*(plose^i))
-end
-  ╠═╡ =#
 
 # ╔═╡ 030b1ef8-1fb6-4959-a9bc-330f180b4513
 #establishing which words are possible remaining answers is still kinda slow.  I need to test different ways of computing it and whether other vectors are faster than bitvectors.  So it takes about 100 ns to update the possible indices in place from a previous value.  It takes about 20 ns to copy one vector into another.  It takes about 51 ns to count the number of words from a bit vector
@@ -682,34 +631,6 @@ end
 @btime wordle_rollout($wordle_stochastic_game, $wordle_start, 1f0; possible_indices = $test_possible_indices)
   ╠═╡ =#
 
-# ╔═╡ c4bdbcda-e822-40f1-833a-1a2a70091adb
-# ╠═╡ disabled = true
-#=╠═╡
-function wordle_hardmode_rollout(mdp, s, γ::T; hard_mode_indices = copy(baseinds), sampling_weights = ones(T, length(hard_mode_indices)), ϵ = one(T)/10, stepkwargs...) where T <: Real
-	step = 0
-	rtot = zero(T)
-	get_possible_indices!(hard_mode_indices, s)
-	ntot = sum(baseinds)
-	while !mdp.isterm(s)
-		# sampling_weights .= (hard_mode_indices .* ϵ) .+ (hard_mode_indices .* wordle_original_inds)
-		nhard = sum(hard_mode_indices)
-		if ntot == nhard
-			sampling_weights .=  hard_mode_indices
-		else
-			sampling_weights .= hard_mode_indices .+ (ϵ/(ntot-nhard) .* baseinds)
-		end
-		a = sample(mdp.actions, weights(sampling_weights))
-		r, s′ = mdp.step(s, a; stepkwargs...)
-		rtot += γ^step * r
-		hard_mode_indices .*= get_possible_indices(a, last(s′.feedback_list))
-		num = sum(hard_mode_indices)
-		s = s′
-		step += 1
-	end
-	return rtot
-end
-  ╠═╡ =#
-
 # ╔═╡ ece29669-ddf4-4566-9e3f-370390113d5e
 # ╠═╡ disabled = true
 #=╠═╡
@@ -779,120 +700,10 @@ fetch(entropy_trace_game_stats)
 fetch(entropy_game_stats)
   ╠═╡ =#
 
-# ╔═╡ 7e60a977-ac32-4ee3-a56d-24dccc23437a
-# ╠═╡ disabled = true
-#=╠═╡
-summarystats([wordle_rollout(wordle_stochastic_game, WordleState(), 1f0) for _ in 1:10_000])
-  ╠═╡ =#
-
-# ╔═╡ 709eb45c-6f48-46cd-b748-f1a60e8ecd4e
-# ╠═╡ disabled = true
-#=╠═╡
-summarystats([wordle_hardmode_rollout(wordle_stochastic_game, WordleState(), 1f0) for _ in 1:10_000])
-  ╠═╡ =#
-
-# ╔═╡ 958ab525-bd40-4536-a0b7-24a203d6b152
-# ╠═╡ disabled = true
-#=╠═╡
-function show_word_hardmode_options(;s0 = gamestart, nsims = 100, depth = 10_000, c::T = 1f0) where T <: Real
-	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_vest, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_visits, Q = wordle_qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)
-	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s0]]
-	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s0]]
-	# topvisitinds = sortperm(visits[s0], rev = true)
-	# topqinds = sortperm(qs[s0], rev = true)
-	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:10]
-	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:10]
-	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
-	(top10visits = top10visits,
-	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
-	top10values = top10values,
-	greedyword = nyt_valid_words[wordindex],
-	totalsims = sum(values(visits[s0])))
-end
-  ╠═╡ =#
-
-# ╔═╡ b2948c3c-eeae-4744-9bd2-854904624e29
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	const (_, wordle_visits, wordle_qs) = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, wordle_start; nsims = 1, make_step_kwargs = k -> (answer_index = get_answer_index(k)), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
-	const hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
-	const sampling_weights = ones(Float32, length(hard_mode_indices))
-	const possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
-	wordle_vest(mdp, s, γ) = wordle_hardmode_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0, possible_indices = possible_indices)
-	function update_hard_mode_policy!(v, s)
-		get_possible_indices!(possible_indices, s)
-		v .*= possible_indices
-		# for i in eachindex(v)
-		# 	v[i] = ifelse(possible_indices[i], v[i], 0f0)
-		# end
-		make_greedy_policy!(v)
-	end
-
-	const (_, wordle_normal_visits, wordle_normal_qs) = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, gamestart; nsims = 1)
-	const normal_hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
-	const normal_sampling_weights = ones(Float32, length(hard_mode_indices))
-	const normal_possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
-	wordle_normal_vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = normal_hard_mode_indices, sampling_weights = normal_sampling_weights, possible_indices = normal_possible_indices)
-end
-  ╠═╡ =#
-
-# ╔═╡ 71366c5f-0e44-41d8-ab80-f2c77e51bfb8
-# ╠═╡ disabled = true
-#=╠═╡
-function show_word_new_options(s; nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
-	
-	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, s; nsims = nsims, depth = depth, c = c, apply_bonus! = apply_bonus!)
-	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s]]
-	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s]]
-	# topvisitinds = sortperm(visits[s0], rev = true)
-	# topqinds = sortperm(qs[s0], rev = true)
-	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
-	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
-	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
-	(top10visits = top10visits,
-	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
-	top10values = top10values,
-	greedyword = nyt_valid_words[wordindex],
-	totalsims = sum(values(visits[s])))
-end
-  ╠═╡ =#
-
-# ╔═╡ 2352ab2b-ddaf-485a-a849-4c53f0cf66b6
-# ╠═╡ disabled = true
-#=╠═╡
-show_word_new_options(WordleState([word_index["plant"], word_index["tired"], word_index["story"]], [0x0051, 0x000a, 0x0030]); nsims = 1000)
-  ╠═╡ =#
-
-# ╔═╡ 775e9b74-1cf2-411e-be69-a1acb9503219
-# ╠═╡ disabled = true
-#=╠═╡
-show_word_new_options(WordleState([word_index["plant"]], [0x0051]); nsims = 100)
-  ╠═╡ =#
-
 # ╔═╡ bdb30c10-677f-4d04-97d2-3489617475e1
 md"""
 Best value for normal and hard mode was -5.917 and -4.65 respectively.  Using random rollouts and normal tree policy with the modification for the normal mode game that if the number of possible answers has been reduced to 1, the rollout will pick it and it will pick from only remaining possible answers on the final guess.  MDP rewards are assigned as -1 for every guess and an additional -1 penalty if the game ends in a loss.  Normal mode if optimal should always have higher value estimates than hard mode because there are more options.  Those values were reached after 10 million iterations with the top visited word of clint visited over 300k times.  Normal mode favored all c words with clint, clart, clipt, chirt, clapt, clept, clift, and crept.  Hard mode favored plast, slant, spelt, and clept.  
 """
-
-# ╔═╡ 81f741c0-fceb-464f-9b25-c115e4ec5365
-# ╠═╡ disabled = true
-#=╠═╡
-wordle_mcts_ep = run_wordle_game(word; nsims = 10)
-  ╠═╡ =#
-
-# ╔═╡ 24bc0ca1-87fe-45a5-8326-a6d9a8ef61f9
-# ╠═╡ disabled = true
-#=╠═╡
-#game guesses
-[nyt_valid_words[i] for i in wordle_mcts_ep[2]]
-  ╠═╡ =#
-
-# ╔═╡ 1b328344-9f26-41f6-9787-fa6c7e8b3474
-# ╠═╡ disabled = true
-#=╠═╡
-run_wordle_mcts_trials(word; nsims = 100, trials = 10) |> summarystats
-  ╠═╡ =#
 
 # ╔═╡ 5aeabcb0-6dcf-45dd-add3-0f700708e959
 function score_wordle_episode(ep)
@@ -902,26 +713,6 @@ function score_wordle_episode(ep)
 	end
 	return r
 end
-
-# ╔═╡ 7a0210f0-03b5-477d-8ab1-a7fad0061c54
-# ╠═╡ disabled = true
-#=╠═╡
-wordle_random_ep = runepisode(create_wordle_mdp(word), s -> rand(collect(1:length(nyt_valid_words))[get_possible_indices(s)]))
-  ╠═╡ =#
-
-# ╔═╡ 85207dcc-b562-4968-bc08-8deeb1582ca6
-# ╠═╡ disabled = true
-#=╠═╡
-#game guesses
-[nyt_valid_words[i] for i in wordle_random_ep[2]]
-  ╠═╡ =#
-
-# ╔═╡ 275eb69b-4ede-41d3-8e1c-280fb8acabb2
-# ╠═╡ disabled = true
-#=╠═╡
-#possible words left at the end of the game
-get_possible_words(wordle_mcts_ep[1][end])
-  ╠═╡ =#
 
 # ╔═╡ 7225270f-5c8c-4a32-af95-02b16891dd00
 md"""
@@ -944,31 +735,11 @@ end
 # ╔═╡ 7ba03410-3cd2-496a-9b54-f208604e243b
 @bind eval_mcts_information_gain CounterButton("Eval MCTS Guesses")
 
-# ╔═╡ ebad3990-b937-4717-a6ab-29b9f8ab4da5
-# ╠═╡ disabled = true
-#=╠═╡
-if eval_mcts_information_gain > 0
-	show_entropy_word_options(;s0 = eval_state, nsims = 10_000, c = 10f0, sim_message=true, update_tree_policy! = wordle_update_gumbel_information_tree_policy!)
-end
-  ╠═╡ =#
-
 # ╔═╡ 263d6d7c-d5f4-4b57-9a8c-94ef73883229
 md"""
 Number of Simulations: 
 $(@bind new_options_sims confirm(NumberField(1:1_000_000, default = 100)))
 """
-
-# ╔═╡ 61e5ab45-a216-43ba-8c0e-c28e48697949
-# ╠═╡ disabled = true
-#=╠═╡
-show_entropy_new_word_options(WordleState([word_index["solar"]], [0x00a8]); nsims = new_options_sims)
-  ╠═╡ =#
-
-# ╔═╡ bfae51d1-708c-4110-a99a-fcbcd03e95cb
-# ╠═╡ disabled = true
-#=╠═╡
-show_ranked_priors(WordleState([word_index["delta"], word_index["phony"]], [0x000, 0x00de]))
-  ╠═╡ =#
 
 # ╔═╡ 321bdf5a-bff7-4181-986f-d3884ea96d27
 md"""
@@ -1925,6 +1696,51 @@ function addelements(e1, e2)
 	@htl("""
 	$e1
 	$e2
+	""")
+end
+
+# ╔═╡ 39c96fc8-8259-46e3-88a0-a14eb6752b5c
+function show_grid_value(mdp, Q, name; scale = 1.0, title = "", sigdigits = 2)
+	width = maximum(s.x for s in mdp.states)
+	height = maximum(s.y for s in mdp.states)
+	start = mdp.state_init()
+	termind = findfirst(mdp.isterm, mdp.states)
+	sterm = mdp.states[termind]
+	ngrid = width*height
+
+	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
+	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
+	@htl("""
+		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px;">
+			<div>
+				$title
+				<div class = "gridworld $name value">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 12px; color: black; $(displayvalue(Q, i) != 0 ? "background-color: lightblue;" : "")">$(displayvalue(Q, i))</div>""", *, eachindex(mdp.states))))
+				</div>
+			</div>
+		</div>
+	
+		<style>
+			.$name.value.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, 20px);
+				grid-template-rows: repeat($height, 20px);
+				background-color: white;
+			}
+
+			.$name.value[x="$(start.x)"][y="$(start.y)"] {
+				content: '';
+				background-color: rgba(0, 255, 0, 0.5);
+				
+			}
+
+			.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
+				content: '';
+				background-color: rgba(255, 0, 0, 0.5);
+				
+			}
+
+		</style>
 	""")
 end
 
@@ -4828,6 +4644,30 @@ end
 # ╔═╡ e7a55f06-d97c-4812-861a-2b869eb48abb
 wordle_afterstate_transition_lookup[WordleAfterState(wordle_start, word_index["trace"])]
 
+# ╔═╡ 0753c910-99be-487d-bad0-5589131c378e
+if counter != 0
+	@use_effect([]) do
+		t = time()
+		schedule(Task() do
+			nruns = 10_000
+			for i in 1:nruns
+				stop_mcts_eval != 0 && break
+				elapsed_minutes = round(Int64, (time() - t)/60)
+				etr = round(Int64, elapsed_minutes * nruns / i) - elapsed_minutes
+				set_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $etr minutes left")
+				# outhard = @spawn show_word_hardmode_options(;nsims = 10_000)
+				outnormal = @spawn show_normal_word_options(;nsims = 5_000, c = 10f0)
+				# set_word_options(fetch(outhard))
+				# outnormal = show_normal_word_options(;nsims = 1_000)
+				# set_normal_word_options(outnormal)
+				set_normal_word_options(fetch(outnormal))
+				sleep(1)
+			end
+			set_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
+		end)
+	end
+end
+
 # ╔═╡ d92630e4-c811-4e89-9f65-f6fba05bea91
 if compute_policy_iteration_options > 0
 	clint9guess = how_best_guesses(WordleState(["clint"], [9]); num_samples = 100)
@@ -5353,14 +5193,6 @@ begin
 	const dyna_maze = make_gridworld(;xmax = 9, ymax = 6, sterm = GridworldState(9, 6), iswall = s -> in(s, maze_walls))
 end
 
-# ╔═╡ 563b6dbd-ce51-4904-b1cc-d766bd1fd1d6
-@htl("""
-<div style = "background-color: white; color: black; display: flex; align-items: center; justify-content: center;">
-<div>$(plot_path(dyna_maze; title = "Random policy path example in Dyna Maze", max_steps = 10000, iswall = s -> in(s, maze_walls)))</div>
-<div>$rook_action_display</div>
-</div>
-""")
-
 # ╔═╡ cd139745-1877-43a2-97a0-3333e544cbd8
 function figure8_2(;num_episodes = 50, α = 0.1f0, nlist = [0, 5, 50], γ = 0.95f0, samples = 5)
 	traces = [begin
@@ -5608,51 +5440,6 @@ end
 # ╔═╡ 1aa76f3d-6041-4886-a6cd-787bdf1ec63c
 figure_8_5′′(;ϵ = 0.01f0)
 
-# ╔═╡ 39c96fc8-8259-46e3-88a0-a14eb6752b5c
-function show_grid_value(mdp, Q, name; scale = 1.0, title = "", sigdigits = 2)
-	width = maximum(s.x for s in mdp.states)
-	height = maximum(s.y for s in mdp.states)
-	start = mdp.state_init()
-	termind = findfirst(mdp.isterm, mdp.states)
-	sterm = mdp.states[termind]
-	ngrid = width*height
-
-	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
-	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
-	@htl("""
-		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px;">
-			<div>
-				$title
-				<div class = "gridworld $name value">
-					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(mdp.states[i].x)" y = "$(mdp.states[i].y)" style = "grid-row: $(height - mdp.states[i].y + 1); grid-column: $(mdp.states[i].x); font-size: 12px; color: black; $(displayvalue(Q, i) != 0 ? "background-color: lightblue;" : "")">$(displayvalue(Q, i))</div>""", *, eachindex(mdp.states))))
-				</div>
-			</div>
-		</div>
-	
-		<style>
-			.$name.value.gridworld {
-				display: grid;
-				grid-template-columns: repeat($width, 20px);
-				grid-template-rows: repeat($height, 20px);
-				background-color: white;
-			}
-
-			.$name.value[x="$(start.x)"][y="$(start.y)"] {
-				content: '';
-				background-color: rgba(0, 255, 0, 0.5);
-				
-			}
-
-			.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
-				content: '';
-				background-color: rgba(255, 0, 0, 0.5);
-				
-			}
-
-		</style>
-	""")
-end
-
 # ╔═╡ 7be538ed-ef59-468d-ba12-dcec648090aa
 function get_feedback(guess::SVector{5, Char}, answer::SVector{5, Char})
 	output = zeros(UInt8, 5)
@@ -5752,96 +5539,6 @@ compute_guess_two_step_score(word::AbstractString; kwargs...) = compute_guess_tw
 
 # ╔═╡ 488ffc66-85b9-4c6c-b9c1-b1001facdb92
 const test_game_state = WordleState([12726, 8071, 14413, 12738], [0x0054, 0x0000, 0x0007, 0x00ba])
-
-# ╔═╡ cf909eb2-50ea-4499-8e1f-7e813b1f7367
-# ╠═╡ disabled = true
-#=╠═╡
-const trace_two_step_score = compute_guess_two_step_score("trace")
-  ╠═╡ =#
-
-# ╔═╡ 6c9c4b98-89b9-4437-b2c0-defca59505f6
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const reast_two_step_score = compute_guess_two_step_score(8885)
-  ╠═╡ =#
-
-# ╔═╡ db8c1019-49de-49f7-a9f1-e969f9591277
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const tarse_two_step_score = compute_guess_two_step_score("tarse")
-  ╠═╡ =#
-
-# ╔═╡ 9608a53f-aa95-472c-ab83-7fee8472d952
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const crane_two_step_score = compute_guess_two_step_score("crane")
-  ╠═╡ =#
-
-# ╔═╡ 8da4d04c-80e4-435f-b23d-eeb41db8f193
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const crate_two_step_score = compute_guess_two_step_score(12592)
-  ╠═╡ =#
-
-# ╔═╡ 53b5e5e7-edf5-49d0-88bc-f3c983bd8b73
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const slate_two_step_score = compute_guess_two_step_score("slate")
-  ╠═╡ =#
-
-# ╔═╡ de5316be-a766-4c78-86d5-74501e91d811
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const least_two_step_score = compute_guess_two_step_score("least")
-  ╠═╡ =#
-
-# ╔═╡ 6823d330-7cb5-4a6b-8059-d6e045171e8a
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const cater_two_step_score = compute_guess_two_step_score("cater")
-  ╠═╡ =#
-
-# ╔═╡ 34de31cd-c153-4873-b847-c41045779fce
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const raise_two_step_score = compute_guess_two_step_score("raise")
-  ╠═╡ =#
-
-# ╔═╡ 795c6ee8-d7c3-4d51-a593-e554f24ac8ad
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const siren_two_step_score = compute_guess_two_step_score("siren")
-  ╠═╡ =#
-
-# ╔═╡ e270c061-aeee-4a9a-abd2-e60e2f09f12d
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const salet_two_step_score = compute_guess_two_step_score(9464)
-  ╠═╡ =#
-
-# ╔═╡ cf0850f0-d143-43a0-9a7b-05fe7b3706c5
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const trace_two_step_score = compute_guess_two_step_score(12726)
-  ╠═╡ =#
-
-# ╔═╡ 2311a3a6-7a51-4e91-9c4d-9045f8ef01be
-# ╠═╡ show_logs = false
-# ╠═╡ disabled = true
-#=╠═╡
-const carte_two_step_score = compute_guess_two_step_score(1673)
-  ╠═╡ =#
 
 # ╔═╡ 1868e971-be35-48b9-8027-0a138b5f4c18
 display_two_step_guesses(output) = sort(output[2]; by = t -> t.score, rev = true) |> Map(t -> (nyt_valid_words[t.guess_index], t)) |> collect
@@ -5989,26 +5686,8 @@ const testA = zeros(Float32, length(nyt_valid_words), 243)
 # ╔═╡ 1896d5a4-6f29-4ad3-81b2-e6dcd0622425
 const testselectweights = zeros(Float32, length(nyt_valid_words))
 
-# ╔═╡ ca7ac8ea-7ad0-41c5-9067-d9067ce7777c
-# ╠═╡ disabled = true
-#=╠═╡
-calculate_entropy(calculate_guess_feedback_distribution(1, wordle_original_weights; output = testout, A = testA))
-  ╠═╡ =#
-
 # ╔═╡ 4490d04c-a74f-4a6b-a83b-960f5852ee74
 const testfeedbackinds = zeros(UInt16, length(nyt_valid_words))
-
-# ╔═╡ 7c31e64c-314f-43d8-b6b1-fd08a76bb33a
-# ╠═╡ disabled = true
-#=╠═╡
-calculate_guess_priors(wordle_original_weights; prior = testprior, possible_indices = test_possible_indices, feedback_probabilities = testout, selectweights = testselectweights, feedbackinds = testfeedbackinds)
-  ╠═╡ =#
-
-# ╔═╡ 27f5c7ad-8a02-40b9-8f56-d0f60f6914a9
-# ╠═╡ disabled = true
-#=╠═╡
-[eval_guess_entropy(i, test_possible_indices, wordle_original_weights; feedback_probabilities = testout) for i in 1:10_000]
-  ╠═╡ =#
 
 # ╔═╡ 3d0e9926-445a-47d1-9afd-39b9f85c3a3d
 #generates a matrix with 243 columns where each column is a boolean vector marked true for every word that could be a possible answer receiving that feedback with that guess
@@ -6114,6 +5793,34 @@ function get_possible_indices!(output::BitVector, gamesteps; baseline = baseinds
 	end
 	return output
 end
+
+# ╔═╡ c4bdbcda-e822-40f1-833a-1a2a70091adb
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_hardmode_rollout(mdp, s, γ::T; hard_mode_indices = copy(baseinds), sampling_weights = ones(T, length(hard_mode_indices)), ϵ = one(T)/10, stepkwargs...) where T <: Real
+	step = 0
+	rtot = zero(T)
+	get_possible_indices!(hard_mode_indices, s)
+	ntot = sum(baseinds)
+	while !mdp.isterm(s)
+		# sampling_weights .= (hard_mode_indices .* ϵ) .+ (hard_mode_indices .* wordle_original_inds)
+		nhard = sum(hard_mode_indices)
+		if ntot == nhard
+			sampling_weights .=  hard_mode_indices
+		else
+			sampling_weights .= hard_mode_indices .+ (ϵ/(ntot-nhard) .* baseinds)
+		end
+		a = sample(mdp.actions, weights(sampling_weights))
+		r, s′ = mdp.step(s, a; stepkwargs...)
+		rtot += γ^step * r
+		hard_mode_indices .*= get_possible_indices(a, last(s′.feedback_list))
+		num = sum(hard_mode_indices)
+		s = s′
+		step += 1
+	end
+	return rtot
+end
+  ╠═╡ =#
 
 # ╔═╡ 2bf41479-a2bb-4f89-8fb0-5f8ca438f39f
 function count_expected_remaining(s::WordleState, guess_index::Int64; possible_indices = copy(baseinds))
@@ -6270,6 +5977,24 @@ end
 # ╔═╡ 97726300-a24d-4f9d-81cb-25c372294e25
 const wordle_determ_game = create_wordle_mdp("apple")
 
+# ╔═╡ 9a97626c-769f-4db1-8e7c-2de3e75b5f60
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_rand_vest2(s; γ = 1f0, answer_index = sample(nyt_valid_indices, weights(get_possible_indices(s))))
+	# mdp = create_wordle_mdp(answer_index)
+	rtot = 0f0
+	step = 0
+	while !wordle_determ_game.isterm(s)
+		a = rand(wordle_determ_game.actions)
+		r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
+		rtot += γ^step * r
+		s = s′
+		step += 1
+	end
+	return rtot
+end
+  ╠═╡ =#
+
 # ╔═╡ ec92c8f2-31c3-4916-bb3b-360a8f3d0f5d
 const wordle_stochastic_game = create_wordle_mdp()
 
@@ -6279,34 +6004,50 @@ function evaluate_game_stats(π, n)
 	summarystats([wordle_rollout(wordle_stochastic_game, test_game_start, 1f0; π = π, possible_indices = possible_indices) for _ in 1:n])
 end
 
-# ╔═╡ 720560c2-5970-4547-b0d5-82886a7f03ba
-function run_wordle_game(answer; nsims = 10, depth = 10_000, c::T = 1f0) where T<:Real
-	mdp = create_wordle_mdp(answer)
-	hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
-	sampling_weights = ones(T, length(hard_mode_indices))
-	possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
-	vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0)
-	visit_counts = Dict{WordleState, Dict{Int64, T}}()
-	qs = Dict{WordleState, Dict{Int64, T}}()
-	π(s) = monte_carlo_tree_search(wordle_stochastic_game, 0.95f0, vest, s; nsims = nsims, depth = depth, c = c, visit_counts = visit_counts, Q = qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)[1]
-	runepisode(mdp, π)
-end
+# ╔═╡ 7e60a977-ac32-4ee3-a56d-24dccc23437a
+# ╠═╡ disabled = true
+#=╠═╡
+summarystats([wordle_rollout(wordle_stochastic_game, WordleState(), 1f0) for _ in 1:10_000])
+  ╠═╡ =#
 
-# ╔═╡ e672f702-7981-43ab-b9ac-54ea7e8712db
-function run_wordle_mcts_trials(answer; nsims = 10, depth = 10_000, c::T = 1f0, trials = 100) where T<:Real
-	mdp = create_wordle_mdp(answer)
-	hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
-	sampling_weights = ones(T, length(hard_mode_indices))
-	possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
-	vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0)
-	visit_counts = Dict{WordleState, Dict{Int64, T}}()
-	qs = Dict{WordleState, Dict{Int64, T}}()
-	π(s) = monte_carlo_tree_search(wordle_stochastic_game, 0.95f0, vest, s; nsims = nsims, depth = depth, c = c, visit_counts = visit_counts, Q = qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)[1]
-	map(1:trials) do i
-		ep = runepisode(mdp, π)
-		score_wordle_episode(ep)
-	end
+# ╔═╡ 709eb45c-6f48-46cd-b748-f1a60e8ecd4e
+# ╠═╡ disabled = true
+#=╠═╡
+summarystats([wordle_hardmode_rollout(wordle_stochastic_game, WordleState(), 1f0) for _ in 1:10_000])
+  ╠═╡ =#
+
+# ╔═╡ 71366c5f-0e44-41d8-ab80-f2c77e51bfb8
+# ╠═╡ disabled = true
+#=╠═╡
+function show_word_new_options(s; nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
+	
+	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, s; nsims = nsims, depth = depth, c = c, apply_bonus! = apply_bonus!)
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:min(10, length(rootvisits))]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:min(10, length(rootvalues))]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	greedyword = nyt_valid_words[wordindex],
+	totalsims = sum(values(visits[s])))
 end
+  ╠═╡ =#
+
+# ╔═╡ 2352ab2b-ddaf-485a-a849-4c53f0cf66b6
+# ╠═╡ disabled = true
+#=╠═╡
+show_word_new_options(WordleState([word_index["plant"], word_index["tired"], word_index["story"]], [0x0051, 0x000a, 0x0030]); nsims = 1000)
+  ╠═╡ =#
+
+# ╔═╡ 775e9b74-1cf2-411e-be69-a1acb9503219
+# ╠═╡ disabled = true
+#=╠═╡
+show_word_new_options(WordleState([word_index["plant"]], [0x0051]); nsims = 100)
+  ╠═╡ =#
 
 # ╔═╡ 77eec152-03da-4c6e-a0cb-cb19511f1181
 function get_score_statistics(word, π)
@@ -6316,6 +6057,19 @@ function get_score_statistics(word, π)
 		score_wordle_episode(ep)
 	end
 end
+
+# ╔═╡ 7a0210f0-03b5-477d-8ab1-a7fad0061c54
+# ╠═╡ disabled = true
+#=╠═╡
+wordle_random_ep = runepisode(create_wordle_mdp(word), s -> rand(collect(1:length(nyt_valid_words))[get_possible_indices(s)]))
+  ╠═╡ =#
+
+# ╔═╡ 85207dcc-b562-4968-bc08-8deeb1582ca6
+# ╠═╡ disabled = true
+#=╠═╡
+#game guesses
+[nyt_valid_words[i] for i in wordle_random_ep[2]]
+  ╠═╡ =#
 
 # ╔═╡ 3d3f7f97-7f9e-434b-ae9a-eb2a0eaa65a3
 function wordle_rand_vest(s, answer_index; possible_indices = copy(baseinds), γ = 1f0)
@@ -6417,6 +6171,65 @@ end
 # ╔═╡ fcda3b7f-de53-4d37-9163-01690f64232f
 get_possible_indices(WordleState(["trace", "lions"], [0, 0]); baseline = wordle_original_inds) |> count
 
+# ╔═╡ ec912b7c-4929-4814-8703-81593f049936
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_rand_vest3(s; possible_indices = copy(baseinds), γ = 1f0)
+	wordle_determ_game.isterm(s) && return 0f0
+	
+	get_possible_indices!(possible_indices, s)
+	possible_indices .*= wordle_original_inds
+
+	n = sum(possible_indices)
+	l = length(s.guess_list)
+
+	pwin = 1f0/n
+	plose = 1f0 - pwin
+
+	#on last guess assume random success rate of which words remain possible answers
+	(l == 5) && return -1f0 + pwin
+
+	answer_index = sample(nyt_valid_indices, weights(possible_indices))
+	# mdp = create_wordle_mdp(answer_index)
+	rtot = 0f0
+	step = 0
+	
+	while !wordle_determ_game.isterm(s)
+		if l == 5
+			n = sum(possible_indices)
+			rtot += γ^step * (-1f0 + 1f0/n)
+			break
+		else
+			a = rand(wordle_determ_game.actions)
+			r, s′ = wordle_determ_game.step(s, a; answer_index = answer_index)
+			rtot += γ^step * r
+			s = s′
+			possible_indices .*= get_possible_indices(a, last(s′.feedback_list))
+			l += 1
+			step += 1
+		end
+	end
+	return rtot
+end
+  ╠═╡ =#
+
+# ╔═╡ 198f54d8-4445-4fc8-b817-507273016301
+# ╠═╡ disabled = true
+#=╠═╡
+function wordle_rand_vest4(s; possible_indices = copy(baseinds), γ = 1f0)
+	wordle_determ_game.isterm(s) && return 0f0
+	
+	get_possible_indices!(possible_indices, s)
+	possible_indices .*= wordle_original_inds
+
+	n = sum(possible_indices)
+	l = length(s.guess_list)
+	guesses_left = 6-l
+	pwin = 1f0/n
+	sum((1/(n-i))*((1f0 - i/nplose^(i-1))*(-1f0 * (i-1)) for i in 1:guesses_left) + -1f0*guesses_left*(plose^i))
+end
+  ╠═╡ =#
+
 # ╔═╡ cfd222a4-5767-4b93-9a2a-3c1875ae7453
 const wordle_original_dense_inds = nyt_valid_indices[wordle_original_inds]
 
@@ -6476,29 +6289,6 @@ function show_new_normal_word_options(s; nsims = 100, depth = 10_000, c::T = 1f0
 	top10values = top10values,
 	greedyword = nyt_valid_words[wordindex],
 	totalsims = sum(values(visits[s])))
-end
-
-# ╔═╡ b07a52b1-4f8b-46f4-a7b2-a3bf48c80d3a
-if compute_mcts_options > 0
-	@info "running new word options"
-	new_word_options = @spawn show_new_normal_word_options(WordleState(["clint"], [9]); nsims = 1_000_000, c = 10f0)
-	@use_effect([]) do
-		@async begin
-			while !istaskdone(new_word_options)
-				sleep(1)
-			end
-			setdone(true)
-		end
-	end
-end
-
-# ╔═╡ 8f4c19d9-d7fc-4878-a779-ec8da99086a9
-if isdone
-	fetch(new_word_options)
-else
-	md"""
-	Waiting for new word mcts options
-	"""
 end
 
 # ╔═╡ c4022d28-fbd6-4038-b7d2-3612a9731222
@@ -6608,13 +6398,8 @@ function get_answer_index(seed::UInt64; inds = wordle_original_dense_inds)
 	rand(inds)
 end
 
-# ╔═╡ 45eb450e-aa4f-47f2-a82d-59b4a807931a
-begin
-	const normal_possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
-	const (_, wordle_normal_visits, wordle_normal_qs) = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, wordle_start; nsims = 10, update_tree_policy! = wordle_update_tree_policy!, make_step_kwargs = k -> (answer_index = get_answer_index(k),), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
-end
-
 # ╔═╡ fa1b90c9-d845-45ac-8fe2-befe7178519e
+#=╠═╡
 function show_normal_word_options(;s0 = wordle_start, nsims = 100, depth = 10_000, c::T = 1f0, apply_bonus! = apply_uct!) where T <: Real
 	wordindex, visits, qs = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_normal_visits, Q = wordle_normal_qs, update_tree_policy! = wordle_update_tree_policy!, apply_bonus! = apply_bonus!, make_step_kwargs = k -> (answer_index = get_answer_index(k),), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
 	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2], values = qs[s0][a[1]]) for a in visits[s0]]
@@ -6630,45 +6415,91 @@ function show_normal_word_options(;s0 = wordle_start, nsims = 100, depth = 10_00
 	greedyword = nyt_valid_words[wordindex],
 	totalsims = sum(values(visits[s0])))
 end
+  ╠═╡ =#
 
 # ╔═╡ fa649626-cb2d-4f77-8ba8-25e32ad29d9f
+#=╠═╡
 const base_normal_word_options = show_normal_word_options(;nsims = 10)
+  ╠═╡ =#
 
-# ╔═╡ 6dbf1bd0-242c-4604-849f-a9c9813c2007
-begin
-	const normal_word_options, set_normal_word_options = @use_state(base_normal_word_options)
-	const track_run, set_run = @use_state("Completed")
+# ╔═╡ 958ab525-bd40-4536-a0b7-24a203d6b152
+# ╠═╡ disabled = true
+#=╠═╡
+function show_word_hardmode_options(;s0 = gamestart, nsims = 100, depth = 10_000, c::T = 1f0) where T <: Real
+	wordindex, visits, qs = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_vest, s0; nsims = nsims, depth = depth, c = c, visit_counts = wordle_visits, Q = wordle_qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)
+	rootvisits = [(word = nyt_valid_words[a[1]], visits = a[2]) for a in visits[s0]]
+	rootvalues = [(word = nyt_valid_words[a[1]], value = a[2]) for a in qs[s0]]
+	# topvisitinds = sortperm(visits[s0], rev = true)
+	# topqinds = sortperm(qs[s0], rev = true)
+	top10visits = sort(rootvisits; by = a -> a[2], rev = true)[1:10]
+	top10values = sort(rootvalues; by = a -> a[2], rev = true)[1:10]
+	# (top10visits = nyt_valid_words[topvisitinds[1:10]],
+	(top10visits = top10visits,
+	# top10values = [(word = nyt_valid_words[i], value = qs[s0][i]) for i in topqinds[1:10]],
+	top10values = top10values,
+	greedyword = nyt_valid_words[wordindex],
+	totalsims = sum(values(visits[s0])))
 end
+  ╠═╡ =#
 
-# ╔═╡ 05427e12-c2e1-4fc1-a8f6-05d439448b0b
-track_run
+# ╔═╡ 720560c2-5970-4547-b0d5-82886a7f03ba
+#=╠═╡
+function run_wordle_game(answer; nsims = 10, depth = 10_000, c::T = 1f0) where T<:Real
+	mdp = create_wordle_mdp(answer)
+	hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
+	sampling_weights = ones(T, length(hard_mode_indices))
+	possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0)
+	visit_counts = Dict{WordleState, Dict{Int64, T}}()
+	qs = Dict{WordleState, Dict{Int64, T}}()
+	π(s) = monte_carlo_tree_search(wordle_stochastic_game, 0.95f0, vest, s; nsims = nsims, depth = depth, c = c, visit_counts = visit_counts, Q = qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)[1]
+	runepisode(mdp, π)
+end
+  ╠═╡ =#
 
-# ╔═╡ 505a9c9d-b29e-415b-8877-13c288117880
-normal_word_options
+# ╔═╡ 81f741c0-fceb-464f-9b25-c115e4ec5365
+# ╠═╡ disabled = true
+#=╠═╡
+wordle_mcts_ep = run_wordle_game(word; nsims = 10)
+  ╠═╡ =#
 
-# ╔═╡ 0753c910-99be-487d-bad0-5589131c378e
-if counter != 0
-	@use_effect([]) do
-		t = time()
-		schedule(Task() do
-			nruns = 10_000
-			for i in 1:nruns
-				stop_mcts_eval != 0 && break
-				elapsed_minutes = round(Int64, (time() - t)/60)
-				etr = round(Int64, elapsed_minutes * nruns / i) - elapsed_minutes
-				set_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $etr minutes left")
-				# outhard = @spawn show_word_hardmode_options(;nsims = 10_000)
-				outnormal = @spawn show_normal_word_options(;nsims = 5_000, c = 10f0)
-				# set_word_options(fetch(outhard))
-				# outnormal = show_normal_word_options(;nsims = 1_000)
-				# set_normal_word_options(outnormal)
-				set_normal_word_options(fetch(outnormal))
-				sleep(1)
-			end
-			set_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
-		end)
+# ╔═╡ 24bc0ca1-87fe-45a5-8326-a6d9a8ef61f9
+# ╠═╡ disabled = true
+#=╠═╡
+#game guesses
+[nyt_valid_words[i] for i in wordle_mcts_ep[2]]
+  ╠═╡ =#
+
+# ╔═╡ 275eb69b-4ede-41d3-8e1c-280fb8acabb2
+# ╠═╡ disabled = true
+#=╠═╡
+#possible words left at the end of the game
+get_possible_words(wordle_mcts_ep[1][end])
+  ╠═╡ =#
+
+# ╔═╡ e672f702-7981-43ab-b9ac-54ea7e8712db
+#=╠═╡
+function run_wordle_mcts_trials(answer; nsims = 10, depth = 10_000, c::T = 1f0, trials = 100) where T<:Real
+	mdp = create_wordle_mdp(answer)
+	hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
+	sampling_weights = ones(T, length(hard_mode_indices))
+	possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0)
+	visit_counts = Dict{WordleState, Dict{Int64, T}}()
+	qs = Dict{WordleState, Dict{Int64, T}}()
+	π(s) = monte_carlo_tree_search(wordle_stochastic_game, 0.95f0, vest, s; nsims = nsims, depth = depth, c = c, visit_counts = visit_counts, Q = qs, possible_indices = possible_indices, update_tree_policy! = update_hard_mode_policy!)[1]
+	map(1:trials) do i
+		ep = runepisode(mdp, π)
+		score_wordle_episode(ep)
 	end
 end
+  ╠═╡ =#
+
+# ╔═╡ 1b328344-9f26-41f6-9787-fa6c7e8b3474
+# ╠═╡ disabled = true
+#=╠═╡
+run_wordle_mcts_trials(word; nsims = 100, trials = 10) |> summarystats
+  ╠═╡ =#
 
 # ╔═╡ 43e52a0d-9d22-44fd-8f6d-4f1e10b994ee
 function wordle_entropy_policy(s::WordleState, answer_weights::Vector{Float32}; possible_indices = copy(baseinds), kwargs...)
@@ -6776,6 +6607,12 @@ function show_entropy_new_word_options(s::WordleState; nsims = 100, depth = 10_0
 	totalsims = sum(values(visits[s])))
 end
 
+# ╔═╡ 61e5ab45-a216-43ba-8c0e-c28e48697949
+# ╠═╡ disabled = true
+#=╠═╡
+show_entropy_new_word_options(WordleState([word_index["solar"]], [0x00a8]); nsims = new_options_sims)
+  ╠═╡ =#
+
 # ╔═╡ 86572161-4057-47ac-a3c1-a61e6a603d6f
 make_entropy_kwargs() = (prior = copy(wordle_original_weights), possible_indices = copy(baseinds), feedback_probabilities = zeros(Float32, 243), selectweights = zeros(Float32, length(nyt_valid_words)), feedbackinds = zeros(UInt16, length(nyt_valid_words)))
 
@@ -6820,6 +6657,12 @@ end
 # ╔═╡ 90145602-bec7-431f-92c8-17b440b74a70
 show_ranked_priors(WordleState(["clint"], [2]))
 
+# ╔═╡ bfae51d1-708c-4110-a99a-fcbcd03e95cb
+# ╠═╡ disabled = true
+#=╠═╡
+show_ranked_priors(WordleState([word_index["delta"], word_index["phony"]], [0x000, 0x00de]))
+  ╠═╡ =#
+
 # ╔═╡ 25f6c662-0459-4686-908f-0b760008f8e8
 const testprior = copy(wordle_original_weights)
 
@@ -6831,6 +6674,24 @@ function wordle_entropy_π(s; start_guess = word_index["lions"])
 		wordle_entropy_policy(s, wordle_original_weights; prior = testprior, possible_indices = test_possible_indices, feedback_probabilities = testout, selectweights = testselectweights, feedbackinds = testfeedbackinds)
 	end
 end
+
+# ╔═╡ ca7ac8ea-7ad0-41c5-9067-d9067ce7777c
+# ╠═╡ disabled = true
+#=╠═╡
+calculate_entropy(calculate_guess_feedback_distribution(1, wordle_original_weights; output = testout, A = testA))
+  ╠═╡ =#
+
+# ╔═╡ 7c31e64c-314f-43d8-b6b1-fd08a76bb33a
+# ╠═╡ disabled = true
+#=╠═╡
+calculate_guess_priors(wordle_original_weights; prior = testprior, possible_indices = test_possible_indices, feedback_probabilities = testout, selectweights = testselectweights, feedbackinds = testfeedbackinds)
+  ╠═╡ =#
+
+# ╔═╡ 27f5c7ad-8a02-40b9-8f56-d0f60f6914a9
+# ╠═╡ disabled = true
+#=╠═╡
+[eval_guess_entropy(i, test_possible_indices, wordle_original_weights; feedback_probabilities = testout) for i in 1:10_000]
+  ╠═╡ =#
 
 # ╔═╡ f750e42b-3370-424d-9386-957098b6d5ae
 md"""
@@ -6916,24 +6777,6 @@ end
 # ╔═╡ f73d04c9-4f36-417b-b2ea-82fd1a22854b
 eval_guesses(s::WordleState; kwargs...) = eval_guesses(zip(s.guess_list, s.feedback_list); kwargs...)
 
-# ╔═╡ c9a7d5f7-7d77-403d-90c2-59d323a3d2bc
-# ╠═╡ disabled = true
-#=╠═╡
-rooteval = eval_guesses(WordleState())
-  ╠═╡ =#
-
-# ╔═╡ c1aa4831-69ac-43ba-b325-7a3b984e80fd
-# ╠═╡ disabled = true
-#=╠═╡
-sort(rooteval.guesses; by = a -> a.entropy, rev = true)
-  ╠═╡ =#
-
-# ╔═╡ 51970360-22dc-4bb8-aeb1-1051f3e72317
-# ╠═╡ disabled = true
-#=╠═╡
-game_evals
-  ╠═╡ =#
-
 # ╔═╡ 541477db-23e0-462b-910e-959543c06a78
 lookup_dict(dict, key, default) = haskey(dict, key) ? dict[key] : default
 
@@ -7006,6 +6849,24 @@ begin
 		eval_guesses(answer_indices, weights, hard_mode_indices)
 	end
 end
+
+# ╔═╡ c9a7d5f7-7d77-403d-90c2-59d323a3d2bc
+# ╠═╡ disabled = true
+#=╠═╡
+rooteval = eval_guesses(WordleState())
+  ╠═╡ =#
+
+# ╔═╡ c1aa4831-69ac-43ba-b325-7a3b984e80fd
+# ╠═╡ disabled = true
+#=╠═╡
+sort(rooteval.guesses; by = a -> a.entropy, rev = true)
+  ╠═╡ =#
+
+# ╔═╡ 51970360-22dc-4bb8-aeb1-1051f3e72317
+# ╠═╡ disabled = true
+#=╠═╡
+game_evals
+  ╠═╡ =#
 
 # ╔═╡ 5677ee05-7511-4ab9-a546-d157d7eb21f4
 #create a list of wordle answers for the game to use upon reset by sampling accoridng to the pdf from the valid guess list without replacement
@@ -7307,6 +7168,23 @@ function wordle_greedy_information_gain_afterstate_value(w::WordleAfterState)
 	sum(dist[k]*(k[1] + wordle_afterstate_rollout(k[2], π)) for k in keys(dist))
 end
 
+# ╔═╡ 4aced2ac-72f2-4774-8072-101dae43729f
+# ╠═╡ disabled = true
+#=╠═╡
+const greedy_information_gain_root_afterstate_values = Dict(begin
+	v = wordle_greedy_information_gain_afterstate_value(WordleAfterState(wordle_start, guess_index))
+	@info "Done evaluating guess $(nyt_valid_words[guess_index]) with a rank of $i and a value of $v"
+	guess_index => v
+end
+for (i, guess_index) in enumerate(sortperm(guess_score_lookup[wordle_start], rev=true)[1:5_000]))
+  ╠═╡ =#
+
+# ╔═╡ 9fe1ae22-dc24-4eee-b776-f6e3fe98f80b
+# ╠═╡ disabled = true
+#=╠═╡
+sort([(guess = nyt_valid_words[a[1]], value = a[2], rank = root_guess_ranks[a[1]]) for a in greedy_information_gain_root_afterstate_values]; by = a -> a.value, rev=true)
+  ╠═╡ =#
+
 # ╔═╡ a1f98546-1c05-4ed2-a38e-724dbf091f57
 function wordle_greedy_information_gain_vest(s; information_gain_kwargs = make_information_gain_kwargs(), possible_indices = copy(baseinds))
 	isterm(s) && return scoregame(s)
@@ -7471,6 +7349,14 @@ function show_entropy_word_options(;s0 = wordle_start, nsims = 100, kwargs...)
 	greedyword = nyt_valid_words[wordindex],
 	totalsims = sum(values(visits[s0])))
 end
+
+# ╔═╡ ebad3990-b937-4717-a6ab-29b9f8ab4da5
+# ╠═╡ disabled = true
+#=╠═╡
+if eval_mcts_information_gain > 0
+	show_entropy_word_options(;s0 = eval_state, nsims = 10_000, c = 10f0, sim_message=true, update_tree_policy! = wordle_update_gumbel_information_tree_policy!)
+end
+  ╠═╡ =#
 
 # ╔═╡ a7270c87-6d77-4bae-aff2-7b05214e0962
 function show_entropy_root_word_options(s0)
@@ -7680,6 +7566,83 @@ function compute_guess_two_step_score(guess_index::Integer; score_pct_cutoff = 0
 	# sum(a.p * (a.best_guess)[1].best_score for a in two_step_guess_information_gain)
 end
 
+# ╔═╡ 6c9c4b98-89b9-4437-b2c0-defca59505f6
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const reast_two_step_score = compute_guess_two_step_score(8885)
+  ╠═╡ =#
+
+# ╔═╡ db8c1019-49de-49f7-a9f1-e969f9591277
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const tarse_two_step_score = compute_guess_two_step_score("tarse")
+  ╠═╡ =#
+
+# ╔═╡ 9608a53f-aa95-472c-ab83-7fee8472d952
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const crane_two_step_score = compute_guess_two_step_score("crane")
+  ╠═╡ =#
+
+# ╔═╡ 8da4d04c-80e4-435f-b23d-eeb41db8f193
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const crate_two_step_score = compute_guess_two_step_score(12592)
+  ╠═╡ =#
+
+# ╔═╡ 53b5e5e7-edf5-49d0-88bc-f3c983bd8b73
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const slate_two_step_score = compute_guess_two_step_score("slate")
+  ╠═╡ =#
+
+# ╔═╡ de5316be-a766-4c78-86d5-74501e91d811
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const least_two_step_score = compute_guess_two_step_score("least")
+  ╠═╡ =#
+
+# ╔═╡ 6823d330-7cb5-4a6b-8059-d6e045171e8a
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const cater_two_step_score = compute_guess_two_step_score("cater")
+  ╠═╡ =#
+
+# ╔═╡ 34de31cd-c153-4873-b847-c41045779fce
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const raise_two_step_score = compute_guess_two_step_score("raise")
+  ╠═╡ =#
+
+# ╔═╡ 795c6ee8-d7c3-4d51-a593-e554f24ac8ad
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const siren_two_step_score = compute_guess_two_step_score("siren")
+  ╠═╡ =#
+
+# ╔═╡ e270c061-aeee-4a9a-abd2-e60e2f09f12d
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const salet_two_step_score = compute_guess_two_step_score(9464)
+  ╠═╡ =#
+
+# ╔═╡ 2311a3a6-7a51-4e91-9c4d-9045f8ef01be
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const carte_two_step_score = compute_guess_two_step_score(1673)
+  ╠═╡ =#
+
 # ╔═╡ 7ee9cf97-b7d0-492d-8d79-2132403e29a4
 eval_two_step_guess_information_gain(WordleState([12726, 13986], [0x005a, 0x0033]), wordle_original_weights) |> display_two_step_guesses
 
@@ -7692,6 +7655,53 @@ display_two_step_guesses(wordle_start_two_step_guess_information_gain)
 
 # ╔═╡ fcc41aa0-5633-4068-8ddd-65eb2188263c
 const valid_word_ranks = [word_freq_rank[i] for i in eachindex(nyt_valid_words)]
+
+# ╔═╡ cf909eb2-50ea-4499-8e1f-7e813b1f7367
+# ╠═╡ disabled = true
+#=╠═╡
+const trace_two_step_score = compute_guess_two_step_score("trace")
+  ╠═╡ =#
+
+# ╔═╡ cf0850f0-d143-43a0-9a7b-05fe7b3706c5
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const trace_two_step_score = compute_guess_two_step_score(12726)
+  ╠═╡ =#
+
+# ╔═╡ b2948c3c-eeae-4744-9bd2-854904624e29
+# ╠═╡ disabled = true
+#=╠═╡
+begin
+	const (_, wordle_visits, wordle_qs) = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, wordle_start; nsims = 1, make_step_kwargs = k -> (answer_index = get_answer_index(k)), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
+	const hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
+	const sampling_weights = ones(Float32, length(hard_mode_indices))
+	const possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	wordle_vest(mdp, s, γ) = wordle_hardmode_rollout(mdp, s, γ; hard_mode_indices = hard_mode_indices, sampling_weights = sampling_weights, ϵ = 0f0, possible_indices = possible_indices)
+	function update_hard_mode_policy!(v, s)
+		get_possible_indices!(possible_indices, s)
+		v .*= possible_indices
+		# for i in eachindex(v)
+		# 	v[i] = ifelse(possible_indices[i], v[i], 0f0)
+		# end
+		make_greedy_policy!(v)
+	end
+
+	const (_, wordle_normal_visits, wordle_normal_qs) = monte_carlo_tree_search(wordle_stochastic_game, 1f0, wordle_rollout, gamestart; nsims = 1)
+	const normal_hard_mode_indices = copy(baseinds) #place holder to track possible answers in rollout policy
+	const normal_sampling_weights = ones(Float32, length(hard_mode_indices))
+	const normal_possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	wordle_normal_vest(mdp, s, γ) = wordle_rollout(mdp, s, γ; hard_mode_indices = normal_hard_mode_indices, sampling_weights = normal_sampling_weights, possible_indices = normal_possible_indices)
+end
+  ╠═╡ =#
+
+# ╔═╡ 45eb450e-aa4f-47f2-a82d-59b4a807931a
+#=╠═╡
+begin
+	const normal_possible_indices = copy(baseinds) #place holder to track possible answers in tree simulation steps
+	const (_, wordle_normal_visits, wordle_normal_qs) = monte_carlo_tree_search(wordle_determ_game, 1f0, wordle_rand_vest, wordle_start; nsims = 10, update_tree_policy! = wordle_update_tree_policy!, make_step_kwargs = k -> (answer_index = get_answer_index(k),), make_est_kwargs = k -> (possible_indices = normal_possible_indices, answer_index = get_answer_index(k)))
+end
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -7731,7 +7741,7 @@ Transducers = "~0.4.81"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.3"
+julia_version = "1.10.4"
 manifest_format = "2.0"
 project_hash = "1191b103c0f69ff1cec503936c29fd49b03d199c"
 
