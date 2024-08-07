@@ -1,34 +1,34 @@
 module TabularRL
 
 using PrecompileTools: @setup_workload, @compile_workload
+import PlutoDevMacros
 
-include(joinpath(@__DIR__, "..", "..", "Tabular-Methods-Summary", "tabular_methods_overview_notebook.jl"))
+include(joinpath("..", "..", "Tabular-Methods-Summary", "tabular_methods_overview_notebook.jl"))
 
 #---------Types------------
 #dynamic programming mdp types
-export AbstractMDP, AbstractTabularMDP, AbstractCompleteMDP, FiniteDeterministicMDP, FiniteStochasticMDP, AbstractAfterstateMDP, AbstractTabularAfterstateMDP, FiniteAfterstateMDP, AfterstateMDP
+export AbstractMDPTransition, AbstractTabularMDPTransition, AbstractTabularMDPTransitionDistribution,TabularDeterministicTransition, TabularStochasticTransition, TabularTransitionSampler, AbstractStateMDPTransition, StateTransitionDistribution, StateTransitionSampler
 
-#sample mdp types
-export AbstractSampleTabularMDP, SampleTabularMDP, SampleMDP
+export AbstractMDP, TabularMDP, StateMDP
 
 #sampling and averaging types
 export AbstractAveragingMethod, SampleAveraging, ConstantStepAveraging
 
 #--------Functions---------
 #utilities 
-export initialize_state_action_value, initialize_state_value, find_terminal_states, make_isterm, sample_action, make_random_policy, runepisode, make_greedy_policy!, make_ϵ_greedy_policy!
+export initialize_state_action_value, initialize_state_value, find_terminal_states, find_available_actions, sample_action, make_random_policy, runepisode, runepisode!, make_greedy_policy!, make_ϵ_greedy_policy!
 
 #dynamic programming solution methods
-export policy_evaluation_q, policy_evaluation_v, policy_iteration_v, value_iteration, value_iteration_v
+export bellman_state_action_value, bellman_policy_update!, policy_evaluation!, policy_evaluation, policy_evaluation_q, policy_evaluation_v, policy_iteration!, policy_iteration, policy_iteration_v, value_iteration!, value_iteration, value_iteration_v, value_iteration_q
 
 #monte carlo solution methods
-export monte_carlo_policy_prediction, monte_carlo_policy_prediction_v, monte_carlo_control, monte_carlo_control_exploring_starts, monte_carlo_control_ϵ_soft, monte_carlo_off_policy_prediction, monte_carlo_off_policy_prediction_q, monte_carlo_off_policy_control
+export monte_carlo_policy_prediction, monte_carlo_policy_prediction_v, monte_carlo_policy_prediction_q, monte_carlo_control, monte_carlo_control_exploring_starts, monte_carlo_control_ϵ_soft, monte_carlo_off_policy_prediction, monte_carlo_off_policy_prediction_q, monte_carlo_off_policy_control
 
 #temporal difference solution methods
-export td0_policy_prediction, td0_policy_prediction_v, td0_policy_prediction_q#, sarsa, expected_sarsa, q_learning
+export td0_policy_prediction, td0_policy_prediction_v, td0_policy_prediction_q, generalized_sarsa!, sarsa, expected_sarsa, q_learning, double_expected_sarsa, double_q_learning
 
 #planning solution methods
-export monte_carlo_tree_search, rollout, uct, apply_uct!
+export monte_carlo_tree_search, sample_rollout, distribution_rollout, uct, apply_uct!
 
 #----------Gridworld Environment------------
 export GridworldState, GridworldAction, rook_actions, make_deterministic_gridworld, make_stochastic_gridworld
@@ -40,18 +40,17 @@ export GridworldState, GridworldAction, rook_actions, make_deterministic_gridwor
     max_steps = 100
     @compile_workload begin
         for f in [make_deterministic_gridworld, make_stochastic_gridworld]
-        (mdp, isterm, init_state) = f()
-        policy_iteration_v(mdp, γ)
-        value_iteration_v(mdp, γ)
-        sample_mdp = SampleTabularMDP(mdp, () -> init_state)
-        runepisode(sample_mdp; max_steps = max_steps)
-        monte_carlo_control_exploring_starts(sample_mdp, γ, num_episodes; max_steps = max_steps)
-        monte_carlo_control_exploring_starts(sample_mdp, γ, num_episodes; averaging_method = ConstantStepAveraging(α), max_steps = max_steps)
-        monte_carlo_control_ϵ_soft(sample_mdp, γ, num_episodes, max_steps = max_steps)
-        monte_carlo_off_policy_control(sample_mdp, γ, num_episodes; max_steps = max_steps)
-        # sarsa(sample_mdp, γ, num_episodes, α)
-        # expected_sarsa(sample_mdp, γ, num_episodes, α)
-        # q_learning(sample_mdp, γ, num_episodes, α)
+            mdp = f()
+            policy_iteration_v(mdp, γ)
+            value_iteration_v(mdp, γ)
+            runepisode(mdp; max_steps = max_steps)
+            monte_carlo_control_exploring_starts(mdp, γ, num_episodes; max_steps = max_steps)
+            monte_carlo_control_exploring_starts(mdp, γ, num_episodes; averaging_method = ConstantStepAveraging(α), max_steps = max_steps)
+            monte_carlo_control_ϵ_soft(mdp, γ, num_episodes; max_steps = max_steps)
+            monte_carlo_off_policy_control(mdp, γ, num_episodes; max_steps = max_steps)
+            sarsa(mdp, γ; max_steps = max_steps, α = α)
+            expected_sarsa(mdp, γ; max_steps = max_steps, α = α)
+            q_learning(mdp, γ; max_steps = max_steps, α = α)
         end
     end
 end
