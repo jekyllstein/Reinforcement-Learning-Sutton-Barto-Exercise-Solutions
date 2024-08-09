@@ -2084,41 +2084,34 @@ md"""
 """
   ╠═╡ =#
 
-# ╔═╡ 96b9ce86-dd1f-4476-a277-f3222710b028
+# ╔═╡ 61d1ed10-a9b6-473c-a69c-79a7eed13dc4
 begin
 	#Afterstate MDP dynamics are determined by the transition functions. In the case of afterstates we typically have a situation where the transition to the afterstate is deterministic and then the transition from the afterstate to the transition states is only posible to sample from or is stochastic but with a known distribution.  For the first part of the transition, we can reuse the earlier MDP transition types except now the transition state index would represent the afterstate index rather than a state index.  Also for most cases, a so called "afterstate mdp" would only have a deterministic transition for the afterstate step.  A new type of transition is needed though which needs to same variety we had before for the state transitions.  This transition will not require an action index and will produce a state or distribution over states from an afterstate
 	abstract type AbstractMDPAfterstateTransition{T<:Real} end
 	abstract type AbstractTabularMDPAfterstateTransition{T<:Real} <: AbstractMDPAfterstateTransition{T} end
-	abstract type AbstractTabularMDPAfterstateTransitionDistribution{T <: Real} <: AbstractTabularMDPAfterstateTransition{T} end
 
-	struct TabularDeterministicAfterstateTransition{T <: Real} <: AbstractTabularMDPAfterstateTransitionDistribution{T}
-		state_transition_map::Vector{Int64} #index of state reached from the index representing each afterstate
-		reward_transition_map::Vector{T} #(average) reward received for the transition from the state corresponding to the column when taking action corresponding to the row
+	struct TabularAfterstateTransitionDistribution{T<:Real, ST<:Union{Int64, SparseVector{T, Int64}}, RT<:Union{T, Vector{T}}} <: AbstractTabularMDPTransition{T}
+		state_transition_map::Vector{ST} #for each afterstate, there is a probability distribution over transition states represented by a sparse vector whose elements contain the probabilities of transitioning to the state with that index, in the deterministic case this is just a single value
+		reward_transition_map::Vector{RT} #for each afterstate, there is a vector containing the average reward received when transitioning into the state corresponding to the non zero probabilities from the state_transition_map.  in the deterministic case this is a single value
 	end
 
-	struct TabularStochasticAfterstateTransition{T <: Real} <: AbstractTabularMDPAfterstateTransitionDistribution{T}
-		state_transition_map::Vector{SparseVector{T, Int64}} #for each afterstate, there is a probability distribution over transition states represented by a sparse vector whose elements contain the probabilities of transitioning to the state with that index
-		reward_transition_map::Vector{SparseVector{T, Int64}} #for each afterstate, there is a sparse vector containing the average reward received when transitioning into the state corresponding to that index
-	end
+	TabularAfterstateTransitionDistribution(m1::Vector{Int64}, m2::Vector{T}) where T<:Real = TabularAfterstateTransitionDistribution{T, Int64, T}(m1, m2)
+	TabularAfterstateTransitionDistribution(m1::Vector{SparseVector{T, Int64}}, m2::Vector{Vector{T}}) where T<:Real = TabularAfterstateTransitionDistribution{T, SparseVector{T, Int64}, Vector{T}}(m1, m2)
 
-	struct TabularAfterstateTransitionSampler{T <: Real, F <: Function} <: AbstractTabularMDPAfterstateTransition{T}
-		step::F
-		function TabularAfterstateTransitionSampler(step::F) where {F<:Function}
-			(r, i_s′) = step(1)
-			new{typeof(r), F}(step)
-		end
-	end
+	const TabularDeterministicAfterstateTransition{T<:Real} = TabularAfterstateTransitionDistribution{T, Int64, T}
+	const TabularStochasticAfterstateTransition{T<:Real} = TabularAfterstateTransitionDistribution{T, SparseVector{T, Int64}, Vector{T}}
 
-	#when used as a functor just apply the step function to the state action pair indices
-	(atf::TabularTransitionSampler{T, F})(i_y::Integer) where {T<:Real, F<:Function} = atf.step(i_y)
+	TabularDeterministicAfterstateTransition(m1, m2) = TabularAfterstateTransitionDistribution(m1, m2)
+	TabularStochasticAfterstateTransition(m1, m2) = TabularAfterstateTransitionDistribution(m1, m2)
 
-	#when using the MDP tabular afterstate transition as a functor with an afterstate index, it produces a sample of the transition which in the deterministic case will always be the same 
-	(atf::TabularDeterministicAfterstateTransition)(i_y::Integer) = (atf.reward_transition_map[i_y], atf.state_transition_map[i_y])
+	#when using the MDP tabular transition as a functor with a state action index, it produces a sample of the transition which in the deterministic case will always be the same 
+	(ptf::TabularDeterministicAfterstateTransition)(i_y::Integer) = (ptf.reward_transition_map[i_y], ptf.state_transition_map[i_y])
 
-	function (atf::TabularStochasticAfterstateTransition)(i_y::Integer) 
-		state_transition_probabilities = atf.state_transition_map[i_y]
-		i_s′ = sample(state_transition_probabilities.nzind, weights(state_transition_probabilities.nzval))
-		r = ptf.reward_transition_map[i_y][i_s′]
+	function (ptf::TabularStochasticAfterstateTransition)(i_y::Integer) 
+		state_transition_probabilities = ptf.state_transition_map[i_y]
+		i = sample_action(state_transition_probabilities.nzval)
+		i_s′ = state_transition_probabilities.nzind[i]
+		r = ptf.reward_transition_map[i_y][i]
 		(r, i_s′)
 	end
 end
@@ -2144,17 +2137,17 @@ begin
 		afterstate_index::Dict{Y, Int64}
 	end
 
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = find_available_actions(ptf), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions), afterstate_index::Dict{Y, Int64} = makelookup(afterstates)) where {T<:Real, S, A, Y, PTF<:AbstractTabularMDPTransition{T}, ATF<:AbstractTabularMDPAfterstateTransition{T}, F<:Function} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
+	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = find_available_actions(ptf), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions), afterstate_index::Dict{Y, Int64} = makelookup(afterstates)) where {S, A, Y, PTF<:AbstractTabularMDPTransition, ATF<:AbstractTabularMDPAfterstateTransition, F<:Function} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
 	
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, Y, PTF<:AbstractTabularMDPTransition{T}, ATF<:AbstractTabularMDPAfterstateTransition{T}} = TabularMDP(states, actions, afterstates, ptf, atf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
+	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, init_inds, terminal_states::BitVector; kwargs...) where {S, A, Y, PTF<:AbstractTabularMDPTransition, ATF<:AbstractTabularMDPAfterstateTransition} = TabularMDP(states, actions, afterstates, ptf, atf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
 
 	#when nothing is provided for initial states just sample a random state
 	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, terminal_states::BitVector; kwargs...) where {S, A, Y, PTF, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, () -> rand(eachindex(states)), terminal_states; kwargs...)
 
 	#in the case of having a distribution transition, automatically generate the terminal states, note for most afterstate MDPs this will always be the case
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index; kwargs...) where {T<:Real, S, A, Y, PTF<:AbstractTabularMDPTransitionDistribution{T}, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, find_terminal_states(ptf); kwargs...)
+	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index; kwargs...) where {S, A, Y, PTF<:TabularTransitionDistribution, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, find_terminal_states(ptf); kwargs...)
 
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF; kwargs...) where {T<:Real, S, A, Y, PTF<:AbstractTabularMDPTransitionDistribution{T}, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, () -> rand(eachindex(states)); kwargs...)
+	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF; kwargs...) where {S, A, Y, PTF<:TabularTransitionDistribution, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, () -> rand(eachindex(states)); kwargs...)
 
 	#when called as a functor with a state action pair, the afterstate MDP will produce a transition to a new state just like a normal MDP.  This functionality can be used to generate normal episodes in cases where the afterstates don't matter
 	function (mdp::TabularAfterstateMDP)(i_s::Integer, i_a::Integer)
@@ -2419,8 +2412,7 @@ begin
 			i_s = mdp.state_index[s]
 			transitions = [begin
 				transition_states = mdp.ptf.state_transition_map[i_a, i_s]
-				transition_rewards = mdp.ptf.reward_transition_map[i_a, i_s]
-				rewards = transition_rewards[transition_states.nzind]
+				rewards = mdp.ptf.reward_transition_map[i_a, i_s]
 				states = mdp.states[transition_states.nzind]
 				probabilities = transition_states.nzval
 				(rewards, states, probabilities)
@@ -2458,14 +2450,15 @@ begin
 		isterm::IsTerm #function that returns true if a state is terminal and false otherwise
 		is_valid_action::ValidAction #is_valid_action(s, i_a) returns true if the action represented by i_a is valid to take from state. by default every action is assumed to be available
 		action_index::Dict{A, Int64} #lookup table mapping actions to their index, this will be constructed automatically
+		StateMDP{T, S}(actions::Vector{A}, ptf::P, initialize_state::F1, isterm::F2, is_valid_action::F3, action_index::Dict{A, Int64}) where {T, S, A, P, F1, F2, F3} = new{T, S, A, P, F1, F2, F3}(actions, ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
 
-	function StateMDP(actions::ActionList, ptf::P, initialize_state::StateInit, isterm::IsTerm; is_valid_action::ValidAction = (s, i_a) -> true, action_index = makelookup(actions)) where {A, ActionList <: AbstractVector{A}, T<:Real, S, F<:Function, P<:AbstractStateMDPTransition{T, S, F}, StateInit<:Function, IsTerm<:Function, ValidAction<:Function}
+	function StateMDP(actions::AbstractVector{A}, ptf::AbstractStateMDPTransition{T, S, F}, initialize_state::StateInit, isterm::IsTerm; is_valid_action::ValidAction = (s, i_a) -> true, action_index = makelookup(actions)) where {T<:Real, S, A, F<:Function, StateInit<:Function, IsTerm<:Function, ValidAction<:Function}
 		s0 = initialize_state()
 		isterm(s0)
 		is_valid_action(s0, 1)
 		@assert isa(s0, S)
-		StateMDP{T, S, A, P, StateInit, IsTerm, ValidAction}(Vector(actions), ptf, initialize_state, isterm, is_valid_action, action_index)
+		StateMDP{T, S}(Vector(actions), ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
 
 	#convert a tabular mdp into a non-tabular one
@@ -3188,6 +3181,69 @@ average_stochastic_rollout(100_000, mc_stochastic_gridworld, π_optimal_mc, 0.99
 distribution_rollout(mc_stochastic_gridworld, π_optimal_mc, 0.99f0; max_steps = 25)
   ╠═╡ =#
 
+# ╔═╡ 78eda243-db35-4eb4-8e97-e845dd3da064
+#=╠═╡
+begin
+	#perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
+	function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, s::S; 
+		depth = 10, 
+		nsims = 100, 
+		c = one(T), 
+		visit_counts = Dict{S, SparseVector{T, Int64}}(), 
+		Q = Dict{S, SparseVector{T, Int64}}(),
+		update_tree_policy! = (v, s) -> make_greedy_policy!(v), 
+		v_hold = zeros(T, length(mdp.actions)),
+		updateQ! = function(Q, x, i_a)
+			Q[i_a] += x
+		end,
+		updateV! = function(V, x, i_a)
+			V[i_a] += x
+		end,
+		apply_bonus! = apply_uct!,
+		make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
+		make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
+		sim_message = false
+		) where {T<:Real, S, A, P, F1, F2, F3}
+	
+		q_hold = zeros(T, length(mdp.actions))
+		#I want to have a way of possible a kwargs such as the answer index to the simulator that can change with each simulation
+		t = time()
+		last_time = t
+		for k in 1:nsims
+			seed = rand(UInt64)
+			if sim_message
+				elapsed = time() - last_time
+				if elapsed > 5
+					last_time = time()
+					pct_done = k/nsims
+					total_time = time() - t
+					ett = total_time / pct_done
+					eta = ett - total_time
+					@info """Completed simulation $k of $nsims after $(round(Int64, total_time/60)) minutes
+					ETA: $(round(Int64, eta/60)) minutes"""
+				end
+			end
+			simulate!(visit_counts, Q, mdp, γ, v_est, s, depth, c, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed))
+		end
+	
+		for i in Q[s].nzind
+			v_hold[i] = Q[s][i]
+		end
+		make_greedy_policy!(v_hold)
+		if sim_message
+			@info "Finished MCTS evaluation of state $s"
+		end
+		return sample_action(v_hold), visit_counts, Q
+	end
+
+	#convert the MDP into a SampleMDP if possible
+	monte_carlo_tree_search(mdp::TabularMDP{T, S, A, P, F}, γ, v_est::Function, s::S; kwargs...) where {T<:Real, S, A, P, F} = monte_carlo_tree_search(StateMDP(mdp), T(γ), v_est, s; kwargs...)
+	
+	#by default the state value estimator is a rollout with the random policy
+	monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s::S; kwargs...) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function} = monte_carlo_tree_search(mdp, γ, (mdp, s, γ; vest_kwargs...) -> sample_rollout(mdp, s, γ; max_steps = 1_000, vest_kwargs...), s; kwargs...)
+end
+  ╠═╡ =#
+
 # ╔═╡ 00e567e7-ab21-4f4a-aec1-b90e45f3db2a
 function simulate!(visit_counts, Q, mdp::StateMDP, γ::T, v_est, s, depth, c::T, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, step_kwargs, est_kwargs) where T<:Real
 	#if the state is terminal, produce a value of 0
@@ -3258,67 +3314,6 @@ function apply_uct!(v_hold::Vector{T}, state_qs::SparseVector{T, Int64}, state_c
 	return v_hold
 end
 
-# ╔═╡ 78eda243-db35-4eb4-8e97-e845dd3da064
-begin
-	#perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
-	function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, s::S; 
-		depth = 10, 
-		nsims = 100, 
-		c = one(T), 
-		visit_counts = Dict{S, SparseVector{T, Int64}}(), 
-		Q = Dict{S, SparseVector{T, Int64}}(),
-		update_tree_policy! = (v, s) -> make_greedy_policy!(v), 
-		v_hold = zeros(T, length(mdp.actions)),
-		updateQ! = function(Q, x, i_a)
-			Q[i_a] += x
-		end,
-		updateV! = function(V, x, i_a)
-			V[i_a] += x
-		end,
-		apply_bonus! = apply_uct!,
-		make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
-		make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
-		sim_message = false
-		) where {T<:Real, S, A, P, F1, F2, F3}
-	
-		q_hold = zeros(T, length(mdp.actions))
-		#I want to have a way of possible a kwargs such as the answer index to the simulator that can change with each simulation
-		t = time()
-		last_time = t
-		for k in 1:nsims
-			seed = rand(UInt64)
-			if sim_message
-				elapsed = time() - last_time
-				if elapsed > 5
-					last_time = time()
-					pct_done = k/nsims
-					total_time = time() - t
-					ett = total_time / pct_done
-					eta = ett - total_time
-					@info """Completed simulation $k of $nsims after $(round(Int64, total_time/60)) minutes
-					ETA: $(round(Int64, eta/60)) minutes"""
-				end
-			end
-			simulate!(visit_counts, Q, mdp, γ, v_est, s, depth, c, v_hold, update_tree_policy!, updateQ!, updateV!, q_hold, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed))
-		end
-	
-		for i in Q[s].nzind
-			v_hold[i] = Q[s][i]
-		end
-		make_greedy_policy!(v_hold)
-		if sim_message
-			@info "Finished MCTS evaluation of state $s"
-		end
-		return sample_action(v_hold), visit_counts, Q
-	end
-
-	#convert the MDP into a SampleMDP if possible
-	monte_carlo_tree_search(mdp::TabularMDP{T, S, A, P, F}, γ, v_est::Function, s::S; kwargs...) where {T<:Real, S, A, P, F} = monte_carlo_tree_search(StateMDP(mdp), T(γ), v_est, s; kwargs...)
-	
-	#by default the state value estimator is a rollout with the random policy
-	monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s::S; kwargs...) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function} = monte_carlo_tree_search(mdp, γ, (mdp, s, γ; vest_kwargs...) -> sample_rollout(mdp, s, γ; max_steps = 1_000, vest_kwargs...), s; kwargs...)
-end
-
 # ╔═╡ 4e906d8c-ca74-42e3-a9e3-b3980206fbe3
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -3329,6 +3324,28 @@ md"""### *Example: Gridworld MCTS*"""
 # ╠═╡ skip_as_script = true
 #=╠═╡
 monte_carlo_tree_search(mc_gridworld, 0.99f0, mc_gridworld.initialize_state(); nsims = 10_000, depth = 1_000, c = 1f0)
+  ╠═╡ =#
+
+# ╔═╡ 2a2d1b60-be6f-4f9c-8190-7c0a2d77d510
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function show_mcts_solution(mdp::StateMDP)
+	visit_counts = Dict{GridworldState, SparseVector{Float32, Int64}}()
+	# visit_counts = Dict{GridworldState, Dict{Int64, Float32}}()
+	Q = Dict{GridworldState, SparseVector{Float32, Int64}}()
+	# Q = Dict{GridworldState, Dict{Int64, Float32}}()
+
+	(states, actions, rewards, goal) = runepisode(mdp; π = s -> monte_carlo_tree_search(mdp, 0.99f0, s; nsims = 10_000, depth = 1_000, c = 1.0f0, visit_counts = visit_counts, Q = Q)[1], s0 = mdp.initialize_state())
+
+	# return(states, Q, visit_counts)
+	plot_path(states, GridworldState(8, 4), mdp.initialize_state())
+end
+  ╠═╡ =#
+
+# ╔═╡ 8ffd78db-cfc5-4695-a1c1-6a4e6aa32348
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mcts_solution(mc_gridworld)
   ╠═╡ =#
 
 # ╔═╡ 8782fff3-891c-4fa1-b686-3199503370e4
@@ -4054,28 +4071,6 @@ plot_path(mdp::TabularMDP; title = "Random policy <br> path example", kwargs...)
 # ╠═╡ skip_as_script = true
 #=╠═╡
 plot_path(deterministic_gridworld; max_steps = typemax(UInt64))
-  ╠═╡ =#
-
-# ╔═╡ 2a2d1b60-be6f-4f9c-8190-7c0a2d77d510
-# ╠═╡ skip_as_script = true
-#=╠═╡
-function show_mcts_solution(mdp::StateMDP)
-	visit_counts = Dict{GridworldState, SparseVector{Float32, Int64}}()
-	# visit_counts = Dict{GridworldState, Dict{Int64, Float32}}()
-	Q = Dict{GridworldState, SparseVector{Float32, Int64}}()
-	# Q = Dict{GridworldState, Dict{Int64, Float32}}()
-
-	(states, actions, rewards, goal) = runepisode(mdp; π = s -> monte_carlo_tree_search(mdp, 0.99f0, s; nsims = 10_000, depth = 1_000, c = 1.0f0, visit_counts = visit_counts, Q = Q)[1], s0 = mdp.initialize_state())
-
-	# return(states, Q, visit_counts)
-	plot_path(states, GridworldState(8, 4), mdp.initialize_state())
-end
-  ╠═╡ =#
-
-# ╔═╡ 8ffd78db-cfc5-4695-a1c1-6a4e6aa32348
-# ╠═╡ skip_as_script = true
-#=╠═╡
-show_mcts_solution(mc_gridworld)
   ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -4917,7 +4912,7 @@ version = "17.4.0+2"
 # ╟─26d60dab-bab1-495d-a236-44f075c912bd
 # ╠═faa17fdd-9660-43ab-8f94-9cd1c3ba7fec
 # ╟─3cc38ba2-70ce-4250-be97-0a48c2c2b484
-# ╟─fbfeb350-d9a7-4960-8f9b-a9f70e19a4e2
+# ╠═fbfeb350-d9a7-4960-8f9b-a9f70e19a4e2
 # ╟─4f645ebc-27f4-4b68-93d9-2e35232cedcf
 # ╟─4efee19f-c86c-44cc-8b4b-6eb45adf0aa1
 # ╠═66886194-a2bd-4b1e-9bff-fbb419fddc78
@@ -4993,7 +4988,7 @@ version = "17.4.0+2"
 # ╟─6b19aee6-a997-4eb4-9177-badd8ad2a540
 # ╟─610fc6de-6045-4c3f-8da1-95e9e5a4b986
 # ╟─4a32e4bc-e3db-4952-a2a9-812dc03a0999
-# ╠═96b9ce86-dd1f-4476-a277-f3222710b028
+# ╠═61d1ed10-a9b6-473c-a69c-79a7eed13dc4
 # ╠═b40a107c-cca0-4eaa-bae5-4e2d42eca1ef
 # ╟─e736fb5e-22cd-46e6-a1af-c01b5864c127
 # ╠═5a873e9a-5f86-43cd-8dfd-fda0046a5b05
