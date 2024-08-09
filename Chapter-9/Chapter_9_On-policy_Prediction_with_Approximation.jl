@@ -58,7 +58,7 @@ $$\begin{flalign}
 
 where $\alpha$ is a learning rate.  In general this method will only converge to the weight vector that minimizes the error objective if $\alpha$ is sufficiently small and decreases over time.  The gradient is defined as follows:
 
-$\grad f(\boldsymbol{w}) \doteq \left ( \frac{\partial{f(\boldsymbol{w})}}{\partial{w_1}} , \frac{\partial{f(\boldsymbol{w})}{\partial{w_2}}}, \cdots \frac{\partial{f(\boldsymbol{w})}}{\partial{w_d}} \right ) ^ \tranpose \tag{9.6}$
+$\nabla f(\boldsymbol{w}) \doteq \left ( \frac{\partial{f(\boldsymbol{w})}}{\partial{w_1}} , \frac{\partial{f(\boldsymbol{w})}{\partial{w_2}}}, \cdots \frac{\partial{f(\boldsymbol{w})}}{\partial{w_d}} \right ) ^ \top \tag{9.6}$
 
 If we do not receive the true value function at each example but rather a bootstrap approxmiation or a noise corrupted version, we can use the same formula and simply replace $v_\pi(S_t)$ with $U_t$.  As long as $U_t$ is an *unbiased* estimate for each example then the weights are still guaranteed to converge to a local optimum stochastically.  One example of an unbiased estimate would be a monte carlo sample of the discounted future return.
 
@@ -459,10 +459,68 @@ md"""
 
 # ╔═╡ 6c6c0ef4-0e68-4f50-8c3a-76ed3afb2d20
 md"""
+Linear methods represent the value function as an inner product between *feature vectors* and *weight vectors*.
+
 $\hat v(s, \mathbf{w})\doteq \mathbf{w}^\top \mathbf{x}(x) \doteq \sum_{i=1}^d w_i x_i(s)$ 
 
 The vector $\mathbf{x}(s)$ is called a *feature vector* representing state x which is the same length as the number of parameters contained in $\mathbf{w}$.  For linear methods, features are *basis functions* because they form a linear basis for the set of approximate functions.
+
+The gradient of linear value functions takes on a particularly simple form: $\nabla \hat v (s, \boldsymbol{w}) = \boldsymbol{x}(s)$.  Thus the general SGD update (9.7) reduces to:
+
+$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha \left [ U_t - \hat v (S_t, \boldsymbol{w}_t) \right ] \boldsymbol{x}(S_t)$
+
+In the linera case there is only one optimum (or set of equally good optima), so any method that is guaranteed to converge to a local optimum is automatically guaranteed to converge to or near the global optimum.  For example, gradient Monte Carlo converges to the global optimum of the $\overline{VE}$ under linear function approximation if $\alpha$ is reduced over time according to the usual conditions.
+
+The semi-gradient TD(0) algorithm presented in the previous section also converges under linear function approximation, but this does not follow from general results on SGD; a separate theorem is necessary.  The weight vector converged to is also not the global optimum, but rather a point near the local optimum.  It is useful to consider this important case in more default, specifically for the continuing case.  The update at each time step $t$ is 
+
+$\begin{flalign}
+\boldsymbol{w}_{t+1} &\doteq \boldsymbol{w}_t +\alpha \left (R_{t+1} + \gamma \boldsymbol{w}_t ^ \top \boldsymbol{x}_{t+1} - \boldsymbol{w}_t ^ \top \boldsymbol{x}_t \right ) \boldsymbol{x}_t \tag{9.9}\\
+&= \boldsymbol{w}_t + \alpha \left ( R_{t+1} \boldsymbol{x}_t - \boldsymbol{x}_t (\boldsymbol{x}_t - \gamma \boldsymbol{x}_{t+1} ) ^ \top \right ) \boldsymbol{w}_t
+\end{flalign}$
+
+where here we have used the notational shorthand $\boldsymbol{x}_t = \boldsymbol{x}(S_t)$.  Once the system has reached steady state, for any given $\boldsymbol{w}_t$, the expected next weight vector can be written
+
+$\mathbb{E}[\boldsymbol{w}_{t+1} /vert \boldsymbol{w}_t] = \boldsymbol{w}_t + \alpha(\boldsymbol{b} - \boldsymbol{A} \boldsymbol{w}_t \tag{9.10}$
+
+where
+
+$\boldsymbol{b} \doteq \mathbb{E}[R_{t+1} \boldsymbol{x}_t] \in \mathbb{R}^d \text{             and           } \boldsymbol{a} \doteq \mathbb{E} \left [ \boldsymbol{x}_t (\boldsymbol{x}_t - \gamma \boldsymbol{x}_{t+1}) ^\top \right] \in \mathbb{R}^{d \times d} \tag{9.11}$
+
+From (9.10) it is clear that, if the system converges, it must converge to the weight vector $\boldsymbol{w}_{\text{TD}}$ at which
+
+$\begin{flalign}
+\boldsymbol{b} - \boldsymbol{A} \boldsymbol{w}_\text{TD} &= \boldsymbol{0} \\
+\implies \boldsymbol{b} = \boldsymbol{A} \boldsymbol{w}_\text{TD} \\
+\implies \boldsymbol{w}_\text{TD} \doteq \boldsymbol{A}^{-1} \boldsymbol{b} \tag{9.12}
+\end{flalign}$
+
+This quantity is called the *TD fixed point*.  In fact, linear semi-gradient TD(0) converges to this point.  See details below:
 """
+
+# ╔═╡ b6737cef-b6f9-4e40-82d8-bf887e17eb7c
+md"""
+### Proof of Convergence of Linear TD(0)
+"""
+
+# ╔═╡ 3db9f60e-a823-4d78-bd16-e73cedffa755
+md"""
+At the TD fixed point, it has also been proven (in the continuing case) that the $\overline{VE}$ is within a bounded expansion of the lowest possible error: 
+
+$\overline{VE}(\boldsymbol{w}_\text{TD}) \leq \frac{1}{1-\gamma} \min_{\boldsymbol{w}} \overline{VE} (\boldsymbol{w}) \tag{9.14}$
+
+That is, the asymptotic error of the TD method is no more than $\frac{1}{1-\gamma}$ times the smallest possible error, that attained in the limit by the Monte Carlo method.  Because $\gamma$ is often near one, this expansion factor can be quite large, so there is substantial potential loss in asymptotic performance with the TD method.  On the otehr hand, recall that the TD methods are often of vastly reduced variance compared to Monte Carlo methods, and thus faster, as we saw in Chapters 6 and 7.
+
+A bound analogous to (9.14) applies to other on-policy bootstrapping methods as well.  For example, linear semi-gradient DP $\left ( U_t \doteq \sum_a \pi(a \vert S_t) \sum_{s^\prime, r} p(s\prime, r \mid S_t, a)[r+\gamma \hat v(s^\prime, \boldsymbol{w}_t)] \right )$ with updates according to the on-policy distribution will also converge to the TD fixed point.  One-step semi-gradient *action-value* methods, such as semi-gradient Sarsa(0) convered in the next chapter converge to an analogous fixed point and an analogous bound.  Critical to these convergence results is that states are updated according to the on-policy distribution.  For other update distributions, bootstrapping methods using function approximation may actually diverge to infinity.
+"""
+
+# ╔═╡ 645ba5fc-8575-4b8f-8982-f8bd20ac27ff
+#=╠═╡
+md"""
+### Example 9.2: Bootstrapping on the $num_states-state Random Walk
+
+State aggregation is a special case of linear function approximation, so we can use the previous example to illustrate the convergence properties of semi-gradient TD(0) vs gradient Monte Carlo.  
+"""
+  ╠═╡ =#
 
 # ╔═╡ 6046143f-a2c3-4569-a04a-c1ad4f3daf9d
 function run_state_aggregation_semi_gradient_policy_estimation(mdp, π, γ, num_groups, assign_state_group; kwargs...)
@@ -472,22 +530,55 @@ function run_state_aggregation_semi_gradient_policy_estimation(mdp, π, γ, num_
 	return v̂
 end
 
-# ╔═╡ 7dd5973c-56fe-475c-89e9-bcc98364af25
+# ╔═╡ cf9d7c7d-4519-410a-8a05-af90312e291c
 #=╠═╡
-v̂_td = run_state_aggregation_semi_gradient_policy_estimation(random_walk_state_mdp, s -> 1, 1f0, 10, random_walk_group_assign; max_episodes = 100_000, max_steps = typemax(Int64), α = 1f-3)
+md"""
+### Figure 9.2
+Bootstrapping with state aggregation on the $num_states-state random walk task.  The asymptotic values of semi-gradient TD are worse than the asymptotic Monte Carlo values which matches with the expectation from the TD-fixed point convergence.
+"""
+  ╠═╡ =#
+
+# ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
+#=╠═╡
+function figure_9_2()
+	v_π = value_iteration_v(random_walk_tabular_mdp, 1f0; save_history = false).final_value[2:end-1]
+	
+	v̂_mc = run_state_aggregation_monte_carlo_policy_estimation(random_walk_state_mdp, s -> 1, 1f0, 100_000, num_groups, random_walk_group_assign, α = 2f-5)
+
+	#this function will produce the learned value estimate given a random walk state
+	v̂_td = run_state_aggregation_semi_gradient_policy_estimation(random_walk_state_mdp, s -> 1, 1f0, 10, random_walk_group_assign; max_episodes = 100_000, max_steps = typemax(Int64), α = 1f-3)
+	
+	
+	x = 1:num_states
+
+	v̂_mc_π = v̂_mc.(x)
+	v̂_td_π = v̂_td.(x)
+	
+	n1 = L"v_\pi"
+	n2 = L"\hat v"
+	tr1 = scatter(x = x, y = v_π, name = "True value $n1")
+	tr2 = scatter(x = x, y = v̂_mc_π, name = "Approximate MC value $n2")
+	tr3 = scatter(x = x, y = v̂_td_π, name = "Approximate TD value $n2")
+
+	plot([tr1, tr2, tr3], Layout(xaxis_title = "State", yaxis_title = "Value"))
+end
   ╠═╡ =#
 
 # ╔═╡ c05ea239-2eea-4f41-b4e3-993db0fe2de5
 #=╠═╡
-plot(v̂_td.(1:num_states))
+figure_9_2()
   ╠═╡ =#
 
 # ╔═╡ f5203959-29ef-406c-abac-4f01fa9630a3
 md"""
-> *Exercise 9.1* Show that tabular methods such as presented in Part I of this book are a special case of linear function approximation.  What would the feature vectors be?
+> ### *Exercise 9.1* 
+> Show that tabular methods such as presented in Part I of this book are a special case of linear function approximation.  What would the feature vectors be?
 
-The tabular methods in Part I store a single value estimate for each state.  Such a lookup can be thought of as a function that is simply a map from each state to a value.  The feature vectors for this function would be orthanormal basis vectors of dimension matching the number of states, thus state 1 would be represented by the feature vector [1, 0, 0, ...], state 2 by [0, 1, 0, 0, ...] and so on.  The parameters would simply be the value estimate for each state.
+The simplest form of function approximation presented so far is state-aggregation which is a special case of linear function approximation.  Consider a case of state-aggregation where every state is in its own unique group and there is a parameter vector $\boldsymbol{w}$ such that $w_i$ is the approximation value for $s_i$.  Following the rules of state aggregation, the feature vectors would be orthanormal basis vectors of dimension matching the number of states, thus state 1 would be represented by the feature vector [1, 0, 0, ...], state 2 by [0, 1, 0, 0, ...] and so on.  The gradient Monte Carlo update rule for these feature vectors would be $w_i = w_i + \alpha [G_t - w_i]$ for an episode step encountering state $s_i$.  The TD(0) update rule would be $w_i = w_i + \alpha [R_t + \gamma w_j - w_i]$ where the next state encountered is $s_j$.  Both of these rules are exactly the same as tabular Monte Carlo policy prediction (with constant step size averaging) and tabular TD(0) policy prediction where $v_i = w_i$.  So the value function from the tabular setting is still a list of $\vert \mathcal{S} \vert$ values, one for each state and every state value update has no effect on the value estimates of other states.
 """
+
+# ╔═╡ 53924a3a-8fab-45c5-b6fa-90882138fac9
+#once you do state aggregation you have effectively reduced it to a tabular problem, so why not just solve with DP methods like value iteration if you can get the probability distribution from the environment like we could with this random walk task?  Given the state groups I could construct an actual distribution model for this using the groups and then it should converge to the VE error I think
 
 # ╔═╡ c3da96b0-d584-4a43-acdb-16516e2d0452
 md"""
@@ -1041,7 +1132,7 @@ version = "17.4.0+2"
 # ╔═╡ Cell order:
 # ╟─19d23ef5-27db-44a8-99fe-a7343a5db2b8
 # ╟─c4c71ace-c3a4-412b-b08b-31d246f8db5f
-# ╠═cb5e302b-a14b-4135-b6ff-bee300f9dee6
+# ╟─cb5e302b-a14b-4135-b6ff-bee300f9dee6
 # ╟─865ed63a-a7ee-403f-9004-b3ec659d756f
 # ╠═be546bdb-77a9-48c4-9a98-1205d73fc8c6
 # ╠═ae19496f-7d6c-4b91-8456-d7a1eacbe3d3
@@ -1079,10 +1170,15 @@ version = "17.4.0+2"
 # ╠═214714a5-ad1e-4439-8567-9095d10411a6
 # ╟─3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
 # ╟─6c6c0ef4-0e68-4f50-8c3a-76ed3afb2d20
+# ╟─b6737cef-b6f9-4e40-82d8-bf887e17eb7c
+# ╟─3db9f60e-a823-4d78-bd16-e73cedffa755
+# ╟─645ba5fc-8575-4b8f-8982-f8bd20ac27ff
 # ╠═6046143f-a2c3-4569-a04a-c1ad4f3daf9d
-# ╠═7dd5973c-56fe-475c-89e9-bcc98364af25
-# ╠═c05ea239-2eea-4f41-b4e3-993db0fe2de5
+# ╟─cf9d7c7d-4519-410a-8a05-af90312e291c
+# ╟─c05ea239-2eea-4f41-b4e3-993db0fe2de5
+# ╠═bfb1858b-5e05-4239-bcae-a3b718074630
 # ╟─f5203959-29ef-406c-abac-4f01fa9630a3
+# ╠═53924a3a-8fab-45c5-b6fa-90882138fac9
 # ╟─c3da96b0-d584-4a43-acdb-16516e2d0452
 # ╟─0ee3afe9-9c33-45c8-b304-26062675e1b8
 # ╟─d65a0ca9-5577-4df8-af77-44ecfbcc0a07
