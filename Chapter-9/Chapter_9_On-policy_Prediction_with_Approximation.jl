@@ -4,6 +4,16 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+end
+
 # ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
 using PlutoDevMacros
 
@@ -49,7 +59,7 @@ An ideal goal for optimizing $\overline {VE}$ is to find a *global optimum* for 
 #=╠═╡
 md"""
 ## 9.3 Stochastic-gradient and Semi-gradient Methods
-We will assume a weight vector with a fixed number of components $\boldsymbol{w} \dot = (w_1, w_2, \dots, w_d)$ and a differentiable value function $\hat v(s, \boldsymbol{w})$ that exists for all states.  We will update weights at each of a series of discrete time steps so we can denote $\boldsymbol{w}_t$ as the weight vector at each step.  Assume at each step we observe a state and its true value under the policy.  We assume that states appear in the same distribution $\mu$ over which we are trying to optimize the prediction objective.  Under these assumptions we can try to minimize the error observed on each example using *Stochastic gradient-descent* (SGD) by adjusting the weight vector a small amount after each observation:
+We will assume a weight vector with a fixed number of components $\boldsymbol{w} \doteq (w_1, w_2, \dots, w_d)$ and a differentiable value function $\hat v(s, \boldsymbol{w})$ that exists for all states.  We will update weights at each of a series of discrete time steps so we can denote $\boldsymbol{w}_t$ as the weight vector at each step.  Assume at each step we observe a state and its true value under the policy.  We assume that states appear in the same distribution $\mu$ over which we are trying to optimize the prediction objective.  Under these assumptions we can try to minimize the error observed on each example using *Stochastic gradient-descent* (SGD) by adjusting the weight vector a small amount after each observation:
 
 $$\begin{flalign}
 \boldsymbol{w}_{t+1} & \doteq \boldsymbol{w}_t - \frac{1}{2} \alpha \nabla [v_\pi(S_t) - \hat v(S_t, \boldsymbol{w}_t)]^2 \\
@@ -64,7 +74,7 @@ If we do not receive the true value function at each example but rather a bootst
 
 If we use a bootstrapped estimate of the value, then the estimate depends on the current weight vector and will no longer be *unbiased* which requires that the update target be independent of $\boldsymbol{w}_t$.  A method using bootstrapping with function approximation would be considered a *semi-gradient method* because it violates part of the convergence assumptions.  In the case of a linear function, however, they can still converge reliably.  One typical example of this is semi-gradient TD(0) learning which uses the value estimate target of $U_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \boldsymbol{w})$.  In this case the update step for the weight vector is as follows:
 
-$\boldsymbol{w}_{t+1} = \boldsymbol{w}_t + \alpha[R_t + \gamma \hat v(S_{t+1}, \boldsymbol{w}_t) - \hat v(S, \boldsymbol{w}_t)] \nabla \hat v(S_t, \boldsymbol{w}_t) \tag{9.7}$
+$\boldsymbol{w}_{t+1} = \boldsymbol{w}_t + \alpha[R_t + \gamma \hat v(S_{t+1}, \boldsymbol{w}_t) - \hat v(S_t, \boldsymbol{w}_t)] \nabla \hat v(S_t, \boldsymbol{w}_t) \tag{9.7}$
 
 *State aggregation* is a simple form of generalizing function approximation in which states are grouped together, with one estimated value (one component of the weight vector **w**) for each group.  The value of a state is estimated as its group's component, and when the state is updated, that component alone is updated.  State aggregation is a special case of SGD in which the gradient, $\nabla \hat v(S_t, \boldsymbol{w}_t)$, is 1 for the observed state's component and 0 for others.
 """
@@ -173,11 +183,9 @@ end
 semi_gradient_td0_policy_estimation(mdp::StateMDP, π::Function, γ::T, num_params::Integer, ▽v̂!::Function; max_steps = 100_000, max_episodes = typemax(Int64), w_init = zero(T), parameters = fill(w_init, num_params), kwargs...) where {T<:Real} = semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, ▽v̂!; kwargs...)
 
 # ╔═╡ cb2005fd-d3e0-4f37-908c-77e4bbac45b8
-#=╠═╡
 md"""
 ### Example 9.1: State Aggregation on the $(@bind num_states NumberField(100:100_000, default = 1000)) State Random Walk
 """
-  ╠═╡ =#
 
 # ╔═╡ de9bea60-c91d-4253-bdd8-a3c1fde8941c
 """
@@ -256,47 +264,33 @@ function make_random_walk_mdp(num_states::Integer)
 end
 
 # ╔═╡ 7814bda0-4306-4060-8f9a-2bcf1cf8e132
-#=╠═╡
 const random_walk_tabular_mdp = make_random_walk_mdp(num_states)
-  ╠═╡ =#
 
 # ╔═╡ 07ec7fa3-6062-4d46-aca7-230c451eae65
-#=╠═╡
 const π_rand_tabular = make_random_policy(random_walk_tabular_mdp)
-  ╠═╡ =#
 
 # ╔═╡ f4459b0d-ee3e-47c7-9c82-981af622edfa
-#=╠═╡
 const initial_state::Int64 = ceil(Int64, num_states / 2)
-  ╠═╡ =#
 
 # ╔═╡ 90e5fc0e-2e97-424b-a5dd-9deb38293121
-#=╠═╡
 md"""
 Consider a $num_states-state version of the random walk task in which the states are numbered from 1 to $num_states, left to right and all episodes begin near the center, in state $initial_state.  State transitions are from the current state to one of the 100 neighboring states to its left, or to one of the 100 neighboring states to its right, all with equal probability.  Of course, if the current state is near an edge, then there may be fewer than 100 neighbors on that side of it.  In this case, all the probability that would have gone into those missing neighbors goes into the probability of terminating on that side (thus, state 1 has a 0.5 chance of terminating on the left, and state $(num_states - 50) has a 0.25 chance of terminating on the right).  Left termination produces a reward of -1 and right +1.
 
 The following function constructs this random walk as a tabular problem with a stochastic distribution function like we'd see in part 1 of the book.  From this representation of the problem, we can perform methods like value iteration to calculate the correct state values and then compare to approximation methods later.
 """
-  ╠═╡ =#
 
 # ╔═╡ 68a4151a-52ee-4ed0-b988-3fecc34d8d32
-#=╠═╡
 md"""
 #### Transition Probabilities Visualized for $num_states State Random Walk
 
 Using the tabular MDP, we can visualize the transition probabilities for any state.  Notice that at the edges, more probability is shifted to a terminal state.
 """
-  ╠═╡ =#
 
 # ╔═╡ 24e8b391-00ec-4ed5-85dc-0796eb85bf4f
-#=╠═╡
 md"""Select State to View Transition Probabilities: $(@bind smap Slider(1:num_states; default = ceil(Int64, num_states/2), show_value=true))"""
-  ╠═╡ =#
 
 # ╔═╡ 736b7667-904d-4a9c-bb10-a6b0b831bfb6
-#=╠═╡
 random_walk_tabular_mdp.ptf.state_transition_map[1, smap+1] |> v -> plot(bar(x = 0:num_states+1, y = v), Layout(xaxis_title = "State", yaxis_title = "Transition Probability"))
-  ╠═╡ =#
 
 # ╔═╡ 9c3f07b1-61eb-4d70-9dde-986c032a0840
 md"""
@@ -314,36 +308,26 @@ function randomwalk_step(s::Int64, i_a::Int64, num_states::Int64)
 end
 
 # ╔═╡ 39c6ec4d-306e-4dee-9d5a-130925341a6c
-#=╠═╡
 const randomwalk_state_ptf = StateTransitionSampler((s, i_a) -> randomwalk_step(s, i_a, num_states), 1)
-  ╠═╡ =#
 
 # ╔═╡ 60d68f9b-d18d-4d23-9adb-27fcb205e54b
 randomwalk_isterm(s::Int64, num_states::Int64) = (s < 1) || (s > num_states)
 
 # ╔═╡ c79db82f-289e-4523-bf07-57cfdc38c073
-#=╠═╡
 randomwalk_state_init() = initial_state
-  ╠═╡ =#
 
 # ╔═╡ 2720329c-4c80-47cb-a3e3-d24fcec6ef43
-#=╠═╡
 const random_walk_state_mdp = StateMDP([1], randomwalk_state_ptf, randomwalk_state_init, s -> randomwalk_isterm(s, num_states))
-  ╠═╡ =#
 
 # ╔═╡ 2c6809f9-50ed-44b8-8f27-0a62e88d118c
-#=╠═╡
 md"""
 #### State Aggregation
 
 The simplest form of function approximation in which each state is assigned to a unique group.  Each group is represented by a parameter that estimates the value of every state in that group.  The gradient for this technique has the simple form: $\nabla \hat v (S_t, \boldsymbol{w}_t) = 1$ if $S_t$ is in the group represented by $\boldsymbol{w}_t$ and 0 otherwise.  For the random walk example, state aggregation can simply assign states to groups as: {1 to 100}, {101 to 200}, ..., {$(num_states - 100) to $num_states}.
 """
-  ╠═╡ =#
 
 # ╔═╡ 91e4e5da-4e0f-48b2-98bd-1e9f1330b0a8
-#=╠═╡
 md"""Number of State Aggregation Groups: $(@bind num_groups NumberField(1:num_states, default = 10))"""
-  ╠═╡ =#
 
 # ╔═╡ 5ebafa8b-c316-4f95-8adc-581f2eb40e1f
 function make_random_walk_group_assign(num_states::Integer, num_groups::Integer)
@@ -352,22 +336,16 @@ function make_random_walk_group_assign(num_states::Integer, num_groups::Integer)
 end
 
 # ╔═╡ 24b99200-053a-41bf-a628-0b14b807fb86
-#=╠═╡
 #this function will assign a state to a group
 random_walk_group_assign = make_random_walk_group_assign(num_states, num_groups)
-  ╠═╡ =#
 
 # ╔═╡ d68c0147-a66f-4542-a395-5f9b43e16b09
-#=╠═╡
 md"""
 #### Group Aggregation Visualization for $num_states State Random Walk
 """
-  ╠═╡ =#
 
 # ╔═╡ 1adf0786-0897-4119-9336-09de869463b4
-#=╠═╡
 random_walk_group_assign.(random_walk_tabular_mdp.states) |> v -> plot(scatter(x = random_walk_tabular_mdp.states, y = v), Layout(xaxis_title = "State", yaxis_title = "Aggregation Group", title = "$num_states Random Walk States Partitioned into $num_groups Groups"))
-  ╠═╡ =#
 
 # ╔═╡ b361815f-d5b0-4c71-b331-c3b48ce53e73
 md"""
@@ -400,13 +378,11 @@ function run_state_aggregation_monte_carlo_policy_estimation(mdp::StateMDP{T, S,
 end
 
 # ╔═╡ ace0693b-b4ce-43df-966e-0330d4399638
-#=╠═╡
 md"""
 ### *Figure 9.1*
 
 Function approximation by state aggregation on the $num_states-state random walk task.  The blue line shows the true state values computed using value iteration.  The stepped orange line shows the group values as calculated using Gradient Monte Carlo estimation using the state aggregation parameters.  The distribution of visited states during an episode is also shown as a history.
 """
-  ╠═╡ =#
 
 # ╔═╡ bc479ae0-78ea-4255-863f-dcd126ae9b96
 md"""
@@ -514,13 +490,11 @@ A bound analogous to (9.14) applies to other on-policy bootstrapping methods as 
 """
 
 # ╔═╡ 645ba5fc-8575-4b8f-8982-f8bd20ac27ff
-#=╠═╡
 md"""
 ### Example 9.2: Bootstrapping on the $num_states-state Random Walk
 
 State aggregation is a special case of linear function approximation, so we can use the previous example to illustrate the convergence properties of semi-gradient TD(0) vs gradient Monte Carlo.  
 """
-  ╠═╡ =#
 
 # ╔═╡ 6046143f-a2c3-4569-a04a-c1ad4f3daf9d
 function run_state_aggregation_semi_gradient_policy_estimation(mdp, π, γ, num_groups, assign_state_group; kwargs...)
@@ -531,12 +505,10 @@ function run_state_aggregation_semi_gradient_policy_estimation(mdp, π, γ, num_
 end
 
 # ╔═╡ cf9d7c7d-4519-410a-8a05-af90312e291c
-#=╠═╡
 md"""
 ### Figure 9.2
 Bootstrapping with state aggregation on the $num_states-state random walk task.  The asymptotic values of semi-gradient TD are worse than the asymptotic Monte Carlo values which matches with the expectation from the TD-fixed point convergence.
 """
-  ╠═╡ =#
 
 # ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
 #=╠═╡
@@ -578,28 +550,42 @@ The simplest form of function approximation presented so far is state-aggregatio
 """
 
 # ╔═╡ 53924a3a-8fab-45c5-b6fa-90882138fac9
-#once you do state aggregation you have effectively reduced it to a tabular problem, so why not just solve with DP methods like value iteration if you can get the probability distribution from the environment like we could with this random walk task?  Given the state groups I could construct an actual distribution model for this using the groups and then it should converge to the VE error I think
+#once you do state aggregation you have effectively reduced it to a tabular problem, so why not just solve with DP methods like value iteration if you can get the probability distribution from the environment like we could with this random walk task?  Given the state groups I could construct an actual distribution model for this using the groups and then it should converge to the VE error I think.  the problem is even though I can get the distribution into the new groups from a given state, I have to add up all of those weighted equally by each state in the beginning group.
 
 # ╔═╡ c3da96b0-d584-4a43-acdb-16516e2d0452
 md"""
 ## 9.5 Feature Construction for Linear Methods
+
+Linear methods can only make approximations that additively combine the effects of multiple features.  In order to account for interactions between state properties such as the position and velocity of an object, features must be constructed that explicitely combine those state values.  The purpose of feature construction is to inject into the problem domain knowledge related to what type of information from the states will be useful to solving the problem.
 """
 
 # ╔═╡ 0ee3afe9-9c33-45c8-b304-26062675e1b8
 md"""
 ### 9.5.1 Polynomials
+
+Consider a state with two numerical features $s_1, s_2$.  We could construct a feature vector that simply uses each value $(s_1, s_2)$ but this would restrict our value estimator to outputs of the form $as_1 + bs_2$.  This functional form would make it impossible for an estimated value to be non-zero if both state values are zero which may not be true in the environment.  In order to lift this restriction it is common to add a bias feature that is always 1.  Another desired feature may be one that combines both state values together multiplicatively.  Additional features of this nature are called polynomial features and take the form:
+
+$x_i(s) = \prod_{j=1}^k s_j^{c_{i,j}} \tag{9.17}$
+
+where each $c_{i,j}$ is an integer in the set $\{0, 1, \dots, n \}$ for an integer $n \geq 0$.  An example of such a feature vector for $n=2$ and $k=2$ state values is shown below:
+
+$\boldsymbol{x}(s) = (1, s_1, s_2, s_1 s_2, s_1^2, s_2^2, s_1 s_2^2, s_1^2 s_2, s_1^2 s_2^2)$
+
+This combination yields $(2+1)^2 = 9$ features since each of the two state values can be raised to 3 different exponents and then combined.
 """
 
 # ╔═╡ d65a0ca9-5577-4df8-af77-44ecfbcc0a07
 md"""
-> *Exercise 9.2* Why does (9.17) define $(n+1)^k$ distinct features for dimension $k$?
+> ### *Exercise 9.2* 
+> Why does (9.17) define $(n+1)^k$ distinct features for dimension $k$?
 n represents the highest power to take for each individual dimension of the state and we consider powers from 0 up to n for each dimension.  If we list the exponent per dimension as a tuple, we have for n = 1, k = 2: (0, 0), (0, 1), (1, 0), (1, 1).
 For n = 1, k = 3: (0, 0, 0), (0, 0, 1), (0, 1, 0), (1, 0, 0), (1, 1, 0), (1, 0, 1), (0, 1, 1), (1, 1, 1).  This pattern consists of tuples of length k which can be formed by selecting from n + 1 choices of exponent.  The number of resulting tuples is $(n+1)^k$
 """
 
 # ╔═╡ c5adf2d7-0b6b-4a87-974b-a90824d0323b
 md"""
->*Exercise 9.3* What $n$ and $c_{i, j}$ produce the feature vectors $\mathbf{x}(s)=(1, s_1, s_2, s_1s_2, s_1^2, s_2^2, s_1s_2^2, s_1^2s_2, s_1^2s_2^2)^\top$
+> ### *Exercise 9.3* 
+> What $n$ and $c_{i, j}$ produce the feature vectors $\mathbf{x}(s)=(1, s_1, s_2, s_1s_2, s_1^2, s_2^2, s_1s_2^2, s_1^2s_2, s_1^2s_2^2)^\top$
 
 Since the highest exponent considered is 2, $n=2$.  For the exponents we can visualize $c_{i, j}$ as the following matrix where rows correspond to $i$ and columns to $j$
 
@@ -623,7 +609,8 @@ md"""
 ### 9.5.3 Coarse Coding
 ### 9.5.4 Tile Coding
 
-> *Exercise 9.4* Suppose we believe that one of two state dimensions is more likely to have an effect on the value function than is the other, that generalization should be primarily across this dimension rather than along it.  What kind of tilings could be used to take advantage of this prior knowledge?
+> ### *Exercise 9.4* 
+> Suppose we believe that one of two state dimensions is more likely to have an effect on the value function than is the other, that generalization should be primarily across this dimension rather than along it.  What kind of tilings could be used to take advantage of this prior knowledge?
 
 We could use striped tilings such that each stripe is the width of several of the important dimension but completely covers the entire space of the other dimension.  That way states that have the same value of the important dimension would be treated similarly regardless of their value in the other dimension and the overlap in the direction of the first dimension would allow some generalization if those states are close to each other along that dimension.
 """
@@ -641,14 +628,16 @@ md"""
 
 # ╔═╡ 858a6d4f-2241-43c3-9db0-ff9cec00c2c1
 md"""
-> *Exercise 9.5* Suppose you are using tile coding to transform a seven-dimensional continuous state space into binary feature vectors to estimate a state value function $\hat v(s,\mathbf{w}) \approx v_\pi(s)$.  You believe that the dimensions do not interact strongly, so you decide to use eight tilings of each dimension separately (stripe tilings), for $7 \times 8 = 56$ tilings. In addition, in case there are some pairwise interactions between the dimensions, you also take all ${7\choose2} = 21$ pairs of dimensions and tile each pair conjunctively with rectangular tiles. You make two tilings for each pair of dimensions, making a grand total of $21 \times 2 + 56 = 98$ tilings.  Given these feature vectors, you suspect that you still have to average out some noise, so you decide that you want learning to be gradual, taking about 10 presentations with the same feature vector before learning nears its asymptote. What step-size parameter should you use? Why?
+> ### *Exercise 9.5* 
+> Suppose you are using tile coding to transform a seven-dimensional continuous state space into binary feature vectors to estimate a state value function $\hat v(s,\mathbf{w}) \approx v_\pi(s)$.  You believe that the dimensions do not interact strongly, so you decide to use eight tilings of each dimension separately (stripe tilings), for $7 \times 8 = 56$ tilings. In addition, in case there are some pairwise interactions between the dimensions, you also take all ${7\choose2} = 21$ pairs of dimensions and tile each pair conjunctively with rectangular tiles. You make two tilings for each pair of dimensions, making a grand total of $21 \times 2 + 56 = 98$ tilings.  Given these feature vectors, you suspect that you still have to average out some noise, so you decide that you want learning to be gradual, taking about 10 presentations with the same feature vector before learning nears its asymptote. What step-size parameter should you use? Why?
 
 Each tiling will contribute one non-zero element to the feature vector.  With 98 tilings, we have 98 one values in each feature vector so the inner product in equation (9.19) would be $\mathbb{E}\left[\sum_{i=1}^{98} x_i^2 \right]=98$ so $\alpha=\frac{1}{10 \times 98}=\frac{1}{980} \approx 0.001$ 
 	"""
 
 # ╔═╡ be019186-33ad-4eb7-a218-9124ff40b6fb
 md"""
-> *Exercise 9.6* If $\tau=1$ and $\mathbf{x}(S_t)^\top \mathbf{x}(S_t) = \mathbb{E} [\mathbf{x}^\top \mathbf{x}]$, prove that (9.19) together with (9.7) and linear function approximation results in the error being reduced to zero in one update.
+> ### *Exercise 9.6* 
+> If $\tau=1$ and $\mathbf{x}(S_t)^\top \mathbf{x}(S_t) = \mathbb{E} [\mathbf{x}^\top \mathbf{x}]$, prove that (9.19) together with (9.7) and linear function approximation results in the error being reduced to zero in one update.
 """
 
 # ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
@@ -657,9 +646,7 @@ md"""
 """
 
 # ╔═╡ 507bcfda-cd09-4873-94a7-a51fefb3c25d
-#=╠═╡
 TableOfContents()
-  ╠═╡ =#
 
 # ╔═╡ c1488837-602d-4fbf-9d18-fba4a7fc8140
 html"""
