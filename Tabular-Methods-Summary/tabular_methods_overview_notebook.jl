@@ -384,31 +384,40 @@ end
 # ╔═╡ cc5b0818-bd84-4289-aa41-e83271a85bb1
 begin
 	#MDP dynamics are determined by the transition function. for the special case of a deterministic environment, every probability is 1 so the function can be represented as an injective map
-	abstract type AbstractMDPTransition{T<:Real} end
-	abstract type AbstractTabularMDPTransition{T<:Real} <: AbstractMDPTransition{T} end
+	abstract type AbstractTransition{T<:Real, N} end
+	abstract type AbstractTabularTransition{T<:Real, N} <: AbstractTransition{T, N} end
 
-	struct TabularTransitionDistribution{T<:Real, ST<:Union{Int64, SparseVector{T, Int64}}, RT<:Union{T, Vector{T}}} <: AbstractTabularMDPTransition{T}
-		state_transition_map::Matrix{ST} #for each state action pair, there is a probability distribution over transition states represented by a sparse vector whose elements contain the probabilities of transitioning to the state with that index, in the deterministic case this is just a single value
-		reward_transition_map::Matrix{RT} #for each state action pair, there is a vector containing the average reward received when transitioning into the state corresponding to the non zero probabilities from the state_transition_map.  in the deterministic case this is a single value
+	struct TabularTransitionDistribution{T<:Real, N, ST<:Union{Int64, SparseVector{T, Int64}}, RT<:Union{T, Vector{T}}} <: AbstractTabularTransition{T, N}
+		state_transition_map::Array{ST, N} #for each state action pair, there is a probability distribution over transition states represented by a sparse vector whose elements contain the probabilities of transitioning to the state with that index, in the deterministic case this is just a single value
+		reward_transition_map::Array{RT, N} #for each state action pair, there is a vector containing the average reward received when transitioning into the state corresponding to the non zero probabilities from the state_transition_map.  in the deterministic case this is a single value
 	end
 
-	TabularTransitionDistribution(m1::Matrix{Int64}, m2::Matrix{T}) where T<:Real = TabularTransitionDistribution{T, Int64, T}(m1, m2)
-	TabularTransitionDistribution(m1::Matrix{SparseVector{T, Int64}}, m2::Matrix{Vector{T}}) where T<:Real = TabularTransitionDistribution{T, SparseVector{T, Int64}, Vector{T}}(m1, m2)
+	# TabularTransitionDistribution(m1::Array{Int64, N}, m2::Array{T, N}) where {T<:Real, N} = TabularTransitionDistribution{T, N, Int64, T}(m1, m2)
+	# TabularTransitionDistribution(m1::Array{SparseVector{T, Int64}, N}, m2::Array{Vector{T}, N}) where {T<:Real, N} = TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}(m1, m2)
 
-	const TabularDeterministicTransition{T<:Real} = TabularTransitionDistribution{T, Int64, T}
-	const TabularStochasticTransition{T<:Real} = TabularTransitionDistribution{T, SparseVector{T, Int64}, Vector{T}}
+	const TabularDeterministicTransition{T<:Real, N} = TabularTransitionDistribution{T, N, Int64, T}
+	const TabularStochasticTransition{T<:Real, N} = TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}
 
-	TabularDeterministicTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
-	TabularStochasticTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
+	# TabularDeterministicTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
+	# TabularStochasticTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
 
 	#when using the MDP tabular transition as a functor with a state action index, it produces a sample of the transition which in the deterministic case will always be the same 
-	(ptf::TabularDeterministicTransition)(i_s::Integer, i_a::Integer) = (ptf.reward_transition_map[i_a, i_s], ptf.state_transition_map[i_a, i_s])
+	(ptf::TabularDeterministicTransition{T, 2})(i_s::Integer, i_a::Integer) where T<:Real = (ptf.reward_transition_map[i_a, i_s], ptf.state_transition_map[i_a, i_s])
+	(ptf::TabularDeterministicTransition{T, 1})(i_s::Integer) where T<:Real = (ptf.reward_transition_map[i_s], ptf.state_transition_map[i_s])
 
-	function (ptf::TabularStochasticTransition)(i_s::Integer, i_a::Integer) 
+	function (ptf::TabularStochasticTransition{T, 2})(i_s::Integer, i_a::Integer) where T<:Real 
 		state_transition_probabilities = ptf.state_transition_map[i_a, i_s]
 		i = sample_action(state_transition_probabilities.nzval)
 		i_s′ = state_transition_probabilities.nzind[i]
 		r = ptf.reward_transition_map[i_a, i_s][i]
+		(r, i_s′)
+	end
+	
+	function (ptf::TabularStochasticTransition{T, 1})(i_s::Integer) where T<:Real 
+		state_transition_probabilities = ptf.state_transition_map[i_s]
+		i = sample_action(state_transition_probabilities.nzval)
+		i_s′ = state_transition_probabilities.nzind[i]
+		r = ptf.reward_transition_map[i_s][i]
 		(r, i_s′)
 	end
 end
@@ -416,12 +425,14 @@ end
 # ╔═╡ 19a12e42-a5af-4c30-be98-56c8b90af50f
 begin
 	#a terminal state is defined as any state for which every action leads to the same transition back to the same state with zero reward.  these states are uniquely identified by the probability transition function
-	function is_terminal_index(i_s::Integer, ptf::TabularDeterministicTransition)
+	function is_terminal_index(i_s::Integer, ptf::TabularDeterministicTransition{T, 2}) where T<:Real
 		(num_actions, num_states) = size(ptf.state_transition_map)
 		all((ptf.state_transition_map[i_a, i_s] == i_s) && iszero(ptf.reward_transition_map[i_a, i_s]) for i_a in 1:num_actions) #ensure that for all transitions the state remains the same and the reward is 0
 	end
 
-	function is_terminal_index(i_s::Integer, ptf::TabularStochasticTransition{T}) where T<:Real
+	is_terminal_index(i_s::Integer, ptf::TabularDeterministicTransition{T, 1}) where T<:Real = (ptf.state_transition_map[i_s] == i_s) && iszero(ptf.reward_transition_map[i_s])
+
+	function is_terminal_index(i_s::Integer, ptf::TabularStochasticTransition{T, 2}) where T<:Real
 		(num_actions, num_states) = size(ptf.state_transition_map)
 		all(eachindex(1:num_actions)) do i_a
 			rmap = ptf.reward_transition_map[i_a, i_s]
@@ -432,27 +443,43 @@ begin
 			return true
 		end #ensure that for all transitions the state remains the same and the reward is 0
 	end
+
+	function is_terminal_index(i_s::Integer, ptf::TabularStochasticTransition{T, 1}) where T<:Real
+		rmap = ptf.reward_transition_map[i_s]
+		smap = ptf.state_transition_map[i_s]
+		length(rmap) > 1 && return false
+		smap[i_s] != one(T) && return false
+		!iszero(first(rmap)) && return false
+		return true
+	end
 end
 
 # ╔═╡ dfd02a2a-8804-4894-9b55-db94308abc7b
+begin
 """
 	find_terminal_states(ptf::AbstractTabularProbabilityTransition)
 
 Finds the terminal states in a Markov Decision Process (MDP) with a known probability transition function
 """
-function find_terminal_states(ptf::TabularTransitionDistribution)
+function find_terminal_states(ptf::TabularTransitionDistribution{T, 2, RT, ST}) where {T<:Real, RT, ST}
 	(num_actions, num_states) = size(ptf.state_transition_map)
 	BitVector([is_terminal_index(i, ptf) for i in 1:num_states])
+end
+
+function find_terminal_states(ptf::TabularTransitionDistribution{T, 1, RT, ST}) where {T<:Real, RT, ST}
+	num_states = length(ptf.state_transition_map)
+	BitVector([is_terminal_index(i, ptf) for i in 1:num_states])
+end
 end
 
 # ╔═╡ 4715ba1d-ebda-4716-b768-8cc05cb8bcea
 begin
 	#without a distribution transition, assume every action is valid as a fallback
-	find_available_actions(ptf::AbstractTabularMDPTransition) = BitMatrix(fill(true, size(ptf.state_transition_map)...))
+	find_available_actions(ptf::AbstractTabularTransition{T, 2}) where T<:Real = BitMatrix(fill(true, size(ptf.state_transition_map)...))
 	
-	find_available_actions(ptf::TabularDeterministicTransition) = BitMatrix(ptf.state_transition_map .!= 0)
+	find_available_actions(ptf::TabularDeterministicTransition{T, 2}) where T<:Real = BitMatrix(ptf.state_transition_map .!= 0)
 
-	function find_available_actions(ptf::TabularStochasticTransition)
+	function find_available_actions(ptf::TabularStochasticTransition{T, 2}) where T<:Real
 		check_distribution(d) = sum(d) != 0
 		BitMatrix(check_distribution.(ptf.state_transition_map))
 	end
@@ -461,11 +488,12 @@ end
 # ╔═╡ 43c6bb95-81a1-4988-878c-df376e3f7caa
 begin
 	#A general MDP must have a well defined state and action space as well as a numerical type for the reward
-	abstract type AbstractMDP{T<:Real, S, A, P <: AbstractMDPTransition{T}, F <: Function} end
+	abstract type AbstractMDP{T<:Real, S, A, P <: AbstractTransition{T, 2}, F <: Function} end
+	abstract type AbstractMRP{T<:Real, S, P <: AbstractTransition{T, 1}, F<:Function} end
 
 	#when we can list all of the states and actions concretely, the problem is called tabular and we can represent states and actions by their index in a list
 	#when we know the full probability transition function we can identify the full probability distribution of any transition.  in this case the terminal states can be derived from the ptf, otherwise it needs to be specified ahead of time.  the following struct represents a tabular problem defined by the state space, action space, and the transition type.
-	struct TabularMDP{T<:Real, S, A, P <: AbstractTabularMDPTransition{T}, F <: Function} <: AbstractMDP{T, S, A, P, F}
+	struct TabularMDP{T<:Real, S, A, P <: AbstractTabularTransition{T, 2}, F <: Function} <: AbstractMDP{T, S, A, P, F}
 		states::Vector{S}
 		actions::Vector{A}
 		ptf::P
@@ -476,7 +504,15 @@ begin
 		action_index::Dict{A, Int64} #lookup table mapping actions to their index, this will be constructed automatically
 	end
 
-	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = find_available_actions(ptf), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions)) where {T<:Real, S, A, P<:AbstractTabularMDPTransition{T}, F<:Function} = TabularMDP(states, actions, ptf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
+	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = find_available_actions(ptf), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions)) where {T<:Real, S, A, P<:AbstractTabularTransition{T, 2}, F<:Function} = TabularMDP(states, actions, ptf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
+
+	struct TabularMRP{T<:Real, S,  P <: AbstractTabularTransition{T, 1}, F <: Function} <: AbstractMRP{T, S, P, F}
+		states::Vector{S}
+		ptf::P
+		initialize_state_index::F #function which provides an initial state index
+		terminal_states::BitVector #boolean flags indicating whether a state is terminal, this will be derived from the ptf upon constructing the MDP
+		state_index::Dict{S, Int64} #lookup table mapping states to their index, this will be constructed automatically
+	end
 
 	#in case the initial states are represented by a list or distribution over indices, convert this to a function that samples a starting state
 	convert_state_index_initialization(inds::Set{Int64}) = () -> rand(inds)
@@ -487,15 +523,23 @@ begin
 		return initialize_state_index
 	end
 	
-	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, P<:AbstractTabularMDPTransition{T}} = TabularMDP(states, actions, ptf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
+	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, P<:AbstractTabularTransition{T, 2}} = TabularMDP(states, actions, ptf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
 
 	#when nothing is provided for initial states just sample a random state
-	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, P<:AbstractTabularMDPTransition{T}} = TabularMDP(states, actions, ptf, () -> rand(eachindex(states)), terminal_states; kwargs...)
+	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, P<:AbstractTabularTransition{T, 2}} = TabularMDP(states, actions, ptf, () -> rand(eachindex(states)), terminal_states; kwargs...)
 
 	#in the case of having a distribution transition, automatically generate the terminal states
-	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, initialize_state_index; kwargs...) where {T<:Real, S, A, P<:TabularTransitionDistribution{T}} = TabularMDP(states, actions, ptf, initialize_state_index, find_terminal_states(ptf); kwargs...)
+	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, initialize_state_index; kwargs...) where {T<:Real, S, A, P<:TabularTransitionDistribution{T, 2}} = TabularMDP(states, actions, ptf, initialize_state_index, find_terminal_states(ptf); kwargs...)
 
-	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P; kwargs...) where {T<:Real, S, A, P<:TabularTransitionDistribution{T}} = TabularMDP(states, actions, ptf, () -> rand(eachindex(states)); kwargs...)
+	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P; kwargs...) where {T<:Real, S, A, P<:TabularTransitionDistribution{T, 2}} = TabularMDP(states, actions, ptf, () -> rand(eachindex(states)); kwargs...)
+
+	TabularMRP(states::Vector{S}, ptf::P, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, P<:AbstractTabularTransition{T, 1}} = TabularMRP(states, ptf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
+
+	TabularMRP(states::Vector{S}, ptf::P, terminal_states::BitVector; kwargs...) where {T<:Real, S, P<:AbstractTabularTransition{T, 1}} = TabularMRP(states, ptf, () -> rand(eachindex(states)), terminal_states; kwargs...)
+
+	TabularMRP(states::Vector{S}, ptf::P, initialize_state_index; kwargs...) where {T<:Real, S, P<:TabularTransitionDistribution{T, 1}} = TabularMRP(states, ptf, initialize_state_index, find_terminal_states(ptf); kwargs...)
+
+	TabularMRP(states::Vector{S}, ptf::P; kwargs...) where {T<:Real, S, P<:TabularTransitionDistribution{T, 1}} = TabularMRP(states, ptf, () -> rand(eachindex(states)); kwargs...)
 end
 
 # ╔═╡ 3165f2d7-38a2-4852-98aa-afa4cabfb2ed
@@ -519,7 +563,7 @@ begin
 	initialize_state_action_value(mdp::TabularMDP{T, S, A, P, F}; init_value::T = zero(T)) where {T<:Real, S, A, P, F} = ones(T, length(mdp.actions), length(mdp.states)) .* init_value
 	
 	#if we have a distribution transition, then that is enough to initialize a value function
-	initialize_state_action_value(ptf::TabularTransitionDistribution{T}; init_value::T = zero(T)) where {T<:Real} = ones(T, size(ptf.state_transition_map)...) .* init_value
+	initialize_state_action_value(ptf::TabularTransitionDistribution{T, 2}; init_value::T = zero(T)) where {T<:Real} = ones(T, size(ptf.state_transition_map)...) .* init_value
 end
 
 # ╔═╡ fa07a49b-68fb-4478-a29b-9289f6a3d56a
@@ -539,8 +583,9 @@ begin
 	# Description
 	This function initializes the state value function for a tabular MDP. Each element of the vector represents the value of being in a particular state represented by the index.
 	"""
-	initialize_state_value(mdp::TabularMDP{T, S, A, P, F}; init_value::T = zero(T)) where {T<:Real, S, A, P, F} = ones(T, length(mdp.states)) .* init_value
-	initialize_state_value(ptf::TabularTransitionDistribution{T}; init_value::T = zero(T)) where {T<:Real} = ones(T, size(ptf.state_transition_map, 2)) .* init_value
+	initialize_state_value(mdp; kwargs...) = initialize_state_value(mdp.ptf)
+	initialize_state_value(ptf::TabularTransitionDistribution{T, 2}; init_value = zero(T)) where {T<:Real} = ones(T, size(ptf.state_transition_map, 2)) .* T(init_value)
+	initialize_state_value(ptf::TabularTransitionDistribution{T, 1}; init_value = zero(T)) where {T<:Real} = ones(T, length(ptf.state_transition_map)) .* T(init_value)
 end
 
 # ╔═╡ 92556e91-abae-4ce3-aa15-b35c4a65cff5
@@ -879,12 +924,12 @@ begin
 	make_random_policy(mdp::TabularMDP{T, S, A, P, F}) where {T <: Real, S, A, P, F} = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
 	
 	#if we have a transition distribution, that alone is enough to form a random policy
-	make_random_policy(ptf::TabularTransitionDistribution{T}) where {T<:Real} = ones(T, size(ptf.state_transition_map)...) ./ size(ptf.state_transition_map, 1)
+	make_random_policy(ptf::TabularTransitionDistribution{T, 2}) where {T<:Real} = ones(T, size(ptf.state_transition_map)...) ./ size(ptf.state_transition_map, 1)
 end
 
 # ╔═╡ 6b3a1c09-8693-41e9-a87c-d47f9ca9e35b
 #when called with a policy distribution instead of an action, the MDP transition function will produce a sample
-function (ptf::AbstractTabularMDPTransition{T})(i_s::Integer, π::Matrix{T}) where {T<:Real} 
+function (ptf::AbstractTabularTransition{T, 2})(i_s::Integer, π::Matrix{T}) where {T<:Real} 
 	i_a = sample_action(π, i_s)
 	(r, i_s′) = ptf(i_s, i_a)
 	return (r, i_s′, i_a)
@@ -1471,16 +1516,26 @@ Once these functions are defined, one can construct the mdp with ```SampleTabula
 
 # ╔═╡ 56124ec7-d826-45ff-b060-82f860c5d7af
 begin
-	struct TabularTransitionSampler{T <: Real, F <: Function} <: AbstractTabularMDPTransition{T}
+	struct TabularMDPTransitionSampler{T <: Real, F <: Function} <: AbstractTabularTransition{T, 2}
 		step::F
-		function TabularTransitionSampler(step::F) where {F<:Function}
+		function TabularMDPTransitionSampler(step::F) where {F<:Function}
 			(r, i_s′) = step(1, 1)
 			new{typeof(r), F}(step)
 		end
 	end
 
 	#when used as a functor just apply the step function to the state action pair indices
-	(ptf::TabularTransitionSampler{T, F})(i_s::Integer, i_a::Integer) where {T<:Real, F<:Function} = ptf.step(i_s, i_a)
+	(ptf::TabularMDPTransitionSampler{T, F})(i_s::Integer, i_a::Integer) where {T<:Real, F<:Function} = ptf.step(i_s, i_a)
+
+	struct TabularMRPTransitionSampler{T <: Real, F <: Function} <: AbstractTabularTransition{T, 1}
+		step::F
+		function TabularTransitionSampler(step::F) where {F<:Function}
+			(r, i_s′) = step(1)
+			new{typeof(r), F}(step)
+		end
+	end
+
+	(ptf::TabularMRPTransitionSampler{T, F})(i_s::Integer) where {T<:Real, F<:Function} = ptf.step(i_s)
 end
 
 # ╔═╡ 7c553f77-7783-439e-834b-53a2cd3bef5a
@@ -1767,7 +1822,7 @@ Typically for TD methods, we update the value estimates with constant step size 
 
 # ╔═╡ a858aeaa-29f5-4615-805c-0c6093cf9b5f
 #note that for td learning with the state_action value function, it is necessary to perform a step and sample the action at the transition state.  The required information from a step is state, action, reward, new state, new action which is summarized by the acronym sarsa.  even though this term is reserved for the control case, the information from the transition is the same as that used for td0 q policy prediction
-function sarsa_step(ptf::AbstractTabularMDPTransition{T}, π::Matrix{T}, i_s::Integer, i_a::Integer) where {T<:Real}
+function sarsa_step(ptf::AbstractTabularTransition{T, 2}, π::Matrix{T}, i_s::Integer, i_a::Integer) where {T<:Real}
 	(r, i_s′) = ptf(i_s, i_a)
 	i_a′ = sample_action(π, i_s′)
 	(r, i_s′, i_a′)
@@ -2085,45 +2140,16 @@ md"""
   ╠═╡ =#
 
 # ╔═╡ 61d1ed10-a9b6-473c-a69c-79a7eed13dc4
-begin
-	#Afterstate MDP dynamics are determined by the transition functions. In the case of afterstates we typically have a situation where the transition to the afterstate is deterministic and then the transition from the afterstate to the transition states is only posible to sample from or is stochastic but with a known distribution.  For the first part of the transition, we can reuse the earlier MDP transition types except now the transition state index would represent the afterstate index rather than a state index.  Also for most cases, a so called "afterstate mdp" would only have a deterministic transition for the afterstate step.  A new type of transition is needed though which needs to same variety we had before for the state transitions.  This transition will not require an action index and will produce a state or distribution over states from an afterstate
-	abstract type AbstractMDPAfterstateTransition{T<:Real} end
-	abstract type AbstractTabularMDPAfterstateTransition{T<:Real} <: AbstractMDPAfterstateTransition{T} end
-
-	struct TabularAfterstateTransitionDistribution{T<:Real, ST<:Union{Int64, SparseVector{T, Int64}}, RT<:Union{T, Vector{T}}} <: AbstractTabularMDPTransition{T}
-		state_transition_map::Vector{ST} #for each afterstate, there is a probability distribution over transition states represented by a sparse vector whose elements contain the probabilities of transitioning to the state with that index, in the deterministic case this is just a single value
-		reward_transition_map::Vector{RT} #for each afterstate, there is a vector containing the average reward received when transitioning into the state corresponding to the non zero probabilities from the state_transition_map.  in the deterministic case this is a single value
-	end
-
-	TabularAfterstateTransitionDistribution(m1::Vector{Int64}, m2::Vector{T}) where T<:Real = TabularAfterstateTransitionDistribution{T, Int64, T}(m1, m2)
-	TabularAfterstateTransitionDistribution(m1::Vector{SparseVector{T, Int64}}, m2::Vector{Vector{T}}) where T<:Real = TabularAfterstateTransitionDistribution{T, SparseVector{T, Int64}, Vector{T}}(m1, m2)
-
-	const TabularDeterministicAfterstateTransition{T<:Real} = TabularAfterstateTransitionDistribution{T, Int64, T}
-	const TabularStochasticAfterstateTransition{T<:Real} = TabularAfterstateTransitionDistribution{T, SparseVector{T, Int64}, Vector{T}}
-
-	TabularDeterministicAfterstateTransition(m1, m2) = TabularAfterstateTransitionDistribution(m1, m2)
-	TabularStochasticAfterstateTransition(m1, m2) = TabularAfterstateTransitionDistribution(m1, m2)
-
-	#when using the MDP tabular transition as a functor with a state action index, it produces a sample of the transition which in the deterministic case will always be the same 
-	(ptf::TabularDeterministicAfterstateTransition)(i_y::Integer) = (ptf.reward_transition_map[i_y], ptf.state_transition_map[i_y])
-
-	function (ptf::TabularStochasticAfterstateTransition)(i_y::Integer) 
-		state_transition_probabilities = ptf.state_transition_map[i_y]
-		i = sample_action(state_transition_probabilities.nzval)
-		i_s′ = state_transition_probabilities.nzind[i]
-		r = ptf.reward_transition_map[i_y][i]
-		(r, i_s′)
-	end
-end
+#Afterstate MDP dynamics are determined by the transition functions. In the case of afterstates we typically have a situation where the transition to the afterstate is deterministic and then the transition from the afterstate to the transition states is only posible to sample from or is stochastic but with a known distribution.  For the first part of the transition, we can reuse the earlier MDP transition types except now the transition state index would represent the afterstate index rather than a state index.  Also for most cases, a so called "afterstate mdp" would only have a deterministic transition for the afterstate step.  A new type of transition is needed though which needs to same variety we had before for the state transitions.  This transition will not require an action index and will produce a state or distribution over states from an afterstate
 
 # ╔═╡ b40a107c-cca0-4eaa-bae5-4e2d42eca1ef
 begin
 	#An afterstate MDP must have a well defined state, action, and afterstate space as well as a numerical type for the reward
-	abstract type AbstractAfterstateMDP{T<:Real, S, A, Y, PTF <: AbstractMDPTransition{T}, ATF <: AbstractMDPAfterstateTransition, F <: Function} end
+	abstract type AbstractAfterstateMDP{T<:Real, S, A, Y, PTF <: AbstractTransition{T, 2}, ATF <: AbstractTransition{T, 1}, F <: Function} end
 
 	#when we can list all of the states and actions concretely, the problem is called tabular and we can represent states and actions by their index in a list
 	#when we know the full probability transition function we can identify the full probability distribution of any transition.  in this case the terminal states can be derived from the ptf, otherwise it needs to be specified ahead of time.  the following struct represents a tabular problem defined by the state space, action space, and the transition type.
-	struct TabularAfterstateMDP{T<:Real, S, A, Y, PTF <: AbstractTabularMDPTransition{T}, ATF <: AbstractTabularMDPAfterstateTransition{T}, F <: Function} <: AbstractAfterstateMDP{T, S, A, Y, PTF, ATF, F}
+	struct TabularAfterstateMDP{T<:Real, S, A, Y, PTF <: AbstractTabularTransition{T, 2}, ATF <: AbstractTabularTransition{T, 1}, F <: Function} <: AbstractAfterstateMDP{T, S, A, Y, PTF, ATF, F}
 		states::Vector{S}
 		actions::Vector{A}
 		afterstates::Vector{Y}
@@ -2137,17 +2163,12 @@ begin
 		afterstate_index::Dict{Y, Int64}
 	end
 
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = find_available_actions(ptf), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions), afterstate_index::Dict{Y, Int64} = makelookup(afterstates)) where {S, A, Y, PTF<:AbstractTabularMDPTransition, ATF<:AbstractTabularMDPAfterstateTransition, F<:Function} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
+	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = find_available_actions(ptf), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions), afterstate_index::Dict{Y, Int64} = makelookup(afterstates)) where {T<:Real, S, A, Y, PTF<:AbstractTabularTransition{T, 2}, ATF<:AbstractTabularTransition{T, 1}, F<:Function} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
 	
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, init_inds, terminal_states::BitVector; kwargs...) where {S, A, Y, PTF<:AbstractTabularMDPTransition, ATF<:AbstractTabularMDPAfterstateTransition} = TabularMDP(states, actions, afterstates, ptf, atf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
+	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, Y, PTF<:AbstractTabularTransition{T, 2}, ATF<:AbstractTabularTransition{T, 1}} = TabularMDP(states, actions, afterstates, ptf, atf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
 
 	#when nothing is provided for initial states just sample a random state
 	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, terminal_states::BitVector; kwargs...) where {S, A, Y, PTF, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, () -> rand(eachindex(states)), terminal_states; kwargs...)
-
-	#in the case of having a distribution transition, automatically generate the terminal states, note for most afterstate MDPs this will always be the case
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index; kwargs...) where {S, A, Y, PTF<:TabularTransitionDistribution, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, find_terminal_states(ptf); kwargs...)
-
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF; kwargs...) where {S, A, Y, PTF<:TabularTransitionDistribution, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, () -> rand(eachindex(states)); kwargs...)
 
 	#when called as a functor with a state action pair, the afterstate MDP will produce a transition to a new state just like a normal MDP.  This functionality can be used to generate normal episodes in cases where the afterstates don't matter
 	function (mdp::TabularAfterstateMDP)(i_s::Integer, i_a::Integer)
@@ -2176,7 +2197,7 @@ end
 
 # ╔═╡ ba04280a-ec9e-4070-9155-4a50295aa42b
 #compute the state value of a policy using an afterstate value function
-function bellman_state_value(ptf::TabularDeterministicTransition{T}, i_s::Integer, W::Vector{T}, π::Matrix{T}) where T<:Real
+function bellman_state_value(ptf::TabularDeterministicTransition{T, 2}, i_s::Integer, W::Vector{T}, π::Matrix{T}) where T<:Real
 	v = zero(T)
 	@inbounds @simd for i_a in 1:size(π, 1)
 		i_y = ptf.state_transition_map[i_a, i_s]
@@ -2204,7 +2225,7 @@ md"""
 
 # ╔═╡ de1a8b46-cc52-4420-bed7-80f5a471be2f
 #compute the state value of a policy using an afterstate value function, since the policy is now omitted, this uses the max operator instead of the policy distribution
-function bellman_state_value(ptf::TabularDeterministicTransition{T}, i_s::Integer, W::Vector{T}) where T<:Real
+function bellman_state_value(ptf::TabularDeterministicTransition{T, 2}, i_s::Integer, W::Vector{T}) where T<:Real
 	v = typemin(T)
 	@inbounds @simd for i_a in 1:size(π, 1)
 		i_y = ptf.state_transition_map[i_a, i_s]
@@ -2215,7 +2236,7 @@ function bellman_state_value(ptf::TabularDeterministicTransition{T}, i_s::Intege
 end
 
 # ╔═╡ d848b595-094b-4563-ae5a-3d8315fc3783
-function bellman_afterstate_value(ptf::TabularDeterministicTransition, atf::TabularStochasticAfterstateTransition, i_y::Integer, γ::T, W::Vector{T}, policy_args...) where T<:Real
+function bellman_afterstate_value(ptf::TabularDeterministicTransition{T, 2}, atf::TabularStochasticTransition{T, 1}, i_y::Integer, γ::T, W::Vector{T}, policy_args...) where T<:Real
 	#for policy evaluation policy_args should be π::Matrix{T}
 	state_transitions = atf.state_transition_map[i_y]
 	reward_transitions = atf.reward_transition_map[i_y]
@@ -2230,7 +2251,7 @@ function bellman_afterstate_value(ptf::TabularDeterministicTransition, atf::Tabu
 end
 
 # ╔═╡ 4d8f4419-3f9b-4eba-a56c-0038e7316ab4
-function bellman_afterstate_value(ptf::TabularDeterministicTransition, atf::TabularDeterministicAfterstateTransition, i_y::Integer, γ::T, W::Vector{T}, policy_args...) where T<:Real
+function bellman_afterstate_value(ptf::TabularDeterministicTransition{T, 2}, atf::TabularDeterministicTransition{T, 1}, i_y::Integer, γ::T, W::Vector{T}, policy_args...) where T<:Real
 	i_s′ = atf.state_transition_map[i_y]
 	r = atf.reward_transition_map[i_y]
 	v′ = bellman_state_value(ptf, i_s′, state_value_args...) #afterstate value
@@ -2367,11 +2388,11 @@ md"""
 # ╔═╡ 00fa5849-3ee4-432b-ba81-2bfd3db9c866
 begin
 	#represents a transition where the state must be referenced directly instead of through a tabular index
-	abstract type AbstractStateMDPTransition{T<:Real, S, F<:Function} <: AbstractMDPTransition{T} end
+	abstract type AbstractStateTransition{T<:Real, N, S, F<:Function} <: AbstractTransition{T, N} end
 	
-	struct StateTransitionDistribution{T <: Real, S, F <: Function} <: AbstractStateMDPTransition{T, S, F}
+	struct StateMDPTransitionDistribution{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 		step::F
-		function StateTransitionDistribution(step::F, s::S) where {F<:Function, S}
+		function StateMDPTransitionDistribution(step::F, s::S) where {F<:Function, S}
 			(rewards, states, probabilities) = step(s, 1)
 			@assert length(rewards) == length(states) == length(probabilities)
 			@assert typeof(first(states)) == S
@@ -2379,35 +2400,31 @@ begin
 			new{typeof(first(rewards)), S, F}(step)
 		end
 	end
-
-	
 			
-	struct StateTransitionSampler{T <: Real, S, F <: Function} <: AbstractStateMDPTransition{T, S, F}
+	struct StateMDPTransitionSampler{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 		step::F
-		function StateTransitionSampler(step::F, s::S) where {F<:Function, S}
+		function StateMDPTransitionSampler(step::F, s::S) where {F<:Function, S}
 			(r, s′) = step(s, 1)
 			@assert isa(s′, S)
 			new{typeof(r), S, F}(step)
 		end
 	end
 
-	
-
 	#when used as a functor sample from the output distribution
-	function (ptf::StateTransitionDistribution{T, S, F})(s::S, i_a::Integer) where {T<:Real, S, F<:Function} 
+	function (ptf::StateMDPTransitionDistribution{T, S, F})(s::S, i_a::Integer) where {T<:Real, S, F<:Function} 
 		(rewards, states, probabilities) = ptf.step(s, i_a)
 		i = sample_action(probabilities)
 		(rewards[i], states[i])
 	end
 
 	#when used as a functor just apply the step function to the state action pair indices
-	(ptf::StateTransitionSampler{T, S, F})(s::S, i_a::Integer) where {T<:Real, S, F<:Function} = ptf.step(s, i_a)
+	(ptf::StateMDPTransitionSampler{T, S, F})(s::S, i_a::Integer) where {T<:Real, S, F<:Function} = ptf.step(s, i_a)
 end
 
 # ╔═╡ 743ea7fd-a1eb-491f-afb8-8bec2132fded
 begin
 	#given a tabular MDP, create a non-tabular distribution ptf
-	function make_non_tabular_ptf(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P<:TabularStochasticTransition{T}, F<:Function}
+	function make_non_tabular_ptf(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P<:TabularStochasticTransition{T, 2}, F<:Function}
 		d = Dict(begin
 			i_s = mdp.state_index[s]
 			transitions = [begin
@@ -2423,7 +2440,7 @@ begin
 		for s in mdp.states)
 		
 		step(s::S, i_a::Integer) = d[s][i_a]
-		StateTransitionDistribution(step, first(mdp.states))
+		StateMDPTransitionDistribution(step, first(mdp.states))
 	end
 
 	#given a tabular MDP, create a non-tabular sampler ptf
@@ -2436,29 +2453,29 @@ begin
 		for s in mdp.states)
 			
 		step(s::S, i_a::Integer) = d[s][i_a]
-		StateTransitionSampler(step, first(mdp.states))
+		StateMDPTransitionSampler(step, first(mdp.states))
 	end
 end
 
 # ╔═╡ e8ed6fdd-6777-4cf2-9707-c8a6b463945d
 begin
 	#when we cannot list all of the states, the problem is not tabular.  If we can enumerate the actions though, we can represent actions with an index like before; however the states must always be referenced directly. the following struct represents a non-tabular problem defined by the state type, action space, and the transition type.
-	struct StateMDP{T<:Real, S, A, P<:AbstractStateMDPTransition, StateInit<:Function, IsTerm<:Function, ValidAction <:Function} <: AbstractMDP{T, S, A, P, StateInit}
+	struct StateMDP{T<:Real, S, A, P<:AbstractStateTransition, StateInit<:Function, IsTerm<:Function, ValidAction <:Function} <: AbstractMDP{T, S, A, P, StateInit}
 		actions::Vector{A}
 		ptf::P
 		initialize_state::StateInit #function which provides an initial state index
 		isterm::IsTerm #function that returns true if a state is terminal and false otherwise
 		is_valid_action::ValidAction #is_valid_action(s, i_a) returns true if the action represented by i_a is valid to take from state. by default every action is assumed to be available
 		action_index::Dict{A, Int64} #lookup table mapping actions to their index, this will be constructed automatically
-		StateMDP{T, S}(actions::Vector{A}, ptf::P, initialize_state::F1, isterm::F2, is_valid_action::F3, action_index::Dict{A, Int64}) where {T, S, A, P, F1, F2, F3} = new{T, S, A, P, F1, F2, F3}(actions, ptf, initialize_state, isterm, is_valid_action, action_index)
+		StateMDP(actions::Vector{A}, ptf::P, initialize_state::F1, isterm::F2, is_valid_action::F3, action_index::Dict{A, Int64}) where {T<:Real, S, A, F<:Function, P<:AbstractStateTransition{T, 2, S, F}, F1<:Function, F2<:Function, F3<:Function} = new{T, S, A, P, F1, F2, F3}(actions, ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
 
-	function StateMDP(actions::AbstractVector{A}, ptf::AbstractStateMDPTransition{T, S, F}, initialize_state::StateInit, isterm::IsTerm; is_valid_action::ValidAction = (s, i_a) -> true, action_index = makelookup(actions)) where {T<:Real, S, A, F<:Function, StateInit<:Function, IsTerm<:Function, ValidAction<:Function}
+	function StateMDP(actions::AbstractVector{A}, ptf::AbstractStateTransition{T, 2, S, F}, initialize_state::StateInit, isterm::IsTerm; is_valid_action::ValidAction = (s, i_a) -> true, action_index = makelookup(actions)) where {T<:Real, S, A, F<:Function, StateInit<:Function, IsTerm<:Function, ValidAction<:Function}
 		s0 = initialize_state()
 		isterm(s0)
 		is_valid_action(s0, 1)
 		@assert isa(s0, S)
-		StateMDP{T, S}(Vector(actions), ptf, initialize_state, isterm, is_valid_action, action_index)
+		StateMDP(Vector(actions), ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
 
 	#convert a tabular mdp into a non-tabular one
@@ -3122,7 +3139,7 @@ end
 # ╔═╡ 2dbd5553-12db-4641-9f1d-250fa5cad79b
 begin
 	#perform a rollout with an mdp from state s using a deterministic policy function π that produces an action selection given a state input. return value is an unbiased estimate of the value of this state under the policy.  This rollout is only possible when the transition function is a distribution and this computes an expected value based on that distribution
-	function distribution_rollout(s::S, i_a::Integer, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, steps_left::Integer) where {T<:Real,S, A, P<:StateTransitionDistribution, F1, F2, F3}
+	function distribution_rollout(s::S, i_a::Integer, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, steps_left::Integer) where {T<:Real,S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
 		iszero(steps_left) && return zero(T)
 		mdp.isterm(s) && return zero(T)
 		(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
@@ -3136,7 +3153,7 @@ begin
 		end |> foldxt(+)
 	end
 
-	distribution_rollout(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T; s0::S = mdp.initialize_state(), i_a0::Integer = π(s0), max_steps::Integer = typemax(Int64)) where {T<:Real,S, A, P<:StateTransitionDistribution, F1, F2, F3} = distribution_rollout(s0, i_a0, mdp, π, γ, max_steps)	
+	distribution_rollout(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T; s0::S = mdp.initialize_state(), i_a0::Integer = π(s0), max_steps::Integer = typemax(Int64)) where {T<:Real,S, A, P<:StateMDPTransitionDistribution, F1, F2, F3} = distribution_rollout(s0, i_a0, mdp, π, γ, max_steps)	
 end
 
 # ╔═╡ 970f3789-f830-47af-938f-0faf5f36421b
