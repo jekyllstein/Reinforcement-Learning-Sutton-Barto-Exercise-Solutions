@@ -390,7 +390,6 @@ Our prediction objective will favor lower error on highly visited states than le
 """
 
 # ╔═╡ 214714a5-ad1e-4439-8567-9095d10411a6
-#=╠═╡
 function figure_9_1()
 	v_π = value_iteration_v(random_walk_tabular_mdp, 1f0; save_history = false).final_value[2:end-1]
 	random_walk_v̂ = run_state_aggregation_monte_carlo_policy_estimation(random_walk_state_mdp, s -> 1, 1f0, 100_000, num_groups, random_walk_group_assign, α = 2f-5)
@@ -421,12 +420,9 @@ function figure_9_1()
 
 	plot([tr1, tr2, tr3], Layout(xaxis_title = "State", yaxis_title = "Value scale", yaxis2 = attr(title = "Distribution scale", overlaying = "y", side = "right")))
 end
-  ╠═╡ =#
 
 # ╔═╡ c0e9ea1f-8cbe-4bc1-990f-ffd3ab1989cc
-#=╠═╡
 figure_9_1()
-  ╠═╡ =#
 
 # ╔═╡ 3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
 md"""
@@ -511,7 +507,6 @@ Bootstrapping with state aggregation on the $num_states-state random walk task. 
 """
 
 # ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
-#=╠═╡
 function figure_9_2()
 	v_π = value_iteration_v(random_walk_tabular_mdp, 1f0; save_history = false).final_value[2:end-1]
 	
@@ -534,12 +529,9 @@ function figure_9_2()
 
 	plot([tr1, tr2, tr3], Layout(xaxis_title = "State", yaxis_title = "Value"))
 end
-  ╠═╡ =#
 
 # ╔═╡ c05ea239-2eea-4f41-b4e3-993db0fe2de5
-#=╠═╡
 figure_9_2()
-  ╠═╡ =#
 
 # ╔═╡ f5203959-29ef-406c-abac-4f01fa9630a3
 md"""
