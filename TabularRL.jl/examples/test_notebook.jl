@@ -3321,7 +3321,7 @@ const mcts_output = deepcopy(base_mcts_output)
 
 # ╔═╡ a9e89449-74ea-45d1-93eb-48d11903d03c
 #=╠═╡
-function display_tree_results(s::WordleState, ranked_guesses)
+function display_tree_results(s::WordleState, ranked_guesses; calc_guess_value = wordle_greedy_information_gain_guess_value)
 	information_gain_results = eval_guess_information_gain(s; save_all_scores=true)
 
 	isa(information_gain_results, @NamedTuple{best_guess::UInt16}) && return md"""Only one valid answer remains: $(nyt_valid_words[information_gain_results.best_guess])"""
@@ -3338,7 +3338,7 @@ function display_tree_results(s::WordleState, ranked_guesses)
 	
 	score_table = [begin
 		wordind = word_index[a.word]
-		policy_value = wordle_greedy_information_gain_guess_value(s, a.word; possible_indices = test_possible_indices)
+		policy_value = calc_guess_value(s, a.word; possible_indices = test_possible_indices)
 		tree_improvement = a.values - policy_value
 		(word = a.word, expected_turns = score2turns(a.values), visits = round(Int64, a.visits), tree_value = a.values, policy_value = policy_value, policy_rank = word_rank_lookup[a.word], tree_improvement = tree_improvement < 1f-4 ? 0.0 : round(tree_improvement; sigdigits = 2)) 
 	end
@@ -3369,9 +3369,9 @@ end
 
 # ╔═╡ 6fdc99b1-beea-4c45-98bb-d257501a6878
 #=╠═╡
-function show_wordle_mcts_guesses(visit_counts::Dict, values::Dict, s::WordleState)
+function show_wordle_mcts_guesses(visit_counts::Dict, values::Dict, s::WordleState; kwargs...)
 	ranked_guesses = sort([(word = nyt_valid_words[i], visits = visit_counts[s][i], values = values[s][i]) for i in visit_counts[s].nzind]; by = t -> t.values, rev=true)
-	display_tree_results(s, ranked_guesses)
+	display_tree_results(s, ranked_guesses; kwargs...)
 end
   ╠═╡ =#
 
@@ -3523,6 +3523,89 @@ Base.show(s::WordleState{0}) = "WordleStart"
 
 # ╔═╡ 13044009-df94-4dd1-93b2-a774015ab1de
 Base.display(s::WordleState{0}) = "WordleStart"
+
+# ╔═╡ 9711392c-33e0-4281-a871-7216dc146de6
+#=╠═╡
+md"""
+## Wordle Hard Mode
+
+In hard mode, one is only permitted to make guesses that are in the list of possible remaining answers.  They do not however need to be answers that are known valid answers but any valid guess that is consistent with the information revealed so far.
+"""
+  ╠═╡ =#
+
+# ╔═╡ d5a9ab96-beb1-4f72-b049-2795ee0c5940
+const wordle_hardmode_mdp = StateMDP(wordle_actions, wordle_transition_distribution, () -> WordleState(), isterm; is_valid_action = (s, i_a; kwargs...) -> get_possible_indices(s; baseline = nyt_valid_inds, kwargs...)[i_a])
+
+# ╔═╡ 7958fbb7-4aea-4a87-80cf-282475ea59bc
+all_guesses_information_gain_lookup[WordleState()]
+
+# ╔═╡ 638ceba3-c89d-47fc-98ee-6310c80f12be
+function eval_hardmode_guess_information_gain(s::WordleState{N}; possible_indices = copy(nyt_valid_inds), kwargs...) where N
+	out = if haskey(all_guesses_information_gain_lookup, s)
+		all_guesses_information_gain_lookup[s]
+	else
+		get_possible_indices!(possible_indices, s)
+		eval_guess_information_gain(possible_indices, N; save_all_scores = true, kwargs...)
+	end
+
+	(length(out) == 1) && return out
+
+	get_possible_indices!(possible_indices, s; baseline = nyt_valid_inds)
+	i_best = findfirst(i -> possible_indices[i], out.ranked_guess_inds)
+	best_guess = out.ranked_guess_inds[i_best]
+	(best_guess = best_guess, best_score = out.guess_scores[best_guess], best_entropy = out.expected_entropy[best_guess])
+end
+
+# ╔═╡ 3cb9ba3c-1b9c-4a6c-b8f2-cade651df78d
+const hardmode_greedy_lookup = Dict{WordleState, Int64}()
+
+# ╔═╡ 6670e6d3-ff00-4a91-98c2-830c3aed92de
+function wordle_hardmode_greedy_information_gain_π(s::WordleState; kwargs...)
+	haskey(hardmode_greedy_lookup, s) && return hardmode_greedy_lookup[s]
+	score = eval_hardmode_guess_information_gain(s; kwargs...)
+	hardmode_greedy_lookup[s] = score.best_guess
+end
+
+# ╔═╡ a41be793-431d-42f0-885b-7ff89efa0252
+distribution_rollout(wordle_mdp, wordle_greedy_information_gain_π, 1f0) |> score2turns
+
+# ╔═╡ 460d6485-b13e-4deb-a0bd-53b9ebe0c47f
+distribution_rollout(wordle_hardmode_mdp, s -> wordle_hardmode_greedy_information_gain_π(s; possible_indices = test_possible_indices), 1f0) |> score2turns
+
+# ╔═╡ 876a257b-2bec-4562-8a49-e03e81b04b85
+function wordle_hardmode_greedy_information_gain_prior!(prior::Vector{Float32}, s::WordleState; kwargs...)
+	output = eval_guess_information_gain(s; save_all_scores = true, possible_indices = test_possible_indices)
+	
+	if length(output) == 1
+		prior .= 0f0
+		prior[output[1]] = 1f0
+		return output[1]
+	else
+		get_possible_indices!(test_possible_indices, s; baseline = nyt_valid_inds)
+		guess_scores = output.guess_scores
+		prior .= guess_scores .* test_possible_indices
+		haskey(hardmode_greedy_lookup, s) && return hardmode_greedy_lookup[s]
+		i_best = findfirst(i -> test_possible_indices[i], output.ranked_guess_inds)
+		best_guess = output.ranked_guess_inds[i_best]
+	end
+end
+
+# ╔═╡ 5df48271-77d3-4ab5-aba2-bd3cc0b9f078
+begin
+function wordle_hardmode_greedy_information_gain_guess_value(s::WordleState, guess_index::Int64; possible_indices = copy(nyt_valid_inds), possible_answers = copy(wordle_actions))
+	π(s) = wordle_hardmode_greedy_information_gain_π(s; possible_indices = possible_indices, possible_answers = possible_answers)
+	distribution_rollout(wordle_mdp, π, 1f0; s0 = s, i_a0 = guess_index, usethreads=false, possible_indices = possible_indices)
+end
+
+wordle_hardmode_greedy_information_gain_guess_value(s::WordleState, guess; kwargs...) = wordle_hardmode_greedy_information_gain_guess_value(s, conv_guess(guess); kwargs...)
+end
+
+# ╔═╡ d68d26f3-112d-4542-aab8-0477369f3a52
+#=╠═╡
+md"""
+### Wordle Hard Mode MCTS
+"""
+  ╠═╡ =#
 
 # ╔═╡ aaf516b5-f982-44c3-bcae-14d46ad72e82
 #=╠═╡
@@ -5335,6 +5418,50 @@ end
 @bind run_new_state_mcts CounterButton("Evaluate new state")
   ╠═╡ =#
 
+# ╔═╡ f82f878f-0dfb-4d87-94ff-1b5564e30f5c
+#=╠═╡
+@bind run_hardmode_root_mcts CounterButton("Run Hardmode Wordle MCTS from Root State")
+  ╠═╡ =#
+
+# ╔═╡ 50a41592-576b-424c-9513-ff1ea4c8ca0f
+#=╠═╡
+@bind root_hardmode_mcts_params PlutoUI.combine() do Child
+	md"""
+	Top N for Prior Sampling: $(Child(:topn, NumberField(1:1000, default = 10)))
+	Number of Simulations: $(Child(:nsims, NumberField(1:100_000, default = 100)))
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ 5e42c44e-4fb8-4b50-baeb-da7bafdf83e6
+# ╠═╡ show_logs = false
+#=╠═╡
+const mcts_hardmode_output = monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_hardmode_greedy_information_gain_prior!, 100f0, root_hardmode_mcts_params.topn; 
+	nsims = 1, 
+	sim_message = true, 
+	)
+  ╠═╡ =#
+
+# ╔═╡ 5724fed9-8f1e-4fad-b631-88fe86354e14
+#=╠═╡
+if run_hardmode_root_mcts > 0
+	monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_hardmode_greedy_information_gain_prior!, 100f0, root_hardmode_mcts_params.topn;
+		nsims = root_hardmode_mcts_params.nsims,
+		sim_message = true,
+		visit_counts = mcts_hardmode_output[2],
+		Q = mcts_hardmode_output[3],
+		make_step_kwargs = k -> (possible_indices = test_possible_indices,)
+		)
+	show_wordle_mcts_guesses(mcts_hardmode_output[2], mcts_hardmode_output[3], WordleState(); calc_guess_value = wordle_hardmode_greedy_information_gain_guess_value)
+else
+	md"""
+	Showing preliminary results for 1 run.  Waiting to run MCTS for $(root_hardmode_mcts_params.nsims) simulations
+	
+	$(show_wordle_mcts_guesses(mcts_hardmode_output[2], mcts_hardmode_output[3], WordleState(); calc_guess_value = wordle_hardmode_greedy_information_gain_guess_value))
+	"""
+end
+  ╠═╡ =#
+
 # ╔═╡ d7b0a4ba-ba18-41ad-ade3-dde119f08a13
 #=╠═╡
 md"""
@@ -6342,7 +6469,7 @@ version = "17.4.0+2"
 # ╟─5a0ab378-2c88-4851-99a0-ab816457cc6b
 # ╠═24478951-775b-4e05-88b5-dca8d70e1103
 # ╟─9f9b8db2-7c74-49f0-b067-bb6aa433fbe0
-# ╠═faade165-8066-4deb-93a4-2b7daabd57dc
+# ╟─faade165-8066-4deb-93a4-2b7daabd57dc
 # ╠═e804f5fc-c817-4851-a14b-fdcca1180773
 # ╟─7f1f2057-24ca-44c0-8496-b6ef68d895bd
 # ╠═3d935fe6-16d9-4fce-8a2d-33c763801b94
@@ -6406,6 +6533,21 @@ version = "17.4.0+2"
 # ╠═6957a643-0240-425b-b167-ae290b696f16
 # ╠═13044009-df94-4dd1-93b2-a774015ab1de
 # ╠═052913b1-1f6f-49b6-bf4d-cefef430fea9
+# ╟─9711392c-33e0-4281-a871-7216dc146de6
+# ╠═d5a9ab96-beb1-4f72-b049-2795ee0c5940
+# ╠═7958fbb7-4aea-4a87-80cf-282475ea59bc
+# ╠═638ceba3-c89d-47fc-98ee-6310c80f12be
+# ╠═3cb9ba3c-1b9c-4a6c-b8f2-cade651df78d
+# ╠═6670e6d3-ff00-4a91-98c2-830c3aed92de
+# ╠═a41be793-431d-42f0-885b-7ff89efa0252
+# ╠═460d6485-b13e-4deb-a0bd-53b9ebe0c47f
+# ╠═876a257b-2bec-4562-8a49-e03e81b04b85
+# ╠═5df48271-77d3-4ab5-aba2-bd3cc0b9f078
+# ╟─d68d26f3-112d-4542-aab8-0477369f3a52
+# ╟─f82f878f-0dfb-4d87-94ff-1b5564e30f5c
+# ╟─50a41592-576b-424c-9513-ff1ea4c8ca0f
+# ╠═5724fed9-8f1e-4fad-b631-88fe86354e14
+# ╠═5e42c44e-4fb8-4b50-baeb-da7bafdf83e6
 # ╟─aaf516b5-f982-44c3-bcae-14d46ad72e82
 # ╠═2deb31ad-ab39-4f27-885e-79bfccce97e3
 # ╠═beb79651-dd6d-4e8f-8715-ea281d88c368
