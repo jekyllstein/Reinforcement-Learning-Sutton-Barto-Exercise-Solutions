@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.45
+# v0.19.46
 
 using Markdown
 using InteractiveUtils
@@ -398,8 +398,8 @@ begin
 	const TabularDeterministicTransition{T<:Real, N} = TabularTransitionDistribution{T, N, Int64, T}
 	const TabularStochasticTransition{T<:Real, N} = TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}
 
-	# TabularDeterministicTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
-	# TabularStochasticTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
+	TabularDeterministicTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
+	TabularStochasticTransition(m1, m2) = TabularTransitionDistribution(m1, m2)
 
 	#when using the MDP tabular transition as a functor with a state action index, it produces a sample of the transition which in the deterministic case will always be the same 
 	(ptf::TabularDeterministicTransition{T, 2})(i_s::Integer, i_a::Integer) where T<:Real = (ptf.reward_transition_map[i_a, i_s], ptf.state_transition_map[i_a, i_s])
