@@ -5190,16 +5190,6 @@ const new_test_state = WordleState(new_test_state_raw.state.guesses, new_test_st
 eval_guess_information_gain(new_test_state)
   ╠═╡ =#
 
-# ╔═╡ 1473f203-da08-4b16-a94b-f25f1a0e230d
-#=╠═╡
-const new_state_visits = filter(a -> check_state_consistency(new_test_state, a[1]), root_guess_candidate_visits)
-  ╠═╡ =#
-
-# ╔═╡ 0fc4f0fd-8ad3-4259-93c3-daac4a4b1b39
-#=╠═╡
-const new_state_values = filter(a -> check_state_consistency(new_test_state, a[1]), root_guess_candidate_values)
-  ╠═╡ =#
-
 # ╔═╡ 9f9b8db2-7c74-49f0-b067-bb6aa433fbe0
 #=╠═╡
 md"""Show Only Hard Mode Guesses: $(@bind filter_hard CheckBox())"""
@@ -5420,6 +5410,11 @@ end
 # ╔═╡ bd37635d-5f92-4fe4-9245-44a4019fcd54
 #=╠═╡
 @bind run_new_state_mcts CounterButton("Evaluate new state")
+  ╠═╡ =#
+
+# ╔═╡ 9f132408-31f3-4ad3-a486-f6a94b276f32
+#=╠═╡
+md"""Request additional simulations: $(@bind new_state_num_sims confirm(NumberField(0:10_000, default = 0)))"""
   ╠═╡ =#
 
 # ╔═╡ f82f878f-0dfb-4d87-94ff-1b5564e30f5c
@@ -5661,14 +5656,16 @@ explore_tree_state(explore_state)
 # ╔═╡ e1782372-cb2b-440c-80f1-27d42f31bf57
 #=╠═╡
 if run_new_state_mcts > 0
-	monte_carlo_tree_search(wordle_mdp, 1f0, new_test_state, wordle_root_candidate_greedy_information_gain_prior!, 100f0, 10;
-		nsims = 1_000,
-		sim_message = true,
-		visit_counts = new_state_visits,
-		Q = new_state_values,
-		make_step_kwargs = k -> (possible_indices = test_possible_indices,)
-		)
-	show_wordle_mcts_guesses(new_state_visits, new_state_values, new_test_state)
+	if new_state_num_sims > 0
+		(_, new_visit_counts, new_q) = monte_carlo_tree_search(wordle_mdp, 1f0, new_test_state, wordle_root_candidate_greedy_information_gain_prior!, 100f0, 10;
+			nsims = new_state_num_sims,
+			sim_message = true,
+			make_step_kwargs = k -> (possible_indices = test_possible_indices,)
+			)
+		show_wordle_mcts_guesses(new_visit_counts, new_q, new_test_state)
+	else
+		show_wordle_mcts_guesses(root_guess_candidate_visits, root_guess_candidate_values, new_test_state)
+	end
 else
 	md"""
 	Waiting to evaluate state $(display(new_test_state))
@@ -6527,12 +6524,11 @@ version = "17.4.0+2"
 # ╟─c8d9a991-ff7b-448e-820c-a1f4a89ee22e
 # ╠═b9a41bbb-8706-4f1d-beb7-f55ad8ad5ce7
 # ╠═71e35ad3-1c42-4ffd-946b-5eb9e6b72f86
-# ╠═1473f203-da08-4b16-a94b-f25f1a0e230d
-# ╠═0fc4f0fd-8ad3-4259-93c3-daac4a4b1b39
 # ╠═8327c794-200f-400f-8bdd-d043c548522c
 # ╟─a107e7ff-56e8-4f31-b061-a7895ea29965
-# ╟─bd37635d-5f92-4fe4-9245-44a4019fcd54
-# ╟─e1782372-cb2b-440c-80f1-27d42f31bf57
+# ╠═bd37635d-5f92-4fe4-9245-44a4019fcd54
+# ╟─9f132408-31f3-4ad3-a486-f6a94b276f32
+# ╠═e1782372-cb2b-440c-80f1-27d42f31bf57
 # ╠═1e4b84d7-6fe9-4b1e-9f14-3a663421cb1f
 # ╠═d4378e47-e231-495c-8e72-de864097421e
 # ╠═6957a643-0240-425b-b167-ae290b696f16
