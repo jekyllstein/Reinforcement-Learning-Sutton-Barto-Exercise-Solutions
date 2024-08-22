@@ -1,14 +1,14 @@
 ### A Pluto.jl notebook ###
-# v0.19.45
+# v0.19.46
 
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 2deb31ad-ab39-4f27-885e-79bfccce97e3
+# ╔═╡ 16f8f288-9371-44ae-914d-4ea13fec98f6
 using PlutoDevMacros
 
-# ╔═╡ beb79651-dd6d-4e8f-8715-ea281d88c368
-@fromparent begin
+# ╔═╡ 2deb31ad-ab39-4f27-885e-79bfccce97e3
+PlutoDevMacros.@fromparent begin
 	using TabularRL
 	using >.SparseArrays, >.Random, >.Statistics, >.StaticArrays, >.Transducers, >.Serialization
 end
@@ -3464,6 +3464,9 @@ end
 #otherwise use the normal prior
 wordle_root_candidate_greedy_information_gain_prior!(args...; kwargs...) = wordle_greedy_information_gain_prior!(args...; kwargs...)
 
+# ╔═╡ 9a3d52a0-f6a3-43ef-a3f1-b8c37f79baf4
+length(keys(root_guess_candidate_values))
+
 # ╔═╡ 36fb4201-8261-4551-ae38-eba073e3046b
 #=╠═╡
 const root_candidate_mcts_options, set_root_candidate_mcts_options = @use_state(nothing)
@@ -3496,6 +3499,7 @@ end
 # ╔═╡ 71e35ad3-1c42-4ffd-946b-5eb9e6b72f86
 begin
 	#checks to see if a wordle state is comptabible with another so that means that the guesses and feedback of one state could be a later version of the other state
+	check_state_consistency(s::WordleState{0}, s_check::WordleState{0}) = true
 	check_state_consistency(s::WordleState{0}, s_check::WordleState) = true
 	check_state_consistency(s::WordleState, s_check::WordleState{0}) = false
 	check_state_consistency(s::WordleState{N}, s_check::WordleState{N}) where N = s == s_check
@@ -6510,7 +6514,8 @@ version = "17.4.0+2"
 # ╠═430ee1a8-8267-4a72-8380-e7460a28e47e
 # ╟─9b1c9eb1-f97d-44f5-9050-9b18ea8814b0
 # ╟─a0ecb0ec-f442-45ca-bc15-9967e82a9905
-# ╟─8a9ed8ec-10b6-43e8-bb9a-e8eba96f3ea0
+# ╠═8a9ed8ec-10b6-43e8-bb9a-e8eba96f3ea0
+# ╠═9a3d52a0-f6a3-43ef-a3f1-b8c37f79baf4
 # ╠═36fb4201-8261-4551-ae38-eba073e3046b
 # ╠═b3a7619f-82ac-4a6b-9206-ed1b5cfa0078
 # ╟─12126ca1-b728-4a91-bc53-f0dacd412265
@@ -6549,8 +6554,8 @@ version = "17.4.0+2"
 # ╠═5724fed9-8f1e-4fad-b631-88fe86354e14
 # ╠═5e42c44e-4fb8-4b50-baeb-da7bafdf83e6
 # ╟─aaf516b5-f982-44c3-bcae-14d46ad72e82
+# ╠═16f8f288-9371-44ae-914d-4ea13fec98f6
 # ╠═2deb31ad-ab39-4f27-885e-79bfccce97e3
-# ╠═beb79651-dd6d-4e8f-8715-ea281d88c368
 # ╠═e247734e-d1e4-43f2-a74e-0d0bd5971a4b
 # ╠═afbace21-a366-4ef1-9b50-198381293d22
 # ╠═1faaa157-3d5f-450d-99e7-dae5d70501f9
