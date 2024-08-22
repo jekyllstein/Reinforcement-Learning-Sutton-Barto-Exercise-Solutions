@@ -2886,7 +2886,10 @@ begin
 		s0 = initialize_state()
 		isterm(s0)
 		is_valid_action(s0, 1)
-		@assert typeof(s0) <: S
+		@assert isa(s0, S)
+		(r, s) = ptf(s0, 1)
+		@assert isa(s, S)
+		@assert isa(r, T)
 		StateMDP(Vector(actions), ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
 
@@ -2907,7 +2910,14 @@ begin
 		ptf::P
 		initialize_state::StateInit #function which provides an initial state index
 		isterm::IsTerm #function that returns true if a state is terminal and false otherwise
-		StateMRP(ptf::P, initialize_state::F1, isterm::F2) where {T<:Real, S, F<:Function, P<:AbstractStateTransition{T, 1, S, F}, F1<:Function, F2<:Function} = new{T, S, P, F1, F2}(ptf, initialize_state, isterm)
+		function StateMRP(ptf::P, initialize_state::F1, isterm::F2) where {T<:Real, S, F<:Function, P<:AbstractStateTransition{T, 1, S, F}, F1<:Function, F2<:Function} 
+			s0 = initialize_state()
+			(r, s) = ptf(s0)
+			@assert isa(r, T)
+			@assert isa(s, S)
+			isterm(s)
+			new{T, S, P, F1, F2}(ptf, initialize_state, isterm)
+		end
 	end
 	
 	#convert a tabular mrp into a non-tabular one

@@ -4,7 +4,7 @@
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 38139510-d67e-435c-bb21-060820278a75
+# ╔═╡ 6da69e64-743f-4ea9-9670-fd023c7ffab7
 using PlutoDevMacros
 
 # ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
@@ -160,9 +160,6 @@ function semi_gradient_td0_update!(parameters::Vector{T}, gradients::Vector{T}, 
 	return v̂′
 end
 
-# ╔═╡ 9da9d076-922c-4c5f-8e16-7bcfa1c9d23a
-
-
 # ╔═╡ 160d1b6f-3340-4326-bfd3-c7d3f2328488
 function semi_gradient_td0_policy_estimation!(parameters::Vector{T}, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, ▽v̂!::Function; α = one(T)/10, gradients = similar(parameters), scratch = similar(parameters), epkwargs...) where {T<:Real}
 	s = mdp.initialize_state()
@@ -300,9 +297,6 @@ end
 const random_walk_tabular_mrp = make_random_walk_mrp(num_states)
   ╠═╡ =#
 
-# ╔═╡ 07ec7fa3-6062-4d46-aca7-230c451eae65
-
-
 # ╔═╡ f4459b0d-ee3e-47c7-9c82-981af622edfa
 #=╠═╡
 const initial_state::Int64 = ceil(Int64, num_states / 2)
@@ -343,9 +337,9 @@ Since our goal is to compare estimation methods, we need to create a version of 
 """
 
 # ╔═╡ 3f2ce7e0-b623-4ce3-90cf-949f3a6b0633
-function randomwalk_step(s::Int64, num_states::Int64)
-	x = ceil(Int64, rand() * 100)
-	s′ = s + x * rand((-1, 1))
+function randomwalk_step(s::Float32, num_states::Int64)
+	x = Float32(ceil(rand() * 100))
+	s′ = s + x * rand((-1f0, 1f0))
 
 	r = Float32(-(s′ < 1) + (s′ > num_states))
 	(r, s′)
@@ -353,15 +347,15 @@ end
 
 # ╔═╡ 39c6ec4d-306e-4dee-9d5a-130925341a6c
 #=╠═╡
-const randomwalk_state_ptf = StateMRPTransitionSampler((s) -> randomwalk_step(s, num_states), 1)
+const randomwalk_state_ptf = StateMRPTransitionSampler((s) -> randomwalk_step(s, num_states), 1f0)
   ╠═╡ =#
 
 # ╔═╡ 60d68f9b-d18d-4d23-9adb-27fcb205e54b
-randomwalk_isterm(s::Int64, num_states::Int64) = (s < 1) || (s > num_states)
+randomwalk_isterm(s::Float32, num_states::Int64) = (s < 1) || (s > num_states)
 
 # ╔═╡ c79db82f-289e-4523-bf07-57cfdc38c073
 #=╠═╡
-randomwalk_state_init() = initial_state
+randomwalk_state_init() = Float32(initial_state)
   ╠═╡ =#
 
 # ╔═╡ 2720329c-4c80-47cb-a3e3-d24fcec6ef43
@@ -386,7 +380,7 @@ md"""Number of State Aggregation Groups: $(@bind num_groups NumberField(1:num_st
 # ╔═╡ 5ebafa8b-c316-4f95-8adc-581f2eb40e1f
 function make_random_walk_group_assign(num_states::Integer, num_groups::Integer)
 	groupsize = num_states / num_groups
-	assign_group(s::Integer) = ceil(Int64, s / groupsize)
+	assign_group(s::Real) = ceil(Int64, s / groupsize)
 end
 
 # ╔═╡ 24b99200-053a-41bf-a628-0b14b807fb86
@@ -413,8 +407,8 @@ Using the simple gradient for state aggregation, we can construct a function tha
 """
 
 # ╔═╡ c46c36f6-42da-4767-9e25-fa0ebe43998f
-function state_aggregation_gradient_setup(mdp::AbstractMP{T, S, P, F}, assign_state_group::Function) where {T<:Real, S, P<:AbstractStateTransition{T}, F<:Function}
-	function ▽v̂!(gradients::Vector{T}, s::S, params::Vector{T})
+function state_aggregation_gradient_setup(assign_state_group::Function)
+	function ▽v̂!(gradients::Vector{T}, s, params::Vector{T}) where {T<:Real}
 		i = assign_state_group(s)
 		((i < 1) || (i > length(params))) && return zero(T)
 		v = params[i]
@@ -423,14 +417,19 @@ function state_aggregation_gradient_setup(mdp::AbstractMP{T, S, P, F}, assign_st
 		return v
 	end
 
-	v̂(w::Vector{T}, s::S) = w[assign_state_group(s)]
+	v̂(w::Vector{T}, s) where {T<:Real} = w[assign_state_group(s)]
 	
 	return (value_function = v̂, gradient_update = ▽v̂!)
 end
 
+# ╔═╡ b4014481-5c1b-42d0-93f6-9a866921c609
+#=╠═╡
+random_walk_state_mrp
+  ╠═╡ =#
+
 # ╔═╡ 47116ee6-53db-47fe-bfc9-a322f85b3e4e
 function run_state_aggregation_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
-	setup = state_aggregation_gradient_setup(mdp, assign_state_group)
+	setup = state_aggregation_gradient_setup(assign_state_group)
 	params = fill(w0, num_groups)
 	gradient_monte_carlo_estimation!(params, mdp, π, γ, num_episodes, setup.gradient_update; kwargs...)
 	v̂(s) = setup.value_function(params, s)
@@ -439,7 +438,7 @@ end
 
 # ╔═╡ 2aadb2bf-942b-436e-8b93-111a90b3ea2b
 function run_state_aggregation_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = state_aggregation_gradient_setup(mrp, assign_state_group)
+	setup = state_aggregation_gradient_setup(assign_state_group)
 	params = fill(w0, num_groups)
 	gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, setup.gradient_update; kwargs...)
 	v̂(s) = setup.value_function(params, s)
@@ -476,7 +475,7 @@ function figure_9_1()
 	state_counts = zeros(Int64, num_states)
 	function update_state_counts!(state_counts, states)
 		for s in states
-			state_counts[s] += 1
+			state_counts[Integer(s)] += 1
 		end
 	end
 	
@@ -580,7 +579,7 @@ State aggregation is a special case of linear function approximation, so we can 
 
 # ╔═╡ 6046143f-a2c3-4569-a04a-c1ad4f3daf9d
 function run_state_aggregation_semi_gradient_policy_estimation(mdp, π, γ, num_groups, assign_state_group; kwargs...)
-	setup = state_aggregation_gradient_setup(mdp, assign_state_group)
+	setup = state_aggregation_gradient_setup(assign_state_group)
 	params = semi_gradient_td0_policy_estimation(mdp, π, γ, num_groups, setup.gradient_update; kwargs...)
 	v̂(s) = setup.value_function(params, s)
 	return v̂
@@ -588,7 +587,7 @@ end
 
 # ╔═╡ 023f0a8c-fa3c-4335-8301-6f358380fb76
 function run_state_aggregation_semi_gradient_estimation(mrp, γ, num_groups, assign_state_group; kwargs...)
-	setup = state_aggregation_gradient_setup(mrp, assign_state_group)
+	setup = state_aggregation_gradient_setup(assign_state_group)
 	params = semi_gradient_td0_estimation(mrp, γ, num_groups, setup.gradient_update; kwargs...)
 	v̂(s) = setup.value_function(params, s)
 	return v̂
@@ -697,6 +696,88 @@ $\begin{matrix}
 2 & 2\\
 \end{matrix}$
 """
+
+# ╔═╡ 38f09914-e128-4336-8e70-9906675971f2
+function get_polynomial_exponents(k, n; exponents = ())
+	k == 0 && return exponents
+	reduce(vcat, get_polynomial_exponents(k-1, n; exponents = (exponents..., e)) for e in 0:n)
+end
+
+# ╔═╡ f5dea7d5-4597-430c-9020-b74cdf8f3055
+# ╠═╡ skip_as_script = true
+#=╠═╡
+md"""
+Notice that these 9 exponents match the ones for the feature vector in exercise 9.3
+"""
+  ╠═╡ =#
+
+# ╔═╡ ad17f4df-d0d9-4995-948c-50a161246ad2
+# ╠═╡ skip_as_script = true
+#=╠═╡
+get_polynomial_exponents(2, 2)
+  ╠═╡ =#
+
+# ╔═╡ bc2e52ff-7f47-4141-aff1-e752fe217f6a
+begin
+	calc_poly_feature(s::NTuple{N, T}, e::NTuple{N, Int64}, scaling_factor::T) where {T<:Real, N} = prod((scaling_factor*s[i])^e[i] for i in 1:N)
+	calc_poly_feature(s::T, e::NTuple{1, Int64}, scaling_factor::T) where {T<:Real} = (scaling_factor*s)^e[1]
+end
+
+# ╔═╡ 9d7ca70c-0e60-4029-8ea0-26192ccea849
+function polynomial_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, scaling_factor::T) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+	#states must be tuples with k elements or some number value
+	k = S == T ? 1 : N
+	exponents = get_polynomial_exponents(k, n)
+	
+	function ▽v̂!(gradients::Vector{T}, s, params::Vector{T}) where {T<:Real}
+		v = zero(T)
+		@inbounds @simd for i in eachindex(exponents)
+			feature = calc_poly_feature(s, exponents[i], scaling_factor)
+			v += feature * params[i]
+			gradients[i] = feature
+		end
+		return v
+	end
+
+	function v̂(w::Vector{T}, s) where {T<:Real} 
+		sum(w[i]*calc_poly_feature(s, exponents[i], scaling_factor) for i in eachindex(exponents))
+	end
+	
+	return (value_function = v̂, gradient_update = ▽v̂!, num_features = length(exponents))
+end
+
+# ╔═╡ a0c4df88-ba30-463b-81ac-6f5511683730
+function run_polynomial_features_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, n::Integer; w0::T = zero(T), scaling_factor = one(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function}
+	setup = polynomial_features_gradient_setup(mdp, n, scaling_factor)
+	params = fill(w0, setup.num_features)
+	gradient_monte_carlo_estimation!(params, mdp, π, γ, num_episodes, setup.gradient_update; kwargs...)
+	v̂(s) = setup.value_function(params, s)
+	return v̂
+end
+
+# ╔═╡ f55b948a-9ee9-4902-a34d-618fba4e3849
+#=╠═╡
+poly_setup = polynomial_features_gradient_setup(random_walk_state_mrp, 5, 1f0/1000)
+  ╠═╡ =#
+
+# ╔═╡ 8c140c5e-af37-49cc-980e-96b146ebeb3c
+function run_polynomial_features_monte_carlo_policy_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, n::Integer; w0::T = zero(T), scaling_factor = one(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition, F1<:Function, F2<:Function}
+	setup = polynomial_features_gradient_setup(mrp, n, scaling_factor)
+	params = fill(w0, setup.num_features)
+	gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, setup.gradient_update; kwargs...)
+	v̂(s) = setup.value_function(params, s)
+	return v̂
+end
+
+# ╔═╡ eb8b26ed-8429-47b5-ab82-c6d79dd053e4
+#=╠═╡
+polynomial_random_walk_mc_v̂ = run_polynomial_features_monte_carlo_policy_estimation(random_walk_state_mrp, 1f0, 5_000, 5; scaling_factor = 1f0/num_states, α = 0.0005f0)
+  ╠═╡ =#
+
+# ╔═╡ 55ce3135-44b9-4a8d-b0e6-a8a5ec972432
+#=╠═╡
+plot([scatter(y = polynomial_random_walk_mc_v̂.(Float32.(1:num_states)), name = "polynomial basis"), scatter(y = v = mrp_evaluation(random_walk_tabular_mrp, 1f0).value_function[2:end-1], name = "true value")])
+  ╠═╡ =#
 
 # ╔═╡ f5501489-46b8-4e5e-aa4f-427d8bc7a9b9
 md"""
@@ -1227,7 +1308,6 @@ version = "17.4.0+2"
 # ╠═7542ff9c-c6a1-4d41-8863-05388fea8ce2
 # ╟─df56b803-0aa5-4946-8338-601195e57a3e
 # ╠═e1109ddd-da53-49ec-ba5b-6851a1dd99bc
-# ╠═9da9d076-922c-4c5f-8e16-7bcfa1c9d23a
 # ╠═160d1b6f-3340-4326-bfd3-c7d3f2328488
 # ╠═5d90b840-4979-4e8b-bad1-68a3dc7aa392
 # ╠═512f1358-0536-4d60-9ba6-173138ee6e14
@@ -1236,7 +1316,6 @@ version = "17.4.0+2"
 # ╟─90e5fc0e-2e97-424b-a5dd-9deb38293121
 # ╠═de9bea60-c91d-4253-bdd8-a3c1fde8941c
 # ╠═7814bda0-4306-4060-8f9a-2bcf1cf8e132
-# ╠═07ec7fa3-6062-4d46-aca7-230c451eae65
 # ╠═f4459b0d-ee3e-47c7-9c82-981af622edfa
 # ╟─68a4151a-52ee-4ed0-b988-3fecc34d8d32
 # ╟─24e8b391-00ec-4ed5-85dc-0796eb85bf4f
@@ -1255,6 +1334,7 @@ version = "17.4.0+2"
 # ╟─1adf0786-0897-4119-9336-09de869463b4
 # ╟─b361815f-d5b0-4c71-b331-c3b48ce53e73
 # ╠═c46c36f6-42da-4767-9e25-fa0ebe43998f
+# ╠═b4014481-5c1b-42d0-93f6-9a866921c609
 # ╠═47116ee6-53db-47fe-bfc9-a322f85b3e4e
 # ╠═2aadb2bf-942b-436e-8b93-111a90b3ea2b
 # ╟─ace0693b-b4ce-43df-966e-0330d4399638
@@ -1277,13 +1357,23 @@ version = "17.4.0+2"
 # ╟─0ee3afe9-9c33-45c8-b304-26062675e1b8
 # ╟─d65a0ca9-5577-4df8-af77-44ecfbcc0a07
 # ╟─c5adf2d7-0b6b-4a87-974b-a90824d0323b
+# ╠═38f09914-e128-4336-8e70-9906675971f2
+# ╟─f5dea7d5-4597-430c-9020-b74cdf8f3055
+# ╟─ad17f4df-d0d9-4995-948c-50a161246ad2
+# ╠═bc2e52ff-7f47-4141-aff1-e752fe217f6a
+# ╠═9d7ca70c-0e60-4029-8ea0-26192ccea849
+# ╠═a0c4df88-ba30-463b-81ac-6f5511683730
+# ╠═f55b948a-9ee9-4902-a34d-618fba4e3849
+# ╠═8c140c5e-af37-49cc-980e-96b146ebeb3c
+# ╠═eb8b26ed-8429-47b5-ab82-c6d79dd053e4
+# ╠═55ce3135-44b9-4a8d-b0e6-a8a5ec972432
 # ╟─f5501489-46b8-4e5e-aa4f-427d8bc7a9b9
 # ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
 # ╟─6beee5a8-c262-469e-9b1b-00b91e3b1b55
 # ╟─858a6d4f-2241-43c3-9db0-ff9cec00c2c1
 # ╟─be019186-33ad-4eb7-a218-9124ff40b6fb
 # ╟─5464338c-904a-4a1b-8d47-6c79da550c71
-# ╠═38139510-d67e-435c-bb21-060820278a75
+# ╠═6da69e64-743f-4ea9-9670-fd023c7ffab7
 # ╠═808fcb4f-f113-4623-9131-c709320130df
 # ╠═db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
 # ╠═507bcfda-cd09-4873-94a7-a51fefb3c25d
