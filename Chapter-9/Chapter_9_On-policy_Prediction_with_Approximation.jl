@@ -16,7 +16,7 @@ end
 # ╔═╡ db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
 # ╠═╡ skip_as_script = true
 #=╠═╡
-using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings
+using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
   ╠═╡ =#
 
 # ╔═╡ 19d23ef5-27db-44a8-99fe-a7343a5db2b8
@@ -297,6 +297,11 @@ end
 const random_walk_tabular_mrp = make_random_walk_mrp(num_states)
   ╠═╡ =#
 
+# ╔═╡ 69223862-4d74-46c9-8c78-b24d659151ac
+#=╠═╡
+const random_walk_v = mrp_evaluation(random_walk_tabular_mrp, 1f0)
+  ╠═╡ =#
+
 # ╔═╡ f4459b0d-ee3e-47c7-9c82-981af622edfa
 #=╠═╡
 const initial_state::Int64 = ceil(Int64, num_states / 2)
@@ -422,11 +427,6 @@ function state_aggregation_gradient_setup(assign_state_group::Function)
 	return (value_function = v̂, gradient_update = ▽v̂!)
 end
 
-# ╔═╡ b4014481-5c1b-42d0-93f6-9a866921c609
-#=╠═╡
-random_walk_state_mrp
-  ╠═╡ =#
-
 # ╔═╡ 47116ee6-53db-47fe-bfc9-a322f85b3e4e
 function run_state_aggregation_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
 	setup = state_aggregation_gradient_setup(assign_state_group)
@@ -462,7 +462,7 @@ Our prediction objective will favor lower error on highly visited states than le
 # ╔═╡ 214714a5-ad1e-4439-8567-9095d10411a6
 #=╠═╡
 function figure_9_1()
-	v = mrp_evaluation(random_walk_tabular_mrp, 1f0).value_function[2:end-1]
+	v = random_walk_v.value_function[2:end-1]
 	random_walk_v̂ = run_state_aggregation_monte_carlo_estimation(random_walk_state_mrp, 1f0, 100_000, num_groups, random_walk_group_assign, α = 2f-5)
 	v̂ = random_walk_v̂.(1:num_states)
 	x = 1:num_states
@@ -604,7 +604,7 @@ Bootstrapping with state aggregation on the $num_states-state random walk task. 
 # ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
 #=╠═╡
 function figure_9_2()
-	v = mrp_evaluation(random_walk_tabular_mrp, 1f0).value_function[2:end-1]
+	v = random_walk_v.value_function[2:end-1]
 	
 	v̂_mc = run_state_aggregation_monte_carlo_estimation(random_walk_state_mrp, 1f0, 100_000, num_groups, random_walk_group_assign, α = 2f-5)
 
@@ -698,9 +698,9 @@ $\begin{matrix}
 """
 
 # ╔═╡ 38f09914-e128-4336-8e70-9906675971f2
-function get_polynomial_exponents(k, n; exponents = ())
-	k == 0 && return exponents
-	reduce(vcat, get_polynomial_exponents(k-1, n; exponents = (exponents..., e)) for e in 0:n)
+function get_order_coefficients(k, n; coefs = ())
+	k == 0 && return coefs
+	reduce(vcat, get_order_coefficients(k-1, n; coefs = (coefs..., e)) for e in 0:n)
 end
 
 # ╔═╡ f5dea7d5-4597-430c-9020-b74cdf8f3055
@@ -711,28 +711,16 @@ Notice that these 9 exponents match the ones for the feature vector in exercise 
 """
   ╠═╡ =#
 
-# ╔═╡ ad17f4df-d0d9-4995-948c-50a161246ad2
-# ╠═╡ skip_as_script = true
-#=╠═╡
-get_polynomial_exponents(2, 2)
-  ╠═╡ =#
-
-# ╔═╡ bc2e52ff-7f47-4141-aff1-e752fe217f6a
-begin
-	calc_poly_feature(s::NTuple{N, T}, e::NTuple{N, Int64}, scaling_factor::T) where {T<:Real, N} = prod((scaling_factor*s[i])^e[i] for i in 1:N)
-	calc_poly_feature(s::T, e::NTuple{1, Int64}, scaling_factor::T) where {T<:Real} = (scaling_factor*s)^e[1]
-end
-
 # ╔═╡ 9d7ca70c-0e60-4029-8ea0-26192ccea849
-function polynomial_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, scaling_factor::T) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function order_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, scaling_factor::T, feature_calculation::Function) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
 	#states must be tuples with k elements or some number value
 	k = S == T ? 1 : N
-	exponents = get_polynomial_exponents(k, n)
+	coefs = get_order_coefficients(k, n)
 	
 	function ▽v̂!(gradients::Vector{T}, s, params::Vector{T}) where {T<:Real}
 		v = zero(T)
-		@inbounds @simd for i in eachindex(exponents)
-			feature = calc_poly_feature(s, exponents[i], scaling_factor)
+		@inbounds @simd for i in eachindex(coefs)
+			feature = feature_calculation(s, coefs[i], scaling_factor)
 			v += feature * params[i]
 			gradients[i] = feature
 		end
@@ -740,51 +728,199 @@ function polynomial_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, 
 	end
 
 	function v̂(w::Vector{T}, s) where {T<:Real} 
-		sum(w[i]*calc_poly_feature(s, exponents[i], scaling_factor) for i in eachindex(exponents))
+		sum(w[i]*feature_calculation(s, coefs[i], scaling_factor) for i in eachindex(coefs))
 	end
 	
-	return (value_function = v̂, gradient_update = ▽v̂!, num_features = length(exponents))
+	return (value_function = v̂, gradient_update = ▽v̂!, num_features = length(coefs))
 end
 
 # ╔═╡ a0c4df88-ba30-463b-81ac-6f5511683730
-function run_polynomial_features_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, n::Integer; w0::T = zero(T), scaling_factor = one(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function}
-	setup = polynomial_features_gradient_setup(mdp, n, scaling_factor)
+function run_order_features_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, n::Integer, feature_calculation::Function; w0::T = zero(T), scaling_factor = one(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function}
+	setup = order_features_gradient_setup(mdp, n, scaling_factor, feature_calculation)
 	params = fill(w0, setup.num_features)
 	gradient_monte_carlo_estimation!(params, mdp, π, γ, num_episodes, setup.gradient_update; kwargs...)
 	v̂(s) = setup.value_function(params, s)
 	return v̂
 end
 
-# ╔═╡ f55b948a-9ee9-4902-a34d-618fba4e3849
-#=╠═╡
-poly_setup = polynomial_features_gradient_setup(random_walk_state_mrp, 5, 1f0/1000)
-  ╠═╡ =#
-
 # ╔═╡ 8c140c5e-af37-49cc-980e-96b146ebeb3c
-function run_polynomial_features_monte_carlo_policy_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, n::Integer; w0::T = zero(T), scaling_factor = one(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition, F1<:Function, F2<:Function}
-	setup = polynomial_features_gradient_setup(mrp, n, scaling_factor)
+function run_order_features_monte_carlo_policy_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, n::Integer, feature_calculation::Function; w0::T = zero(T), scaling_factor = one(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition, F1<:Function, F2<:Function}
+	setup = order_features_gradient_setup(mrp, n, scaling_factor, feature_calculation)
 	params = fill(w0, setup.num_features)
 	gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, setup.gradient_update; kwargs...)
 	v̂(s) = setup.value_function(params, s)
 	return v̂
 end
 
+# ╔═╡ bc2e52ff-7f47-4141-aff1-e752fe217f6a
+begin
+	calc_poly_feature(s::NTuple{N, T}, e::NTuple{N, Int64}, scaling_factor::T) where {T<:Real, N} = prod((scaling_factor*s[i])^e[i] for i in 1:N)
+	calc_poly_feature(s::T, e::NTuple{1, Int64}, scaling_factor::T) where {T<:Real} = (scaling_factor*s)^e[1]
+end
+
+# ╔═╡ c609ee03-7217-4068-9da2-c91fb02623a9
+# ╠═╡ skip_as_script = true
+#=╠═╡
+md"""
+Note that a scaling factor of 1/num_states means that all states will be mapped to the range of 0 to 1 for the purpose of computing the polynomial features.  This helps with numerical stability when we are taking the state integers to large powers of n"""
+  ╠═╡ =#
+
 # ╔═╡ eb8b26ed-8429-47b5-ab82-c6d79dd053e4
 #=╠═╡
-polynomial_random_walk_mc_v̂ = run_polynomial_features_monte_carlo_policy_estimation(random_walk_state_mrp, 1f0, 5_000, 5; scaling_factor = 1f0/num_states, α = 0.0005f0)
+polynomial_random_walk_mc_v̂ = run_order_features_monte_carlo_policy_estimation(random_walk_state_mrp, 1f0, 5_000, 5, calc_poly_feature; scaling_factor = 1f0/num_states, α = 0.0005f0)
   ╠═╡ =#
 
 # ╔═╡ 55ce3135-44b9-4a8d-b0e6-a8a5ec972432
 #=╠═╡
-plot([scatter(y = polynomial_random_walk_mc_v̂.(Float32.(1:num_states)), name = "polynomial basis"), scatter(y = v = mrp_evaluation(random_walk_tabular_mrp, 1f0).value_function[2:end-1], name = "true value")])
+plot([scatter(y = polynomial_random_walk_mc_v̂.(Float32.(1:num_states)), name = "polynomial basis"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")])
   ╠═╡ =#
 
-# ╔═╡ f5501489-46b8-4e5e-aa4f-427d8bc7a9b9
+# ╔═╡ ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
 md"""
 ### 9.5.2 Fourier Basis
-### 9.5.3 Coarse Coding
-### 9.5.4 Tile Coding
 
+With fourier features we generate the same integer vectors that we had for the polynomial basis so $(n+1)^k$ different vectors which define the different features.  The difference is that instead of exponents, these coefficients are now used to create an argument for a cosine function: $x_i(s) = \cos(\pi \boldsymbol{s}^\top \boldsymbol{c}^i)$.  For $k = 2$ and $n = 2$, the first few of these $\boldsymbol{c}$ vectors would look like: $[0, 0], [0, 1], [1, 0], \dots$.  Also, it is important for the numerical features that are the elements of $s$ be scaled between 0 and 1, so this method only works well if the numerical values of the state space fall within a known range.
+"""
+
+# ╔═╡ f1b7b56e-7701-4954-8217-1b2c7d01e309
+begin
+	calc_fourier_feature(s::NTuple{N, T}, c::NTuple{N, Int64}, scaling_factor::T) where {T<:Real, N} = cos(Float32(π) * sum((scaling_factor*s[i])*e[i] for i in 1:N))
+	calc_fourier_feature(s::T, c::NTuple{1, Int64}, scaling_factor::T) where {T<:Real} = cos(Float32(π)*scaling_factor*s*c[1])
+end
+
+# ╔═╡ 483c9b4e-bb4f-4909-aaa1-ddd00b9158dd
+#=╠═╡
+fourier_random_walk_mc_v̂ = run_order_features_monte_carlo_policy_estimation(random_walk_state_mrp, 1f0, 5_000, 5, calc_fourier_feature; scaling_factor = 1f0/num_states, α = 0.00005f0)
+  ╠═╡ =#
+
+# ╔═╡ 705aef3d-69dd-4ef2-ba79-9c4233bf3d73
+#=╠═╡
+plot([scatter(y = fourier_random_walk_mc_v̂.(Float32.(1:num_states)), name = "fourier basis"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")])
+  ╠═╡ =#
+
+# ╔═╡ a99ef185-0360-4005-9a8c-f10ca58babda
+md"""
+### 9.5.3 Coarse Coding
+
+Coarse coding also operates in a state space where we can clearly define one or more numerical dimensions that scale over a known range of values.  Consider a number of overlapping regions in this space.  If we have N regions then that defines N binary features.  Each feature just indicates whether a state is present in that region.  Since the regions are overlapping most states will activate more than one feature.  If the regions are defined in a consistent way with a set shape and displacement vector, then each state will always activate the same number of features.  If the regions do not overlap and fully cover the state space, then this is equivalent to state aggregation where each state activates a single feature.
+"""
+
+# ╔═╡ 168e84f6-429e-45d6-bdbd-f47552fce8b5
+#=╠═╡
+@bind coarse_linear_display PlutoUI.combine() do Child
+	md"""
+	State Value: $(Child(:x, Slider(0:0.01:3; show_value=true, default = 1.5)))
+	
+	Zone Offset: $(Child(:offset, NumberField(0:0.1:1, default = 0.5)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 40f0fd57-a4ea-47a0-b883-3b038a6612c4
+#=╠═╡
+function show_coarse_coding_regions(x, offset_percentage)
+	make_zone(offsetx, offsety) = scatter(x = [offsetx, 1+offsetx], y = [offsety, offsety], showlegend = false)
+	region_starts = 0:offset_percentage:2.5
+	traces = [make_zone(offsetx, offsety) for (offsetx, offsety) in zip(region_starts, region_starts)]
+	state_trace = scatter(x = [x, x], y = [-1, 4], line_color = "black", mode = "lines", name = "state")
+
+	feature_vector = Int64.([(x > a) && (x < a + 1) for a in region_starts])
+
+	vector_string = reduce((a, b) -> "$a, $b", feature_vector)
+
+	test = Markdown.parse(L"[%$vector_string]")
+	
+	md"""
+	Feature Vector
+	$test
+
+	$(plot([traces; state_trace]))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 529e262c-c94c-407b-8f13-be3b0f737e61
+#=╠═╡
+show_coarse_coding_regions(coarse_linear_display.x, coarse_linear_display.offset)
+  ╠═╡ =#
+
+# ╔═╡ e565c041-17bd-40c8-9240-e86931c83010
+md"""
+### 9.5.4 Tile Coding
+"""
+
+# ╔═╡ bb81db16-7c4d-4e08-bf17-45147be2b0db
+function tile_coding_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, num_tiles::Integer, offsets::Vector{S}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+	#states must be tuples with k elements or some number value
+	k = S == T ? 1 : N
+
+	s_range = if k == 1
+		max_value - min_value
+	else
+		Tuple(max_value[i] - min_value[i] for i in 1:k)
+	end
+
+	num_features = num_tiles * length(offsets)
+	tilesize = one(T) / num_tiles
+
+
+	scale_state(s::T) where T<:Real = (s - min_value) / s_range
+	scale_state(s::NTuple{N, T}) where {N, T<:Real} = Tuple((s[i] - min_value[i])/s_range[i] for i in 1:k)
+
+	#calculates which tile a state is in for the tiling represented by one offset
+	function active_features(s::T, offset::T) where T<:Real
+		ceil(Int64, (scale_state(s) - tilesize*offset) * num_tiles)
+	end
+
+	function active_features(s::NTuple{N, T}, offset::NTuple{N, T}) where {N, T<:Real}
+		scaled_state = scale_state(s)
+		Tuple(ceil(Int64, (scaled_state[i] - tilesize*offset[i]) * num_tiles) for i in 1:N)
+	end
+	
+	function ▽v̂!(gradients::Vector{T}, s, w::Vector{T}) where {T<:Real}
+		v = zero(T)
+		gradients .= zero(T)
+		for tiling_number in eachindex(offsets)
+			@inbounds @simd for i in active_features(s, offset[tiling_number])
+				param_index = i + (tiling_number - 1)*k
+				gradients[param_index] = one(T)
+				v += w[param_index]
+			end
+		end
+		return v
+	end
+
+	function v̂(w::Vector{T}, s) where {T<:Real}
+		v = zero(T)
+		for tiling_number in eachindex(offsets)
+			@inbounds @simd for i in active_features(s, offsets[tiling_number])
+				param_index = i + (tiling_number - 1)*k
+				v += w[param_index]
+			end
+		end
+		return v
+	end
+	
+	return (value_function = v̂, gradient_update = ▽v̂!, num_features = num_features, active_features = active_features)
+end
+
+# ╔═╡ dda74c94-3574-4e7b-bab1-d106111d36d4
+#=╠═╡
+tile_coding_test = tile_coding_gradient_setup(random_walk_state_mrp, 0f0, 1000f0, 2, [0f0, 0.5f0])
+  ╠═╡ =#
+
+# ╔═╡ 3760a293-7214-49b6-a7ad-a2f0146a1ff5
+#=╠═╡
+tile_coding_test.active_features(900f0, 0.5f0)
+  ╠═╡ =#
+
+# ╔═╡ 0179a9bb-0778-4220-8b13-a5297c00b763
+#=╠═╡
+tile_coding_test.value_function(Float32.(1:20), 100f0)
+  ╠═╡ =#
+
+# ╔═╡ a4d9efaf-1e1e-4115-973f-570014c1fd06
+md"""
 > ### *Exercise 9.4* 
 > Suppose we believe that one of two state dimensions is more likely to have an effect on the value function than is the other, that generalization should be primarily across this dimension rather than along it.  What kind of tilings could be used to take advantage of this prior knowledge?
 
@@ -846,6 +982,7 @@ html"""
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
@@ -854,6 +991,7 @@ PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
 BenchmarkTools = "~1.5.0"
+HypertextLiteral = "~0.9.5"
 LaTeXStrings = "~1.3.1"
 PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.5.0"
@@ -867,7 +1005,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.4"
 manifest_format = "2.0"
-project_hash = "77355d038513de5efcd9374a5fad72c1da9cf2f0"
+project_hash = "a01161d5dddf2c5ac69b0f14159d92ee394eb735"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -1316,6 +1454,7 @@ version = "17.4.0+2"
 # ╟─90e5fc0e-2e97-424b-a5dd-9deb38293121
 # ╠═de9bea60-c91d-4253-bdd8-a3c1fde8941c
 # ╠═7814bda0-4306-4060-8f9a-2bcf1cf8e132
+# ╠═69223862-4d74-46c9-8c78-b24d659151ac
 # ╠═f4459b0d-ee3e-47c7-9c82-981af622edfa
 # ╟─68a4151a-52ee-4ed0-b988-3fecc34d8d32
 # ╟─24e8b391-00ec-4ed5-85dc-0796eb85bf4f
@@ -1334,7 +1473,6 @@ version = "17.4.0+2"
 # ╟─1adf0786-0897-4119-9336-09de869463b4
 # ╟─b361815f-d5b0-4c71-b331-c3b48ce53e73
 # ╠═c46c36f6-42da-4767-9e25-fa0ebe43998f
-# ╠═b4014481-5c1b-42d0-93f6-9a866921c609
 # ╠═47116ee6-53db-47fe-bfc9-a322f85b3e4e
 # ╠═2aadb2bf-942b-436e-8b93-111a90b3ea2b
 # ╟─ace0693b-b4ce-43df-966e-0330d4399638
@@ -1359,15 +1497,27 @@ version = "17.4.0+2"
 # ╟─c5adf2d7-0b6b-4a87-974b-a90824d0323b
 # ╠═38f09914-e128-4336-8e70-9906675971f2
 # ╟─f5dea7d5-4597-430c-9020-b74cdf8f3055
-# ╟─ad17f4df-d0d9-4995-948c-50a161246ad2
-# ╠═bc2e52ff-7f47-4141-aff1-e752fe217f6a
 # ╠═9d7ca70c-0e60-4029-8ea0-26192ccea849
 # ╠═a0c4df88-ba30-463b-81ac-6f5511683730
-# ╠═f55b948a-9ee9-4902-a34d-618fba4e3849
 # ╠═8c140c5e-af37-49cc-980e-96b146ebeb3c
+# ╠═bc2e52ff-7f47-4141-aff1-e752fe217f6a
+# ╟─c609ee03-7217-4068-9da2-c91fb02623a9
 # ╠═eb8b26ed-8429-47b5-ab82-c6d79dd053e4
 # ╠═55ce3135-44b9-4a8d-b0e6-a8a5ec972432
-# ╟─f5501489-46b8-4e5e-aa4f-427d8bc7a9b9
+# ╟─ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
+# ╠═f1b7b56e-7701-4954-8217-1b2c7d01e309
+# ╠═483c9b4e-bb4f-4909-aaa1-ddd00b9158dd
+# ╠═705aef3d-69dd-4ef2-ba79-9c4233bf3d73
+# ╟─a99ef185-0360-4005-9a8c-f10ca58babda
+# ╟─168e84f6-429e-45d6-bdbd-f47552fce8b5
+# ╟─529e262c-c94c-407b-8f13-be3b0f737e61
+# ╠═40f0fd57-a4ea-47a0-b883-3b038a6612c4
+# ╠═e565c041-17bd-40c8-9240-e86931c83010
+# ╠═bb81db16-7c4d-4e08-bf17-45147be2b0db
+# ╠═dda74c94-3574-4e7b-bab1-d106111d36d4
+# ╠═3760a293-7214-49b6-a7ad-a2f0146a1ff5
+# ╠═0179a9bb-0778-4220-8b13-a5297c00b763
+# ╠═a4d9efaf-1e1e-4115-973f-570014c1fd06
 # ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
 # ╟─6beee5a8-c262-469e-9b1b-00b91e3b1b55
 # ╟─858a6d4f-2241-43c3-9db0-ff9cec00c2c1
