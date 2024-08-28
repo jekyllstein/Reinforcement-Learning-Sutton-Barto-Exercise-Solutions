@@ -1014,8 +1014,13 @@ md"""
 > ### *Exercise 9.4* 
 > Suppose we believe that one of two state dimensions is more likely to have an effect on the value function than is the other, that generalization should be primarily across this dimension rather than along it.  What kind of tilings could be used to take advantage of this prior knowledge?
 
-We could use striped tilings such that each stripe is the width of several of the important dimension but completely covers the entire space of the other dimension.  That way states that have the same value of the important dimension would be treated similarly regardless of their value in the other dimension and the overlap in the direction of the first dimension would allow some generalization if those states are close to each other along that dimension.
+We could use striped tilings such that the narrow width of the tile is in the direction of the important dimension and the elongated height of the tile is in the other direction.  That way states that have the same value of the important dimension would be treated similarly regardless of their value in the other dimension.  The most rapid changes in value would occur in the direction of the important dimension.
 """
+
+# ╔═╡ 22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
+#=╠═╡
+plot([scatter(x = [a, a+2, a+2, a, a], y = [b, b, b+5, b+5, b], line_color = "blue", name = "", showlegend = false) for a in 0:2:8 for b in [0, 5]], Layout(width = 300, height = 300, margin = attr(t = 0, l = 0, r = 0, b = 0), xaxis_title = "Important Dimension", yaxis_title = "Unimportant Dimenson"))
+  ╠═╡ =#
 
 # ╔═╡ dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
 md"""
@@ -1026,6 +1031,8 @@ Requires much more computational complexity to tile coding without much advantag
 # ╔═╡ 6beee5a8-c262-469e-9b1b-00b91e3b1b55
 md"""
 ## 9.6 Selecting Step-Size Parameters Manually
+
+Consider the tabular case with constant step size averaging to compute state values.  If $\alpha = 1$ (zero weight is placed on the previous estimate), then the error for that state is reduced to zero for the sampled value of that state every step.  Similarly, $\alpha = \frac{1}{10}$ implies that about ten experiences are neeed to converge approximately to their mean value.  In general tabular estimation of a state with $\alpha = \frac{1}{\tau}$ will approach the mean of its targets about $\tau$ experiences with that state.
 """
 
 # ╔═╡ 858a6d4f-2241-43c3-9db0-ff9cec00c2c1
@@ -1052,6 +1059,11 @@ Note that in the case of linear function approximation $\nabla \hat v(S_t, \bold
 For the error at the state $S_t$ to be zero after this update, $\boldsymbol{x}_t^\top \boldsymbol{w}_t = U_t$
 
 For a given time, the only parameter values that contribute to the value estimate are those for which $\boldsymbol{x}_t$ are 1.  For these indices, the contribution from the original weight vector is 0.  So $\boldsymbol{w}_{t+1} = \alpha U_t \boldsymbol{x}_t$ for indices that are updated, otherwise the values are unchanged from before.  So $\boldsymbol{x}_t^\top \boldsymbol{w}_{t+1} = \alpha U_t \boldsymbol{x}_t^\top \boldsymbol{x}_t$.  Using (9.19) with $\tau = 1$, the expected update is $\mathbb{E} [ \boldsymbol{x}_t \boldsymbol{w}_{t+1} ]  = \mathbb{E} [ \hat v(S_t, \boldsymbol{w}_{t+1})]= \mathbb{E} [U_t]$.  So the expected approximation value of the state at step t will be updated to equal the true expected value at that state.
+"""
+
+# ╔═╡ d7c1810a-8f20-4178-83ca-017d53e3e7e9
+md"""
+## 9.7 Nonlinear Function Approxmation: Artificial Neural Networks
 """
 
 # ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
@@ -1628,11 +1640,13 @@ version = "17.4.0+2"
 # ╠═acc3c44b-2740-4ff8-9a5d-41e4bd1d6e3e
 # ╟─d5d83bb4-fdbd-42f6-bc9a-14741f2786e0
 # ╟─a4d9efaf-1e1e-4115-973f-570014c1fd06
+# ╟─22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
 # ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
-# ╟─6beee5a8-c262-469e-9b1b-00b91e3b1b55
+# ╠═6beee5a8-c262-469e-9b1b-00b91e3b1b55
 # ╟─858a6d4f-2241-43c3-9db0-ff9cec00c2c1
 # ╟─be019186-33ad-4eb7-a218-9124ff40b6fb
 # ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
+# ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
 # ╟─5464338c-904a-4a1b-8d47-6c79da550c71
 # ╠═6da69e64-743f-4ea9-9670-fd023c7ffab7
 # ╠═808fcb4f-f113-4623-9131-c709320130df
