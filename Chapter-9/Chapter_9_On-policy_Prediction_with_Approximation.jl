@@ -1066,6 +1066,43 @@ md"""
 ## 9.7 Nonlinear Function Approxmation: Artificial Neural Networks
 """
 
+# ╔═╡ b22ef023-4e6a-4114-b3c2-bf91e16e9a43
+md"""
+## 9.8 Least-Squares TD
+"""
+
+# ╔═╡ 290200a3-7523-4e0f-bd3a-288626adaf29
+md"""
+## 9.9 Memory-based Function Approximation
+"""
+
+# ╔═╡ 34b78988-40f9-47e9-9c5a-7823de866b12
+md"""
+## 9.10 Kernel-based Function Approximation
+"""
+
+# ╔═╡ 905b032d-5fa0-4a3c-9055-fec92fd5879e
+md"""
+## 9.11 Looking Deeper at On-policy Learning: Interest and Emphasis
+"""
+
+# ╔═╡ 1636120f-9065-45a8-a849-731842374d60
+md"""
+## 9.12 Summary
+"""
+
+# ╔═╡ 022bb60c-6af7-4dd6-8410-69c7974707e8
+md"""
+> ### *Exercise 9.7*
+> One of the simplest artificial neural networks consists of a single semi-linear unit with a logistic nonlinearity.  The need to handle approximate value functions of this form is common in games that end with either a win or a loss, in which case the value of a state can be interpreted as the probability of winning.  Derive the learning algorithm for this case, from (9.7), such that no gradient notation appears.
+"""
+
+# ╔═╡ 76de6624-6be3-450e-85a8-83e91af53272
+md"""
+> ### *Exercise 9.8*
+> Arguably, the squared error used to derive (9.7) is inappropriate for the case treated in the preceding exercise, and the right error measure is the *cross-entropy loss*.  Repeat the derivation in Section 9.3, using the cross-entropy loss instead of the squared error in (9.4), all the way to an explicit form with no gradient or logarithm notation in it.  Is your final form more complex, or simpler, than you obtained in the preceding exercise?
+"""
+
 # ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
 md"""
 # Dependencies
@@ -1647,6 +1684,13 @@ version = "17.4.0+2"
 # ╟─be019186-33ad-4eb7-a218-9124ff40b6fb
 # ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
 # ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
+# ╠═b22ef023-4e6a-4114-b3c2-bf91e16e9a43
+# ╠═290200a3-7523-4e0f-bd3a-288626adaf29
+# ╠═34b78988-40f9-47e9-9c5a-7823de866b12
+# ╠═905b032d-5fa0-4a3c-9055-fec92fd5879e
+# ╠═1636120f-9065-45a8-a849-731842374d60
+# ╠═022bb60c-6af7-4dd6-8410-69c7974707e8
+# ╠═76de6624-6be3-450e-85a8-83e91af53272
 # ╟─5464338c-904a-4a1b-8d47-6c79da550c71
 # ╠═6da69e64-743f-4ea9-9670-fd023c7ffab7
 # ╠═808fcb4f-f113-4623-9131-c709320130df
