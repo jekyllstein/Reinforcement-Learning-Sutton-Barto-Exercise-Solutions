@@ -847,12 +847,37 @@ show_coarse_coding_regions(coarse_linear_display.x, coarse_linear_display.offset
 # ╔═╡ e565c041-17bd-40c8-9240-e86931c83010
 md"""
 ### 9.5.4 Tile Coding
+
+Tile coding is a form of coarse coding where each state will be present in one distinct *tile* for each tiling.  A tiling is a segmentation of the state space that covers the entire space with non-overlapping regions that have no gaps.  Each tiling is thus a single instance of state aggregation.  To create multiple tilings, each tiling is shifted a set amount in each dimension of the state space to create a new set of regions shifted in position from the originals.  The shape of the tiles and the amount of offset could be different in each dimension and sometimes this asymmetry is desireable to avoid approximation artifacts such as prefered directions in the state space caused by uniform offsets.
 """
 
+# ╔═╡ d215b917-c43d-4c14-aa97-2310f922d71a
+begin
+	scale_state(s::T, min_value::T, range::T) where T<:Real = (s - min_value) / range
+	scale_state(s::NTuple{N, T}, min_value::NTuple{N, T}, range::NTuple{N, T}) where {N, T<:Real} = Tuple((s[i] - min_value[i])/range[i] for i in 1:k)
+end
+
+# ╔═╡ 09fb1fcd-55f9-4e04-bdb5-e5cdc649370b
+begin
+	#calculates which tile a state is in for the tiling represented by one offset
+	function active_features(scaled_state::T, offset::T, d::Int64, tiling::Integer, tile_size::T) where T<:Real
+		(max(1, ceil(Int64, (scaled_state + offset*d*(tiling-1)) / tile_size)),)
+	end
+
+	function active_features(scaled_state::NTuple{N, T}, offset::NTuple{N, Int64}, displacement::NTuple{N, Int64}, tiling::Integer, tile_size::NTuple{N, T}) where {N, T<:Real}
+		Tuple(max(1, ceil(Int64, (scaled_state[i] + offset[i]*displacement[i]*(tiling - 1)) / tile_size[i])) for i in 1:N)
+	end
+end
+
 # ╔═╡ bb81db16-7c4d-4e08-bf17-45147be2b0db
-function tile_coding_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, num_tiles::Integer, offsets::Vector{S}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function tile_coding_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
 	#states must be tuples with k elements or some number value
 	k = S == T ? 1 : N
+
+	#ensure that all tile sizes are some percentage of the total state space
+	@assert all(0 < l < 1 for l in tile_size)
+
+	max_d = k == 1 ? displacement_vector : maximum(displacement_vector)
 
 	s_range = if k == 1
 		max_value - min_value
@@ -860,29 +885,44 @@ function tile_coding_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, 
 		Tuple(max_value[i] - min_value[i] for i in 1:k)
 	end
 
-	num_features = num_tiles * length(offsets)
-	tilesize = one(T) / num_tiles
-
-
-	scale_state(s::T) where T<:Real = (s - min_value) / s_range
-	scale_state(s::NTuple{N, T}) where {N, T<:Real} = Tuple((s[i] - min_value[i])/s_range[i] for i in 1:k)
-
-	#calculates which tile a state is in for the tiling represented by one offset
-	function active_features(s::T, offset::T) where T<:Real
-		ceil(Int64, (scale_state(s) - tilesize*offset) * num_tiles)
+	#number of tiles in each direction of the state space
+	num_tiles = if k == 1
+		x = inv(tile_size)
+		if isinteger(x)
+			(Int64(x) + 1,)
+		else
+			(ceil(Int64, x),)
+		end
+	else
+		Tuple(begin
+			x = inv(l)
+			if isinteger(x)
+				Int64(x) + 1
+			else
+				ceil(Int64, x)
+			end
+		end
+		for l in tile_size)
 	end
 
-	function active_features(s::NTuple{N, T}, offset::NTuple{N, T}) where {N, T<:Real}
-		scaled_state = scale_state(s)
-		Tuple(ceil(Int64, (scaled_state[i] - tilesize*offset[i]) * num_tiles) for i in 1:N)
-	end
+	features_per_tiling = prod(num_tiles)
+
+
+	num_features = features_per_tiling*num_tilings
+
+	#the vector representing how much each offset is shifted from the base for single unit shifts
+	offset = k == 1 ? tile_size/num_tilings/max_d : Tuple(l/num_tilings/max_d for l in tile_size)
+
 	
-	function ▽v̂!(gradients::Vector{T}, s, w::Vector{T}) where {T<:Real}
+	function ▽v̂!(gradients::Vector{T}, s::Union{T, NTuple{N, T}}, w::Vector{T}) where {N, T<:Real}
 		v = zero(T)
 		gradients .= zero(T)
-		for tiling_number in eachindex(offsets)
-			@inbounds @simd for i in active_features(s, offset[tiling_number])
-				param_index = i + (tiling_number - 1)*k
+		problem.isterm(s) && return v
+		scaled_state = scale_state(s, min_value, s_range)
+		for tiling_number in 1:num_tilings
+			inds = active_features(scaled_state, offset, displacement_vector, tiling_number, tile_size)
+			@inbounds @simd for i in inds
+				param_index = i + (tiling_number - 1)*features_per_tiling
 				gradients[param_index] = one(T)
 				v += w[param_index]
 			end
@@ -890,33 +930,83 @@ function tile_coding_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, 
 		return v
 	end
 
-	function v̂(w::Vector{T}, s) where {T<:Real}
+	function v̂(w::Vector{T}, s::Union{T, NTuple{N, T}}) where {N, T<:Real}
 		v = zero(T)
-		for tiling_number in eachindex(offsets)
-			@inbounds @simd for i in active_features(s, offsets[tiling_number])
-				param_index = i + (tiling_number - 1)*k
+		problem.isterm(s) && return zero(T)
+		scaled_state = scale_state(s, min_value, s_range)
+		for tiling_number in 1:num_tilings
+			inds = active_features(scaled_state, offset, displacement_vector, tiling_number, tile_size)
+			@inbounds @simd for i in inds
+				param_index = i + (tiling_number - 1)*features_per_tiling
 				v += w[param_index]
 			end
 		end
 		return v
 	end
 	
-	return (value_function = v̂, gradient_update = ▽v̂!, num_features = num_features, active_features = active_features)
+	return (value_function = v̂, gradient_update = ▽v̂!, num_features = num_features, active_features = (s, tiling_number) -> active_features(scale_state(s, min_value, s_range), offset, displacement_vector, tiling_number, tile_size), num_tiles = num_tiles)
 end
+
+# ╔═╡ e6514762-31e0-4916-aa21-c280674c2fc1
+md"""
+### *Example: 1-Dimensional Tile Coding*
+"""
+
+# ╔═╡ 84d9aac5-cf3b-402b-b222-9e8985a80b5b
+#=╠═╡
+@bind tile_coding_params PlutoUI.combine() do Child
+	md"""
+	Tile Size (% of $s_{max}$): $(Child(:tile_size, NumberField(0.01:0.01:.99, default = 0.3)))
+
+	Number of Tilings: $(Child(:num_tilings, NumberField(1:10, default = 2)))
+	
+	"""
+end
+  ╠═╡ =#
 
 # ╔═╡ dda74c94-3574-4e7b-bab1-d106111d36d4
 #=╠═╡
-tile_coding_test = tile_coding_gradient_setup(random_walk_state_mrp, 0f0, 1000f0, 2, [0f0, 0.5f0])
+tile_coding_test = tile_coding_gradient_setup(random_walk_state_mrp, 0f0, 1000f0, Float32(tile_coding_params.tile_size), tile_coding_params.num_tilings, 1)
+  ╠═╡ =#
+
+# ╔═╡ d17926d5-bcfa-4789-9609-59a69d87d194
+#=╠═╡
+md"""
+The following shows which feature is active for each tiling in the 1 dimensional space used for the random walk example.  The tile size as a percent of the size of the state space determines how many tiles there are for each tiling.  In this case, a tile size of $(tile_coding_params.tile_size) translates into $(tile_coding_test.num_tiles) tiles.  Each of the $(tile_coding_params.num_tilings) tilings will have one of $(tile_coding_test.num_tiles) features active corresponding to which tile the state falls into.  Note that in order to cover the entire state space for each tiling, the number of tiles must overshoot the state space.  By convention the tilings will move in the negative direction of each dimension so the edge tiles must extend beyond the state space enough to still cover the space even after the shifting.
+"""
   ╠═╡ =#
 
 # ╔═╡ 3760a293-7214-49b6-a7ad-a2f0146a1ff5
 #=╠═╡
-tile_coding_test.active_features(900f0, 0.5f0)
+plot([scatter(x = 1:num_states, y = [a[1] for a in tile_coding_test.active_features.(Float32.(1:num_states), i)], name = "Tiling Number $i") for i in 1:tile_coding_params.num_tilings], Layout(xaxis_title = "State", yaxis_title = "Activated Feature", title = "Active Feature for Each of $(tile_coding_params.num_tilings) Tilings"))
   ╠═╡ =#
 
 # ╔═╡ 0179a9bb-0778-4220-8b13-a5297c00b763
+function run_tile_coding_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}; w0::T = zero(T), kwargs...) where {T<:Real, N, S<:Union{T, NTuple{N, T}}, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function}
+	setup = tile_coding_gradient_setup(mdp, min_value, max_value, tile_size, num_tilings, displacement_vector)
+	params = fill(w0, setup.num_features)
+	gradient_monte_carlo_estimation!(params, mdp, π, γ, num_episodes, setup.gradient_update; kwargs...)
+	v̂(s) = setup.value_function(params, s)
+	return v̂
+end
+
+# ╔═╡ fe0140fa-aba3-4338-9d19-6a591e7a95c7
+function run_tile_coding_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}; w0::T = zero(T), kwargs...) where {T<:Real, N, S<:Union{T, NTuple{N, T}}, P<:AbstractStateTransition, F1<:Function, F2<:Function}
+	setup = tile_coding_gradient_setup(mrp, min_value, max_value, tile_size, num_tilings, displacement_vector)
+	params = fill(w0, setup.num_features)
+	gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, setup.gradient_update; kwargs...)
+	v̂(s) = setup.value_function(params, s)
+	return v̂
+end
+
+# ╔═╡ acc3c44b-2740-4ff8-9a5d-41e4bd1d6e3e
 #=╠═╡
-tile_coding_test.value_function(Float32.(1:20), 100f0)
+tile_coding_mc_v̂ = run_tile_coding_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, 1f0, 1_000f0, 0.2f0, 50, 1; α = 1f-4 / 50)
+  ╠═╡ =#
+
+# ╔═╡ d5d83bb4-fdbd-42f6-bc9a-14741f2786e0
+#=╠═╡
+plot([scatter(y = tile_coding_mc_v̂.(Float32.(1:num_states)), name = "tile coding"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")])
   ╠═╡ =#
 
 # ╔═╡ a4d9efaf-1e1e-4115-973f-570014c1fd06
@@ -950,6 +1040,18 @@ Each tiling will contribute one non-zero element to the feature vector.  With 98
 md"""
 > ### *Exercise 9.6* 
 > If $\tau=1$ and $\mathbf{x}(S_t)^\top \mathbf{x}(S_t) = \mathbb{E} [\mathbf{x}^\top \mathbf{x}]$, prove that (9.19) together with (9.7) and linear function approximation results in the error being reduced to zero in one update.
+"""
+
+# ╔═╡ b447a3a9-fe35-4457-886b-05c5862ad8e0
+md"""
+$$\alpha \doteq \left ( \tau \mathbb{E}\left [ \boldsymbol{x}^\top \boldsymbol{x} \right ] \right ) ^{-1} \tag{9.19}$$
+$$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha \left [ U_t - \hat v(S_t, \boldsymbol{w}_t) \right] \nabla \hat v(S_t, \boldsymbol{w}_t) \tag{9.7}$$
+
+Note that in the case of linear function approximation $\nabla \hat v(S_t, \boldsymbol{w}_t) = \boldsymbol{x}_t$ and $\hat v(S_t, \boldsymbol{w}_t) = \boldsymbol{x}_t^\top \boldsymbol{w}_t$ so (9.7) reduces to $\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha \left [ U_t - \boldsymbol{x}_t^\top \boldsymbol{w}_t \right] \boldsymbol{x}_t = \boldsymbol{w}_t(\mathbb{1} - \boldsymbol{x}_t ^\top \boldsymbol{x}_t) + \alpha U_t\boldsymbol{x}_t$ 
+
+For the error at the state $S_t$ to be zero after this update, $\boldsymbol{x}_t^\top \boldsymbol{w}_t = U_t$
+
+For a given time, the only parameter values that contribute to the value estimate are those for which $\boldsymbol{x}_t$ are 1.  For these indices, the contribution from the original weight vector is 0.  So $\boldsymbol{w}_{t+1} = \alpha U_t \boldsymbol{x}_t$ for indices that are updated, otherwise the values are unchanged from before.  So $\boldsymbol{x}_t^\top \boldsymbol{w}_{t+1} = \alpha U_t \boldsymbol{x}_t^\top \boldsymbol{x}_t$.  Using (9.19) with $\tau = 1$, the expected update is $\mathbb{E} [ \boldsymbol{x}_t \boldsymbol{w}_{t+1} ]  = \mathbb{E} [ \hat v(S_t, \boldsymbol{w}_{t+1})]= \mathbb{E} [U_t]$.  So the expected approximation value of the state at step t will be updated to equal the true expected value at that state.
 """
 
 # ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
@@ -1507,21 +1609,30 @@ version = "17.4.0+2"
 # ╟─ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
 # ╠═f1b7b56e-7701-4954-8217-1b2c7d01e309
 # ╠═483c9b4e-bb4f-4909-aaa1-ddd00b9158dd
-# ╠═705aef3d-69dd-4ef2-ba79-9c4233bf3d73
+# ╟─705aef3d-69dd-4ef2-ba79-9c4233bf3d73
 # ╟─a99ef185-0360-4005-9a8c-f10ca58babda
 # ╟─168e84f6-429e-45d6-bdbd-f47552fce8b5
 # ╟─529e262c-c94c-407b-8f13-be3b0f737e61
 # ╠═40f0fd57-a4ea-47a0-b883-3b038a6612c4
-# ╠═e565c041-17bd-40c8-9240-e86931c83010
+# ╟─e565c041-17bd-40c8-9240-e86931c83010
+# ╠═d215b917-c43d-4c14-aa97-2310f922d71a
+# ╠═09fb1fcd-55f9-4e04-bdb5-e5cdc649370b
 # ╠═bb81db16-7c4d-4e08-bf17-45147be2b0db
+# ╟─e6514762-31e0-4916-aa21-c280674c2fc1
+# ╟─84d9aac5-cf3b-402b-b222-9e8985a80b5b
 # ╠═dda74c94-3574-4e7b-bab1-d106111d36d4
+# ╟─d17926d5-bcfa-4789-9609-59a69d87d194
 # ╠═3760a293-7214-49b6-a7ad-a2f0146a1ff5
 # ╠═0179a9bb-0778-4220-8b13-a5297c00b763
-# ╠═a4d9efaf-1e1e-4115-973f-570014c1fd06
+# ╠═fe0140fa-aba3-4338-9d19-6a591e7a95c7
+# ╠═acc3c44b-2740-4ff8-9a5d-41e4bd1d6e3e
+# ╟─d5d83bb4-fdbd-42f6-bc9a-14741f2786e0
+# ╟─a4d9efaf-1e1e-4115-973f-570014c1fd06
 # ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
 # ╟─6beee5a8-c262-469e-9b1b-00b91e3b1b55
 # ╟─858a6d4f-2241-43c3-9db0-ff9cec00c2c1
 # ╟─be019186-33ad-4eb7-a218-9124ff40b6fb
+# ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
 # ╟─5464338c-904a-4a1b-8d47-6c79da550c71
 # ╠═6da69e64-743f-4ea9-9670-fd023c7ffab7
 # ╠═808fcb4f-f113-4623-9131-c709320130df
