@@ -1033,6 +1033,12 @@ md"""
 ## 9.6 Selecting Step-Size Parameters Manually
 
 Consider the tabular case with constant step size averaging to compute state values.  If $\alpha = 1$ (zero weight is placed on the previous estimate), then the error for that state is reduced to zero for the sampled value of that state every step.  Similarly, $\alpha = \frac{1}{10}$ implies that about ten experiences are neeed to converge approximately to their mean value.  In general tabular estimation of a state with $\alpha = \frac{1}{\tau}$ will approach the mean of its targets about $\tau$ experiences with that state.
+
+With general function approximation there is not such a clear notion of *number* of experiences with a state; however a similar rule can be derived using feature vectors instead of states.  Suppose you wanted to learn in about $\tau$ experiences with substantially the same feature vector.  A good rule of thumb for the step-size parameter is then
+
+$\alpha \doteq \left ( \tau \mathbb{E} \left [\boldsymbol{x}^\top \boldsymbol{x} \right ] \right ) ^{-1}$
+
+where $\boldsymbol{x}$ is a random feature vector chosen from the same distribution as input vectors will be in the SGD.  This method words best if $\boldsymbol{x}^\top \boldsymbol{x}$ is a constant so the expected value plays no role.  Here the expected total weight on parameters that will be affected by an update replaces the value of one that was implied in the tabular case since in that case only values for individual states are updated.  In the approximation case, each feature vector represents a region of states and thus this update rule accounts for the other states that will all be affected by the update.  In the extreme case of state aggregation where each state gets its own group, then this update rule reduces to the same one from the tabular case since only one feature will be activated at a time.
 """
 
 # ╔═╡ 858a6d4f-2241-43c3-9db0-ff9cec00c2c1
@@ -1203,7 +1209,7 @@ PlutoUI = "~0.7.59"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.4"
+julia_version = "1.10.5"
 manifest_format = "2.0"
 project_hash = "a01161d5dddf2c5ac69b0f14159d92ee394eb735"
 
@@ -1622,7 +1628,7 @@ version = "1.2.13+1"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.11.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1728,7 +1734,7 @@ version = "17.4.0+2"
 # ╟─a4d9efaf-1e1e-4115-973f-570014c1fd06
 # ╟─22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
 # ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
-# ╠═6beee5a8-c262-469e-9b1b-00b91e3b1b55
+# ╟─6beee5a8-c262-469e-9b1b-00b91e3b1b55
 # ╟─858a6d4f-2241-43c3-9db0-ff9cec00c2c1
 # ╟─be019186-33ad-4eb7-a218-9124ff40b6fb
 # ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
