@@ -1097,10 +1097,59 @@ md"""
 > One of the simplest artificial neural networks consists of a single semi-linear unit with a logistic nonlinearity.  The need to handle approximate value functions of this form is common in games that end with either a win or a loss, in which case the value of a state can be interpreted as the probability of winning.  Derive the learning algorithm for this case, from (9.7), such that no gradient notation appears.
 """
 
+# ╔═╡ 272c7e61-8e16-421e-9c5b-b8ee32814e6b
+md"""
+The logistic function is: 
+$f(x) = 1 / (1 + e^{-x})$
+
+(9.7) is:
+
+$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha [U_t - \hat v(S_t, \boldsymbol{w}_t)] \nabla \hat v(S_t, \boldsymbol{w}_t)$
+
+For a single semi-linear unit, $\hat v(S_t, \boldsymbol{w}_t) = f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)$ where $f$ is the logistic function and $\boldsymbol{x}_t$ is the feature vector of state $S_t$ with the same length as $\boldsymbol{w}_t$.  $f^\prime(x) = -(1+e^{-x})^{-2}(-e^{-x}) = f(x)^2 e^{-x}$
+
+$f(x)(1 + e^{-x}) = 1$
+$f(x) + f(x)e^{-x} = 1$
+$e^{-x} = \frac{1 - f(x)}{f(x)}$
+$e^{x} = \frac{f(x)}{1 - f(x)}$
+
+Therefore: 
+
+$f^\prime (x) = f(x)^2 (1 - f(x)) / f(x) = f(x)(1 - f(x))$
+
+Applying to (9.7):
+
+$\begin{flalign}
+	\boldsymbol{w}_{t+1} &\doteq \boldsymbol{w}_t + \alpha [U_t - \hat v(S_t, \boldsymbol{w}_t)] \nabla \hat v(S_t, \boldsymbol{w}_t) \\
+
+	&= \boldsymbol{w}_t + \alpha [U_t - f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)] f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)(1-f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)) \boldsymbol{x}_t \\
+
+\end{flalign}$
+"""
+
 # ╔═╡ 76de6624-6be3-450e-85a8-83e91af53272
 md"""
 > ### *Exercise 9.8*
 > Arguably, the squared error used to derive (9.7) is inappropriate for the case treated in the preceding exercise, and the right error measure is the *cross-entropy loss*.  Repeat the derivation in Section 9.3, using the cross-entropy loss instead of the squared error in (9.4), all the way to an explicit form with no gradient or logarithm notation in it.  Is your final form more complex, or simpler, than you obtained in the preceding exercise?
+"""
+
+# ╔═╡ 1d3f3e29-22cc-415d-be87-2e491d0ecdf8
+md"""
+For a single output, the cross-entropy loss is 
+
+$$-y \log{\hat y} - (1 - y)\log{1 - \hat y}$$ where $\hat y$ is the approximation and $y = U_t$.  
+
+The error for each example is then: $-U_t \log(f(x_t)) - (1 - U_t) \log(1 - f(x_t))$
+
+Differentiating this with respect to the parameters gives:
+
+$(f(x) - 1) U_t  \nabla x + f(x)(1 - U_t) \nabla x = \nabla x (U_t f(x) - U_t + f(x) - f(x)U_t) = \nabla x (f(x) - U_t)$
+
+In this case $\nabla x = \boldsymbol{x}_t$ so the update rule is simply:
+
+$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t - \alpha \boldsymbol{x}_t (f(\boldsymbol{w}_t^\top \boldsymbol{x}_t) - U_t) = \boldsymbol{w}_t + \alpha \boldsymbol{x}_t (U_t - f(\boldsymbol{w}_t^\top \boldsymbol{x}_t))$
+
+This update rule is much simpler than the one in exercise 9.8 and is identical to the linear update rule with the function approximator having the sigmoid function applied to it.
 """
 
 # ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
@@ -1689,8 +1738,10 @@ version = "17.4.0+2"
 # ╠═34b78988-40f9-47e9-9c5a-7823de866b12
 # ╠═905b032d-5fa0-4a3c-9055-fec92fd5879e
 # ╠═1636120f-9065-45a8-a849-731842374d60
-# ╠═022bb60c-6af7-4dd6-8410-69c7974707e8
-# ╠═76de6624-6be3-450e-85a8-83e91af53272
+# ╟─022bb60c-6af7-4dd6-8410-69c7974707e8
+# ╟─272c7e61-8e16-421e-9c5b-b8ee32814e6b
+# ╟─76de6624-6be3-450e-85a8-83e91af53272
+# ╟─1d3f3e29-22cc-415d-be87-2e491d0ecdf8
 # ╟─5464338c-904a-4a1b-8d47-6c79da550c71
 # ╠═6da69e64-743f-4ea9-9670-fd023c7ffab7
 # ╠═808fcb4f-f113-4623-9131-c709320130df
