@@ -2886,10 +2886,7 @@ begin
 		s0 = initialize_state()
 		isterm(s0)
 		is_valid_action(s0, 1)
-		@assert isa(s0, S)
-		(r, s) = ptf(s0, 1)
-		@assert isa(s, S)
-		@assert isa(r, T)
+		@assert typeof(s0) <: S
 		StateMDP(Vector(actions), ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
 
@@ -2910,14 +2907,7 @@ begin
 		ptf::P
 		initialize_state::StateInit #function which provides an initial state index
 		isterm::IsTerm #function that returns true if a state is terminal and false otherwise
-		function StateMRP(ptf::P, initialize_state::F1, isterm::F2) where {T<:Real, S, F<:Function, P<:AbstractStateTransition{T, 1, S, F}, F1<:Function, F2<:Function} 
-			s0 = initialize_state()
-			(r, s) = ptf(s0)
-			@assert isa(r, T)
-			@assert isa(s, S)
-			isterm(s)
-			new{T, S, P, F1, F2}(ptf, initialize_state, isterm)
-		end
+		StateMRP(ptf::P, initialize_state::F1, isterm::F2) where {T<:Real, S, F<:Function, P<:AbstractStateTransition{T, 1, S, F}, F1<:Function, F2<:Function} = new{T, S, P, F1, F2}(ptf, initialize_state, isterm)
 	end
 	
 	#convert a tabular mrp into a non-tabular one
@@ -3836,7 +3826,7 @@ Even with a non-tabular problem, it is possible that the transition function yie
   ╠═╡ =#
 
 # ╔═╡ 9fe0b3d2-be8a-4832-a51f-5347d6cca5bc
-function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, topk::Integer, s::S, c::T, prior::Vector, v_hold::Vector, v_new::SparseVector, apply_bonus!::Function, step_kwargs::NamedTuple, est_kwargs::NamedTuple) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
+function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, topk::Integer, s::S, c::T, prior::Vector, v_hold::Vector, v_new::SparseVector, apply_bonus!::Function, step_kwargs::NamedTuple, est_kwargs::NamedTuple, maximum_value::T) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
 	#if the state is terminal, produce a value of 0
 	mdp.isterm(s) && return (zero(T), 1)
 	
@@ -3849,6 +3839,8 @@ function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 	state_visit_counts = visit_counts[s]
 	state_qs = Q[s]
 
+	maxv_so_far = maximum(state_qs)
+	(maxv_so_far >= maximum_value) && return (maxv_so_far, 1)
 
 	#fill in prior action selection probabilities from policy
 	i_a_greedy = π_dist!(prior, s)
@@ -3865,10 +3857,10 @@ function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 			prior[i] = pscale * log(prior[i]) - log(-log(rand(T)))
 		end
 		include_indices = [partialsortperm(prior, 1:topk; rev=true); state_visit_counts.nzind]
+		include_indices = filter(i -> !isinf(prior[i]), include_indices) #despite the topk, remove any indices that have a prior of 0
 		i = argmax(v_hold[i] for i in include_indices)
 		i_a = include_indices[i]
 	end
-		
 
 	#use the distribution step to compute the state-action value using the transition probabilities
 	(rewards, transition_states, probabilities) = mdp.ptf.step(s, i_a; step_kwargs...)
@@ -3876,7 +3868,7 @@ function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 		s′ = transition_states[i]
 		r = rewards[i]
 		p = probabilities[i]
-		(v′, num_visits) = simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s′, c, prior, v_hold, v_new, apply_bonus!, step_kwargs, est_kwargs)
+		(v′, num_visits) = simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s′, c, prior, v_hold, v_new, apply_bonus!, step_kwargs, est_kwargs, maximum_value)
 		(p*(r + γ*v′), num_visits)
 	end |> foldxl((a, b) -> (a[1]+b[1], a[2]+b[2]))
 	
@@ -3998,6 +3990,7 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s
 	apply_bonus! = apply_uct!,
 	make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
 	make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
+	maximum_value = typemax(T),
 	sim_message = false) where {T<:Real, S, A, F<:Function, P <: StateMDPTransitionDistribution{T, S, F}, F1<:Function, F2<:Function, F3<:Function}
 
 	v_new = SparseVector(length(mdp.actions), Vector{Int64}(), Vector{T}())
@@ -4018,7 +4011,7 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s
 				ETA: $(round(Int64, eta/60)) minutes"""
 			end
 		end
-		simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s, c, prior, v_hold, v_new, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed))
+		simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s, c, prior, v_hold, v_new, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed), maximum_value)
 	end
 	v_hold .= Q[s]
 	make_greedy_policy!(v_hold)
@@ -4753,7 +4746,7 @@ Transducers = "~0.4.82"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.4"
+julia_version = "1.10.5"
 manifest_format = "2.0"
 project_hash = "3692458953f6275a8819107e83e94d06db0f1e62"
 
@@ -5413,7 +5406,7 @@ version = "1.2.13+1"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.11.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
