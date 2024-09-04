@@ -1,3 +1,5 @@
 settings.json
 .DS_Store
 *Manifest.toml
+*nvlib_julia.conf
+*.ptx
