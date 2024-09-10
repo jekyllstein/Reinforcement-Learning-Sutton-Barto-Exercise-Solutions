@@ -1,15 +1,30 @@
 ### A Pluto.jl notebook ###
-# v0.19.24
+# v0.19.46
 
 using Markdown
 using InteractiveUtils
 
+# ╔═╡ 67f08f89-698c-4aa4-80d5-1ebcb830fc0c
+using PlutoDevMacros
+
+# ╔═╡ 8a581882-c97d-4a3b-873a-212024a529a9
+# ╠═╡ show_logs = false
+PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) begin
+	using NonTabularRL
+	using >.Random, >.Statistics, >.LinearAlgebra, >.TailRec
+end
+
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
-using PlutoUI, PlutoPlotly, Statistics ,StatsBase, BenchmarkTools
+using PlutoUI, PlutoPlotly ,StatsBase, BenchmarkTools, PlutoProfile, HypertextLiteral
+
+# ╔═╡ c62195dd-aa6e-4fd2-b9a9-848837a072d8
+md"""
+# Chapter 12: Eligibility Traces
+"""
 
 # ╔═╡ b5479c7a-9140-11ed-257a-b342885b47fa
 md"""
-# 12.1 The λ-return
+## 12.1 The λ-return
 
 $\begin{flalign}
 G_{t:t+n} \hspace{2mm}&  \dot = \hspace{2mm} R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}) \tag{12.1}\\
@@ -23,7 +38,8 @@ G_t^\lambda \hspace{2mm}&  \dot = \hspace{2mm} (1 - \lambda) \sum_{n=1}^{T-t+1} 
 
 # ╔═╡ dccc9b45-b711-44e8-8788-93de05f26543
 md"""
-> *Exercise 12.1* Just as the return can be written recursively in terms of the first reward and itself one-step later (3.9), so can the λ-return. Derive the analogous recursive relationship from (12.2) and (12.1).
+> ### *Exercise 12.1* 
+> Just as the return can be written recursively in terms of the first reward and itself one-step later (3.9), so can the λ-return. Derive the analogous recursive relationship from (12.2) and (12.1).
 
 Revisiting (3.9): $G_t = R_{t+1} + \gamma G_{t+1}$.  We are looking for an equation for $G_t^\lambda$ of a similar form, i.e. $G_t^\lambda = \cdots + \gamma G_{t+1}^\lambda$
 
@@ -70,7 +86,8 @@ end
 
 # ╔═╡ 752a80ea-1da6-49ef-91ef-a03c590b825d
 md"""
-> *Exercise 12.2* The parameter λ characterizes how fast the exponential weighting in Figure 12.2 falls off, and thus how far into the future the λ-return algorithm looks in determining its update. But a rate factor such as λ is sometimes an awkward way of characterizing the speed of the decay. For some purposes it is better to specify a time constant, or half-life. What is the equation relating λ and the half-life, $\tau_\lambda$, the time by which the weighting sequence will have fallen to half of its initial value?
+> ### *Exercise 12.2* 
+> The parameter λ characterizes how fast the exponential weighting in Figure 12.2 falls off, and thus how far into the future the λ-return algorithm looks in determining its update. But a rate factor such as λ is sometimes an awkward way of characterizing the speed of the decay. For some purposes it is better to specify a time constant, or half-life. What is the equation relating λ and the half-life, $\tau_\lambda$, the time by which the weighting sequence will have fallen to half of its initial value?
 
 The initial weight is $\lambda^0=1$, so the question is at what n will the weight value be $\frac{1}{2}$.  That will occur when:
 
@@ -87,7 +104,7 @@ $(plot_hl())
 
 # ╔═╡ 57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 md"""
-# 12.2 TD(λ)
+## 12.2 TD(λ)
 """
 
 # ╔═╡ 34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
@@ -102,7 +119,7 @@ $\begin{flalign}
 
 # ╔═╡ 6f5168dc-f1f3-4533-a59e-bb85895f3b13
 md"""
-## Semi-gradient TD(λ) for estimating $\hat v \approx v_\pi$
+### Semi-gradient TD(λ) for estimating $\hat v \approx v_\pi$
 """
 
 # ╔═╡ bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
@@ -137,7 +154,8 @@ $\mathbf{x}(S_1) = [1, 0, 0, \cdots]$
 
 # ╔═╡ e597a042-9c03-4d49-a48f-6dff39283c54
 md"""
-> *Exercise 12.3* Some insight into how TD(λ) can closely approximate the on-line λ-return algorithm can be gained by seeing that the latter’s error term (in brackets in (12.4)) can be written as the sum of TD errors (12.6) for a single fixed w. Show this, following the pattern of (6.6), and using the recursive relationship for the λ-return you obtained in Exercise 12.1.
+> ### *Exercise 12.3* 
+> Some insight into how TD(λ) can closely approximate the on-line λ-return algorithm can be gained by seeing that the latter’s error term (in brackets in (12.4)) can be written as the sum of TD errors (12.6) for a single fixed w. Show this, following the pattern of (6.6), and using the recursive relationship for the λ-return you obtained in Exercise 12.1.
 
 The error term at step t is: $G_t^\lambda - \hat v(S_t, \mathbf{w_t})$
 
@@ -166,7 +184,8 @@ For episodic tasks the sum will be finite and the final TD error $\delta_{T-1} =
 
 # ╔═╡ 0c6ebdeb-77f4-44f0-9bf3-c539d54bcaec
 md"""
-> *Exercise 12.4* Use your result from the preceding exercise to show that, if the weight updates over an episode were computed on each step but not actually used to change the weights (w remained fixed), then the sum of TD(λ)’s weight updates would be the same as the sum of the off-line λ-return algorithm’s updates.
+> ### *Exercise 12.4* 
+> Use your result from the preceding exercise to show that, if the weight updates over an episode were computed on each step but not actually used to change the weights (w remained fixed), then the sum of TD(λ)’s weight updates would be the same as the sum of the off-line λ-return algorithm’s updates.
 
 The TD(λ) updates are given by: $\mathbf{w_{t+1}} \dot = \mathbf{w_t} + \alpha \delta_t \mathbf{z_t}$ with $\mathbf{z_t} = \gamma \lambda \mathbf{z_{t-1}} + \nabla \hat v(S_{t}, \mathbf{w_{t}})$.  Let's write down all of the updates that will occur from t = 0 assuming the weights themselves are held constant the entire episode.
 
@@ -228,7 +247,7 @@ But this coefficient is the same as we got previously for the TD(λ) weight upda
 
 # ╔═╡ 27f535a4-2245-45aa-aefa-4c0fc6bb218d
 md"""
-# 12.3 n-step Truncated λ-return Methods
+## 12.3 n-step Truncated λ-return Methods
 
 Define the *truncated λ-return* for time t, given data only up to some later horizon, h, as 
 
@@ -254,7 +273,8 @@ $\delta_i ^\prime \dot = R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}_t) - \hat 
 
 # ╔═╡ e1e9f2eb-4751-4f5c-aa4d-a0cf75e193b2
 md"""
-> *Exercise 12.5* Several times in this book (often in exercises) we have established that returns can be written as sums of TD errors if the value function is held constant.  Why is (12.10) another instance of this?  Prove (12.10).
+> ### *Exercise 12.5* 
+> Several times in this book (often in exercises) we have established that returns can be written as sums of TD errors if the value function is held constant.  Why is (12.10) another instance of this?  Prove (12.10).
 
 To prove (12.10) let's return to the definition of $G_{t:k}^\lambda$ given in (12.9) and compare it to (12.10)
 
@@ -326,8 +346,8 @@ If we compare to the expression we have $h = t+k$, the sum terminates at $h-1=t+
 
 # ╔═╡ 2c664592-eddf-4438-b153-075282f6e491
 md"""
-# 12.4 Redoing Updates: Online λ-return Algorithm
-# 12.5 True Online TD(λ)
+## 12.4 Redoing Updates: Online λ-return Algorithm
+## 12.5 True Online TD(λ)
 The online λ-return algorithm just presented is currently the best performing temporal-difference algorithm. It is an ideal which online TD(λ) only approximates.  (why is this the case?  I thought TD(λ) was equivalent to the full λ return, they mentioned in figures that at higher learning rates it can be unstable though.  True online TD(λ) doesn't have that problem.  In the plot there isn't even a horizon anymore but this was truncated.  So what happened to the cutoff point?)  So at each step in the episode, the target is the n-step λ return for that step so there is no selection of the horizon.  The largest possible horizon for every previous state is always being used in the update target.
 
 In the linear case for which $\hat v(s_\mathbf{w}) = \mathbf{w}^\top \mathbf{x}(s)$, then we arrive at the true online TD(λ) algorithm:
@@ -366,7 +386,7 @@ end
 
 # ╔═╡ b36896b1-6802-48e1-8cd3-f08bf3b99e3e
 md"""
-# 12.6 Dutch Traces in Monte Carlo Learning
+## 12.6 Dutch Traces in Monte Carlo Learning
 
 It can be shown that the linear MC algorithm can be used to drive an equivalent yet computationally cheapter backward-view algorithm using dutch traces.  This equivalence gives some flavor of teh proof of equivalence of true online TD(λ) and the online λ-return algorithm, but is much simpler.
 
@@ -390,7 +410,7 @@ This computation uses the dutch trace for the case of $\gamma \lambda = 1$.  Thi
 
 # ╔═╡ 0086dc4a-e0ba-43f0-a721-296cd50e1a76
 md"""
-# 12.7 Sarsa(λ)
+## 12.7 Sarsa(λ)
 """
 
 # ╔═╡ e7b274c5-4f0c-4e5f-8a4a-b574130e64c0
@@ -563,7 +583,8 @@ plot_grid(10, 10, (5, 8), usedutch=false)
 
 # ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
 md"""
-> *Exercise 12.6* Modify the pseudocode for Sarsa(λ) to use dutch traces (12.11) without the other distinctive features of a true online algorithm.  Assume linear function approximation and binary features.
+> ### *Exercise 12.6* 
+> Modify the pseudocode for Sarsa(λ) to use dutch traces (12.11) without the other distinctive features of a true online algorithm.  Assume linear function approximation and binary features.
 
 See the above function `sarsaλ_linear`.  In the step where $z_i$ is updated an additional term is subtracted in the case of using dutch traces which matches equation (12.11)
 """
@@ -625,7 +646,7 @@ plot_grid(10, 10, (5, 8), f = true_online_sarsaλ_binary, λlist = [0.0, 0.01, 0
 
 # ╔═╡ 862026e9-ebe6-4f2e-8832-086bbba8db17
 md"""
-# 12.8 Variable λ and γ
+## 12.8 Variable λ and γ
 """
 
 # ╔═╡ 8f894492-260e-4ab0-87b6-c02216a631e6
@@ -641,7 +662,8 @@ G_t^{\lambda_a} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \overli
 
 # ╔═╡ c80256a7-be4f-4407-b0bf-7a13415482ad
 md"""
-> *Exercise 12.7* Generalize the three recursive equations above to their truncated versions, defining $G_{t:h}^{\lambda_s}$ and $G_{t:h}^{\lambda_a}$
+> ### *Exercise 12.7* 
+> Generalize the three recursive equations above to their truncated versions, defining $G_{t:h}^{\lambda_s}$ and $G_{t:h}^{\lambda_a}$
 
 Starting with (12.18) we want to get a truncated version $G_{t:h}^{\lambda_s}$.  We can also use as a model the truncated λ-return
 
@@ -655,7 +677,7 @@ G_{t:h}^{\lambda_s} &\dot = (1-\lambda) \sum_{n=1}^{h-t-1} \left ( \prod_{i=t}^{
 
 # ╔═╡ e6782d51-175c-4de7-9c75-1fc3f75a92f0
 md"""
-# Chapter 7 Code For Random Walk Comparison
+## Chapter 7 Code For Random Walk Comparison
 """
 
 # ╔═╡ 013c2268-6ab8-441a-9fb4-5118dc3ae18a
@@ -846,31 +868,44 @@ end
 # ╔═╡ f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
 walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
 
+# ╔═╡ 0358288e-be4e-46c2-ac4c-16ace6f50187
+md"""
+# Dependencies
+"""
+
 # ╔═╡ 3e433591-2efc-4f3a-9333-13156bf1529c
 TableOfContents()
 
 # ╔═╡ 326b3355-7941-403b-bf1e-3031f585f666
-html"<style>
-	main {
-		margin: 0 auto;
-		max-width: 2500px;
-    	padding-left: max(150px, 20%);
-    	padding-right: max(150px, 20%);
-	}
-	</style>"
+html"""
+	<style>
+		main {
+			margin: 0 auto;
+			max-width: min(1200px, 90%);
+			padding-left: max(10px, 5%);
+			padding-right: max(10px, 5%);
+			font-size: max(10px, min(24px, 2vw));
+		}
+	</style>
+	"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
+PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 BenchmarkTools = "~1.3.2"
+HypertextLiteral = "~0.9.5"
+PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.3.6"
+PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.49"
 StatsBase = "~0.33.21"
 """
@@ -879,15 +914,20 @@ StatsBase = "~0.33.21"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.0-rc2"
+julia_version = "1.10.5"
 manifest_format = "2.0"
-project_hash = "16bfe90cf2094f07e23924c268017efcb65090b9"
+project_hash = "dcf1e87976350577e63bdf41dd87e45e5458a278"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "8eaf9f1b4921132a4cff3f36a1d9ba923b14a481"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.1.4"
+
+[[deps.AbstractTrees]]
+git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -904,6 +944,12 @@ deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
 git-tree-sha1 = "d9a9701b899b30332bbcb3e1679c41cce81fb0e8"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.3.2"
+
+[[deps.CodeTracking]]
+deps = ["InteractiveUtils", "UUIDs"]
+git-tree-sha1 = "7eee164f122511d3e4e1ebadb7956939ea7e1c77"
+uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
+version = "1.3.6"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "Random", "SnoopPrecompile"]
@@ -942,7 +988,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.2+0"
+version = "1.1.1+0"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "e8119c1a33d267e16108be441a287a6981ba1630"
@@ -976,6 +1022,12 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "82d8afa92ecf4b52d78d869f038ebfb881267322"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.16.3"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
@@ -985,6 +1037,12 @@ git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.4"
 
+[[deps.FlameGraphs]]
+deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
+git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
+uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
+version = "0.2.10"
+
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
@@ -993,15 +1051,20 @@ version = "0.0.4"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
-git-tree-sha1 = "c47c5fa4c5308f27ccaac35504858d8914e102f9"
+git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
 uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.4"
+version = "0.9.5"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
 git-tree-sha1 = "f7be53659ab06ddc986428d3a9dcc95f6fa6705a"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.2"
+
+[[deps.IndirectArrays]]
+git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
+uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
+version = "1.0.0"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -1024,29 +1087,46 @@ git-tree-sha1 = "3c837543ddb02250ef42f4738347454f95079d4e"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.3"
 
+[[deps.JuliaInterpreter]]
+deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
+git-tree-sha1 = "4b415b6cccb9ab61fec78a621572c82ac7fa5776"
+uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
+version = "0.9.35"
+
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "f2355693d6778a178ade15952b7ac47a4ff97996"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.3.0"
 
+[[deps.LeftChildRightSiblingTrees]]
+deps = ["AbstractTrees"]
+git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
+uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
+version = "0.1.3"
+
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.3"
+version = "0.6.4"
 
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "7.84.0+0"
+version = "8.4.0+0"
 
 [[deps.LibGit2]]
-deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
+deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+
+[[deps.LibGit2_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
+uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+version = "1.6.4+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.10.2+0"
+version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -1079,6 +1159,12 @@ git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "0.1.4"
 
+[[deps.MacroTools]]
+deps = ["Markdown", "Random"]
+git-tree-sha1 = "2fa9ee3e63fd3a4f7a9a4f4744a52f4856de82df"
+uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+version = "0.5.13"
+
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
@@ -1086,7 +1172,7 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+0"
+version = "2.28.2+1"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -1099,7 +1185,7 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2022.10.11"
+version = "2023.1.10"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1108,12 +1194,12 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.21+4"
+version = "0.3.23+4"
 
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+0"
+version = "0.8.1+2"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
@@ -1141,7 +1227,7 @@ version = "2.5.8"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.9.0"
+version = "1.10.0"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -1149,11 +1235,23 @@ git-tree-sha1 = "56baf69781fc5e61607c3e46227ab17f7040ffa2"
 uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
 version = "0.8.19"
 
+[[deps.PlutoDevMacros]]
+deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
+git-tree-sha1 = "72f65885168722413c7b9a9debc504c7e7df7709"
+uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
+version = "0.9.0"
+
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "Colors", "Dates", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "PlotlyBase", "PlutoUI", "Reexport"]
 git-tree-sha1 = "dec81dcd52748ffc59ce3582e709414ff78d947f"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 version = "0.3.6"
+
+[[deps.PlutoProfile]]
+deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
+git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
+uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
+version = "0.4.0"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
@@ -1175,12 +1273,18 @@ uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 deps = ["Printf"]
 uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 
+[[deps.ProfileCanvas]]
+deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
+version = "0.1.0"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.Random]]
-deps = ["SHA", "Serialization"]
+deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[deps.Reexport]]
@@ -1219,6 +1323,7 @@ version = "1.1.0"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+version = "1.10.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
@@ -1235,7 +1340,7 @@ version = "2.2.0"
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.9.0"
+version = "1.10.0"
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
@@ -1250,9 +1355,9 @@ uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.33.21"
 
 [[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
+deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "5.10.1+6"
+version = "7.2.1+1"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -1299,25 +1404,26 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.13+0"
+version = "1.2.13+1"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.4.0+0"
+version = "5.11.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.48.0+0"
+version = "1.52.0+1"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.4.0+0"
+version = "17.4.0+2"
 """
 
 # ╔═╡ Cell order:
+# ╟─c62195dd-aa6e-4fd2-b9a9-848837a072d8
 # ╟─b5479c7a-9140-11ed-257a-b342885b47fa
 # ╟─dccc9b45-b711-44e8-8788-93de05f26543
 # ╟─752a80ea-1da6-49ef-91ef-a03c590b825d
@@ -1364,6 +1470,9 @@ version = "17.4.0+0"
 # ╠═13756b5d-b496-45fa-875b-7f6ee6468dcf
 # ╠═2cafed7d-22c6-420f-9c8e-8ae734bfbad2
 # ╠═a3484638-ae83-4810-9226-0a25b3fc58dc
+# ╟─0358288e-be4e-46c2-ac4c-16ace6f50187
+# ╠═67f08f89-698c-4aa4-80d5-1ebcb830fc0c
+# ╠═8a581882-c97d-4a3b-873a-212024a529a9
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═3e433591-2efc-4f3a-9333-13156bf1529c
 # ╠═326b3355-7941-403b-bf1e-3031f585f666

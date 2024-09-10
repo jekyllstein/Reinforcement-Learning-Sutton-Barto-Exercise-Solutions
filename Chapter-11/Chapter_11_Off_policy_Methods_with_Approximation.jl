@@ -8,6 +8,7 @@ using InteractiveUtils
 using PlutoDevMacros
 
 # ╔═╡ 702e5559-55b0-4392-af55-846886aa1244
+# ╠═╡ show_logs = false
 PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) begin
 	using NonTabularRL
 	using >.Random, >.Statistics, >.LinearAlgebra, >.TailRec
