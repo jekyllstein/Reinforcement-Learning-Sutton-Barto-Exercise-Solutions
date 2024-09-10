@@ -17,15 +17,33 @@ end
 # ╔═╡ 1bd08b27-634f-45b0-89be-d2f2ce7c0343
 # ╠═╡ skip_as_script = true
 #=╠═╡
-using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+begin
+	using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+	html"""
+	<style>
+		main {
+			margin: 0 auto;
+			max-width: min(1200px, 90%);
+	    	padding-left: max(10px, 5%);
+	    	padding-right: max(10px, 5%);
+			font-size: max(10px, min(24px, 2vw));
+		}
+	</style>
+	"""
+end
   ╠═╡ =#
 
 # ╔═╡ 7bae6cbe-b392-4b6c-a838-b93091712133
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 In this chapter we turn to the control problem, and like before we seek to approximate the state-action value function $\hat q(s, a, \boldsymbol{w})$ with the goal of applying policy improvement to find $q_* (s, a)$.
 """
+  ╠═╡ =#
 
 # ╔═╡ b4c83bb2-b1ab-4458-9dfb-b319b1bd52a3
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 # 10.1 Episodic Semi-gradient Control
 
@@ -39,6 +57,7 @@ $\boldsymbol{w}_{t+1} \doteq \alpha \left [ R_{t+1} + \gamma \hat q(S_{t+1}, A_{
 
 If the action set is discrete, then at the next state $S_{t+1}$ we can compute $\hat q(S_{t+1}, a, \boldsymbol{w}_t)$ for every action and then find the greedy action $A^*_{t+1} = \text{argmax}_a\hat q(S_{t+1}, a, \boldsymbol{w}_t)$.  Policy improvement is then done by changing the estimation policy ot a soft approximation of the greedy policy such as the $\epsilon$-greedy policy.  Actions are selected according to this same policy.
 """
+  ╠═╡ =#
 
 # ╔═╡ 98e0f34a-d05c-4ac5-a892-4f5d6ae4e3c2
 function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, ϵ = one(T) / 10, gradients::P = deepcopy(parameters), kwargs...) where {P, T<:Real}
@@ -112,9 +131,12 @@ function linear_features_action_gradient_setup(problem::Union{StateMDP{T, S, A, 
 end
 
 # ╔═╡ cb0a43ff-11fc-40c4-a601-daf5ad04e2e0
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 ## Example 10.1: Mountain Car Task
 """
+  ╠═╡ =#
 
 # ╔═╡ edf014bb-3fd6-446b-bbef-736b684519a9
 function initialize_car_state()
@@ -169,7 +191,10 @@ show_mountaincar_trajectory(s -> 3, 200, "Mountain Car Trajectory for Accelerati
   ╠═╡ =#
 
 # ╔═╡ aa68518b-82c4-488f-8ba0-8fd1d6866507
-mountain_car_setup = tile_coding_gradient_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), (1f0/12, 1f0/12), 8, (1, 3); linear_setup = linear_features_action_gradient_setup)
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const mountain_car_setup = tile_coding_gradient_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), (1f0/12, 1f0/12), 8, (1, 3); linear_setup = linear_features_action_gradient_setup)
+  ╠═╡ =#
 
 # ╔═╡ e6766bbe-2705-4ae7-b341-6b8715137c90
 function mountaincar_test(max_episodes::Integer, α::Float32, ϵ::Float32; method = semi_gradient_sarsa!, num_tiles = 12, num_tilings = 8)
@@ -183,6 +208,8 @@ function mountaincar_test(max_episodes::Integer, α::Float32, ϵ::Float32; metho
 end
 
 # ╔═╡ 0639007a-6881-449c-92a7-ed1c0681d2eb
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 # 10.2 Semi-gradient *n*-step Sarsa
 
@@ -196,16 +223,22 @@ $\boldsymbol{w}_{t+n} \doteq \boldsymbol{w}_{t+n-1} + \alpha \left [ G_{t:t+n} -
 
 As we have seen before, performance is often best with an $n$ that is some intermediate value between the 1-step sarsa method and Monte Carlo; however, we will not create a full implementation of this algorithm here as it will be replaced by semi-gradient Sarsa($\lambda$) in Chapter 12 which is a much more efficient version of the same concept.
 """
+  ╠═╡ =#
 
 # ╔═╡ 37d3812c-2710-4f97-b2f8-4dfd6f9b8390
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.1* 
 > We have not explicitely considered or given pseudocode for any Monte Carlo methods in this chapter.  What would they be like?  Why is it reasonable not to give pseudocode for them?  How would they perform on the Mountain Car task?
 
 Monte Carlo methods require an episode to terminate prior to updating any action value estimates.  After the final reward is retrieved then all the action value pairs visited along the trajectory can be updated and the policy can be updated prior to starting the next episode.  For tasks such as the Mountain Car task where a random policy will likely never terminate, such a method will never be able to complete a single episode worth of updates.  We saw in earlier chapters with the racetrack and gridworld examples that for some environments a bootstrap method is the only suitable one given this possibility of an episode never terminating.
 """
+  ╠═╡ =#
 
 # ╔═╡ 6289fd48-a2ea-43d3-bcf8-bcc29447d425
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.2* 
 > Give pseudocode for semi-gradient one-step *Expected* Sarsa for control.
@@ -216,6 +249,7 @@ $\mathbf{w} \leftarrow \mathbf{w} + \alpha[R + \gamma \sum_a \pi(a|S^\prime)\hat
 
 where $\pi$ is the currently used policy which is $\epsilon$ greedy with respect to $\hat q$.  See complete implementation below. 
 """
+  ╠═╡ =#
 
 # ╔═╡ 44f28dd6-f0ef-4b67-a92f-817b27ea0f0b
 function semi_gradient_expected_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, ϵ = one(T) / 10, gradients::P = deepcopy(parameters), kwargs...) where {P, T<:Real}
@@ -253,7 +287,10 @@ function semi_gradient_expected_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_
 end
 
 # ╔═╡ a7474f60-0a16-4dc0-a82d-aab9911354ab
+# ╠═╡ skip_as_script = true
+#=╠═╡
 (q̂_mountain_car, episode_rewards, episode_steps) = mountaincar_test(500, 0.001f0/8, 0.05f0; method = semi_gradient_expected_sarsa!)
+  ╠═╡ =#
 
 # ╔═╡ c669957e-70d8-4fef-be9b-7e16d900dc62
 #=╠═╡
@@ -282,7 +319,9 @@ plot_mountaincar_action_values()
   ╠═╡ =#
 
 # ╔═╡ 512387d4-4b0f-4016-8a94-c0ee722182da
+#=╠═╡
 π_mountain_car(s) = argmax(i_a -> q̂_mountain_car(s, i_a), eachindex(mountain_car_actions))
+  ╠═╡ =#
 
 # ╔═╡ 34e9cb53-d914-4b1e-8dad-34ee6515b8d9
 #=╠═╡
@@ -310,14 +349,19 @@ figure_10_2()
   ╠═╡ =#
 
 # ╔═╡ 15fe88ba-43a3-42cd-ba55-45f1586276e3
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.3* 
 > Why do the results shown in Figure 10.4 have higher standard errors at large *n* than at small *n*?
 
 At large n more of the reward function comes from the actual trajectory observed during a run.  Since random actions are taken initially there will be more spread in the observed reward estimates than with 1 step bootstrapping which is more dependent on the initialization of the action value function.  If ties are broken randomly then you would select random actions for the first n-steps of bootstrapping thus experience more spread in the early trajectories for higher n.
 """
+  ╠═╡ =#
 
 # ╔═╡ 87b277b6-5c79-45fd-b6f3-e2e4ccf18f61
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 # 10.3 Average Reward: A New Problem Setting for Continuing Tasks
 
@@ -366,11 +410,15 @@ $\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha \delta_t \nabla \hat q(S_
 
 with $\delta_t$ given by (10.11).  See a full implementation below.  One limitation of this algorithm is that it does not converge to the differential values but to the differential values plut an arbitrary offset.  Notice that the Bellman equations and TD errors given above are unaffected if all the values are shifted by the same amount.  Thus, the offset may not matter in practice.
 """
+  ╠═╡ =#
 
 # ╔═╡ d97ec322-acbf-41b7-ac74-29be1a81ff23
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 ### *Differential Semi-gradient Sarsa and Q-Learning Implementation*
 """
+  ╠═╡ =#
 
 # ╔═╡ c5bbcda0-a6b0-47c3-b7d0-937c658c961e
 abstract type ActionValueUpdate end
@@ -387,6 +435,13 @@ begin
 	calculate_q̂(action_values::AbstractVector, i_a, ::QlearningUpdate) = maximum(action_values)
 end
 
+# ╔═╡ 6a0d6c00-1960-459f-938a-4a6a465460fb
+md"""
+Line 1: $\bar o \leftarrow \bar o + \lambda (1 - \bar o)$
+
+Line 2: $\beta = \lambda / \bar o$
+"""
+
 # ╔═╡ 3cb9b843-5d93-4cc8-a89e-3603c44195ce
 function differential_semi_gradient_sarsa!(parameters::P, mdp::StateMDP, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, β = one(T)/100, ϵ = one(T) / 10, gradients::P = deepcopy(parameters), q̂_update::ActionValueUpdate = SarsaUpdate(), kwargs...) where {P, T<:Real}
 	s = mdp.initialize_state()
@@ -394,6 +449,7 @@ function differential_semi_gradient_sarsa!(parameters::P, mdp::StateMDP, max_epi
 	ep = 1
 	step = 1
 	R̄ = zero(T)
+	ō = zero(T)
 	epreward = zero(T)
 	step_rewards = Vector{T}()
 	episode_rewards = zeros(T, max_episodes)
@@ -422,7 +478,8 @@ function differential_semi_gradient_sarsa!(parameters::P, mdp::StateMDP, max_epi
 			U_t += q̂′
 		end
 		δ = U_t - q̂
-		R̄ += β*δ
+		ō += β * (one(T) - ō)
+		R̄ += (β/ō)*δ
 		update_parameters!(parameters, gradients, state_representation, s, i_a, U_t, α)
 		s = s′
 		i_a = i_a′
@@ -435,11 +492,14 @@ end
 differential_semi_gradient_qlearning!(args...; kwargs...) = differential_semi_gradient_sarsa!(args...; kwargs..., q̂_update = QlearningUpdate()) 
 
 # ╔═╡ 5dc15fcc-a66c-4648-90bd-a1345d4d8f4a
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 ### *Example: Differential Sarsa and Q-learning with Mountain Car Task*
 
 In order to apply differential learning to the mountain car task, we need to change the rewards per step.  Previously, the rewards were assigned in a manner appropriate for learning with a discount rate of 1.  The reward of -1 per episode step ensures that policies that finish the task faster have a higher reward.  In the average reward setting, every policy would have an average reward per step of -1 making the task ill posed.  Instead, we can assign a reward of 1 for finishing to the right and 0 at all other steps.  These rewards would produce an ill posed task for $\gamma = 1$ but are perfectly fine for the average reward setting.  Now our learning procedure should find a policy that produces the highest average reward $\frac{1}{\text{num steps}}$ which is maximized when the number of steps to finish an episode is minimized.
 """
+  ╠═╡ =#
 
 # ╔═╡ ff8330d6-3fff-4153-89ad-5345c94806d2
 function mountain_car_differential_step(s::Tuple{Float32, Float32}, i_a::Int64)
@@ -453,12 +513,18 @@ function mountain_car_differential_step(s::Tuple{Float32, Float32}, i_a::Int64)
 end
 
 # ╔═╡ cebed627-0501-4f93-81a5-fccf25d43b31
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountain_car_differential_transition = StateMDPTransitionSampler(mountain_car_differential_step, initialize_car_state())
+  ╠═╡ =#
 
 # ╔═╡ 7befec6e-3ace-4495-8b77-31fdd7d52fde
+#=╠═╡
 const mountain_car_differential_mdp = StateMDP(mountain_car_actions, mountain_car_differential_transition, initialize_car_state, s -> s[1] == 0.5f0)
+  ╠═╡ =#
 
 # ╔═╡ b80f8cb4-c391-40cc-90fa-834cd5c5e2c7
+#=╠═╡
 function differential_mountaincar_test(max_episodes::Integer, α::Float32, ϵ::Float32; method = differential_semi_gradient_sarsa!, num_tiles = 12, num_tilings = 8)
 	setup = tile_coding_gradient_setup(mountain_car_differential_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3); linear_setup = linear_features_action_gradient_setup)
 	params = [zeros(Float32, length(setup.feature_vector)) for i_a in eachindex(mountain_car_differential_mdp.actions)]
@@ -467,12 +533,17 @@ function differential_mountaincar_test(max_episodes::Integer, α::Float32, ϵ::F
 	q̂(s, i_a) = setup.value_function(s, i_a, params, feature_vector)
 	return (value_function = q̂, episode_rewards = rewards, episode_steps = steps)
 end
+  ╠═╡ =#
 
 # ╔═╡ 6ec7ae51-811d-4e50-b7c4-a309e67d9acb
-(q̂_mountain_car2, episode_rewards2, episode_steps2) = differential_mountaincar_test(50, 0.01f0/8, 0.25f0; method = differential_semi_gradient_qlearning!)
+#=╠═╡
+(q̂_mountain_car2, episode_rewards2, episode_steps2) = differential_mountaincar_test(100, 0.01f0/8, 0.75f0; method = differential_semi_gradient_qlearning!)
+  ╠═╡ =#
 
 # ╔═╡ a8a6fa06-7fcf-4b28-aa61-555b9931e66f
+#=╠═╡
 π_mountain_car2(s) = argmax(i_a -> q̂_mountain_car2(s, i_a), eachindex(mountain_car_actions))
+  ╠═╡ =#
 
 # ╔═╡ ca67b2b8-9cd4-44aa-bdbc-3165b5eea9ad
 #=╠═╡
@@ -480,6 +551,8 @@ show_mountaincar_trajectory(π_mountain_car2, 1_000, "Differential Sarsa Learned
   ╠═╡ =#
 
 # ╔═╡ 60901786-2f6f-451d-971d-27e684d079fa
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.4* 
 > Give pseudocode for a differential version of semi-gradient Q-learning.
@@ -502,16 +575,22 @@ $S \leftarrow S^\prime$
 
 See implementation above
 """
+  ╠═╡ =#
 
 # ╔═╡ d06375b3-f377-45a6-be16-01b22c5a2b3f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.5* 
 > What equations are needed (beyond 10.10) to specify the differential version of TD(0)?
 
 10.10 includes a reward estimate at time t, $\bar R_t$, which also needs to be updated.  The TD error represents the newly observed reward the was experienced in excess of the estimated average so the update equation should move $\bar R$ in the direction of the TD error.
 """
+  ╠═╡ =#
 
 # ╔═╡ 2c6951f9-33cb-400e-a83a-1a16f2ee0870
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.6* 
 > Suppose there is an MDP that under any policy produces the deterministic sequence of rewards +1, 0, +1, 0, +1, 0, . . . going on forever. Technically, this violates ergodicity; there is no stationary limiting distribution $μ_\pi$ and the limit (10.7) does not exist. Nevertheless, the average reward (10.6) is well defined. What is it? Now consider two states in this MDP. From A, the reward sequence is exactly as described above, starting with a +1, whereas, from B, the reward sequence starts with a 0 and then continues with +1, 0, +1, 0, . . .. We would like to compute the differential values of A and B. Unfortunately, the differential return (10.9) is not well defined when starting from these states as the implicit limit does not exist. To repair this, one could alternatively define the differential value of a state as $v_\pi (s) \doteq \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} \sum_{t=0}^h \gamma^t \left ( \mathbb{E_\pi} [R_{t+1}|S_0=s]-r(\pi)  \right )$.  Under this definition what are the differential values of states A and B?
@@ -532,8 +611,11 @@ $=0.5\lim_{\gamma \rightarrow 1}\frac{1}{\gamma +1 } = 0.25$
 $v_\pi (B) = \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} -0.5 + 0.5\gamma - 0.5 \gamma^2 + 0.5\gamma^3 + \cdots =-0.5\lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty}\sum_{t=0}^h (-\gamma)^t$
 $=-0.5\lim_{\gamma \rightarrow 1}\frac{1}{\gamma +1 } = -0.25$
 """
+  ╠═╡ =#
 
 # ╔═╡ 4a67aeba-dfaf-480d-84eb-7b8bcda549cb
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.7* 
 > Consider a Markov reward process consisting of a ring of three states A, B, and C, with state transitions going deterministically around the ring.  A reward of +1 is received upon arrival in A and otherwise the reward is 0.  What are the differential values of the three states, using (10.13)
@@ -582,8 +664,11 @@ $\lim_{\gamma \rightarrow 1} v(B) = \frac{1}{3} \frac{1 - 1}{3} = 0$
 $\lim_{\gamma \rightarrow 1} v(A) = \gamma \times 0 - \frac{1}{3} = -\frac{1}{3}$
 $\lim_{\gamma \rightarrow 1} v(C) =  \frac{0 + \frac{1}{3}}{\gamma} = \frac{1}{3}$
 """
+  ╠═╡ =#
 
 # ╔═╡ 9aeacb77-5c2b-4244-878f-eb5d52af49e0
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.8* 
 > The pseudocode in the box on page 251 updates $\bar R_t$ using $\delta_t$ as an error rather than simply $R_{t+1} - \bar R_t$.  Both errors work, but using $\delta_t$ is better.  To see why, consider the ring MRP of three states from Exercise 10.7.  The estimate of the average reward should tend towards its true value of $\frac{1}{3}$.  Suppose it was already there and was held stuck there.  What would the sequence of $R_{t+1} - \bar R_t$ errors be?  What would the sequence of $\delta_t$ errors be (using Equation 10.10)?  Which error sequence would produce a more stable estimate of the average reward if the estimate were allowed to change in response to the errors? Why?
@@ -597,11 +682,15 @@ $\delta_t = R_{t+1} - \bar R_t + \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \ma
 This equation requires us to have value estimates for each state which we can assume have converged to the true values as we have for the average reward estimate: $\hat v(A) = -\frac{1}{3}$, $\hat v(B) = 0$, and $\hat v(C) = \frac{1}{3}$.  Starting at state A, $\delta_t = 0 - \frac{1}{3} + 0 - -\frac{1}{3} = 0$.  For the following state we have $0 - \frac{1}{3} + \frac{1}{3} = 0$.  Finally we have $1 - \frac{1}{3} + -\frac{1}{3} - \frac{1}{3} = 0$.  So if we use the TD error to update our average reward estimate, at equilibrium all the values will remain unchanged.
 
 """
+  ╠═╡ =#
 
 # ╔═╡ 5bcdcb23-1bef-43e8-9e25-5764fcd3ae87
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 ### Example 10.2: An Access-Control Queuing Task
 """
+  ╠═╡ =#
 
 # ╔═╡ a35b2021-00d7-4d79-9130-fced83a77124
 begin
@@ -730,6 +819,8 @@ figure_10_5()
   ╠═╡ =#
 
 # ╔═╡ 38f9069b-1675-4012-b3e7-74ddbdfd73cb
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 # 10.4 Deprecating the Discounted Setting
 
@@ -739,8 +830,11 @@ We can use discounting in approximate solution methods regardless but then $\gam
 
 The root cause of the problem applying discounting with function approximation is that we have lost the policy improvement theorem which states that a policy $\pi^\prime$ is better than policy $\pi$ if $v_{\pi^\prime}(s) \geq v_\pi(s) \forall s\in \mathcal{S}$.  Under this theorem we could take a deterministic policy, choose a specific state, and find a new action at that state with a higher expected reward than the current policy.  If the policy is an approximation function that uses states represented by feature vectors, then adjusting the parameters can in general affect the actions at many states including ones that have not been encountered yet.  In fact, with approximate solution methods we cannot guarantee  policy improvement in any setting.  Later we will introduce a theoretical guarantee called the "policy-gradient theorem" but for an alternative class of algorithms based on parametrized policies.
 """
+  ╠═╡ =#
 
 # ╔═╡ c0318318-5ca4-4dea-86da-9092cd774656
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 Applying the derivation of discount independence to the MDP in exercise 3.22 who's optimal policy depends on $\gamma$
 
@@ -773,8 +867,11 @@ $\frac{v_{\pi_{left}} (right)}{v_{\pi_{right}} (right)}=\frac{2 - 2\gamma^2 + \g
 
 For $\gamma=0$ this quantity is 1 meaning the policies are equal and for $\gamma=1$ this quantity is 0.5 meaning that the right policy is better.  At $\gamma=0.5$ the quantity is $\frac{2 - 0.5 + 0.5}{2}=\frac{2}{2}=1$ meaning they are equal.  The maximum value occurs at $2\gamma = 0.5 \implies \gamma = 0.25$ with a ratio value of $\frac{2 - 0.125 + 0.25}{2}=\frac{2.125}{2}=1.0625$ meaning that the left policy is slightly better or equal from $0 \leq \gamma \leq 0.5$ and worse at $\gamma > 0.5$ which matches the earlier states.
 """
+  ╠═╡ =#
 
 # ╔═╡ b1319fd7-5043-41d9-8971-ad88725f2d3c
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 The reason why the left policy can be better if $\gamma < 0.5$ in the original example is because it has a higher value in each state considered.  Consider $\gamma = 0.25$.  The left policy has the following approximate discounted value estimates for top, left, right: 
 
@@ -786,13 +883,19 @@ Meanwhile the right policy has the corresponding values of:
 
 Each value is smaller for the right policy.  However when we calculate the average value calculated over the long term distribution of states, the left policy averages the first two values while the right policy averages the first and third values because in the long run we expect the left policy to only exist in the top and left state while the right policy will exist in the top and right state.  Because the right state has such a high value for both policies but only the right policy includes it in the average it makes its entire objective estimate higher.  However, we can see that in the event of being in the right state, it is still a higher value expectation following the left policy in this case.  The decision to average based on the final distribution results in a policy ordering that doesn't match with what we know to be the optimal policy from the policy improvement theorem over finite states.
 """
+  ╠═╡ =#
 
 # ╔═╡ e1e21ba6-07a6-4c35-ba71-0eaf6ccf74d6
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 # 10.5 Differential Semi-gradient *n*-step Sarsa
 """
+  ╠═╡ =#
 
 # ╔═╡ a649e52b-e428-4f13-8628-7373b1163a4e
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 > ### *Exercise 10.9* 
 > In the differential semi-gradient n-step Sarsa algorithm, the step-size parameter on the average reward, $\beta$, needs to be quite small so that $\bar R$ becomes a good long-term estimate of the average reward. Unfortunately, $\bar R$ will then be biased by its initial value for many steps, which may make learning inefficient. Alternatively, one could use a sample average of the observed rewards for $\bar R$. That would initially adapt rapidly but in the long run would also adapt slowly. As the policy slowly changed, $\bar R$ would also change; the potential for such long-term nonstationarity makes sample-average methods ill-suited. In fact, the step-size parameter on the average reward is a perfect place to use the unbiased constant-step-size trick from Exercise 2.7. Describe the specific changes needed to the boxed algorithm for differential semi-gradient n-step Sarsa to use this trick.
@@ -807,29 +910,17 @@ Line 2: $\beta = \lambda / \bar o$
 
 As steps progress $\beta$ will approach $\lambda$ but early on will take on much larger values as $\bar o$ starts close to 0 and approaches 1.
 """
+  ╠═╡ =#
 
 # ╔═╡ e40c2294-7283-4af6-b593-8e348b5f29d9
 md"""
 # Dependencies
 """
 
-# ╔═╡ 0742b6d4-3792-4681-acf1-608fb39afd1e
+# ╔═╡ d6601cba-206c-4302-b7a7-517972c802f2
 #=╠═╡
 TableOfContents()
   ╠═╡ =#
-
-# ╔═╡ b06f651a-20b0-4dbc-92b0-38a4819d5165
-html"""
-	<style>
-		main {
-			margin: 0 auto;
-			max-width: min(1200px, 90%);
-	    	padding-left: max(10px, 5%);
-	    	padding-right: max(10px, 5%);
-			font-size: max(10px, min(24px, 2vw));
-		}
-	</style>
-	"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1326,6 +1417,7 @@ version = "17.4.0+2"
 # ╠═c5bbcda0-a6b0-47c3-b7d0-937c658c961e
 # ╠═22f18d92-3dda-4e8b-9877-f2c3cfbd501b
 # ╠═33a9aca3-3bf8-4ff8-bf6a-d4809f9c4592
+# ╠═6a0d6c00-1960-459f-938a-4a6a465460fb
 # ╠═3cb9b843-5d93-4cc8-a89e-3603c44195ce
 # ╠═6a4c883e-ad7f-4a1d-abca-46cfdc3adb09
 # ╟─5dc15fcc-a66c-4648-90bd-a1345d4d8f4a
@@ -1360,7 +1452,6 @@ version = "17.4.0+2"
 # ╠═7cda4e0e-ed30-4389-bad7-c2552427e94a
 # ╠═1ba08cec-c8dc-4d04-8465-9f5bb6f4c79e
 # ╠═1bd08b27-634f-45b0-89be-d2f2ce7c0343
-# ╠═0742b6d4-3792-4681-acf1-608fb39afd1e
-# ╠═b06f651a-20b0-4dbc-92b0-38a4819d5165
+# ╠═d6601cba-206c-4302-b7a7-517972c802f2
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
