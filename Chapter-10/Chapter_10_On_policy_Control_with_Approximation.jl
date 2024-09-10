@@ -33,6 +33,14 @@ begin
 end
   ╠═╡ =#
 
+# ╔═╡ 86f743d4-4122-4216-98b0-a1a4581c6372
+# ╠═╡ skip_as_script = true
+#=╠═╡
+md"""
+# Chapter 10: On-policy Control with Approximation
+"""
+  ╠═╡ =#
+
 # ╔═╡ 7bae6cbe-b392-4b6c-a838-b93091712133
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -45,7 +53,7 @@ In this chapter we turn to the control problem, and like before we seek to appro
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-# 10.1 Episodic Semi-gradient Control
+## 10.1 Episodic Semi-gradient Control
 
 It is straightforward to extend the semi-gradient prediction methods in Chapter 9 to action values.  We simply consider examples of the form $S_t, A_t \rightarrow U_t$ where $U_t$ is any of the previously described update targets such as the Monte Carlo Return ($G_t$).  The new gradient-decent update for action-value prediction is:
 
@@ -134,7 +142,7 @@ end
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-## Example 10.1: Mountain Car Task
+### Example 10.1: Mountain Car Task
 """
   ╠═╡ =#
 
@@ -211,7 +219,7 @@ end
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-# 10.2 Semi-gradient *n*-step Sarsa
+## 10.2 Semi-gradient *n*-step Sarsa
 
 We can obtain an $n$-step version of semi-gradient Sarsa by using an $n$-step return as the update target for the semi-gradient Sarsa update equation (10.1).  The $n$-step return immediately generalizes from its tabular form (7.4) to a function approximation form: 
 
@@ -363,7 +371,7 @@ At large n more of the reward function comes from the actual trajectory observed
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-# 10.3 Average Reward: A New Problem Setting for Continuing Tasks
+## 10.3 Average Reward: A New Problem Setting for Continuing Tasks
 
 We now introduce an alternative to the discount setting for solving continuing problems (MDPs without a terminal state).  The average-reward setting is more commonly used in the classical theory of dynamic programming.  The purpose of introducing the average-reward is because discounting is problematic with function approximation in a way it was not problematic for tabular problems.  
 
@@ -822,7 +830,7 @@ figure_10_5()
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-# 10.4 Deprecating the Discounted Setting
+## 10.4 Deprecating the Discounted Setting
 
 In a special case of indistinguishable states, we can only use the actions and reward sequences to analyze a continuing task.  For a policy $\pi$, the average of the discounted returns with discount factor $\gamma$ is always $\frac{r(\pi)}{1-\gamma}$.  Therefore the *ordering* of all policies is independent of the discount rate and would match the ordering we get in the average reward setting.  This derivation however depends on states being indistinguishable allowing us to match up the weights on reward sequences from different policies.
 
@@ -889,7 +897,7 @@ Each value is smaller for the right policy.  However when we calculate the avera
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-# 10.5 Differential Semi-gradient *n*-step Sarsa
+## 10.5 Differential Semi-gradient *n*-step Sarsa
 """
   ╠═╡ =#
 
@@ -913,9 +921,12 @@ As steps progress $\beta$ will approach $\lambda$ but early on will take on much
   ╠═╡ =#
 
 # ╔═╡ e40c2294-7283-4af6-b593-8e348b5f29d9
+# ╠═╡ skip_as_script = true
+#=╠═╡
 md"""
 # Dependencies
 """
+  ╠═╡ =#
 
 # ╔═╡ d6601cba-206c-4302-b7a7-517972c802f2
 #=╠═╡
@@ -1385,6 +1396,7 @@ version = "17.4.0+2"
 """
 
 # ╔═╡ Cell order:
+# ╟─86f743d4-4122-4216-98b0-a1a4581c6372
 # ╟─7bae6cbe-b392-4b6c-a838-b93091712133
 # ╟─b4c83bb2-b1ab-4458-9dfb-b319b1bd52a3
 # ╠═98e0f34a-d05c-4ac5-a892-4f5d6ae4e3c2
@@ -1441,7 +1453,7 @@ version = "17.4.0+2"
 # ╠═fcfdc0ca-dfc0-4549-932c-31e9d3c97d43
 # ╠═ceddc788-9892-4984-9219-1ef417b904ba
 # ╠═a683bf6a-f4bc-4b68-9cbf-28fe4c799c5c
-# ╠═2559295c-eee9-4adf-a495-6e73e37ecc27
+# ╟─2559295c-eee9-4adf-a495-6e73e37ecc27
 # ╠═84719e6c-8acd-4bdd-a74a-e0ac0cdb829c
 # ╟─38f9069b-1675-4012-b3e7-74ddbdfd73cb
 # ╟─c0318318-5ca4-4dea-86da-9092cd774656

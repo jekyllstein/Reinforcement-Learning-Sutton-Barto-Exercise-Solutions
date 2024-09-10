@@ -4,7 +4,7 @@ using Reexport, PrecompileTools
 
 import PlutoDevMacros
 
-@reexport using TabularRL, FCANN, NVIDIALibraries, SparseArrays, LinearAlgebra
+@reexport using TabularRL, FCANN, NVIDIALibraries, SparseArrays, LinearAlgebra, TailRec
 
 include(joinpath(@__DIR__, "..", "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
 
