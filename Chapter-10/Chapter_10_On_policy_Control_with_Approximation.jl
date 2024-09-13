@@ -315,8 +315,8 @@ function plot_mountaincar_action_values()
 			actions[i, j] = mountain_car_actions[i_a]
 		end
 	end
-	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity"))
-	p2 = plot(heatmap(x = xvals, y = vvals, z = actions), Layout(xaxis_title = "position", yaxis_title = "velocity"))
+	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Learned Value Function"))
+	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)"))
 	[p1 p2]
 end
   ╠═╡ =#
@@ -545,7 +545,7 @@ end
 
 # ╔═╡ 6ec7ae51-811d-4e50-b7c4-a309e67d9acb
 #=╠═╡
-(q̂_mountain_car2, episode_rewards2, episode_steps2) = differential_mountaincar_test(100, 0.01f0/8, 0.75f0; method = differential_semi_gradient_qlearning!)
+(q̂_mountain_car2, episode_rewards2, episode_steps2) = differential_mountaincar_test(100, 0.01f0/8, 0.5f0; method = differential_semi_gradient_qlearning!)
   ╠═╡ =#
 
 # ╔═╡ a8a6fa06-7fcf-4b28-aa61-555b9931e66f
@@ -1411,7 +1411,7 @@ version = "17.4.0+2"
 # ╠═4d6d3d2c-ae76-485a-8f7e-d073a307b2c9
 # ╠═aa68518b-82c4-488f-8ba0-8fd1d6866507
 # ╠═e6766bbe-2705-4ae7-b341-6b8715137c90
-# ╠═b4a6d133-b045-4413-b33e-59d887df459b
+# ╟─b4a6d133-b045-4413-b33e-59d887df459b
 # ╠═c669957e-70d8-4fef-be9b-7e16d900dc62
 # ╠═a7474f60-0a16-4dc0-a82d-aab9911354ab
 # ╠═512387d4-4b0f-4016-8a94-c0ee722182da

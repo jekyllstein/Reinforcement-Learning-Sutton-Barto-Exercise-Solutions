@@ -117,57 +117,37 @@ md"""
 When $U_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \boldsymbol{w})$ the target value is the same as for temporal difference learning.  Now that the target uses parameter estimates, our gradient update is no longer correct since the target also depends on the parameters.  Thus this method is called `semi` gradient and has good convergence properties in the linear case.
 """
 
-# ╔═╡ 160d1b6f-3340-4326-bfd3-c7d3f2328488
-function semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real}
-	s = mdp.initialize_state()
-	a = π(s)
-	(r, s′) = mdp.ptf(s, a)
-	ep = 1
-	step = 1
-	while (ep <= max_episodes) && (step <= max_steps)
-		v̂′ = mdp.isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
-		v̂ = r + γ*v̂′
-		update_parameters!(parameters, gradients, state_representation, s, v̂, α)
-		if mdp.isterm(s′)
-			s = mdp.initialize_state()
-			ep += 1
-		else
-			s = s′
+# ╔═╡ e8e26a28-90a5-4519-ab08-11b49a8a9499
+begin
+	function semi_gradient_td0_estimation!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients::P = deepcopy(parameters), epkwargs...) where {P, T<:Real}
+		s = initialize_state()
+		(r, s′) = transition(s)
+		ep = 1
+		step = 1
+		while (ep <= max_episodes) && (step <= max_steps)
+			v̂′ = isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
+			v̂ = r + γ*v̂′
+			update_parameters!(parameters, gradients, state_representation, s, v̂, α)
+			if isterm(s′)
+				s = initialize_state()
+				ep += 1
+			else
+				s = s′
+			end
+			(r, s′) = transition(s)
+			step += 1
 		end
-		a = π(s)
-		(r, s′) = mdp.ptf(s, a)
-		step += 1
+		return parameters
 	end
-	return parameters
+
+	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
+	
+	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s, π), mrp.isterm, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
+	
+	semi_gradient_td0_policy_estimation(mdp::StateMDP, π::Function, γ::T, num_params::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; max_steps = 100_000, max_episodes = typemax(Int64), w_init = zero(T), parameters = fill(w_init, num_params), kwargs...) where {T<:Real} = semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
+	
+	semi_gradient_td0_estimation(mrp::StateMRP, γ::T, num_params::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; max_steps = 100_000, max_episodes = typemax(Int64), w_init = zero(T), parameters = fill(w_init, num_params), kwargs...) where {T<:Real} = semi_gradient_td0_estimation!(parameters, mrp, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
 end
-
-# ╔═╡ 5d90b840-4979-4e8b-bad1-68a3dc7aa392
-function semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real}
-	s = mrp.initialize_state()
-	(r, s′) = mrp.ptf(s)
-	ep = 1
-	step = 1
-	while (ep <= max_episodes) && (step <= max_steps)
-		v̂′ = mrp.isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
-		v̂ = r + γ*v̂′
-		update_parameters!(parameters, gradients, state_representation, s, v̂, α)
-		if mrp.isterm(s′)
-			s = mrp.initialize_state()
-			ep += 1
-		else
-			s = s′
-		end
-		(r, s′) = mrp.ptf(s)
-		step += 1
-	end
-	return parameters
-end
-
-# ╔═╡ 512f1358-0536-4d60-9ba6-173138ee6e14
-semi_gradient_td0_policy_estimation(mdp::StateMDP, π::Function, γ::T, num_params::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; max_steps = 100_000, max_episodes = typemax(Int64), w_init = zero(T), parameters = fill(w_init, num_params), kwargs...) where {T<:Real} = semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
-
-# ╔═╡ 8f4c82ee-d45a-41d8-b668-234de6d85f4d
-semi_gradient_td0_estimation(mrp::StateMRP, γ::T, num_params::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; max_steps = 100_000, max_episodes = typemax(Int64), w_init = zero(T), parameters = fill(w_init, num_params), kwargs...) where {T<:Real} = semi_gradient_td0_estimation!(parameters, mrp, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
 
 # ╔═╡ cb2005fd-d3e0-4f37-908c-77e4bbac45b8
 #=╠═╡
@@ -752,9 +732,6 @@ Tile coding is a form of coarse coding where each state will be present in one d
 # ╔═╡ d215b917-c43d-4c14-aa97-2310f922d71a
 scale_state(s::T, min_value::T, range::T) where T<:Real = (s - min_value) / range
 
-# ╔═╡ 2e95c371-5f76-4301-9c13-4008e7dbbb6d
-LinearIndices(rand(10, 10, 10))
-
 # ╔═╡ 09fb1fcd-55f9-4e04-bdb5-e5cdc649370b
 begin
 	#calculates which tile a state is in for the tiling represented by one offset
@@ -866,11 +843,6 @@ end
 tile_coding_test = tile_coding_gradient_setup(random_walk_state_mrp, 0f0, 1000f0, Float32(tile_coding_params.tile_size), tile_coding_params.num_tilings, 1)
   ╠═╡ =#
 
-# ╔═╡ a090b9c3-dc9a-4206-bda2-d93e56b9ad75
-#=╠═╡
-tile_coding_test.get_feature_vector(5f0)
-  ╠═╡ =#
-
 # ╔═╡ d17926d5-bcfa-4789-9609-59a69d87d194
 #=╠═╡
 md"""
@@ -880,7 +852,7 @@ The following shows which feature is active for each tiling in the 1 dimensional
 
 # ╔═╡ 71e7eef0-0304-4e26-8991-fa20da83df9a
 #=╠═╡
-plot(heatmap(z = reduce(hcat, tile_coding_test.get_feature_vector.(Float32.(1:num_states))), colorscale = false))
+plot(heatmap(x = 1:num_states, y = 1:length(tile_coding_test.get_feature_vector(1f0)), z = reduce(hcat, tile_coding_test.get_feature_vector.(Float32.(1:num_states))), colorscale = "Greys", showscale=false), Layout(xaxis = attr(title = "state", mirror = true, linecolor = "black"), yaxis = attr(title = "Active Features", linecolor="black", mirror = true), title = "Active Tiling Features In White"))
   ╠═╡ =#
 
 # ╔═╡ ce6cf63e-5bbf-4be6-84c1-e7ae605972cc
@@ -960,6 +932,14 @@ md"""
 ## 9.7 Nonlinear Function Approxmation: Artificial Neural Networks
 """
 
+# ╔═╡ 82828e72-5d30-41b6-a1b6-f258c234b034
+md"""
+### *Neural Network Parameter Update Implementation*
+"""
+
+# ╔═╡ d660b447-99f4-4db9-859a-afa5e0e34d13
+#add more sophisticated parameter update with per parameter learning rates and compare to plain stochastic gradient descent
+
 # ╔═╡ eca42c3b-fa09-4999-b260-c5de95c2987c
 #=╠═╡
 function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32})
@@ -982,6 +962,13 @@ function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{
 	return mean((δs[end][:] ./2).^2)
 end
   ╠═╡ =#
+
+# ╔═╡ 55f451b2-dcff-4442-a1ea-ac2c53433298
+function update_input!(input::Matrix{Float32}, feature_vector::Vector{Float32}, num::Integer)
+	for i in eachindex(feature_vector)
+		input[num, i] = feature_vector[i]
+	end
+end
 
 # ╔═╡ ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
 #=╠═╡
@@ -1010,12 +997,6 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 	input = zeros(Float32, 1, input_layer_size)
 	output = zeros(Float32, 1, 1)
 	scales = ones(Float32, length(layers)+1)
-
-	function update_input!(input::Matrix{Float32}, feature_vector::Vector{Float32}, num::Integer)
-		for i in eachindex(feature_vector)
-			input[num, i] = feature_vector[i]
-		end
-	end
 	
 	function update_parameters!(parameters, gradients, state_representation::Vector{Float32}, s::S, g::T, α::T)
 		update_feature_vector!(state_representation, s)
@@ -1036,7 +1017,8 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 	function v̂(s::S, parameters, state_representation) 
 		update_feature_vector!(state_representation, s)
 		update_input!(input, state_representation, 1)
-		predict(parameters[1], parameters[2], input, 1)[1, 1]
+		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
+		return activations[end][1, 1]
 	end
 
 	function v̂(states::AbstractVector{S}, parameters, state_representation)
@@ -1045,12 +1027,27 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 			update_feature_vector!(state_representation, states[i])
 			update_input!(input, state_representation, i)
 		end
-		predict(parameters[1], parameters[2], input, 1)
+		FCANN.predict(parameters[1], parameters[2], input, 1)
+		# copy(activations[end])
+	end
+
+	function v̂(input::Matrix{T}, output::Matrix{T}, states::AbstractVector{S}, rewards::Vector{T}, γ::T, parameters, state_representation)
+		for i in eachindex(states)
+			update_feature_vector!(state_representation, states[i])
+			update_input!(input, state_representation, i)
+		end
+		v̂′ = FCANN.predict(parameters[1], parameters[2], input, 1)
+		output .= rewards .+ γ .* v̂′
 	end
 	
 	return (value_function = v̂, parameter_update = update_parameters!, parameters = (θ, β), gradients = (∇θ, ∇β), state_representation = feature_vector)
 end
   ╠═╡ =#
+
+# ╔═╡ 8decd00b-ca5f-4747-970d-2c5af895f9dd
+md"""
+### *Batch Monte Carlo Estimation Implementation*
+"""
 
 # ╔═╡ 5bf9c17e-e4d0-4a8d-956d-1f4bc821d9ee
 begin
@@ -1310,8 +1307,83 @@ function gradient_monte_carlo_batch_estimation!(parameters, mrp::StateMRP, γ::T
 	return rmse_history
 end
 
-# ╔═╡ 01e682ed-e623-4831-a77c-87d7f0f8ffa9
+# ╔═╡ 4bc908e1-41d2-4231-bc2e-4fa5d0a65ce7
+md"""
+### *Batch Semi-gradient TD0 Estimation Implementation*
+"""
 
+# ╔═╡ 713d89aa-b444-4b9d-87d4-97a23373318a
+function semi_gradient_td0_policy_batch_estimation!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}, batchsize::Integer; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	s = mdp.initialize_state()
+	a = π(s)
+	(r, s′) = mdp.ptf(s, a)
+	statelist = Vector{S}(undef, batchsize)
+	targetlist = Vector{T}(undef, batchsize)
+	input = Matrix{T}(undef, batchsize, length(state_representation))
+	output = Matrix{T}(undef, batchsize, 1)
+	batchcount = 1
+	ep = 1
+	step = 1
+	while (ep <= max_episodes) && (step <= max_steps)
+		v̂′ = mdp.isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
+		v̂ = r + γ*v̂′
+		statelist[batchcount] = s
+		targetlist[batchcount] = v̂
+		if mdp.isterm(s′)
+			s = mdp.initialize_state()
+			ep += 1
+		else
+			s = s′
+		end
+		a = π(s)
+		(r, s′) = mdp.ptf(s, a)
+		step += 1
+		if batchcount == batchsize
+			upate_parameters!(parameters, gradients, state_representation, input, statelist, output, α)
+			batchcount = 1
+		else
+			batchcount += 1
+		end
+	end
+	return parameters
+end
+
+# ╔═╡ 0625c24b-e948-41ce-aa14-8e32f7d6ac11
+function semi_gradient_td0_batch_estimation!(parameters, mrp::StateMRP{T, S, P, F1, F2}, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}, batchsize::Integer; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real, S, P, F1, F2}
+	s = mrp.initialize_state()
+	(r, s′) = mrp.ptf(s)
+	statelist = Vector{S}(undef, batchsize)
+	transitionstatelist = Vector{S}(undef, batchsize)
+	rewardlist = Vector{T}(undef, batchsize)
+	input = Matrix{T}(undef, batchsize, length(state_representation))
+	output = Matrix{T}(undef, batchsize, 1)
+	batchcount = 1
+	ep = 1
+	step = 1
+	while (ep <= max_episodes) && (step <= max_steps)
+		# v̂′ = mrp.isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
+		# v̂ = r + γ*v̂′
+		statelist[batchcount] = s
+		transitionstatelist[batchcount] = s′
+		rewardlist[batchcount] = r
+		if mrp.isterm(s′)
+			s = mrp.initialize_state()
+			ep += 1
+		else
+			s = s′
+		end
+		(r, s′) = mrp.ptf(s)
+		step += 1
+		if batchcount == batchsize
+			estimate_value(input, output, transitionstatelist, rewardlist, γ, parameters, state_representation)
+			update_parameters!(parameters, gradients, state_representation, input, statelist, output, α)
+			batchcount = 1
+		else
+			batchcount += 1
+		end
+	end
+	return parameters
+end
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 md"""
@@ -1354,13 +1426,23 @@ function run_random_walk_fcann_monte_carlo_batch_estimation(mrp::StateMRP{T, S, 
 end
   ╠═╡ =#
 
+# ╔═╡ 12b80788-b46a-414f-8771-356ba91be3d5
+#=╠═╡
+function run_random_walk_fcann_td0_batch_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}, batchsize::Integer; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!)
+	semi_gradient_td0_batch_estimation!(setup.parameters, mrp, γ, num_episodes, typemax(Int64), setup.value_function, setup.parameter_update, setup.state_representation, batchsize; gradients = setup.gradients, use_matrix_output=true,kwargs...)
+	v̂(s) = setup.value_function(s, setup.parameters, setup.state_representation)
+	return (v̂ = v̂, parameters = setup.parameters)
+end
+  ╠═╡ =#
+
 # ╔═╡ 3ab43d46-f171-4f3b-b788-91ebbff4420c
-const nn_layers = [2, 2, 2]
+const nn_layers = [20, 20]
 
 # ╔═╡ e15dc0eb-9e83-4994-b953-b28c74e58030
 #=╠═╡
-# const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers; α = 5f-5)
-const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_batch_estimation(random_walk_state_mrp, 1f0, 10_000, nn_layers; α = 1f-3, decay_α = true)
+const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 50_000, nn_layers; α = 2f-6)
+# const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_batch_estimation(random_walk_state_mrp, 1f0, 10_000, nn_layers; α = 1f-3, decay_α = true)
   ╠═╡ =#
 
 # ╔═╡ bce990c1-fffc-4393-88b0-8ddb783f57a2
@@ -1368,9 +1450,14 @@ const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_batch_esti
 const fcann_random_walk_td0_output = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers; α = 5f-3)
   ╠═╡ =#
 
+# ╔═╡ d854d97d-0ca1-4cc7-a7a7-2e76ff5f4d1f
+#=╠═╡
+const fcann_random_walk_td0_batch_output = run_random_walk_fcann_td0_batch_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers, 8; α = 5f-6)
+  ╠═╡ =#
+
 # ╔═╡ c8334c7c-7a0e-4cf4-a837-cb0404f2fe1b
 #=╠═╡
-plot([scatter(y = fcann_random_walk_mc_output.v̂(Float32.(1:num_states))[:], name = "monte carlo method"), scatter(y = fcann_random_walk_td0_output.v̂(Float32.(1:num_states))[:], name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with Layers: $nn_layers"))
+plot([scatter(y = fcann_random_walk_mc_output.v̂(Float32.(1:num_states))[:], name = "monte carlo method"), scatter(y = fcann_random_walk_td0_output.v̂(Float32.(1:num_states))[:], name = "td0 method"), scatter(y = fcann_random_walk_td0_batch_output.v̂(Float32.(1:num_states))[:], name = "td0 batch method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with Layers: $nn_layers"))
   ╠═╡ =#
 
 # ╔═╡ 6b30d3c2-0dd0-4630-ace3-1571dda25bab
@@ -1386,7 +1473,140 @@ In this case we have the true value reference, but what do we do in a situation 
 # ╔═╡ b22ef023-4e6a-4114-b3c2-bf91e16e9a43
 md"""
 ## 9.8 Least-Squares TD
+
+All the methods we have discussed so far in this chapter have required computation per time step proportional to the number of parameters.  With more computation, however, one can do better.  In this section we present a method for linear function approximation that is arguably the best that can be done for this case.  As we established in Section 9.4 TD(0) with linear function approxmation converges assymptotically (for appropriate decreasing step sizes) to the TD fixed point:
+
+$\mathbf{w_{TD}} = \mathbf{A}^{-1}\mathbf{b}$
+
+where
+
+ $\mathbf{A} \doteq \mathbb{E}\left [ \mathbf{x}_t(\mathbf{x}_t - \gamma \mathbf{x}_{t+1} ) ^\top \right ]$ and $\mathbf{b} \doteq \mathbb{E} [ R_{t+1} \mathbf{x}_t ]$
+
+Instead of updating $\mathbf{w}$ incrementally we could use whatever data we have collected so far to compute estimates of $\mathbf{A}$ and \mathbf{b}$ and then compute the TD fixed point directly.  *Least-Squares TD* or LSTD does this by forming the following estimates: 
+
+ $\widehat{\mathbf{A}_t} \doteq \sum_{k=0}^{t-1} \mathbf{x}_k (\mathbf{x}_k - \gamma \mathbf{x}_{k+1})^\top + \epsilon \mathbf{I}$ and $\widehat{\mathbf{b}_t} \doteq \sum_{k=0}^{t-1} R_{k+1} \mathbf{x}_k \tag{9.20}$
+
+where $\mathbf{I}$ is the identity matrix, and $\epsilon \mathbf{I}$, for some small $\epsilon \gt 0$, ensures that $\widehat{\mathbf{A}_t}$ is always invertible.  It might seem that these estimates should both be divided by $t$, and indeed they should; as defined here, these are really estimates of $t$ *times* $\mathbf{A}$ and $t$ *times* $\mathbf{b}$.  However, the extra $t$ factors cancel out when LSTD uses these estimates to estimate the TD fixed point as
+
+$\mathbf{w}_t \doteq \widehat{\mathbf{A}_t}^\top \widehat{\mathbf{b}_t} \tag{9.21}$
+
+This algorithm is the most data efficient form of linear TD(0), but it is also more expensive computationally.  Recall that semi-gradient TD(0) requires memory and per step computation that is only $O(d)$.  In contrast LSTD requires us to invert $\widehat{\mathbf{A}_t}$ which is $O(d^3)$ on top of the incremental updates to $\widehat{\mathbf{A}_t}$ requiring $O(d^2)$.  Fortunately, the matrix we are inverting is a sum of outer products and there is an $O(d^2)$ incremental update rule for that:
+
+$\begin{flalign}
+\widehat{\mathbf{A}_t}^{-1} &= \left ( \widehat{A}_{t-1} + \mathbf{x}_{t-1} (\mathbf{x}_{t-1} - \gamma \mathbf{x}_{t})^\top \right )^{-1} \tag{from (9.20)} \\
+&= \widehat{\mathbf{A}}_{t-1} - \frac{\widehat{\mathbf{A}_{t-1}^{-1} \mathbf{x}_{t-1}(\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1}}}{1 + (\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}} \tag{9.22}  
+\end{flalign}$
+
+for $t>0$, with $\widehat{\mathbf{A}}_0 \doteq \epsilon \mathbf{I}$.  Although the identity (9.22), known as *the Sherman-Morrison formula*, is superficially complicated, it involves only vector-matrix and vector-vector multiplications and thus is only $O(d^2)$.  Of course, $O(d^2)$ is still significantly more expensive than the $O(d)$ of semi-gradient TD.  Whether this greater data efficiency of LSTD is worth this computational expense depends on how large $d$ is, how important it is to learn quickly, and the expense of other parts of the system.  The fact that LSTD requires no step-size parameter is sometimes also touted, but the advantage of this is probably overstated since we still need to define $\epsilon$ which affects the sequences of inverses calculated.  Also if the target policy changes it may be undesireable that we keep all of the data, so we may need to use some step size parameter anyway to have old data decay.
 """
+
+# ╔═╡ 32c054ee-a7ee-4705-87c3-fb1a4bd956ab
+md"""
+### *Least-Squares TD Implementation*
+"""
+
+# ╔═╡ a8d7e5f7-8509-4aa1-b4c6-669339cb173c
+begin
+	function least_squares_td_estimation(d::Integer, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; ϵ = one(T)/100, s0::S = initialize_state()) where {T<:Real, S}
+		s = initialize_state()
+		ep = 1
+		step = 1
+		parameters = zeros(T, d)
+		Ainv = zeros(T, d, d)
+		Ainv2 = zeros(T, d, d)
+		for i in 1:d
+			Ainv[i, i] = inv(ϵ)
+		end
+		state_representation1 = zeros(T, d)
+		state_representation2 = zeros(T, d)
+		
+		b = zeros(T, d)
+		v = zeros(T, d)
+		x3 = zeros(T, d)
+		update_state_representation!(state_representation1, s)
+		while (ep <= max_episodes) && (step <= max_steps)
+			(r, s′) = transition(s)
+			if isterm(s′)
+				state_representation2 .= zero(T)
+			else
+				update_state_representation!(state_representation2, s′)
+			end
+
+			x3 .= state_representation1 .- γ .* state_representation2
+			mul!(v, Ainv', x3)
+			mul!(x3, Ainv, state_representation1)
+			mul!(Ainv2, x3, v')
+			Ainv .-= Ainv2 ./ (one(T) + dot(v, state_representation1))
+			b .+= r.*state_representation1
+			mul!(parameters, Ainv, b)
+			
+			s = s′
+			
+			if isterm(s′)
+				s = initialize_state()
+				ep += 1
+				update_state_representation!(state_representation1, s)
+			else
+				s = s′
+				state_representation1 .= state_representation2
+			end
+			step += 1
+		end
+
+		function v(s::S)
+			x = zeros(T, d)
+			update_state_representation!(x, s)
+			dot(parameters, x)
+		end
+
+		function v(states::AbstractVector{S})
+			x = zeros(T, d)
+			input = zeros(T, length(states), d)
+			for i in eachindex(states)
+				update_state_representation!(x, states[i])
+				for j in 1:d
+					input[i, j] = x[j]
+				end
+			end
+			input*parameters
+		end
+		return (parameters = parameters, value_estimate = v)
+	end
+
+	least_squares_td_estimation(mrp::StateMRP, d::Integer, args...; kwargs...) = least_squares_td_estimation(d, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
+
+	least_squares_td_policy_estimation(mdp::StateMDP, d::Integer, π::Function, args...; kwargs...) = least_squares_td_estimation(d, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
+end
+
+# ╔═╡ 195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
+md"""
+### *Example: LSTD with Random Walk Example*
+"""
+
+# ╔═╡ e0e51e37-0217-4a76-b6e7-9b6e15429941
+function create_state_aggregation_feature_vector_update(assign_state_group::Function)
+	function update_state_representation!(state_representation::AbstractVector{T}, s) where {T<:Real}
+		i = assign_state_group(s)
+		state_representation .= zero(T)
+		state_representation[i] = one(T)
+		return state_representation
+	end
+end
+
+# ╔═╡ f10c643b-9205-4b18-841c-255a9354cf97
+#=╠═╡
+function test_least_squares_td_randomwalk(num_episodes; num_groups = 10)
+	(params, v) = least_squares_td_estimation(random_walk_state_mrp, num_groups, 1f0, num_episodes, typemax(Int64), create_state_aggregation_feature_vector_update(make_random_walk_group_assign(num_states, num_groups)))
+	t1 = scatter(y = v(Float32.(1:1000)), name = "LSTD Estimation")
+	t2 = scatter(y = random_walk_v.value_function[2:end-1], name = "true value")
+	plot([t1; t2])
+end
+  ╠═╡ =#
+
+# ╔═╡ 7c5ac88b-453b-40bd-98a4-534fc70c7c45
+#=╠═╡
+test_least_squares_td_randomwalk(5000)
+  ╠═╡ =#
 
 # ╔═╡ 290200a3-7523-4e0f-bd3a-288626adaf29
 md"""
@@ -1425,7 +1645,7 @@ $\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha [U_t - \hat v(S_t, \bolds
 
 For a single semi-linear unit, $\hat v(S_t, \boldsymbol{w}_t) = f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)$ where $f$ is the logistic function and $\boldsymbol{x}_t$ is the feature vector of state $S_t$ with the same length as $\boldsymbol{w}_t$.  
 
-Also, using the finition of the logistic function:
+Also, using the definition of the logistic function:
 
 $\begin{flalign}
 f(x) &\doteq (1 + e^{-x})^{-1} \tag{1}\\
@@ -1515,7 +1735,7 @@ html"""
 	<style>
 		main {
 			margin: 0 auto;
-			max-width: min(1200px, 90%);
+			max-width: min(1600px, 90%);
 	    	padding-left: max(10px, 5%);
 	    	padding-right: max(10px, 5%);
 			font-size: max(10px, min(24px, 2vw));
@@ -1990,10 +2210,7 @@ version = "17.4.0+2"
 # ╠═ae19496f-7d6c-4b91-8456-d7a1eacbe3d3
 # ╠═7542ff9c-c6a1-4d41-8863-05388fea8ce2
 # ╟─df56b803-0aa5-4946-8338-601195e57a3e
-# ╠═160d1b6f-3340-4326-bfd3-c7d3f2328488
-# ╠═5d90b840-4979-4e8b-bad1-68a3dc7aa392
-# ╠═512f1358-0536-4d60-9ba6-173138ee6e14
-# ╠═8f4c82ee-d45a-41d8-b668-234de6d85f4d
+# ╠═e8e26a28-90a5-4519-ab08-11b49a8a9499
 # ╟─cb2005fd-d3e0-4f37-908c-77e4bbac45b8
 # ╟─90e5fc0e-2e97-424b-a5dd-9deb38293121
 # ╠═de9bea60-c91d-4253-bdd8-a3c1fde8941c
@@ -2066,15 +2283,13 @@ version = "17.4.0+2"
 # ╠═40f0fd57-a4ea-47a0-b883-3b038a6612c4
 # ╟─e565c041-17bd-40c8-9240-e86931c83010
 # ╠═d215b917-c43d-4c14-aa97-2310f922d71a
-# ╠═2e95c371-5f76-4301-9c13-4008e7dbbb6d
 # ╠═09fb1fcd-55f9-4e04-bdb5-e5cdc649370b
 # ╠═bb81db16-7c4d-4e08-bf17-45147be2b0db
 # ╟─e6514762-31e0-4916-aa21-c280674c2fc1
 # ╟─84d9aac5-cf3b-402b-b222-9e8985a80b5b
 # ╠═dda74c94-3574-4e7b-bab1-d106111d36d4
-# ╠═a090b9c3-dc9a-4206-bda2-d93e56b9ad75
 # ╟─d17926d5-bcfa-4789-9609-59a69d87d194
-# ╠═71e7eef0-0304-4e26-8991-fa20da83df9a
+# ╟─71e7eef0-0304-4e26-8991-fa20da83df9a
 # ╠═0179a9bb-0778-4220-8b13-a5297c00b763
 # ╠═fe0140fa-aba3-4338-9d19-6a591e7a95c7
 # ╠═ce6cf63e-5bbf-4be6-84c1-e7ae605972cc
@@ -2090,24 +2305,38 @@ version = "17.4.0+2"
 # ╟─be019186-33ad-4eb7-a218-9124ff40b6fb
 # ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
 # ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
+# ╟─82828e72-5d30-41b6-a1b6-f258c234b034
+# ╠═d660b447-99f4-4db9-859a-afa5e0e34d13
 # ╠═eca42c3b-fa09-4999-b260-c5de95c2987c
 # ╠═d1edfc31-23de-427a-9a08-51c4e33f3fc7
+# ╠═55f451b2-dcff-4442-a1ea-ac2c53433298
 # ╠═ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
+# ╟─8decd00b-ca5f-4747-970d-2c5af895f9dd
 # ╠═920154d7-f2ba-42b6-8fdb-7d41fd73ab8a
 # ╠═5bf9c17e-e4d0-4a8d-956d-1f4bc821d9ee
-# ╠═01e682ed-e623-4831-a77c-87d7f0f8ffa9
+# ╠═4bc908e1-41d2-4231-bc2e-4fa5d0a65ce7
+# ╠═713d89aa-b444-4b9d-87d4-97a23373318a
+# ╠═0625c24b-e948-41ce-aa14-8e32f7d6ac11
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
 # ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
 # ╠═93a1f51f-1d83-408e-a860-26e6280c65ee
 # ╠═e2d62bf4-5acc-44ab-9ab0-edc6f814ae18
+# ╠═12b80788-b46a-414f-8771-356ba91be3d5
 # ╠═3ab43d46-f171-4f3b-b788-91ebbff4420c
 # ╠═e15dc0eb-9e83-4994-b953-b28c74e58030
 # ╠═bce990c1-fffc-4393-88b0-8ddb783f57a2
+# ╠═d854d97d-0ca1-4cc7-a7a7-2e76ff5f4d1f
 # ╠═c8334c7c-7a0e-4cf4-a837-cb0404f2fe1b
 # ╟─6b30d3c2-0dd0-4630-ace3-1571dda25bab
 # ╟─b227bf76-4c34-4e07-91ab-ee07ab9c5b77
 # ╟─b22ef023-4e6a-4114-b3c2-bf91e16e9a43
+# ╟─32c054ee-a7ee-4705-87c3-fb1a4bd956ab
+# ╠═a8d7e5f7-8509-4aa1-b4c6-669339cb173c
+# ╟─195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
+# ╠═e0e51e37-0217-4a76-b6e7-9b6e15429941
+# ╠═f10c643b-9205-4b18-841c-255a9354cf97
+# ╠═7c5ac88b-453b-40bd-98a4-534fc70c7c45
 # ╟─290200a3-7523-4e0f-bd3a-288626adaf29
 # ╟─34b78988-40f9-47e9-9c5a-7823de866b12
 # ╟─905b032d-5fa0-4a3c-9055-fec92fd5879e

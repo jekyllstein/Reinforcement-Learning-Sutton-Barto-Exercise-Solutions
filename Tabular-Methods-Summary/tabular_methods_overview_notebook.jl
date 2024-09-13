@@ -3858,8 +3858,12 @@ function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 		end
 		include_indices = [partialsortperm(prior, 1:topk; rev=true); state_visit_counts.nzind]
 		include_indices = filter(i -> !isinf(prior[i]), include_indices) #despite the topk, remove any indices that have a prior of 0
-		i = argmax(v_hold[i] for i in include_indices)
-		i_a = include_indices[i]
+		if isempty(include_indices) #fallback in case all selected indices have 0 prior
+			i_a = i_a_greedy
+		else
+			i = argmax(v_hold[i] for i in include_indices)
+			i_a = include_indices[i]
+		end
 	end
 
 	#use the distribution step to compute the state-action value using the transition probabilities
