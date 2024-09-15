@@ -1611,12 +1611,103 @@ test_least_squares_td_randomwalk(5000)
 # ╔═╡ 290200a3-7523-4e0f-bd3a-288626adaf29
 md"""
 ## 9.9 Memory-based Function Approximation
+
+All of the methods discussed so far have been *parametric*.  That is to say they use an approximation function whos output depends on a list of parameters which are updated as part of the leaning process.  The parameter values determine the value estimate accross the entire state space and in general any parameter update could have an impact on some or all of the other state values.  If we need to compute the value of a state during the learning process, we simply apply the function approximation with the current list of parameters to that state.
+
+Memory-based function approxmation methods save training examples as memory as they arrive (or a subset of examples).  Whenever we need a state's value estimate, we query the memory to compute the value.  This is sometimes called *lazy learning* because nothing is done with data from examples until it is needed.  Memory baesd approaches are *nonparametric* methods since the estimation method is not limited to a class of functions determined ahead of time by the structure of the parameters and feature vectors.  
+
+One class of memory-based methods are *local-learning* methods that approximate a value function only locally in the neighborhood of the current query state.  These methods retrieve a set of training examples form memory whose states are judged to be the most relevant to the query state, where relevance usually depends on the distance between states.  
+
+The simplest example of the memory-based approach is the *nearest neihbor* method, which simply finds the example in memory whose state is closest to the query state and returns that example's value as the approximate value of the query state.  In other words, if the query state is $s$, and $s^\prime \rightarrow g$ is the example in memory in which $s^\prime$ is the closest state to $s$, then $g$ is returned as the approximate value of $s$.  Slightly more complicated are *weighted average* methods that retrieve a set of nearest neighbor examples and return a weighted average of their target values, where the weights generally decrease with increasing distance between their states and the query state.
 """
+
+# ╔═╡ 53ed4517-7e1b-4b72-9844-b8e291382bca
+md"""
+### *Memory-based Database Implementation*
+"""
+
+# ╔═╡ 6dab2f6e-2b9d-4823-aa4c-f13f37afd2b3
+function monte_carlo_episode_update!(state_values::Dict{S, T}, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S}
+	g = zero(T)
+	l = length(states)
+	error = zero(T)
+	β = one(T) - α
+	for i in l:-1:1
+		s = states[i]
+		g = γ * g + rewards[i]
+		if haskey(state_values, s)
+			v = state_values[s]
+			state_values[s] = α*g + β*v
+		else
+			state_values[s] = g
+		end
+	end
+end
+
+# ╔═╡ b56f36a5-884e-4f3e-90c1-0522e05f504d
+function bulid_policy_value_database(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	(states, actions, rewards, _) = runepisode(mdp; π = π, epkwargs...)
+	state_values = Dict{S, T}()
+	monte_carlo_episode_update!(state_values, states, rewards, γ, α)
+	for ep in 2:num_episodes
+		(states, actions, rewards, _, n_steps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
+		monte_carlo_episode_update!(state_values, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
+	end
+	return state_values
+end
+
+# ╔═╡ bbfe0acd-190e-457a-b08b-c2203f7f2efa
+function build_value_database(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, P, F1, F2}
+	(states, rewards, _) = runepisode(mrp; epkwargs...)
+	state_values = Dict{S, T}()
+	monte_carlo_episode_update!(state_values, states, rewards, γ, α)
+	for ep in 2:num_episodes
+		(states, rewards, _, n_steps) = runepisode!((states, rewards), mrp; epkwargs...)
+		monte_carlo_episode_update!(state_values, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
+	end
+	return state_values
+end
 
 # ╔═╡ 34b78988-40f9-47e9-9c5a-7823de866b12
 md"""
 ## 9.10 Kernel-based Function Approximation
+
+The memory based methods described above save a database of examples $s^\prime \rightarrow g$ and then query the database for an example state $s$.  The value estimate will be some weighted sum of samples from the database and the function that calculates the weights is called a *kernel function* or simply a *kernel*.  For example, the kernel could assign a weight based on a distance metric between states but in general the kernel need only satisfy $k: \mathcal{S} \times \mathcal{S} \rightarrow \mathbb{R}$ so that $k(s, s^\prime)$ is the weight given to data $s^\prime$ answering a query about $s$.
+
+Kernel functions numerically express how *relevant* knowledge about any state is to any other state.  As an example, consider the previous method of tile coding as a kernel function.  The relevance of states is determined by how many tiles it has in common with the query state and the stored value is shared among all examples in the same tile.  All of the linear methods discussed already can be described by a kernel function.
+
+*Kernel regression* is the memory-basd method that computes a kernel weighted average of the targets of *all* examples stored in memory, assigning the result to the query state.  If $\mathcal{D}$ is the set of stored examples, and $g(s^\prime)$ denotes the target for state $s^\prime$ in a stored example, then kernel regression approximates the target function, in this case a value function depending on $\mathcal{D}$, as
+
+$\hat v(s, \mathcal{D}) = \sum_{s^\prime \in \mathcal{D}} k(s, s^\prime) g(s^\prime)$
+
+The weighted average method described above is a special case in which $k(s, s^\prime)$ is non-zero only when $s$ and $s^\prime$ are close to one another so that the sum need not be computed over all of $\mathcal{D}$.  Considering the linear methods where states are represented by a feature vector $\mathbf{x}(s) = (x_1(s), x_2(s), \dots, x_d(s))^\top$.  These are equivalent to kernel regression where $k(s, s^\prime) = \mathbf{x}(s)^\top \mathbf{x}(s^\prime)$
 """
+
+# ╔═╡ 356d22a7-44e3-4875-9f21-ad4e1201101d
+md"""
+### *Example: Kernel-based Function Approximation on Random Walk Example Using Distance Metric*
+"""
+
+# ╔═╡ 11d3d03b-18fe-40d6-80cf-b02e1dc8d0a1
+#=╠═╡
+function run_random_walk_kernel_approximation(num_episodes; distance::Function = (s, s′) -> (s - s′ + eps(1f0))^2, kwargs...)
+	state_values = build_value_database(random_walk_state_mrp, 1f0, num_episodes; kwargs...)
+	l = length(state_values)
+	states = collect(keys(state_values))
+	vals = collect(values(state_values))
+	x = zeros(Float32, l)
+	function v̂(s::Float32)
+		x .= distance.(s, states) .^-1
+		d = sum(x)
+		dot(x, vals) / d
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
+#=╠═╡
+plot([scatter(x = 1:1000, y = run_random_walk_kernel_approximation(50_000; α = 1f-2).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
+  ╠═╡ =#
 
 # ╔═╡ 905b032d-5fa0-4a3c-9055-fec92fd5879e
 md"""
@@ -2338,7 +2429,14 @@ version = "17.4.0+2"
 # ╠═f10c643b-9205-4b18-841c-255a9354cf97
 # ╠═7c5ac88b-453b-40bd-98a4-534fc70c7c45
 # ╟─290200a3-7523-4e0f-bd3a-288626adaf29
+# ╟─53ed4517-7e1b-4b72-9844-b8e291382bca
+# ╠═6dab2f6e-2b9d-4823-aa4c-f13f37afd2b3
+# ╠═b56f36a5-884e-4f3e-90c1-0522e05f504d
+# ╠═bbfe0acd-190e-457a-b08b-c2203f7f2efa
 # ╟─34b78988-40f9-47e9-9c5a-7823de866b12
+# ╟─356d22a7-44e3-4875-9f21-ad4e1201101d
+# ╠═11d3d03b-18fe-40d6-80cf-b02e1dc8d0a1
+# ╟─c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
 # ╟─905b032d-5fa0-4a3c-9055-fec92fd5879e
 # ╟─1636120f-9065-45a8-a849-731842374d60
 # ╟─022bb60c-6af7-4dd6-8410-69c7974707e8
