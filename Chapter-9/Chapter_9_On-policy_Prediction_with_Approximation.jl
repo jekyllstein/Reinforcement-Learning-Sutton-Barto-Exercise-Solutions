@@ -1645,7 +1645,7 @@ function monte_carlo_episode_update!(state_values::Dict{S, T}, states::AbstractV
 end
 
 # ╔═╡ b56f36a5-884e-4f3e-90c1-0522e05f504d
-function bulid_policy_value_database(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+function bulid_policy_value_memory(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	(states, actions, rewards, _) = runepisode(mdp; π = π, epkwargs...)
 	state_values = Dict{S, T}()
 	monte_carlo_episode_update!(state_values, states, rewards, γ, α)
@@ -1653,11 +1653,13 @@ function bulid_policy_value_database(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::
 		(states, actions, rewards, _, n_steps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
 		monte_carlo_episode_update!(state_values, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
 	end
-	return state_values
+	states = collect(keys(state_values))
+	vals = collect(values(state_values))
+	return (states = states, values = vals)
 end
 
 # ╔═╡ bbfe0acd-190e-457a-b08b-c2203f7f2efa
-function build_value_database(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, P, F1, F2}
+function build_value_memory(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, P, F1, F2}
 	(states, rewards, _) = runepisode(mrp; epkwargs...)
 	state_values = Dict{S, T}()
 	monte_carlo_episode_update!(state_values, states, rewards, γ, α)
@@ -1665,7 +1667,9 @@ function build_value_database(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episode
 		(states, rewards, _, n_steps) = runepisode!((states, rewards), mrp; epkwargs...)
 		monte_carlo_episode_update!(state_values, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
 	end
-	return state_values
+	states = collect(keys(state_values))
+	vals = collect(values(state_values))
+	return (states = states, values = vals)
 end
 
 # ╔═╡ 34b78988-40f9-47e9-9c5a-7823de866b12
@@ -1688,16 +1692,41 @@ md"""
 ### *Example: Kernel-based Function Approximation on Random Walk Example Using Distance Metric*
 """
 
-# ╔═╡ 11d3d03b-18fe-40d6-80cf-b02e1dc8d0a1
+# ╔═╡ fda4d6cc-5868-4319-81c2-7a20dd0a7e9e
 #=╠═╡
-function run_random_walk_kernel_approximation(num_episodes; distance::Function = (s, s′) -> (s - s′ + eps(1f0))^2, kwargs...)
-	state_values = build_value_database(random_walk_state_mrp, 1f0, num_episodes; kwargs...)
-	l = length(state_values)
-	states = collect(keys(state_values))
-	vals = collect(values(state_values))
+const random_walk_memory = build_value_memory(random_walk_state_mrp, 1f0, 5000; α = 2f-2)
+  ╠═╡ =#
+
+# ╔═╡ 4e279cff-9233-430f-9b0b-40e992b34aed
+#=╠═╡
+scatter(x = random_walk_memory.states, y = random_walk_memory.values, mode = "markers") |> plot
+  ╠═╡ =#
+
+# ╔═╡ 11d3d03b-18fe-40d6-80cf-b02e1dc8d0a1
+function random_walk_distance_kernel_approximation(memory::@NamedTuple{states::Vector{Float32}, values::Vector{Float32}}; distance::Function = (s, s′) -> (s - s′)^2 + eps(1f0))
+	states = memory.states
+	vals = memory.values
+	l = length(states)
 	x = zeros(Float32, l)
 	function v̂(s::Float32)
 		x .= distance.(s, states) .^-1
+		d = sum(x)
+		dot(x, vals) / d
+	end
+end
+
+# ╔═╡ 7254644c-1c92-428f-ba68-bb92cf404802
+#=╠═╡
+function random_walk_aggregation_kernel_approximation(memory::@NamedTuple{states::Vector{Float32}, values::Vector{Float32}}; num_groups = 10)
+	states = memory.states
+	vals = memory.values
+	f = make_random_walk_group_assign(num_states, num_groups)
+	l = length(states)
+	state_groups = f.(states)
+	x = zeros(Float32, l)
+	function v̂(s::Float32)
+		i = f(s)
+		x .= state_groups .== i
 		d = sum(x)
 		dot(x, vals) / d
 	end
@@ -1706,7 +1735,19 @@ end
 
 # ╔═╡ c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
 #=╠═╡
-plot([scatter(x = 1:1000, y = run_random_walk_kernel_approximation(50_000; α = 1f-2).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
+plot([scatter(x = 1:1000, y = random_walk_distance_kernel_approximation(random_walk_memory; distance = (s, s′) -> (s - s′)^2 + 10f0).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
+  ╠═╡ =#
+
+# ╔═╡ b2d97ba3-0816-4138-ae03-62423b82f960
+#=╠═╡
+md"""
+Number of Groups for Kernel Appoximation: $(@bind kernel_num_groups Slider(1:num_states; show_value=true, default = 10))
+"""
+  ╠═╡ =#
+
+# ╔═╡ 9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
+#=╠═╡
+plot([scatter(x = 1:1000, y = random_walk_aggregation_kernel_approximation(random_walk_memory; num_groups = kernel_num_groups).(Float32.(1:num_states)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
 
 # ╔═╡ 905b032d-5fa0-4a3c-9055-fec92fd5879e
@@ -2435,8 +2476,13 @@ version = "17.4.0+2"
 # ╠═bbfe0acd-190e-457a-b08b-c2203f7f2efa
 # ╟─34b78988-40f9-47e9-9c5a-7823de866b12
 # ╟─356d22a7-44e3-4875-9f21-ad4e1201101d
+# ╠═fda4d6cc-5868-4319-81c2-7a20dd0a7e9e
+# ╠═4e279cff-9233-430f-9b0b-40e992b34aed
 # ╠═11d3d03b-18fe-40d6-80cf-b02e1dc8d0a1
-# ╟─c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
+# ╠═7254644c-1c92-428f-ba68-bb92cf404802
+# ╠═c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
+# ╟─b2d97ba3-0816-4138-ae03-62423b82f960
+# ╠═9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
 # ╟─905b032d-5fa0-4a3c-9055-fec92fd5879e
 # ╟─1636120f-9065-45a8-a849-731842374d60
 # ╟─022bb60c-6af7-4dd6-8410-69c7974707e8
