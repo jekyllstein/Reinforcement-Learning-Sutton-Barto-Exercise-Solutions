@@ -37,11 +37,11 @@ md"""
 ## 9.2 The Prediction Objective ($\overline {VE}$)
 In tabular methods, the learned value can exactly equal the true objective and each state approximation is independent.  Neither of these are true for parametrized approximation.  We must specificy a state distribution $\mu(s) \geq 0, \sum_s{\mu(s)}=1$ that represents how much we care about the error in each state.  One natural objective function is the mean squared error weighted over this distribution.
 
-$\overline{VE}(\boldsymbol{w}) \doteq \sum_{s \in S} \mu(s)[v_\pi(s) - \hat v(s, \boldsymbol{w})]^2 \tag{9.1}$
+$\overline{VE}(\mathbf{w}) \doteq \sum_{s \in S} \mu(s)[v_\pi(s) - \hat v(s, \mathbf{w})]^2 \tag{9.1}$
 
 Often $\mu(s)$ is taken to be the fraction of time spent in $s$.  In contiunuing tasks the on-policy distribution is the stationary distribution under $\pi$.  In episodic tasks one must account for the probability of starting an episode in a particular state and the probability of transitioning to that state during an episode.  The state distribution will need to depend on that function typically denoted $\eta(s)$.
 
-An ideal goal for optimizing $\overline {VE}$ is to find a *global optimum* for the weight vector such that $\overline {VE}(\boldsymbol{w}^*) \leq \overline {VE}(\boldsymbol{w})$ for all posible weights.  Typically this isn't possible but we can find a *local optimum* but even this objective is not guaranteed for many approximation methods.  In this chapter we will focus on approximation methods based on linear gradient-descent methods to we have easily find an optimum.
+An ideal goal for optimizing $\overline {VE}$ is to find a *global optimum* for the weight vector such that $\overline {VE}(\mathbf{w}^*) \leq \overline {VE}(\mathbf{w})$ for all posible weights.  Typically this isn't possible but we can find a *local optimum* but even this objective is not guaranteed for many approximation methods.  In this chapter we will focus on approximation methods based on linear gradient-descent methods to we have easily find an optimum.
 """
   ╠═╡ =#
 
@@ -50,24 +50,24 @@ An ideal goal for optimizing $\overline {VE}$ is to find a *global optimum* for 
 #=╠═╡
 md"""
 ## 9.3 Stochastic-gradient and Semi-gradient Methods
-We will assume a weight vector with a fixed number of components $\boldsymbol{w} \doteq (w_1, w_2, \dots, w_d)$ and a differentiable value function $\hat v(s, \boldsymbol{w})$ that exists for all states.  We will update weights at each of a series of discrete time steps so we can denote $\boldsymbol{w}_t$ as the weight vector at each step.  Assume at each step we observe a state and its true value under the policy.  We assume that states appear in the same distribution $\mu$ over which we are trying to optimize the prediction objective.  Under these assumptions we can try to minimize the error observed on each example using *Stochastic gradient-descent* (SGD) by adjusting the weight vector a small amount after each observation:
+We will assume a weight vector with a fixed number of components $\mathbf{w} \doteq (w_1, w_2, \dots, w_d)$ and a differentiable value function $\hat v(s, \mathbf{w})$ that exists for all states.  We will update weights at each of a series of discrete time steps so we can denote $\mathbf{w}_t$ as the weight vector at each step.  Assume at each step we observe a state and its true value under the policy.  We assume that states appear in the same distribution $\mu$ over which we are trying to optimize the prediction objective.  Under these assumptions we can try to minimize the error observed on each example using *Stochastic gradient-descent* (SGD) by adjusting the weight vector a small amount after each observation:
 
 $$\begin{flalign}
-\boldsymbol{w}_{t+1} & \doteq \boldsymbol{w}_t - \frac{1}{2} \alpha \nabla [v_\pi(S_t) - \hat v(S_t, \boldsymbol{w}_t)]^2 \\
-& = \boldsymbol{w}_t + \alpha[v_\pi(S_t) - \hat v(S_t, \boldsymbol{w}_t)]\nabla\hat v(S_t, \boldsymbol{w}_t) \tag{9.5}
+\mathbf{w}_{t+1} & \doteq \mathbf{w}_t - \frac{1}{2} \alpha \nabla [v_\pi(S_t) - \hat v(S_t, \mathbf{w}_t)]^2 \\
+& = \mathbf{w}_t + \alpha[v_\pi(S_t) - \hat v(S_t, \mathbf{w}_t)]\nabla\hat v(S_t, \mathbf{w}_t) \tag{9.5}
 \end{flalign}$$
 
 where $\alpha$ is a learning rate.  In general this method will only converge to the weight vector that minimizes the error objective if $\alpha$ is sufficiently small and decreases over time.  The gradient is defined as follows:
 
-$\nabla f(\boldsymbol{w}) \doteq \left ( \frac{\partial{f(\boldsymbol{w})}}{\partial{w_1}} , \frac{\partial{f(\boldsymbol{w})}}{\partial{w_2}}, \cdots, \frac{\partial{f(\boldsymbol{w})}}{\partial{w_d}} \right ) ^ \top \tag{9.6}$
+$\nabla f(\mathbf{w}) \doteq \left ( \frac{\partial{f(\mathbf{w})}}{\partial{w_1}} , \frac{\partial{f(\mathbf{w})}}{\partial{w_2}}, \cdots, \frac{\partial{f(\mathbf{w})}}{\partial{w_d}} \right ) ^ \top \tag{9.6}$
 
 If we do not receive the true value function at each example but rather a bootstrap approxmiation or a noise corrupted version, we can use the same formula and simply replace $v_\pi(S_t)$ with $U_t$.  As long as $U_t$ is an *unbiased* estimate for each example then the weights are still guaranteed to converge to a local optimum stochastically.  One example of an unbiased estimate would be a monte carlo sample of the discounted future return.
 
-If we use a bootstrapped estimate of the value, then the estimate depends on the current weight vector and will no longer be *unbiased* which requires that the update target be independent of $\boldsymbol{w}_t$.  A method using bootstrapping with function approximation would be considered a *semi-gradient method* because it violates part of the convergence assumptions.  In the case of a linear function, however, they can still converge reliably.  One typical example of this is semi-gradient TD(0) learning which uses the value estimate target of $U_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \boldsymbol{w})$.  In this case the update step for the weight vector is as follows:
+If we use a bootstrapped estimate of the value, then the estimate depends on the current weight vector and will no longer be *unbiased* which requires that the update target be independent of $\mathbf{w}_t$.  A method using bootstrapping with function approximation would be considered a *semi-gradient method* because it violates part of the convergence assumptions.  In the case of a linear function, however, they can still converge reliably.  One typical example of this is semi-gradient TD(0) learning which uses the value estimate target of $U_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w})$.  In this case the update step for the weight vector is as follows:
 
-$\boldsymbol{w}_{t+1} = \boldsymbol{w}_t + \alpha[R_t + \gamma \hat v(S_{t+1}, \boldsymbol{w}_t) - \hat v(S_t, \boldsymbol{w}_t)] \nabla \hat v(S_t, \boldsymbol{w}_t) \tag{9.7}$
+$\mathbf{w}_{t+1} = \mathbf{w}_t + \alpha[R_t + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t)] \nabla \hat v(S_t, \mathbf{w}_t) \tag{9.7}$
 
-*State aggregation* is a simple form of generalizing function approximation in which states are grouped together, with one estimated value (one component of the weight vector **w**) for each group.  The value of a state is estimated as its group's component, and when the state is updated, that component alone is updated.  State aggregation is a special case of SGD in which the gradient, $\nabla \hat v(S_t, \boldsymbol{w}_t)$, is 1 for the observed state's component and 0 for others.
+*State aggregation* is a simple form of generalizing function approximation in which states are grouped together, with one estimated value (one component of the weight vector **w**) for each group.  The value of a state is estimated as its group's component, and when the state is updated, that component alone is updated.  State aggregation is a special case of SGD in which the gradient, $\nabla \hat v(S_t, \mathbf{w}_t)$, is 1 for the observed state's component and 0 for others.
 """
   ╠═╡ =#
 
@@ -77,34 +77,34 @@ $\boldsymbol{w}_{t+1} = \boldsymbol{w}_t + \alpha[R_t + \gamma \hat v(S_{t+1}, \
 md"""
 ### *Gradient Monte Carlo Algorithm for Estimating $$\hat v \approx v_\pi$$*
 
-Monte Carlo sampling to estiamate $G_t$ can be used as a true gradient approximation method because $G_t$ is an unbiased estimate of $v_\pi (S_t)$ that does not depend on the parameters of the estimator.
+Monte Carlo sampling to estiamate $G_t$ can be used as a true gradient approximation method because $G_t$ is an unbiased estimate of $v_\pi (S_t)$ that does not depend on the parameters of the estimator.  To implement this algorithm, I will use a parameter gradient update rule that is more generic than the one in (9.5).  Instead, consider the more fundamental gradient update rule: 
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t - \alpha \nabla \left [ err(\hat v(S_t, \mathbf{w}_t), U_t)\right ]$ 
+
+where $err(x, y)$ is the error between $x$ and $y$.  For most of the examples in this chapter $err(x, y) \doteq (x - y)^2$ which reduces to the familiar rule shown in (9.5) where $v_\pi(S_t)$ is replaced with $G_t$.  In the case of Monte Carlo methods $U_t = G_t$ whereas in TD methods $U_t = R_t + \gamma \hat v(S_{t+1}, \mathbf{w}_t)$.
+
+In order to implement the gradient update, one needs to define `update_parameters!` which is a function that does the full parameter update defined above which includes computing the gradients of the error function and the estimator. The following arguments are required: 
+	
+- `parameters`: values that get updated and are used in the function approximation
+- `s`: current state
+- `g`: target value 
+- `α`: step size
+
+Additional arguments can also be passed after this which will always be placeholder memory objects that the function can use to make calculations.  Allowing these arguments to be passed in means that the function need not create these variables every time it needs to perform an update.
+
+The purpose for requiring this function instead of (9.5) is that certain function approximators will naturally compute the gradient of the error function directly rather than computing the gradient of the value function.  The quantity we are after is the entire expression multiplying $\alpha$.  Moreover, some approximators have a very simple gradient that implies a parameter update that doesn't even require computing the entire gradient, and the value estimate computation might be part of the gradient already making it unecessary to compute twice.  For example in the case of state aggregation described below, only one parameter will be updated at a time, so writing the update as in (9.5) is wasteful since most of the computations will simply be adding 0.  As a bonus, this format allows us to consider alternative error functions such as cross entropy loss.
 """
   ╠═╡ =#
 
 # ╔═╡ be546bdb-77a9-48c4-9a98-1205d73fc8c6
-"""
-	gradient_monte_carlo_episode_update!(parameters::Vector{T}, gradients::Vector{T}, ▽v̂!::Function, states::AbstractVector{S}, actions::AbstractVector{A}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S, A}
-
-Interate through an episode and update the `parameters` given in the first argument as a vector of some numerical type.  The second input, `gradients` must be a vector of the same length as `parameters` and will also be filled with the correct gradient values using `▽v̂!` which must be callable as follows:  `v̂::T = ▽v̂!(gradients::Vector{T}, s::S, parameters::Vector{T})`.  It produces the value of the current estimator at state `s` but also updates the gradients for the parameter update.  
-
-# Arguments
-- `parameters::Vector{T}`: Vector of parameters used by the estimation function
-- `gradients::Vector{T}`: Vector of the same length as `parameters` which stores the gradient updates
-- `▽v̂!`: Function which performs the gradient update and the function value.  See above for call signature
-- `states::AbstractVector{S}`: List of states encountered during an episode
-- `actions::AbstractVector{A}`: List of actions encountered during an episode
-- `rewards::AbstractVector{T}`: List of rewards encountered during an episode
-- `γ::T`: Discount rate for computing discounted future reward
-- `α::T`: Step size parameter for gradient update
-"""
-function gradient_monte_carlo_episode_update!(parameters::P, gradients::P, state_representation::AbstractVector{T}, update_parameters!::Function, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T; save_error = false) where {T<:Real, S, P}
+function gradient_monte_carlo_episode_update!(parameters, update_parameters!::Function, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T, update_args...) where {T<:Real, S}
 	g = zero(T)
 	l = length(states)
 	error = zero(T)
 	for i in l:-1:1
 		s = states[i]
 		g = γ * g + rewards[i]
-		sqerr = update_parameters!(parameters, gradients, state_representation, s, g, α)
+		sqerr = update_parameters!(parameters, s, g, α, update_args...)
 		error += sqerr
 	end
 	return error / l
@@ -119,15 +119,15 @@ When $U_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \boldsymbol{w})$ the target va
 
 # ╔═╡ e8e26a28-90a5-4519-ab08-11b49a8a9499
 begin
-	function semi_gradient_td0_estimation!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients::P = deepcopy(parameters), epkwargs...) where {P, T<:Real}
+	function semi_gradient_td0_estimation!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, epkwargs...) where {P, T<:Real}
 		s = initialize_state()
 		(r, s′) = transition(s)
 		ep = 1
 		step = 1
 		while (ep <= max_episodes) && (step <= max_steps)
-			v̂′ = isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
+			v̂′ = isterm(s′) ? 0f0 : estimate_value(s′, parameters, estimate_args...)
 			v̂ = r + γ*v̂′
-			update_parameters!(parameters, gradients, state_representation, s, v̂, α)
+			update_parameters!(parameters, s, v̂, α, update_args...)
 			if isterm(s′)
 				s = initialize_state()
 				ep += 1
@@ -140,13 +140,10 @@ begin
 		return parameters
 	end
 
-	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
+	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, estimate_value, estimate_args, update_parameters!, update_args; kwargs...)
 	
-	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s, π), mrp.isterm, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
+	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, state_representation::AbstractVector{T}; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s, π), mrp.isterm, γ, max_episodes, max_steps, estimate_value, estimate_args, update_parameters!, update_args; kwargs...)
 	
-	semi_gradient_td0_policy_estimation(mdp::StateMDP, π::Function, γ::T, num_params::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; max_steps = 100_000, max_episodes = typemax(Int64), w_init = zero(T), parameters = fill(w_init, num_params), kwargs...) where {T<:Real} = semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
-	
-	semi_gradient_td0_estimation(mrp::StateMRP, γ::T, num_params::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}; max_steps = 100_000, max_episodes = typemax(Int64), w_init = zero(T), parameters = fill(w_init, num_params), kwargs...) where {T<:Real} = semi_gradient_td0_estimation!(parameters, mrp, γ, max_episodes, max_steps, estimate_value, update_parameters!, state_representation; kwargs...)
 end
 
 # ╔═╡ cb2005fd-d3e0-4f37-908c-77e4bbac45b8
@@ -312,7 +309,7 @@ const random_walk_state_mrp = StateMRP(randomwalk_state_ptf, randomwalk_state_in
 md"""
 #### State Aggregation
 
-The simplest form of function approximation in which each state is assigned to a unique group.  Each group is represented by a parameter that estimates the value of every state in that group.  The gradient for this technique has the simple form: $\nabla \hat v (S_t, \boldsymbol{w}_t) = 1$ if $S_t$ is in the group represented by $\boldsymbol{w}_t$ and 0 otherwise.  For the random walk example, state aggregation can simply assign states to groups as: {1 to 100}, {101 to 200}, ..., {$(num_states - 100) to $num_states}.
+The simplest form of function approximation in which each state is assigned to a unique group.  Each group is represented by a parameter that estimates the value of every state in that group.  The gradient for this technique has the simple form: $\nabla \hat v (S_t, \mathbf{w}_t) = 1$ if $S_t$ is in the group represented by $\mathbf{w}_t$ and 0 otherwise.  For the random walk example, state aggregation can simply assign states to groups as: {1 to 100}, {101 to 200}, ..., {$(num_states - 100) to $num_states}.
 """
   ╠═╡ =#
 
@@ -350,9 +347,14 @@ md"""
 Using the simple gradient for state aggregation, we can construct a function that computes the state value estimate and gradient per parameter component.  In order to implement state aggregation, one must have a fixed number of groups and a function to map states to a group index.  There will be one parameter value per group, so the gradient function needs to provide a component for every group.  Once a state is assigned into a unique group index, the gradient values will all be zero except for at the group index.  The value estimate is just the parameter value at that index.  In the case of the random walk example, assigning states to groups is simply a matter of dividing the state value by the group size and finding the next highest integer value.
 """
 
+# ╔═╡ ff354a5e-f077-458d-8a0c-0a96a1d57658
+md"""
+Notice that for the case of state aggregation it isn't even necessary to compute the entire gradient or have a separate variable for the state representation
+"""
+
 # ╔═╡ c46c36f6-42da-4767-9e25-fa0ebe43998f
 function state_aggregation_gradient_setup(assign_state_group::Function)
-	function update_parameters!(parameters::Vector{T}, gradients::Vector{T}, x, s, g::T, α::T) where {T<:Real}
+	function update_parameters!(parameters::Vector{T}, s, g::T, α::T) where {T<:Real}
 		i = assign_state_group(s)
 		((i < 1) || (i > length(parameters))) && return nothing
 		v̂ = parameters[i]
@@ -361,9 +363,9 @@ function state_aggregation_gradient_setup(assign_state_group::Function)
 		return δ^2
 	end
 
-	v̂(s, w::Vector{T}, x) where {T<:Real} = w[assign_state_group(s)]
+	v̂(s, w::Vector{T}) where {T<:Real} = w[assign_state_group(s)]
 	
-	return (value_function = v̂, parameter_update = update_parameters!)
+	return (value_function = v̂, value_args = (), parameter_update = update_parameters!, update_args = ())
 end
 
 # ╔═╡ ace0693b-b4ce-43df-966e-0330d4399638
@@ -396,9 +398,7 @@ md"""
 """
   ╠═╡ =#
 
-# ╔═╡ 6c6c0ef4-0e68-4f50-8c3a-76ed3afb2d20
-# ╠═╡ skip_as_script = true
-#=╠═╡
+# ╔═╡ 701137fb-b497-47a5-9455-2f4b1c78a44e
 md"""
 Linear methods represent the value function as an inner product between *feature vectors* and *weight vectors*.
 
@@ -406,38 +406,40 @@ $\hat v(s, \mathbf{w})\doteq \mathbf{w}^\top \mathbf{x}(x) \doteq \sum_{i=1}^d w
 
 The vector $\mathbf{x}(s)$ is called a *feature vector* representing state x which is the same length as the number of parameters contained in $\mathbf{w}$.  For linear methods, features are *basis functions* because they form a linear basis for the set of approximate functions.
 
-The gradient of linear value functions takes on a particularly simple form: $\nabla \hat v (s, \boldsymbol{w}) = \boldsymbol{x}(s)$.  Thus the general SGD update (9.7) reduces to:
+The gradient of linear value functions takes on a particularly simple form: $\nabla \hat v (s, \mathbf{w}) = \mathbf{x}(s)$.  Thus the general SGD update (9.7) reduces to:
 
-$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha \left [ U_t - \hat v (S_t, \boldsymbol{w}_t) \right ] \boldsymbol{x}(S_t)$
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ U_t - \hat v (S_t, \mathbf{w}_t) \right ] \mathbf{x}(S_t)$
 
-In the linera case there is only one optimum (or set of equally good optima), so any method that is guaranteed to converge to a local optimum is automatically guaranteed to converge to or near the global optimum.  For example, gradient Monte Carlo converges to the global optimum of the $\overline{VE}$ under linear function approximation if $\alpha$ is reduced over time according to the usual conditions.
+In the linear case there is only one optimum (or set of equally good optima), so any method that is guaranteed to converge to a local optimum is automatically guaranteed to converge to or near the global optimum.  For example, gradient Monte Carlo converges to the global optimum of the $\overline{VE}$ under linear function approximation if $\alpha$ is reduced over time according to the usual conditions.
+"""
 
+# ╔═╡ 6b339182-f81c-475c-bf28-d03b57eda76f
+md"""
 The semi-gradient TD(0) algorithm presented in the previous section also converges under linear function approximation, but this does not follow from general results on SGD; a separate theorem is necessary.  The weight vector converged to is also not the global optimum, but rather a point near the local optimum.  It is useful to consider this important case in more default, specifically for the continuing case.  The update at each time step $t$ is 
 
 $\begin{flalign}
-\boldsymbol{w}_{t+1} &\doteq \boldsymbol{w}_t +\alpha \left (R_{t+1} + \gamma \boldsymbol{w}_t ^ \top \boldsymbol{x}_{t+1} - \boldsymbol{w}_t ^ \top \boldsymbol{x}_t \right ) \boldsymbol{x}_t \tag{9.9}\\
-&= \boldsymbol{w}_t + \alpha \left ( R_{t+1} \boldsymbol{x}_t - \boldsymbol{x}_t (\boldsymbol{x}_t - \gamma \boldsymbol{x}_{t+1} ) ^ \top \right ) \boldsymbol{w}_t
+\mathbf{w}_{t+1} &\doteq \mathbf{w}_t +\alpha \left (R_{t+1} + \gamma \mathbf{w}_t ^ \top \mathbf{x}_{t+1} - \mathbf{w}_t ^ \top \mathbf{x}_t \right ) \mathbf{x}_t \tag{9.9}\\
+&= \mathbf{w}_t + \alpha \left ( R_{t+1} \mathbf{x}_t - \mathbf{x}_t (\mathbf{x}_t - \gamma \mathbf{x}_{t+1} ) ^ \top \right ) \mathbf{w}_t
 \end{flalign}$
 
-where here we have used the notational shorthand $\boldsymbol{x}_t = \boldsymbol{x}(S_t)$.  Once the system has reached steady state, for any given $\boldsymbol{w}_t$, the expected next weight vector can be written
+where here we have used the notational shorthand $\mathbf{x}_t = \mathbf{x}(S_t)$.  Once the system has reached steady state, for any given $\mathbf{w}_t$, the expected next weight vector can be written
 
-$\mathbb{E}[\boldsymbol{w}_{t+1} /vert \boldsymbol{w}_t] = \boldsymbol{w}_t + \alpha(\boldsymbol{b} - \boldsymbol{A} \boldsymbol{w}_t \tag{9.10}$
+$\mathbb{E}[\mathbf{w}_{t+1} \vert \mathbf{w}_t] = \mathbf{w}_t + \alpha(\mathbf{b} - \mathbf{A} \mathbf{w}_t) \tag{9.10}$
 
 where
 
-$\boldsymbol{b} \doteq \mathbb{E}[R_{t+1} \boldsymbol{x}_t] \in \mathbb{R}^d \text{             and           } \boldsymbol{a} \doteq \mathbb{E} \left [ \boldsymbol{x}_t (\boldsymbol{x}_t - \gamma \boldsymbol{x}_{t+1}) ^\top \right] \in \mathbb{R}^{d \times d} \tag{9.11}$
+$\mathbf{b} \doteq \mathbb{E}[R_{t+1} \mathbf{x}_t] \in \mathbb{R}^d \text{             and           } \mathbf{A} \doteq \mathbb{E} \left [ \mathbf{x}_t (\mathbf{x}_t - \gamma \mathbf{x}_{t+1}) ^\top \right] \in \mathbb{R}^{d \times d} \tag{9.11}$
 
-From (9.10) it is clear that, if the system converges, it must converge to the weight vector $\boldsymbol{w}_{\text{TD}}$ at which
+From (9.10) it is clear that, if the system converges, it must converge to the weight vector $\mathbf{w}_{\text{TD}}$ at which
 
 $\begin{flalign}
-\boldsymbol{b} - \boldsymbol{A} \boldsymbol{w}_\text{TD} &= \boldsymbol{0} \\
-\implies \boldsymbol{b} = \boldsymbol{A} \boldsymbol{w}_\text{TD} \\
-\implies \boldsymbol{w}_\text{TD} \doteq \boldsymbol{A}^{-1} \boldsymbol{b} \tag{9.12}
+\mathbf{b} - \mathbf{A} \mathbf{w}_\text{TD} &= \mathbf{0} \\
+\implies \mathbf{b} = \mathbf{A} \mathbf{w}_\text{TD} \\
+\implies \mathbf{w}_\text{TD} \doteq \mathbf{A}^{-1} \boldsymbol{b} \tag{9.12}
 \end{flalign}$
 
 This quantity is called the *TD fixed point*.  In fact, linear semi-gradient TD(0) converges to this point.  See details below:
 """
-  ╠═╡ =#
 
 # ╔═╡ b6737cef-b6f9-4e40-82d8-bf887e17eb7c
 md"""
@@ -450,17 +452,24 @@ md"""
 md"""
 At the TD fixed point, it has also been proven (in the continuing case) that the $\overline{VE}$ is within a bounded expansion of the lowest possible error: 
 
-$\overline{VE}(\boldsymbol{w}_\text{TD}) \leq \frac{1}{1-\gamma} \min_{\boldsymbol{w}} \overline{VE} (\boldsymbol{w}) \tag{9.14}$
+$\overline{VE}(\mathbf{w}_\text{TD}) \leq \frac{1}{1-\gamma} \min_{\mathbf{w}} \overline{VE} (\mathbf{w}) \tag{9.14}$
 
 That is, the asymptotic error of the TD method is no more than $\frac{1}{1-\gamma}$ times the smallest possible error, that attained in the limit by the Monte Carlo method.  Because $\gamma$ is often near one, this expansion factor can be quite large, so there is substantial potential loss in asymptotic performance with the TD method.  On the otehr hand, recall that the TD methods are often of vastly reduced variance compared to Monte Carlo methods, and thus faster, as we saw in Chapters 6 and 7.
 
-A bound analogous to (9.14) applies to other on-policy bootstrapping methods as well.  For example, linear semi-gradient DP $\left ( U_t \doteq \sum_a \pi(a \vert S_t) \sum_{s^\prime, r} p(s\prime, r \mid S_t, a)[r+\gamma \hat v(s^\prime, \boldsymbol{w}_t)] \right )$ with updates according to the on-policy distribution will also converge to the TD fixed point.  One-step semi-gradient *action-value* methods, such as semi-gradient Sarsa(0) convered in the next chapter converge to an analogous fixed point and an analogous bound.  Critical to these convergence results is that states are updated according to the on-policy distribution.  For other update distributions, bootstrapping methods using function approximation may actually diverge to infinity.
+A bound analogous to (9.14) applies to other on-policy bootstrapping methods as well.  For example, linear semi-gradient DP $\left ( U_t \doteq \sum_a \pi(a \vert S_t) \sum_{s^\prime, r} p(s\prime, r \mid S_t, a)[r+\gamma \hat v(s^\prime, \mathbf{w}_t)] \right )$ with updates according to the on-policy distribution will also converge to the TD fixed point.  One-step semi-gradient *action-value* methods, such as semi-gradient Sarsa(0) convered in the next chapter converge to an analogous fixed point and an analogous bound.  Critical to these convergence results is that states are updated according to the on-policy distribution.  For other update distributions, bootstrapping methods using function approximation may actually diverge to infinity.
 """
   ╠═╡ =#
 
+# ╔═╡ 7787522e-a4fb-4090-9a75-7ba74a4fcda6
+md"""
+### *Linear Methods Gradient Update Implementation*
+
+For generic linear methods, the parameter update will require a gradient vector and a state representation vector that matches the length of the parameters.  To define a linear method then, all that is required is a function that converts a state to the state representation vector.
+"""
+
 # ╔═╡ 8bd63a96-fcbe-47a8-a710-0c276586c3d6
 begin
-	function update_parameters!(parameters::Vector{T}, gradients::Vector{T}, state_representation::AbstractVector{T}, g::T, α::T) where {T<:Real}
+	function update_parameters!(parameters::Vector{T}, g::T, α::T, gradients::Vector{T}, state_representation::AbstractVector{T}) where {T<:Real}
 		v̂ = dot(state_representation, parameters)
 		δ = (g - v̂)
 		iszero(δ) && return nothing
@@ -468,7 +477,7 @@ begin
 		return δ^2
 	end
 
-	function update_parameters!(parameters::Vector{T}, gradients::Vector{T}, state_representation::SparseVector{T, Int64}, g::T, α::T) where {T<:Real}
+	function update_parameters!(parameters::Vector{T}, g::T, α::T, gradients::Vector{T}, state_representation::SparseVector{T, Int64}) where {T<:Real}
 		v̂ = dot(state_representation, parameters)
 		δ = (g - v̂)
 		iszero(δ) && return zero(T)
@@ -480,23 +489,47 @@ begin
 	end
 end
 
+# ╔═╡ c3732b25-94fd-4061-aab8-36fc39d739a1
+md"""
+In order to define a linear method, one must provide a state representation vector which will be the same length as the parameter vector as well as a function to update that representation for a given state.  The update function will be called as `update_feature_vector!(state_representation, s)`
+"""
+
 # ╔═╡ 8ed8530f-4569-4429-92fc-3c3b1752475b
-function linear_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, state_representation::AbstractVector{T}, update_feature_vector!::Function) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function linear_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, state_representation::AbstractVector{T}, update_feature_vector!::Function) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
 	s0 = problem.initialize_state()
 	update_feature_vector!(state_representation, s0) #verify that feature vector update is compatible with provided state representation
 
-	function update_params!(parameters, gradients, state_representation, s, g, α)
+	function update_params!(parameters, s, g, α, gradients, state_representation)
 		update_feature_vector!(state_representation, s)
-		update_parameters!(parameters, gradients, state_representation, g, α)
+		update_parameters!(parameters, g, α, gradients, state_representation)
 	end
-	
 	
 	function v̂(s::S, w::Vector{T}, state_representation::AbstractVector{T}) where {T<:Real} 
 		update_feature_vector!(state_representation, s)
 		dot(state_representation, w)
 	end
 	
-	return (value_function = v̂, parameter_update = update_params!, feature_vector = state_representation)
+	return (value_function = v̂, value_args = (state_representation,), parameter_update = update_params!, update_args = (zeros(T, length(state_representation)), copy(state_representation)))
+end
+
+# ╔═╡ 59422aaf-6ab2-4b75-86c0-cb2ccc746641
+function run_linear_semi_gradient_td0_policy_estimation(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; kwargs...) where T<:Real
+	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!)
+	l = length(state_representation)
+	parameters = zeros(T, l)
+	semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
+	return v̂
+end
+
+# ╔═╡ dbb20e1c-763c-461b-bf6e-dbfbc4960742
+function run_linear_semi_gradient_td0_estimation(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; kwargs...) where T<:Real
+	setup = linear_features_gradient_setup(mrp, state_representation, update_state_representation!)
+	l = length(state_representation)
+	parameters = zeros(T, l)
+	semi_gradient_td0_estimation!(parameters, mrp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
+	return v̂
 end
 
 # ╔═╡ 645ba5fc-8575-4b8f-8982-f8bd20ac27ff
@@ -508,19 +541,21 @@ State aggregation is a special case of linear function approximation, so we can 
 """
   ╠═╡ =#
 
-# ╔═╡ 6046143f-a2c3-4569-a04a-c1ad4f3daf9d
-function run_state_aggregation_semi_gradient_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_groups::Integer, assign_state_group::Function; kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
+# ╔═╡ 31818c4e-751e-4a89-835a-d283986326b8
+function run_state_aggregation_semi_gradient_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
 	setup = state_aggregation_gradient_setup(assign_state_group)
-	params = semi_gradient_td0_policy_estimation(mdp, π, γ, num_groups, setup.value_function, setup.parameter_update, [one(T)]; kwargs...)
-	v̂(s) = setup.value_function(params, s, [one(T)])
+	parameters = fill(w0, num_groups)
+	semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
 	return v̂
 end
 
-# ╔═╡ 023f0a8c-fa3c-4335-8301-6f358380fb76
-function run_state_aggregation_semi_gradient_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_groups::Integer, assign_state_group::Function; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+# ╔═╡ 47e47503-64f3-484e-b2d5-b91507b13c79
+function run_state_aggregation_semi_gradient_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
 	setup = state_aggregation_gradient_setup(assign_state_group)
-	params = semi_gradient_td0_estimation(mrp, γ, num_groups, setup.value_function, setup.parameter_update, [one(T)]; kwargs...)
-	v̂(s) = setup.value_function(s, params, [one(T)])
+	parameters = fill(w0, num_groups)
+	semi_gradient_td0_estimation!(parameters, mrp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
 	return v̂
 end
 
@@ -539,12 +574,9 @@ md"""
 > ### *Exercise 9.1* 
 > Show that tabular methods such as presented in Part I of this book are a special case of linear function approximation.  What would the feature vectors be?
 
-The simplest form of function approximation presented so far is state-aggregation which is a special case of linear function approximation.  Consider a case of state-aggregation where every state is in its own unique group and there is a parameter vector $\boldsymbol{w}$ such that $w_i$ is the approximation value for $s_i$.  Following the rules of state aggregation, the feature vectors would be orthanormal basis vectors of dimension matching the number of states, thus state 1 would be represented by the feature vector [1, 0, 0, ...], state 2 by [0, 1, 0, 0, ...] and so on.  The gradient Monte Carlo update rule for these feature vectors would be $w_i = w_i + \alpha [G_t - w_i]$ for an episode step encountering state $s_i$.  The TD(0) update rule would be $w_i = w_i + \alpha [R_t + \gamma w_j - w_i]$ where the next state encountered is $s_j$.  Both of these rules are exactly the same as tabular Monte Carlo policy prediction (with constant step size averaging) and tabular TD(0) policy prediction where $v_i = w_i$.  So the value function from the tabular setting is still a list of $\vert \mathcal{S} \vert$ values, one for each state and every state value update has no effect on the value estimates of other states.
+The simplest form of function approximation presented so far is state-aggregation which is a special case of linear function approximation.  Consider a case of state-aggregation where every state is in its own unique group and there is a parameter vector $\mathbf{w}$ such that $w_i$ is the approximation value for $s_i$.  Following the rules of state aggregation, the feature vectors would be orthanormal basis vectors of dimension matching the number of states, thus state 1 would be represented by the feature vector [1, 0, 0, ...], state 2 by [0, 1, 0, 0, ...] and so on.  The gradient Monte Carlo update rule for these feature vectors would be $w_i = w_i + \alpha [G_t - w_i]$ for an episode step encountering state $s_i$.  The TD(0) update rule would be $w_i = w_i + \alpha [R_t + \gamma w_j - w_i]$ where the next state encountered is $s_j$.  Both of these rules are exactly the same as tabular Monte Carlo policy prediction (with constant step size averaging) and tabular TD(0) policy prediction where $v_i = w_i$.  So the value function from the tabular setting is still a list of $\vert \mathcal{S} \vert$ values, one for each state and every state value update has no effect on the value estimates of other states.
 """
   ╠═╡ =#
-
-# ╔═╡ 53924a3a-8fab-45c5-b6fa-90882138fac9
-#once you do state aggregation you have effectively reduced it to a tabular problem, so why not just solve with DP methods like value iteration if you can get the probability distribution from the environment like we could with this random walk task?  Given the state groups I could construct an actual distribution model for this using the groups and then it should converge to the VE error I think.  the problem is even though I can get the distribution into the new groups from a given state, I have to add up all of those weighted equally by each state in the beginning group.
 
 # ╔═╡ c3da96b0-d584-4a43-acdb-16516e2d0452
 md"""
@@ -563,7 +595,7 @@ $x_i(s) = \prod_{j=1}^k s_j^{c_{i,j}} \tag{9.17}$
 
 where each $c_{i,j}$ is an integer in the set $\{0, 1, \dots, n \}$ for an integer $n \geq 0$.  An example of such a feature vector for $n=2$ and $k=2$ state values is shown below:
 
-$\boldsymbol{x}(s) = (1, s_1, s_2, s_1 s_2, s_1^2, s_2^2, s_1 s_2^2, s_1^2 s_2, s_1^2 s_2^2)$
+$\mathbf{x}(s) = (1, s_1, s_2, s_1 s_2, s_1^2, s_2^2, s_1 s_2^2, s_1^2 s_2, s_1^2 s_2^2)$
 
 This combination yields $(2+1)^2 = 9$ features since each of the two state values can be raised to 3 different exponents and then combined.
 """
@@ -612,7 +644,7 @@ Notice that these 9 exponents match the ones for the feature vector in exercise 
   ╠═╡ =#
 
 # ╔═╡ 9d7ca70c-0e60-4029-8ea0-26192ccea849
-function order_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, min_values::S, max_values::S, feature_calculation::Function) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function order_features_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, min_values::S, max_values::S, feature_calculation::Function) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
 	#states must be tuples with k elements or some number value
 	k = S == T ? 1 : N
 	coefs = get_order_coefficients(k, n)
@@ -628,16 +660,7 @@ function order_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F
 		end
 	end
 
-	linear_features_gradient_setup(problem, state_representation, update_feature_vector!)
-end
-
-# ╔═╡ 118811ab-1d60-435a-b9d5-de6970281526
-function run_order_features_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, n::Integer, feature_calculation::Function, min_values::S, max_values::S; w0::T = zero(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition, F1<:Function, F2<:Function}
-	setup = order_features_gradient_setup(mrp, n, min_values, max_values, feature_calculation)
-	num_params = length(setup.feature_vector)
-	params = semi_gradient_td0_estimation(mrp, γ, num_params, setup.value_function, setup.parameter_update, setup.feature_vector; max_steps = typemax(Int64), max_episodes = num_episodes, kwargs...)
-	v̂(s) = setup.value_function(s, params, setup.feature_vector)
-	return v̂
+	(feature_vector = state_representation, feature_vector_update = update_feature_vector!)
 end
 
 # ╔═╡ bc2e52ff-7f47-4141-aff1-e752fe217f6a
@@ -655,14 +678,14 @@ Note that a scaling factor of 1/num_states means that all states will be mapped 
 
 # ╔═╡ a09b6907-e5b3-4979-bc22-5b4aa32c5963
 #=╠═╡
-polynomial_random_walk_td0_v̂ = run_order_features_td0_estimation(random_walk_state_mrp, 1f0, 5_000, 5, calc_poly_feature, 1f0, Float32(num_states); α = 0.005f0)
+polynomial_random_walk_td0_v̂ = run_linear_semi_gradient_td0_estimation(random_walk_state_mrp, 1f0, 5_000, typemax(Int64), order_features_setup(random_walk_state_mrp, 5, 1f0, Float32(num_states), calc_poly_feature)...; α = 0.0005f0)
   ╠═╡ =#
 
 # ╔═╡ ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
 md"""
 ### 9.5.2 Fourier Basis
 
-With fourier features we generate the same integer vectors that we had for the polynomial basis so $(n+1)^k$ different vectors which define the different features.  The difference is that instead of exponents, these coefficients are now used to create an argument for a cosine function: $x_i(s) = \cos(\pi \boldsymbol{s}^\top \boldsymbol{c}^i)$.  For $k = 2$ and $n = 2$, the first few of these $\boldsymbol{c}$ vectors would look like: $[0, 0], [0, 1], [1, 0], \dots$.  Also, it is important for the numerical features that are the elements of $s$ be scaled between 0 and 1, so this method only works well if the numerical values of the state space fall within a known range.
+With fourier features we generate the same integer vectors that we had for the polynomial basis so $(n+1)^k$ different vectors which define the different features.  The difference is that instead of exponents, these coefficients are now used to create an argument for a cosine function: $x_i(s) = \cos(\pi \mathbf{s}^\top \mathbf{c}^i)$.  For $k = 2$ and $n = 2$, the first few of these $\mathbf{c}$ vectors would look like: $[0, 0], [0, 1], [1, 0], \dots$.  Also, it is important for the numerical features that are the elements of $s$ be scaled between 0 and 1, so this method only works well if the numerical values of the state space fall within a known range.
 """
 
 # ╔═╡ f1b7b56e-7701-4954-8217-1b2c7d01e309
@@ -673,7 +696,7 @@ end
 
 # ╔═╡ 00c90cd8-b8e7-4b1d-8a7a-e68e6a82a6e3
 #=╠═╡
-const fourier_random_walk_td0_v̂ = run_order_features_td0_estimation(random_walk_state_mrp, 1f0, 5_000, 5, calc_fourier_feature, 1f0, Float32(num_states); α = 0.0005f0)
+const fourier_random_walk_td0_v̂ = run_linear_semi_gradient_td0_estimation(random_walk_state_mrp, 1f0, 5_000, typemax(Int64), order_features_setup(random_walk_state_mrp, 5, 1f0, Float32(num_states), calc_fourier_feature)...; α = 0.0005f0)
   ╠═╡ =#
 
 # ╔═╡ a99ef185-0360-4005-9a8c-f10ca58babda
@@ -762,7 +785,7 @@ begin
 end
 
 # ╔═╡ bb81db16-7c4d-4e08-bf17-45147be2b0db
-function tile_coding_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}; linear_setup = linear_features_gradient_setup) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function tile_coding_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
 	#states must be tuples with k elements or some number value
 	k = S == T ? 1 : N
 
@@ -817,8 +840,7 @@ function tile_coding_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, 
 		return feature_vector
 	end
 
-	output = linear_setup(problem, feature_vector, update_feature_vector!)
-	(;output..., get_feature_vector = get_feature_vector, num_tiles = num_tiles)
+	(args = (feature_vector = feature_vector, feature_vector_update = update_feature_vector!), get_feature_vector = get_feature_vector, num_tiles = num_tiles)
 end
 
 # ╔═╡ e6514762-31e0-4916-aa21-c280674c2fc1
@@ -840,7 +862,7 @@ end
 
 # ╔═╡ dda74c94-3574-4e7b-bab1-d106111d36d4
 #=╠═╡
-tile_coding_test = tile_coding_gradient_setup(random_walk_state_mrp, 0f0, 1000f0, Float32(tile_coding_params.tile_size), tile_coding_params.num_tilings, 1)
+tile_coding_test = tile_coding_setup(random_walk_state_mrp, 0f0, 1000f0, Float32(tile_coding_params.tile_size), tile_coding_params.num_tilings, 1)
   ╠═╡ =#
 
 # ╔═╡ d17926d5-bcfa-4789-9609-59a69d87d194
@@ -866,7 +888,7 @@ end
 
 # ╔═╡ 5188026b-4b31-4bd9-8865-108ae959c991
 #=╠═╡
-const tile_coding_random_walk_td0_v̂ = run_tile_coding_td0_estimation(random_walk_state_mrp, 1f0, 5_000, 1f0, 1_000f0, 0.2f0, 50, 1; α = 1f-3 / 50)
+const tile_coding_random_walk_td0_v̂ = run_linear_semi_gradient_td0_estimation(random_walk_state_mrp, 1f0, 5_000, typemax(Int64), tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), 0.2f0, 50, 1).args...; α = 1f-2 / 50)
   ╠═╡ =#
 
 # ╔═╡ a4d9efaf-1e1e-4115-973f-570014c1fd06
@@ -896,9 +918,9 @@ Consider the tabular case with constant step size averaging to compute state val
 
 With general function approximation there is not such a clear notion of *number* of experiences with a state; however a similar rule can be derived using feature vectors instead of states.  Suppose you wanted to learn in about $\tau$ experiences with substantially the same feature vector.  A good rule of thumb for the step-size parameter is then
 
-$\alpha \doteq \left ( \tau \mathbb{E} \left [\boldsymbol{x}^\top \boldsymbol{x} \right ] \right ) ^{-1}$
+$\alpha \doteq \left ( \tau \mathbb{E} \left [\mathbf{x}^\top \mathbf{x} \right ] \right ) ^{-1}$
 
-where $\boldsymbol{x}$ is a random feature vector chosen from the same distribution as input vectors will be in the SGD.  This method words best if $\boldsymbol{x}^\top \boldsymbol{x}$ is a constant so the expected value plays no role.  Here the expected total weight on parameters that will be affected by an update replaces the value of one that was implied in the tabular case since in that case only values for individual states are updated.  In the approximation case, each feature vector represents a region of states and thus this update rule accounts for the other states that will all be affected by the update.  In the extreme case of state aggregation where each state gets its own group, then this update rule reduces to the same one from the tabular case since only one feature will be activated at a time.
+where $\mathbf{x}$ is a random feature vector chosen from the same distribution as input vectors will be in the SGD.  This method words best if $\mathbf{x}^\top \mathbf{x}$ is a constant so the expected value plays no role.  Here the expected total weight on parameters that will be affected by an update replaces the value of one that was implied in the tabular case since in that case only values for individual states are updated.  In the approximation case, each feature vector represents a region of states and thus this update rule accounts for the other states that will all be affected by the update.  In the extreme case of state aggregation where each state gets its own group, then this update rule reduces to the same one from the tabular case since only one feature will be activated at a time.
 """
 
 # ╔═╡ 858a6d4f-2241-43c3-9db0-ff9cec00c2c1
@@ -917,14 +939,14 @@ md"""
 
 # ╔═╡ b447a3a9-fe35-4457-886b-05c5862ad8e0
 md"""
-$$\alpha \doteq \left ( \tau \mathbb{E}\left [ \boldsymbol{x}^\top \boldsymbol{x} \right ] \right ) ^{-1} \tag{9.19}$$
-$$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha \left [ U_t - \hat v(S_t, \boldsymbol{w}_t) \right] \nabla \hat v(S_t, \boldsymbol{w}_t) \tag{9.7}$$
+$$\alpha \doteq \left ( \tau \mathbb{E}\left [ \mathbf{x}^\top \mathbf{x} \right ] \right ) ^{-1} \tag{9.19}$$
+$$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ U_t - \hat v(S_t, \mathbf{w}_t) \right] \nabla \hat v(S_t, \mathbf{w}_t) \tag{9.7}$$
 
-Note that in the case of linear function approximation $\nabla \hat v(S_t, \boldsymbol{w}_t) = \boldsymbol{x}_t$ and $\hat v(S_t, \boldsymbol{w}_t) = \boldsymbol{x}_t^\top \boldsymbol{w}_t$ so (9.7) reduces to $\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha \left [ U_t - \boldsymbol{x}_t^\top \boldsymbol{w}_t \right] \boldsymbol{x}_t = \boldsymbol{w}_t(\mathbb{1} - \boldsymbol{x}_t ^\top \boldsymbol{x}_t) + \alpha U_t\boldsymbol{x}_t$ 
+Note that in the case of linear function approximation $\nabla \hat v(S_t, \mathbf{w}_t) = \mathbf{x}_t$ and $\hat v(S_t, \mathbf{w}_t) = \mathbf{x}_t^\top \mathbf{w}_t$ so (9.7) reduces to $\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ U_t - \mathbf{x}_t^\top \mathbf{w}_t \right] \mathbf{x}_t = \mathbf{w}_t(\mathbb{1} - \mathbf{x}_t ^\top \mathbf{x}_t) + \alpha U_t\mathbf{x}_t$ 
 
-For the error at the state $S_t$ to be zero after this update, $\boldsymbol{x}_t^\top \boldsymbol{w}_t = U_t$
+For the error at the state $S_t$ to be zero after this update, $\mathbf{x}_t^\top \mathbf{w}_t = U_t$
 
-For a given time, the only parameter values that contribute to the value estimate are those for which $\boldsymbol{x}_t$ are 1.  For these indices, the contribution from the original weight vector is 0.  So $\boldsymbol{w}_{t+1} = \alpha U_t \boldsymbol{x}_t$ for indices that are updated, otherwise the values are unchanged from before.  So $\boldsymbol{x}_t^\top \boldsymbol{w}_{t+1} = \alpha U_t \boldsymbol{x}_t^\top \boldsymbol{x}_t$.  Using (9.19) with $\tau = 1$, the expected update is $\mathbb{E} [ \boldsymbol{x}_t \boldsymbol{w}_{t+1} ]  = \mathbb{E} [ \hat v(S_t, \boldsymbol{w}_{t+1})]= \mathbb{E} [U_t]$.  So the expected approximation value of the state at step t will be updated to equal the true expected value at that state.
+For a given time, the only parameter values that contribute to the value estimate are those for which $\mathbf{x}_t$ are 1.  For these indices, the contribution from the original weight vector is 0.  So $\mathbf{w}_{t+1} = \alpha U_t \mathbf{x}_t$ for indices that are updated, otherwise the values are unchanged from before.  So $\mathbf{x}_t^\top \mathbf{w}_{t+1} = \alpha U_t \mathbf{x}_t^\top \mathbf{x}_t$.  Using (9.19) with $\tau = 1$, the expected update is $\mathbb{E} [ \mathbf{x}_t \mathbf{w}_{t+1} ]  = \mathbb{E} [ \hat v(S_t, \mathbf{w}_{t+1})]= \mathbb{E} [U_t]$.  So the expected approximation value of the state at step t will be updated to equal the true expected value at that state.
 """
 
 # ╔═╡ d7c1810a-8f20-4178-83ca-017d53e3e7e9
@@ -998,7 +1020,7 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 	output = zeros(Float32, 1, 1)
 	scales = ones(Float32, length(layers)+1)
 	
-	function update_parameters!(parameters, gradients, state_representation::Vector{Float32}, s::S, g::T, α::T)
+	function update_parameters!(parameters, s::S, g::T, α::T, gradients, state_representation::Vector{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, scales)
 		update_feature_vector!(state_representation, s)
 		update_input!(input, state_representation, 1)
 		output[1, 1] = g
@@ -1039,8 +1061,10 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 		v̂′ = FCANN.predict(parameters[1], parameters[2], input, 1)
 		output .= rewards .+ γ .* v̂′
 	end
+
+	update_args = ((∇θ, ∇β), feature_vector, input, output, ∇tanh_z, activations, δs, onesvec, scales)
 	
-	return (value_function = v̂, parameter_update = update_parameters!, parameters = (θ, β), gradients = (∇θ, ∇β), state_representation = feature_vector)
+	return (value_function = v̂, value_args = (feature_vector,), parameter_update = update_parameters!, update_args = update_args, parameters = (θ, β))
 end
   ╠═╡ =#
 
@@ -1073,29 +1097,39 @@ begin
 end
 
 # ╔═╡ ae19496f-7d6c-4b91-8456-d7a1eacbe3d3
-function gradient_monte_carlo_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients = deepcopy(parameters), epkwargs...) where {T<:Real}
+function gradient_monte_carlo_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, update_parameters!::Function, update_args::Tuple; α = one(T)/10, epkwargs...) where {T<:Real}
 	(states, actions, rewards, _) = runepisode(mdp; π = π, epkwargs...)
-	sqerr = gradient_monte_carlo_episode_update!(parameters, gradients, state_representation, update_parameters!, states, rewards, γ, α)
+	sqerr = gradient_monte_carlo_episode_update!(parameters, update_parameters!, states, rewards, γ, α, update_args...)
 	rmse_history = zeros(T, num_episodes)
 	rmse_history[1] = sqrt(sqerr)
 	for ep in 2:num_episodes
 		(states, actions, rewards, _, n_steps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
-		sqerr = gradient_monte_carlo_episode_update!(parameters, gradients, state_representation, update_parameters!, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
+		sqerr = gradient_monte_carlo_episode_update!(parameters, update_parameters!, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α, update_args...)
 		rmse_history[ep] = sqrt(sqerr)
 	end
 	return rmse_history
 end
 
 
+# ╔═╡ a768e279-1425-4787-ad55-f60521032fd0
+function run_linear_gradient_monte_carlo_policy_estimation(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; kwargs...) where {T<:Real}
+	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!)
+	l = length(state_representation)
+	parameters = zeros(T, l)
+	err_history = gradient_monte_carlo_policy_estimation!(parameters, mdp, π, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
+	return (value_function = v̂, error_history = err_history)
+end
+
 # ╔═╡ 7542ff9c-c6a1-4d41-8863-05388fea8ce2
-function gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, γ::T, num_episodes::Integer, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients = deepcopy(parameters), epkwargs...) where {T<:Real}
+function gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, γ::T, num_episodes::Integer, update_parameters!::Function, update_args::Tuple; α = one(T)/10,epkwargs...) where {T<:Real}
 	(states, rewards, _) = runepisode(mrp;epkwargs...)
-	sqerr = gradient_monte_carlo_episode_update!(parameters, gradients, state_representation, update_parameters!, states, rewards, γ, α)
+	sqerr = gradient_monte_carlo_episode_update!(parameters, update_parameters!, states, rewards, γ, α, update_args...)
 	rmse_history = zeros(T, num_episodes)
 	rmse_history[1] = sqrt(sqerr)
 	for ep in 2:num_episodes
 		(states, rewards, _, n_steps) = runepisode!((states, rewards), mrp; epkwargs...)
-		sqerr = gradient_monte_carlo_episode_update!(parameters, gradients, state_representation, update_parameters!, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
+		sqerr = gradient_monte_carlo_episode_update!(parameters, update_parameters!, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α, update_args...)
 		rmse_history[ep] = sqrt(sqerr)
 	end
 	return rmse_history
@@ -1105,8 +1139,8 @@ end
 function run_state_aggregation_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
 	setup = state_aggregation_gradient_setup(assign_state_group)
 	params = fill(w0, num_groups)
-	err_history = gradient_monte_carlo_estimation!(params, mdp, π, γ, num_episodes, setup.parameter_update, [one(T)]; kwargs...)
-	v̂(s) = setup.value_function(params, s, [one(T)])
+	err_history = gradient_monte_carlo_estimation!(params, mdp, π, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(params, s, setup.value_args...)
 	return (v̂ = v̂, error_history = err_history)
 end
 
@@ -1114,8 +1148,8 @@ end
 function run_state_aggregation_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
 	setup = state_aggregation_gradient_setup(assign_state_group)
 	params = fill(w0, num_groups)
-	err_history = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, setup.parameter_update, [one(T)]; kwargs...)
-	v̂(s) = setup.value_function(s, params, [one(T)])
+	err_history = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, params, setup.value_args...)
 	return (v̂ = v̂, error_history = err_history)
 end
 
@@ -1174,7 +1208,7 @@ function figure_9_2()
 	v̂_mc, err_history = run_state_aggregation_monte_carlo_estimation(random_walk_state_mrp, 1f0, 100_000, num_groups, random_walk_group_assign, α = 2f-5)
 
 	#this function will produce the learned value estimate given a random walk state
-	v̂_td = run_state_aggregation_semi_gradient_estimation(random_walk_state_mrp, 1f0, num_groups, random_walk_group_assign; max_episodes = 100_000, max_steps = typemax(Int64), α = 1f-3)
+	v̂_td = run_state_aggregation_semi_gradient_estimation(random_walk_state_mrp, 1f0, 100_000, typemax(Int64), num_groups, random_walk_group_assign; α = 1f-3)
 	
 	
 	x = 1:num_states
@@ -1197,27 +1231,19 @@ end
 figure_9_2()
   ╠═╡ =#
 
-# ╔═╡ a0c4df88-ba30-463b-81ac-6f5511683730
-function run_order_features_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, n::Integer, feature_calculation::Function, min_values::S, max_values::S; w0::T = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function}
-	setup = order_features_gradient_setup(mdp, n, min_values, max_values, feature_calculation)
-	params = fill(w0, setup.num_features)
-	rmse_history = gradient_monte_carlo_estimation!(params, mdp, π, γ, num_episodes, setup.parameter_update; kwargs...)
-	v̂(s) = setup.value_function(s, params, setup.feature_vector)
-	return (v̂ = v̂, rmse_history = rmse_history)
-end
-
-# ╔═╡ 8c140c5e-af37-49cc-980e-96b146ebeb3c
-function run_order_features_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, n::Integer, feature_calculation::Function, min_values::S, max_values::S; w0::T = zero(T), kwargs...) where {T<:Real, S, P<:AbstractStateTransition, F1<:Function, F2<:Function}
-	setup = order_features_gradient_setup(mrp, n, min_values, max_values, feature_calculation)
-	params = fill(w0, length(setup.feature_vector))
-	rmse_history = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, setup.parameter_update, setup.feature_vector; kwargs...)
-	v̂(s) = setup.value_function(s, params, setup.feature_vector)
-	return (v̂ = v̂, rmse_history = rmse_history)
+# ╔═╡ bc30f272-1f5a-4777-95fb-d0827f98909f
+function run_linear_gradient_monte_carlo_estimation(mrp::StateMRP, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; kwargs...) where {T<:Real}
+	setup = linear_features_gradient_setup(mrp, state_representation, update_state_representation!)
+	l = length(state_representation)
+	parameters = zeros(T, l)
+	err_history = gradient_monte_carlo_estimation!(parameters, mrp, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
+	return (value_function = v̂, error_history = err_history)
 end
 
 # ╔═╡ eb8b26ed-8429-47b5-ab82-c6d79dd053e4
 #=╠═╡
-polynomial_random_walk_mc_v̂, poly_random_walk_rmse = run_order_features_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, 5, calc_poly_feature, 1f0, Float32(num_states); α = 0.0005f0)
+polynomial_random_walk_mc_v̂, poly_random_walk_rmse = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, order_features_setup(random_walk_state_mrp, 5, 1f0, Float32(num_states), calc_poly_feature)...; α = 0.0001f0)
   ╠═╡ =#
 
 # ╔═╡ 55ce3135-44b9-4a8d-b0e6-a8a5ec972432
@@ -1232,7 +1258,7 @@ plot(scatter(x = 1000:5000, y = smooth_error(poly_random_walk_rmse, 1000)), Layo
 
 # ╔═╡ 483c9b4e-bb4f-4909-aaa1-ddd00b9158dd
 #=╠═╡
-const fourier_random_walk_mc_v̂, fourier_rmse = run_order_features_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, 5, calc_fourier_feature, 1f0, Float32(num_states); α = 0.00005f0)
+const fourier_random_walk_mc_v̂, fourier_rmse = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, order_features_setup(random_walk_state_mrp, 10, 1f0, Float32(num_states), calc_fourier_feature)...; α = 0.00005f0)
   ╠═╡ =#
 
 # ╔═╡ 705aef3d-69dd-4ef2-ba79-9c4233bf3d73
@@ -1243,6 +1269,21 @@ plot([scatter(y = fourier_random_walk_mc_v̂.(Float32.(1:num_states)), name = "m
 # ╔═╡ 2e83b6e1-bec3-4bf7-b64e-1060d63d109c
 #=╠═╡
 plot(scatter(x = 1000:5000, y = smooth_error(fourier_rmse, 1000)), Layout(xaxis_title = "Episode", yaxis_title = "RMS Error Averaged over Previous 1000 Episodes"))
+  ╠═╡ =#
+
+# ╔═╡ acc3c44b-2740-4ff8-9a5d-41e4bd1d6e3e
+#=╠═╡
+const tile_coding_random_walk_mc_v̂, tile_coding_rmse = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), 0.2f0, 50, 1).args...; α = 1f-4 / 50)
+  ╠═╡ =#
+
+# ╔═╡ d5d83bb4-fdbd-42f6-bc9a-14741f2786e0
+#=╠═╡
+plot([scatter(y = tile_coding_random_walk_mc_v̂.(Float32.(1:num_states)), name = "monte carlo method"), scatter(y = tile_coding_random_walk_td0_v̂.(Float32.(1:num_states)), name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Tile Coding Approximation"))
+  ╠═╡ =#
+
+# ╔═╡ 605a6ab5-b42a-4278-b61a-05a76bb312e3
+#=╠═╡
+plot(scatter(x = 1000:5000, y = smooth_error(tile_coding_rmse, 1000)), Layout(xaxis_title = "Episode", yaxis_title = "RMS Error Averaged over Previous 1000 Episodes"))
   ╠═╡ =#
 
 # ╔═╡ 0179a9bb-0778-4220-8b13-a5297c00b763
@@ -1263,22 +1304,9 @@ function run_tile_coding_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, 
 	return v̂, rmse_history
 end
 
-# ╔═╡ acc3c44b-2740-4ff8-9a5d-41e4bd1d6e3e
-#=╠═╡
-const tile_coding_random_walk_mc_v̂, tile_coding_rmse = run_tile_coding_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, 1f0, 1_000f0, 0.2f0, 50, 1; α = 1f-4 / 50)
-  ╠═╡ =#
-
-# ╔═╡ d5d83bb4-fdbd-42f6-bc9a-14741f2786e0
-#=╠═╡
-plot([scatter(y = tile_coding_random_walk_mc_v̂.(Float32.(1:num_states)), name = "monte carlo method"), scatter(y = tile_coding_random_walk_td0_v̂.(Float32.(1:num_states)), name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Tile Coding Approximation"))
-  ╠═╡ =#
-
-# ╔═╡ 605a6ab5-b42a-4278-b61a-05a76bb312e3
-#=╠═╡
-plot(scatter(x = 1000:5000, y = smooth_error(tile_coding_rmse, 1000)), Layout(xaxis_title = "Episode", yaxis_title = "RMS Error Averaged over Previous 1000 Episodes"))
-  ╠═╡ =#
-
 # ╔═╡ 920154d7-f2ba-42b6-8fdb-7d41fd73ab8a
+# ╠═╡ disabled = true
+#=╠═╡
 function gradient_monte_carlo_batch_estimation!(parameters, mrp::StateMRP, γ::T, num_episodes::Integer, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients = deepcopy(parameters), use_matrix_output = false, decay_α = false, epkwargs...) where {T<:Real}
 	(states, rewards, _) = runepisode(mrp;epkwargs...)
 	l = length(states)
@@ -1306,6 +1334,7 @@ function gradient_monte_carlo_batch_estimation!(parameters, mrp::StateMRP, γ::T
 	end
 	return rmse_history
 end
+  ╠═╡ =#
 
 # ╔═╡ 4bc908e1-41d2-4231-bc2e-4fa5d0a65ce7
 md"""
@@ -1313,6 +1342,8 @@ md"""
 """
 
 # ╔═╡ 713d89aa-b444-4b9d-87d4-97a23373318a
+# ╠═╡ disabled = true
+#=╠═╡
 function semi_gradient_td0_policy_batch_estimation!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}, batchsize::Integer; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	s = mdp.initialize_state()
 	a = π(s)
@@ -1347,8 +1378,11 @@ function semi_gradient_td0_policy_batch_estimation!(parameters, mdp::StateMDP{T,
 	end
 	return parameters
 end
+  ╠═╡ =#
 
 # ╔═╡ 0625c24b-e948-41ce-aa14-8e32f7d6ac11
+# ╠═╡ disabled = true
+#=╠═╡
 function semi_gradient_td0_batch_estimation!(parameters, mrp::StateMRP{T, S, P, F1, F2}, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}, batchsize::Integer; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real, S, P, F1, F2}
 	s = mrp.initialize_state()
 	(r, s′) = mrp.ptf(s)
@@ -1384,6 +1418,7 @@ function semi_gradient_td0_batch_estimation!(parameters, mrp::StateMRP{T, S, P, 
 	end
 	return parameters
 end
+  ╠═╡ =#
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 md"""
@@ -1391,30 +1426,11 @@ md"""
 """
 
 # ╔═╡ 15b93928-98fb-47ed-ba46-e6ee785d46e5
+#this ensures that the state range from 1 to 1000 is mapped to values with a mean 0 and variance of 1
 function update_random_walk_vector!(feature_vector::Vector{Float32}, s::Float32)
 	x1 = (s - 500f0) / sqrt(46295f0)
 	feature_vector[1] = x1
 end
-
-# ╔═╡ cfc5964b-3a23-48d9-b320-861fd4a43364
-#=╠═╡
-function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!)
-	rmse = gradient_monte_carlo_estimation!(setup.parameters, mrp, γ, num_episodes, setup.parameter_update, setup.state_representation; gradients = setup.gradients, kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.state_representation)
-	return (v̂ = v̂, parameters = setup.parameters, error_history = rmse)
-end
-  ╠═╡ =#
-
-# ╔═╡ 93a1f51f-1d83-408e-a860-26e6280c65ee
-#=╠═╡
-function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!)
-	semi_gradient_td0_estimation!(setup.parameters, mrp, γ, num_episodes, typemax(Int64), setup.value_function, setup.parameter_update, setup.state_representation; gradients = setup.gradients, kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.state_representation)
-	return (v̂ = v̂, parameters = setup.parameters)
-end
-  ╠═╡ =#
 
 # ╔═╡ e2d62bf4-5acc-44ab-9ab0-edc6f814ae18
 #=╠═╡
@@ -1436,18 +1452,44 @@ function run_random_walk_fcann_td0_batch_estimation(mrp::StateMRP{T, S, P, F1, F
 end
   ╠═╡ =#
 
-# ╔═╡ 3ab43d46-f171-4f3b-b788-91ebbff4420c
-const nn_layers = [20, 20]
-
-# ╔═╡ e15dc0eb-9e83-4994-b953-b28c74e58030
+# ╔═╡ 0a534fdd-7420-4f92-adfe-62ae41a3a3f0
 #=╠═╡
-const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 50_000, nn_layers; α = 2f-6)
-# const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_batch_estimation(random_walk_state_mrp, 1f0, 10_000, nn_layers; α = 1f-3, decay_α = true)
+fcann_gradient_setup(random_walk_state_mrp, [5, 5], [0f0], update_random_walk_vector!)
   ╠═╡ =#
 
-# ╔═╡ bce990c1-fffc-4393-88b0-8ddb783f57a2
+# ╔═╡ cfc5964b-3a23-48d9-b320-861fd4a43364
 #=╠═╡
-const fcann_random_walk_td0_output = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers; α = 5f-3)
+function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!)
+	rmse = gradient_monte_carlo_estimation!(setup.parameters, mrp, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
+	return (v̂ = v̂, parameters = setup.parameters, error_history = rmse)
+end
+  ╠═╡ =#
+
+# ╔═╡ 93a1f51f-1d83-408e-a860-26e6280c65ee
+#=╠═╡
+function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!)
+	semi_gradient_td0_estimation!(setup.parameters, mrp, γ, num_episodes, typemax(Int64), setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
+	return (v̂ = v̂, parameters = setup.parameters)
+end
+  ╠═╡ =#
+
+# ╔═╡ 420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
+#=╠═╡
+@bind nn_params PlutoUI.combine() do Child
+	md"""
+	Num Layers: $(Child(:num_layers, NumberField(1:10, default = 2)))
+	Layer Size: $(Child(:layer_size, NumberField(1:100, default = 2)))
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ 3ab43d46-f171-4f3b-b788-91ebbff4420c
+#=╠═╡
+const nn_layers = fill(nn_params.layer_size, nn_params.num_layers)
   ╠═╡ =#
 
 # ╔═╡ d854d97d-0ca1-4cc7-a7a7-2e76ff5f4d1f
@@ -1455,9 +1497,24 @@ const fcann_random_walk_td0_output = run_random_walk_fcann_td0_estimation(random
 const fcann_random_walk_td0_batch_output = run_random_walk_fcann_td0_batch_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers, 8; α = 5f-6)
   ╠═╡ =#
 
+# ╔═╡ e15dc0eb-9e83-4994-b953-b28c74e58030
+#=╠═╡
+const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers; α = 1f-4)
+  ╠═╡ =#
+
+# ╔═╡ bce990c1-fffc-4393-88b0-8ddb783f57a2
+#=╠═╡
+const fcann_random_walk_td0_output = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers; α = 5f-4)
+  ╠═╡ =#
+
 # ╔═╡ c8334c7c-7a0e-4cf4-a837-cb0404f2fe1b
 #=╠═╡
 plot([scatter(y = fcann_random_walk_mc_output.v̂(Float32.(1:num_states))[:], name = "monte carlo method"), scatter(y = fcann_random_walk_td0_output.v̂(Float32.(1:num_states))[:], name = "td0 method"), scatter(y = fcann_random_walk_td0_batch_output.v̂(Float32.(1:num_states))[:], name = "td0 batch method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with Layers: $nn_layers"))
+  ╠═╡ =#
+
+# ╔═╡ e122088f-ef7e-48e8-b2bb-d4afd76810a1
+#=╠═╡
+plot([scatter(y = fcann_random_walk_mc_output.v̂(Float32.(1:num_states))[:], name = "monte carlo method"), scatter(y = fcann_random_walk_td0_output.v̂(Float32.(1:num_states))[:], name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with Layers: $nn_layers"))
   ╠═╡ =#
 
 # ╔═╡ 6b30d3c2-0dd0-4630-ace3-1571dda25bab
@@ -1493,7 +1550,7 @@ $\mathbf{w}_t \doteq \widehat{\mathbf{A}_t}^\top \widehat{\mathbf{b}_t} \tag{9.2
 This algorithm is the most data efficient form of linear TD(0), but it is also more expensive computationally.  Recall that semi-gradient TD(0) requires memory and per step computation that is only $O(d)$.  In contrast LSTD requires us to invert $\widehat{\mathbf{A}_t}$ which is $O(d^3)$ on top of the incremental updates to $\widehat{\mathbf{A}_t}$ requiring $O(d^2)$.  Fortunately, the matrix we are inverting is a sum of outer products and there is an $O(d^2)$ incremental update rule for that:
 
 $\begin{flalign}
-\widehat{\mathbf{A}_t}^{-1} &= \left ( \widehat{A}_{t-1} + \mathbf{x}_{t-1} (\mathbf{x}_{t-1} - \gamma \mathbf{x}_{t})^\top \right )^{-1} \tag{from (9.20)} \\
+\widehat{\mathbf{A}_t}^{-1} &= \left ( \widehat{\mathbf{A}}_{t-1} + \mathbf{x}_{t-1} (\mathbf{x}_{t-1} - \gamma \mathbf{x}_{t})^\top \right )^{-1} \tag{from (9.20)} \\
 &= \widehat{\mathbf{A}}_{t-1} - \frac{\widehat{\mathbf{A}_{t-1}^{-1} \mathbf{x}_{t-1}(\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1}}}{1 + (\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}} \tag{9.22}  
 \end{flalign}$
 
@@ -1618,28 +1675,47 @@ Memory-based function approxmation methods save training examples as memory as t
 
 One class of memory-based methods are *local-learning* methods that approximate a value function only locally in the neighborhood of the current query state.  These methods retrieve a set of training examples form memory whose states are judged to be the most relevant to the query state, where relevance usually depends on the distance between states.  
 
-The simplest example of the memory-based approach is the *nearest neihbor* method, which simply finds the example in memory whose state is closest to the query state and returns that example's value as the approximate value of the query state.  In other words, if the query state is $s$, and $s^\prime \rightarrow g$ is the example in memory in which $s^\prime$ is the closest state to $s$, then $g$ is returned as the approximate value of $s$.  Slightly more complicated are *weighted average* methods that retrieve a set of nearest neighbor examples and return a weighted average of their target values, where the weights generally decrease with increasing distance between their states and the query state.
+The simplest example of the memory-based approach is the *nearest neighbor* method, which simply finds the example in memory whose state is closest to the query state and returns that example's value as the approximate value of the query state.  In other words, if the query state is $s$, and $s^\prime \rightarrow g$ is the example in memory in which $s^\prime$ is the closest state to $s$, then $g$ is returned as the approximate value of $s$.  Slightly more complicated are *weighted average* methods that retrieve a set of nearest neighbor examples and return a weighted average of their target values, where the weights generally decrease with increasing distance between their states and the query state.
 """
 
 # ╔═╡ 53ed4517-7e1b-4b72-9844-b8e291382bca
 md"""
 ### *Memory-based Database Implementation*
+
+Since the memory must store a value estimate for the visited states, these methods are best suited for Monte Carlo sampling since we can calculate these value estimates without needing an approximation function.  In other words, as described here, these memory methods are not suitable for bootstrapping.
 """
 
 # ╔═╡ 6dab2f6e-2b9d-4823-aa4c-f13f37afd2b3
 function monte_carlo_episode_update!(state_values::Dict{S, T}, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S}
 	g = zero(T)
 	l = length(states)
-	error = zero(T)
-	β = one(T) - α
+	ō = zero(T)
+	for i in l:-1:1
+		s = states[i]
+		g = γ * g + rewards[i]
+		ō += α * (one(T) - ō)
+		β = α / ō
+		v = haskey(state_values, s) ? state_values[s] : zero(T)
+		δ = g - v
+		v′ = v + β*δ
+		state_values[s] = v′
+	end
+end
+
+# ╔═╡ 1d7dec72-c356-4043-9cc5-e0842c423cac
+function monte_carlo_episode_update!(state_values::Dict{S, Tuple{T, T}}, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S}
+	g = zero(T)
+	l = length(states)
+	ō = zero(T)
 	for i in l:-1:1
 		s = states[i]
 		g = γ * g + rewards[i]
 		if haskey(state_values, s)
-			v = state_values[s]
-			state_values[s] = α*g + β*v
+			(v, n) = state_values[s]
+			n′ = n + one(T)
+			state_values[s] = ((v*n + g)/n′, n′)
 		else
-			state_values[s] = g
+			state_values[s] = (g, one(T))
 		end
 	end
 end
@@ -1647,28 +1723,32 @@ end
 # ╔═╡ b56f36a5-884e-4f3e-90c1-0522e05f504d
 function bulid_policy_value_memory(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	(states, actions, rewards, _) = runepisode(mdp; π = π, epkwargs...)
-	state_values = Dict{S, T}()
+	# state_values = Dict{S, T}()
+	state_values = Dict{S, Tuple{T, T}}()
 	monte_carlo_episode_update!(state_values, states, rewards, γ, α)
 	for ep in 2:num_episodes
 		(states, actions, rewards, _, n_steps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
 		monte_carlo_episode_update!(state_values, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
 	end
 	states = collect(keys(state_values))
-	vals = collect(values(state_values))
+	# vals = collect(values(state_values))
+	vals = [state_values[s][1] for s in states]
 	return (states = states, values = vals)
 end
 
 # ╔═╡ bbfe0acd-190e-457a-b08b-c2203f7f2efa
 function build_value_memory(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer; α = one(T)/10, epkwargs...) where {T<:Real, S, P, F1, F2}
 	(states, rewards, _) = runepisode(mrp; epkwargs...)
-	state_values = Dict{S, T}()
+	# state_values = Dict{S, T}()
+	state_values = Dict{S, Tuple{T, T}}()
 	monte_carlo_episode_update!(state_values, states, rewards, γ, α)
 	for ep in 2:num_episodes
 		(states, rewards, _, n_steps) = runepisode!((states, rewards), mrp; epkwargs...)
 		monte_carlo_episode_update!(state_values, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
 	end
 	states = collect(keys(state_values))
-	vals = collect(values(state_values))
+	# vals = collect(values(state_values))
+	vals = [state_values[s][1] for s in states]
 	return (states = states, values = vals)
 end
 
@@ -1689,12 +1769,12 @@ The weighted average method described above is a special case in which $k(s, s^\
 
 # ╔═╡ 356d22a7-44e3-4875-9f21-ad4e1201101d
 md"""
-### *Example: Kernel-based Function Approximation on Random Walk Example Using Distance Metric*
+### *Example: Kernel-based Function Approximation on Random Walk Example*
 """
 
 # ╔═╡ fda4d6cc-5868-4319-81c2-7a20dd0a7e9e
 #=╠═╡
-const random_walk_memory = build_value_memory(random_walk_state_mrp, 1f0, 5000; α = 2f-2)
+const random_walk_memory = build_value_memory(random_walk_state_mrp, 1f0, 5000; α = 1f-2)
   ╠═╡ =#
 
 # ╔═╡ 4e279cff-9233-430f-9b0b-40e992b34aed
@@ -1733,10 +1813,24 @@ function random_walk_aggregation_kernel_approximation(memory::@NamedTuple{states
 end
   ╠═╡ =#
 
+# ╔═╡ 62b2437b-72df-4943-b898-ad38b6d2de99
+md"""
+### Distance Kernel Random Walk Approximation
+
+Note that a constant value is added to the distance in order to deal with the case of the query state matching a state in the memory.  In this case the distance is 0 so the kernel value is undefined.  Another way of dealing with this singularity is to simply assign the value in memory to that query state which in this example would simply use a single memory value for every estimate since all 1000 states are in the memory.
+"""
+
 # ╔═╡ c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
 #=╠═╡
-plot([scatter(x = 1:1000, y = random_walk_distance_kernel_approximation(random_walk_memory; distance = (s, s′) -> (s - s′)^2 + 10f0).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
+plot([scatter(x = 1:1000, y = random_walk_distance_kernel_approximation(random_walk_memory; distance = (s, s′) -> (s - s′)^2 + 1f1).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
+
+# ╔═╡ d7ef7190-2031-470a-bc80-e96c93276387
+md"""
+### State Aggregation Kernel Random Walk Approximation
+
+Note that this estimate should match the linear function approximation result for the same number of groups
+"""
 
 # ╔═╡ b2d97ba3-0816-4138-ae03-62423b82f960
 #=╠═╡
@@ -1773,9 +1867,9 @@ $f(x) = 1 / (1 + e^{-x})$
 
 (9.7) is:
 
-$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t + \alpha [U_t - \hat v(S_t, \boldsymbol{w}_t)] \nabla \hat v(S_t, \boldsymbol{w}_t)$
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha [U_t - \hat v(S_t, \mathbf{w}_t)] \nabla \hat v(S_t, \mathbf{w}_t)$
 
-For a single semi-linear unit, $\hat v(S_t, \boldsymbol{w}_t) = f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)$ where $f$ is the logistic function and $\boldsymbol{x}_t$ is the feature vector of state $S_t$ with the same length as $\boldsymbol{w}_t$.  
+For a single semi-linear unit, $\hat v(S_t, \mathbf{w}_t) = f(\mathbf{w}_t ^\top \mathbf{x}_t)$ where $f$ is the logistic function and $\mathbf{x}_t$ is the feature vector of state $S_t$ with the same length as $\mathbf{w}_t$.  
 
 Also, using the definition of the logistic function:
 
@@ -1794,12 +1888,12 @@ f^\prime(x) &= -(1+e^{-x})^{-2}(-e^{-x}) \tag{chain rule} \\
 &= f(x) (1 - f(x)) \\
 \end{flalign}$
 
-Applying to (9.7) with the chain rule and using the fact that $\nabla\boldsymbol{w}_t ^\top \boldsymbol{x}_t = \boldsymbol{x}_t$ :
+Applying to (9.7) with the chain rule and using the fact that $\nabla\mathbf{w}_t ^\top \mathbf{x}_t = \mathbf{x}_t$ :
 
 $\begin{flalign}
-	\boldsymbol{w}_{t+1} &\doteq \boldsymbol{w}_t + \alpha [U_t - \hat v(S_t, \boldsymbol{w}_t)] \nabla \hat v(S_t, \boldsymbol{w}_t) \\
+	\mathbf{w}_{t+1} &\doteq \mathbf{w}_t + \alpha [U_t - \hat v(S_t, \mathbf{w}_t)] \nabla \hat v(S_t, \mathbf{w}_t) \\
 
-	&= \boldsymbol{w}_t + \alpha [U_t - f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)] f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)(1-f(\boldsymbol{w}_t ^\top \boldsymbol{x}_t)) \boldsymbol{x}_t \\
+	&= \mathbf{w}_t + \alpha [U_t - f(\mathbf{w}_t ^\top \mathbf{x}_t)] f(\mathbf{w}_t ^\top \mathbf{x}_t)(1-f(\mathbf{w}_t ^\top \mathbf{x}_t)) \mathbf{x}_t \\
 
 \end{flalign}$
 """
@@ -1814,15 +1908,15 @@ md"""
 md"""
 For a single output, the cross-entropy loss is 
 
-$$-y \log{\hat y} - (1 - y)\log(1 - \hat y)$$ where $\hat y = f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)$ is the approximation and $y = U_t$.  
+$$-y \log{\hat y} - (1 - y)\log(1 - \hat y)$$ where $\hat y = f(\mathbf{w}_t^{\top} \mathbf{x}_t)$ is the approximation and $y = U_t$.  
 
-The error for each example is then: $-U_t \log(f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) - (1 - U_t) \log(1 - f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t))$
+The error for each example is then: $-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t))$
 
 where $f(x) = 1/(1 + e^{-x})$ is the logistic function
 
 Our goal is to minimize this error over $\mu(s)$ using stochastic gradient descent, so the parameter update will be:
 
-$\boldsymbol{w}_{t+1} \doteq \boldsymbol{w}_t - \alpha \nabla \left [-U_t \log(f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) - (1 - U_t) \log(1 - f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) \right ]$
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t - \alpha \nabla \left [-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ]$
 
 From the previous exercise we know that $f^\prime(x) = f(x)(1-f(x))$, so applying the chain rule to the gradient gives: 
 
@@ -1830,16 +1924,16 @@ $\nabla \log(f(x)) = \nabla(x)f^\prime(x)/f(x) = (1 - f(x))\nabla(x)$
 
 $\nabla \log(1 - f(x)) = -\nabla(x)f(x)^\prime/(1 - f(x)) = -f(x)\nabla(x)$
 
-Using the fact that $\nabla(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t) = \boldsymbol{x}_t$ So the parameter update rule can be simplified to:
+Using the fact that $\nabla(\mathbf{w}_t^{\top} \mathbf{x}_t) = \mathbf{x}_t$ So the parameter update rule can be simplified to:
 
 $\begin{flalign}
-\boldsymbol{w}_{t+1} &= \boldsymbol{w}_t - \alpha \nabla \left [-U_t \log(f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) - (1 - U_t) \log(1 - f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) \right ] \\
-&= \boldsymbol{w}_t - \alpha \left [ -U_t(1-f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)))\nabla(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) + (1 - U_t)f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) \nabla(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)) \right ] \\
-&= \boldsymbol{w}_t - \alpha  \left [-U_t + U_tf(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t) + f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t) - U_t f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)  \right ] \boldsymbol{x}_t \\
-&= \boldsymbol{w}_t + \alpha  \left [U_t - f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t) \right ] \boldsymbol{x}_t \\
+\mathbf{w}_{t+1} &= \mathbf{w}_t - \alpha \nabla \left [-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ] \\
+&= \mathbf{w}_t - \alpha \left [ -U_t(1-f(\mathbf{w}_t^{\top} \mathbf{x}_t)))\nabla(\mathbf{w}_t^{\top} \mathbf{x}_t)) + (1 - U_t)f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \nabla(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ] \\
+&= \mathbf{w}_t - \alpha  \left [-U_t + U_tf(\mathbf{w}_t^{\top} \mathbf{x}_t) + f(\mathbf{w}_t^{\top} \mathbf{x}_t) - U_t f(\mathbf{w}_t^{\top} \mathbf{x}_t)  \right ] \mathbf{x}_t \\
+&= \mathbf{w}_t + \alpha  \left [U_t - f(\mathbf{w}_t^{\top} \mathbf{x}_t) \right ] \mathbf{x}_t \\
 \end{flalign}$
 
-This update rule is much simpler than the one in exercise 9.8 and is identical to the linear update rule with $\hat v = f(\boldsymbol{w}_t^{\top} \boldsymbol{x}_t)$ instead of $\hat v = \boldsymbol{w}_t^{\top} \boldsymbol{x}_t$
+This update rule is much simpler than the one in exercise 9.8 and is identical to the linear update rule with $\hat v = f(\mathbf{w}_t^{\top} \mathbf{x}_t)$ instead of $\hat v = \mathbf{w}_t^{\top} \mathbf{x}_t$
 """
 
 # ╔═╡ 1a69bf65-7fa5-4ebd-b8e2-543a8e0dbf4f
@@ -2337,7 +2431,7 @@ version = "17.4.0+2"
 # ╟─19d23ef5-27db-44a8-99fe-a7343a5db2b8
 # ╟─c4c71ace-c3a4-412b-b08b-31d246f8db5f
 # ╟─cb5e302b-a14b-4135-b6ff-bee300f9dee6
-# ╟─865ed63a-a7ee-403f-9004-b3ec659d756f
+# ╠═865ed63a-a7ee-403f-9004-b3ec659d756f
 # ╠═be546bdb-77a9-48c4-9a98-1205d73fc8c6
 # ╠═ae19496f-7d6c-4b91-8456-d7a1eacbe3d3
 # ╠═7542ff9c-c6a1-4d41-8863-05388fea8ce2
@@ -2365,6 +2459,7 @@ version = "17.4.0+2"
 # ╟─d68c0147-a66f-4542-a395-5f9b43e16b09
 # ╟─1adf0786-0897-4119-9336-09de869463b4
 # ╟─b361815f-d5b0-4c71-b331-c3b48ce53e73
+# ╟─ff354a5e-f077-458d-8a0c-0a96a1d57658
 # ╠═c46c36f6-42da-4767-9e25-fa0ebe43998f
 # ╠═47116ee6-53db-47fe-bfc9-a322f85b3e4e
 # ╠═2aadb2bf-942b-436e-8b93-111a90b3ea2b
@@ -2374,19 +2469,25 @@ version = "17.4.0+2"
 # ╠═214714a5-ad1e-4439-8567-9095d10411a6
 # ╠═49320a88-206e-4283-b3fc-a5d1ac41ddc4
 # ╟─3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
-# ╟─6c6c0ef4-0e68-4f50-8c3a-76ed3afb2d20
+# ╟─701137fb-b497-47a5-9455-2f4b1c78a44e
+# ╟─6b339182-f81c-475c-bf28-d03b57eda76f
 # ╟─b6737cef-b6f9-4e40-82d8-bf887e17eb7c
 # ╟─3db9f60e-a823-4d78-bd16-e73cedffa755
+# ╟─7787522e-a4fb-4090-9a75-7ba74a4fcda6
 # ╠═8bd63a96-fcbe-47a8-a710-0c276586c3d6
+# ╟─c3732b25-94fd-4061-aab8-36fc39d739a1
 # ╠═8ed8530f-4569-4429-92fc-3c3b1752475b
+# ╠═a768e279-1425-4787-ad55-f60521032fd0
+# ╠═bc30f272-1f5a-4777-95fb-d0827f98909f
+# ╠═59422aaf-6ab2-4b75-86c0-cb2ccc746641
+# ╠═dbb20e1c-763c-461b-bf6e-dbfbc4960742
 # ╟─645ba5fc-8575-4b8f-8982-f8bd20ac27ff
-# ╠═6046143f-a2c3-4569-a04a-c1ad4f3daf9d
-# ╠═023f0a8c-fa3c-4335-8301-6f358380fb76
+# ╠═31818c4e-751e-4a89-835a-d283986326b8
+# ╠═47e47503-64f3-484e-b2d5-b91507b13c79
 # ╟─cf9d7c7d-4519-410a-8a05-af90312e291c
 # ╠═c05ea239-2eea-4f41-b4e3-993db0fe2de5
 # ╠═bfb1858b-5e05-4239-bcae-a3b718074630
 # ╟─f5203959-29ef-406c-abac-4f01fa9630a3
-# ╠═53924a3a-8fab-45c5-b6fa-90882138fac9
 # ╟─c3da96b0-d584-4a43-acdb-16516e2d0452
 # ╟─0ee3afe9-9c33-45c8-b304-26062675e1b8
 # ╟─d65a0ca9-5577-4df8-af77-44ecfbcc0a07
@@ -2394,9 +2495,6 @@ version = "17.4.0+2"
 # ╠═38f09914-e128-4336-8e70-9906675971f2
 # ╟─f5dea7d5-4597-430c-9020-b74cdf8f3055
 # ╠═9d7ca70c-0e60-4029-8ea0-26192ccea849
-# ╠═a0c4df88-ba30-463b-81ac-6f5511683730
-# ╠═8c140c5e-af37-49cc-980e-96b146ebeb3c
-# ╠═118811ab-1d60-435a-b9d5-de6970281526
 # ╠═bc2e52ff-7f47-4141-aff1-e752fe217f6a
 # ╟─c609ee03-7217-4068-9da2-c91fb02623a9
 # ╠═eb8b26ed-8429-47b5-ab82-c6d79dd053e4
@@ -2446,20 +2544,23 @@ version = "17.4.0+2"
 # ╟─8decd00b-ca5f-4747-970d-2c5af895f9dd
 # ╠═920154d7-f2ba-42b6-8fdb-7d41fd73ab8a
 # ╠═5bf9c17e-e4d0-4a8d-956d-1f4bc821d9ee
-# ╠═4bc908e1-41d2-4231-bc2e-4fa5d0a65ce7
+# ╟─4bc908e1-41d2-4231-bc2e-4fa5d0a65ce7
 # ╠═713d89aa-b444-4b9d-87d4-97a23373318a
 # ╠═0625c24b-e948-41ce-aa14-8e32f7d6ac11
-# ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
-# ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
-# ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
-# ╠═93a1f51f-1d83-408e-a860-26e6280c65ee
 # ╠═e2d62bf4-5acc-44ab-9ab0-edc6f814ae18
 # ╠═12b80788-b46a-414f-8771-356ba91be3d5
+# ╠═d854d97d-0ca1-4cc7-a7a7-2e76ff5f4d1f
+# ╠═c8334c7c-7a0e-4cf4-a837-cb0404f2fe1b
+# ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
+# ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
+# ╠═0a534fdd-7420-4f92-adfe-62ae41a3a3f0
+# ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
+# ╠═93a1f51f-1d83-408e-a860-26e6280c65ee
+# ╟─420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
 # ╠═3ab43d46-f171-4f3b-b788-91ebbff4420c
 # ╠═e15dc0eb-9e83-4994-b953-b28c74e58030
 # ╠═bce990c1-fffc-4393-88b0-8ddb783f57a2
-# ╠═d854d97d-0ca1-4cc7-a7a7-2e76ff5f4d1f
-# ╠═c8334c7c-7a0e-4cf4-a837-cb0404f2fe1b
+# ╠═e122088f-ef7e-48e8-b2bb-d4afd76810a1
 # ╟─6b30d3c2-0dd0-4630-ace3-1571dda25bab
 # ╟─b227bf76-4c34-4e07-91ab-ee07ab9c5b77
 # ╟─b22ef023-4e6a-4114-b3c2-bf91e16e9a43
@@ -2472,6 +2573,7 @@ version = "17.4.0+2"
 # ╟─290200a3-7523-4e0f-bd3a-288626adaf29
 # ╟─53ed4517-7e1b-4b72-9844-b8e291382bca
 # ╠═6dab2f6e-2b9d-4823-aa4c-f13f37afd2b3
+# ╠═1d7dec72-c356-4043-9cc5-e0842c423cac
 # ╠═b56f36a5-884e-4f3e-90c1-0522e05f504d
 # ╠═bbfe0acd-190e-457a-b08b-c2203f7f2efa
 # ╟─34b78988-40f9-47e9-9c5a-7823de866b12
@@ -2480,9 +2582,11 @@ version = "17.4.0+2"
 # ╠═4e279cff-9233-430f-9b0b-40e992b34aed
 # ╠═11d3d03b-18fe-40d6-80cf-b02e1dc8d0a1
 # ╠═7254644c-1c92-428f-ba68-bb92cf404802
+# ╟─62b2437b-72df-4943-b898-ad38b6d2de99
 # ╠═c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
+# ╟─d7ef7190-2031-470a-bc80-e96c93276387
 # ╟─b2d97ba3-0816-4138-ae03-62423b82f960
-# ╠═9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
+# ╟─9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
 # ╟─905b032d-5fa0-4a3c-9055-fec92fd5879e
 # ╟─1636120f-9065-45a8-a849-731842374d60
 # ╟─022bb60c-6af7-4dd6-8410-69c7974707e8
