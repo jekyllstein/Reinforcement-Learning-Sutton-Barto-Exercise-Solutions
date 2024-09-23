@@ -3826,7 +3826,7 @@ Even with a non-tabular problem, it is possible that the transition function yie
   ╠═╡ =#
 
 # ╔═╡ 9fe0b3d2-be8a-4832-a51f-5347d6cca5bc
-function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, topk::Integer, s::S, c::T, prior::Vector, v_hold::Vector, v_new::SparseVector, apply_bonus!::Function, step_kwargs::NamedTuple, est_kwargs::NamedTuple, maximum_value::T) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
+function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, topk::Integer, s::S, c::T, prior::Vector, v_hold::Vector, v_new::SparseVector, apply_bonus!::Function, step_kwargs::NamedTuple, est_kwargs::NamedTuple, compute_max_value::Function, sample_index::Bool) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
 	#if the state is terminal, produce a value of 0
 	mdp.isterm(s) && return (zero(T), 1)
 	
@@ -3838,14 +3838,20 @@ function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 
 	state_visit_counts = visit_counts[s]
 	state_qs = Q[s]
+	visited = !isempty(state_visit_counts.nzind)
 
-	maxv_so_far = maximum(state_qs)
-	(maxv_so_far >= maximum_value) && return (maxv_so_far, 1)
+	maximum_value = compute_max_value(s)
+	if visited
+		maxv_so_far = maximum(state_qs[i] for i in state_visit_counts.nzind)
+		(maxv_so_far >= maximum_value) && return (maxv_so_far, 1)
+		#do not continue deeper into the tree if the state is not selected for sampling unless it has zero visits
+		!sample_index && return (maxv_so_far, 1)
+	end
 
 	#fill in prior action selection probabilities from policy
 	i_a_greedy = π_dist!(prior, s)
 
-	if isempty(state_visit_counts.nzind)
+	if !visited
 		#if state has never been visited then just follow the greedy policy and fill out the tree
 		i_a = i_a_greedy
 	else
@@ -3858,28 +3864,43 @@ function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 		end
 		include_indices = [partialsortperm(prior, 1:topk; rev=true); state_visit_counts.nzind]
 		include_indices = filter(i -> !isinf(prior[i]), include_indices) #despite the topk, remove any indices that have a prior of 0
-		if isempty(include_indices) #fallback in case all selected indices have 0 prior
-			i_a = i_a_greedy
-		else
-			i = argmax(v_hold[i] for i in include_indices)
-			i_a = include_indices[i]
-		end
+		i = argmax(v_hold[i] for i in include_indices)
+		i_a = include_indices[i]
 	end
 
 	#use the distribution step to compute the state-action value using the transition probabilities
 	(rewards, transition_states, probabilities) = mdp.ptf.step(s, i_a; step_kwargs...)
+	sample_probabilities = copy(probabilities)
+	for i in eachindex(sample_probabilities)
+		s′ = transition_states[i]
+		if haskey(visit_counts, s′) && !isempty(visit_counts[s′].nzind)
+			max_value = maximum(Q[s′][i] for i in visit_counts[s′].nzind)
+		else
+			max_value = typemin(T)
+		end
+		if max_value >= maximum_value
+			sample_probabilities[i] = zero(T)
+		end
+	end
+
+	iszero(sum(sample_probabilities)) && return (maximum_value, 1)
+	sample_index = sample_action(sample_probabilities) #want to ensure that the sampled index is always one that hasn't reached max value, but need to handle the case where they all are at max value
 	(q, num_visits) = eachindex(rewards) |> Map() do i
 		s′ = transition_states[i]
 		r = rewards[i]
 		p = probabilities[i]
-		(v′, num_visits) = simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s′, c, prior, v_hold, v_new, apply_bonus!, step_kwargs, est_kwargs, maximum_value)
+		(v′, num_visits) = simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s′, c, prior, v_hold, v_new, apply_bonus!, step_kwargs, est_kwargs, compute_max_value, i == sample_index)
 		(p*(r + γ*v′), num_visits)
 	end |> foldxl((a, b) -> (a[1]+b[1], a[2]+b[2]))
-	
+
+	maxq = if iszero(state_visit_counts[i_a]) 
+		q
+	else
+		max(q, state_qs[i_a])
+	end
 	state_visit_counts[i_a] += num_visits
-	maxq = max(q, state_qs[i_a])
 	state_qs[i_a] = maxq
-	maxv = maximum(state_qs)
+	maxv = maximum(state_qs[i] for i in state_visit_counts.nzind)
 	return (maxv, num_visits)
 end
 
@@ -3994,7 +4015,7 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s
 	apply_bonus! = apply_uct!,
 	make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
 	make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
-	maximum_value = typemax(T),
+	compute_max_value = s -> typemax(T),
 	sim_message = false) where {T<:Real, S, A, F<:Function, P <: StateMDPTransitionDistribution{T, S, F}, F1<:Function, F2<:Function, F3<:Function}
 
 	v_new = SparseVector(length(mdp.actions), Vector{Int64}(), Vector{T}())
@@ -4015,7 +4036,7 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s
 				ETA: $(round(Int64, eta/60)) minutes"""
 			end
 		end
-		simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s, c, prior, v_hold, v_new, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed), maximum_value)
+		simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s, c, prior, v_hold, v_new, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed), compute_max_value, true)
 	end
 	v_hold .= Q[s]
 	make_greedy_policy!(v_hold)
