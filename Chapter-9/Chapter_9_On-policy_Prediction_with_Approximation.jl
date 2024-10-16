@@ -34,14 +34,14 @@ The method we use to approximate the true value function must be able to learn e
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-## 9.2 The Prediction Objective ($\overline {VE}$)
+## 9.2 The Prediction Objective ($\overline {\text{VE}}$)
 In tabular methods, the learned value can exactly equal the true objective and each state approximation is independent.  Neither of these are true for parametrized approximation.  We must specificy a state distribution $\mu(s) \geq 0, \sum_s{\mu(s)}=1$ that represents how much we care about the error in each state.  One natural objective function is the mean squared error weighted over this distribution.
 
-$\overline{VE}(\mathbf{w}) \doteq \sum_{s \in S} \mu(s)[v_\pi(s) - \hat v(s, \mathbf{w})]^2 \tag{9.1}$
+$\overline{\text{VE}}(\mathbf{w}) \doteq \sum_{s \in S} \mu(s)[v_\pi(s) - \hat v(s, \mathbf{w})]^2 \tag{9.1}$
 
 Often $\mu(s)$ is taken to be the fraction of time spent in $s$.  In contiunuing tasks the on-policy distribution is the stationary distribution under $\pi$.  In episodic tasks one must account for the probability of starting an episode in a particular state and the probability of transitioning to that state during an episode.  The state distribution will need to depend on that function typically denoted $\eta(s)$.
 
-An ideal goal for optimizing $\overline {VE}$ is to find a *global optimum* for the weight vector such that $\overline {VE}(\mathbf{w}^*) \leq \overline {VE}(\mathbf{w})$ for all posible weights.  Typically this isn't possible but we can find a *local optimum* but even this objective is not guaranteed for many approximation methods.  In this chapter we will focus on approximation methods based on linear gradient-descent methods to we have easily find an optimum.
+An ideal goal for optimizing $\overline {\text{VE}}$ is to find a *global optimum* for the weight vector such that $\overline {\text{VE}}(\mathbf{w}^*) \leq \overline {\text{VE}}(\mathbf{w})$ for all posible weights.  Typically this isn't possible but we can find a *local optimum* but even this objective is not guaranteed for many approximation methods.  In this chapter we will focus on approximation methods based on linear gradient-descent methods to we have to easily find an optimum.
 """
   ╠═╡ =#
 
@@ -164,7 +164,7 @@ begin
 			epstep += 1
 			if isterm(s′)
 				s = initialize_state()
-				push!(episode_error_history, sqrt(eperr / epstep))
+				push!(episode_error_history, eperr / epstep)
 				epstep = 1
 				eperr = zero(T)
 				ep += 1
@@ -389,6 +389,11 @@ md"""
 Notice that for the case of state aggregation it isn't even necessary to compute the entire gradient or have a separate variable for the state representation
 """
 
+# ╔═╡ 6004006e-4113-4f6a-b8ab-2c58ff207773
+md"""
+### *State Aggregation Gradient Implementation*
+"""
+
 # ╔═╡ c46c36f6-42da-4767-9e25-fa0ebe43998f
 function state_aggregation_gradient_setup(assign_state_group::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2)
 	function update_parameters!(parameters::Vector{T}, s, g::T, α::T) where {T<:Real}
@@ -462,9 +467,20 @@ end
 const random_walk_state_distribution = calculate_random_walk_state_distribution()
   ╠═╡ =#
 
+# ╔═╡ 75eceb07-f739-4009-8e92-b4742cedb548
+get_random_walk_true_value(s::Float32, values::Vector{Float32}) = values[Int64(s) + 1] 
+
+# ╔═╡ e3bd06e5-a16d-474c-b618-1c6f303eda00
+#=╠═╡
+function calc_random_walk_ve(g::Float32, v̂::Float32, s::Float32)
+	true_value = get_random_walk_true_value(s, random_walk_v.value_function)
+	(v̂ - true_value)^2
+end
+  ╠═╡ =#
+
 # ╔═╡ 9dc8143f-280c-426a-911b-8ec851c9f093
 #=╠═╡
-random_walk_ve_setup_kwargs = (calculate_error = (g, v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2,)
+random_walk_ve_setup_kwargs = (calculate_error = calc_random_walk_ve,)
   ╠═╡ =#
 
 # ╔═╡ ce3ce1eb-1b88-4d30-aab3-9fa23c9246fe
@@ -530,7 +546,7 @@ md"""
 md"""
 Linear methods represent the value function as an inner product between *feature vectors* and *weight vectors*.
 
-$\hat v(s, \mathbf{w})\doteq \mathbf{w}^\top \mathbf{x}(x) \doteq \sum_{i=1}^d w_i x_i(s)$ 
+$\hat v(s, \mathbf{w})\doteq \mathbf{w}^\top \mathbf{x}(s) \doteq \sum_{i=1}^d w_i x_i(s)$ 
 
 The vector $\mathbf{x}(s)$ is called a *feature vector* representing state x which is the same length as the number of parameters contained in $\mathbf{w}$.  For linear methods, features are *basis functions* because they form a linear basis for the set of approximate functions.
 
@@ -617,7 +633,7 @@ function linear_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, 
 	s0 = problem.initialize_state()
 	update_feature_vector!(state_representation, s0) #verify that feature vector update is compatible with provided state representation
 
-	function update_params!(parameters, s, g, α, state_representation)
+	function update_params!(parameters::Vector{T}, s::S, g::T, α::T, state_representation::Vector{T}, calculate_error::Function)
 		update_feature_vector!(state_representation, s)
 		v̂ = dot(state_representation, parameters)
 		δ = (g - v̂)
@@ -632,7 +648,7 @@ function linear_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, 
 		dot(state_representation, w)
 	end
 	
-	return (value_function = v̂, value_args = (state_representation,), parameter_update = update_params!, update_args = (copy(state_representation),))
+	return (value_function = v̂, value_args = (state_representation,), parameter_update = update_params!, update_args = (copy(state_representation), calculate_error))
 end
 
 # ╔═╡ a768e279-1425-4787-ad55-f60521032fd0
@@ -710,15 +726,24 @@ Bootstrapping with state aggregation on the $num_states-state random walk task. 
 """
   ╠═╡ =#
 
+# ╔═╡ 7989d6a9-a52a-4537-9c39-5d6b41f60098
+#=╠═╡
+@bind fig_9_2_params PlutoUI.combine() do Child
+	md"""
+	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-8:1f0, default = 2f-4)))
+	"""
+end |> confirm
+  ╠═╡ =#
+
 # ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
 #=╠═╡
-function figure_9_2()
+function figure_9_2(;num_episodes = 100_000, α_mc = 2f-5, α_td = 2f-4)
 	v = random_walk_v.value_function[2:end-1]
 	
-	v̂_mc, err_history_mc = run_state_aggregation_monte_carlo_estimation(random_walk_state_mrp, 1f0, 100_000, num_groups, random_walk_group_assign, α = 2f-5, setup_kwargs = random_walk_ve_setup_kwargs)
+	v̂_mc, err_history_mc = run_state_aggregation_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, num_groups, random_walk_group_assign, α = α_mc, setup_kwargs = random_walk_ve_setup_kwargs)
 
 	#this function will produce the learned value estimate given a random walk state
-	v̂_td, err_history_td = run_state_aggregation_semi_gradient_estimation(random_walk_state_mrp, 1f0, 100_000, typemax(Int64), num_groups, random_walk_group_assign; α = 2f-4, setup_kwargs = random_walk_ve_setup_kwargs)
+	v̂_td, err_history_td = run_state_aggregation_semi_gradient_estimation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α_td, setup_kwargs = random_walk_ve_setup_kwargs)
 	
 	
 	x = 1:num_states
@@ -731,22 +756,24 @@ function figure_9_2()
 	tr2 = scatter(x = x, y = v̂_mc, name = "Monte Carlo Value Estimate")
 	tr3 = scatter(x = x, y = v̂_td, name = "TD(0) Value Estimate")
 
-	p1 = plot([tr1, tr2, tr3], Layout(xaxis_title = "State", yaxis_title = "Value"))
+	p1 = plot([tr2, tr3, tr1], Layout(xaxis_title = "State", yaxis_title = "Value"))
 
-	nsmooth = 1000
-	tr1 = scatter(x = nsmooth:100_000, y = sqrt.(smooth_error(err_history_mc, nsmooth)), name = "Monte Carlo Estimate Errors")
-	tr2 = scatter(x = nsmooth:100_000, y = sqrt.(smooth_error(err_history_td, nsmooth)), name = "TD(0) Estimate Errors")
-	p2 = plot([tr1, tr2], Layout(xaxis_title = "Episode", yaxis_title = "Value Error"))
-	md"""
-	$p1
+	nsmooth = 100
+	tr1 = scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(err_history_mc, nsmooth)), name = "Monte Carlo Estimate Errors")
+	tr2 = scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(err_history_td, nsmooth)), name = "TD(0) Estimate Errors")
+	p2 = plot([tr1, tr2], Layout(xaxis_title = "Episode", yaxis_title = "Value Error", showlegend = false))
+	@htl("""
+	<div style = "display: flex;">
 	$p2
-	"""
+	$p1
+	</div>
+	""")
 end
   ╠═╡ =#
 
 # ╔═╡ c05ea239-2eea-4f41-b4e3-993db0fe2de5
 #=╠═╡
-figure_9_2()
+figure_9_2(;num_episodes = 25_000, fig_9_2_params...)
   ╠═╡ =#
 
 # ╔═╡ f5203959-29ef-406c-abac-4f01fa9630a3
@@ -863,24 +890,41 @@ md"""
 Note that a scaling factor of 1/num_states means that all states will be mapped to the range of 0 to 1 for the purpose of computing the polynomial features.  This helps with numerical stability when we are taking the state integers to large powers of n"""
   ╠═╡ =#
 
-# ╔═╡ eb8b26ed-8429-47b5-ab82-c6d79dd053e4
+# ╔═╡ 25f4f9d3-d8aa-462c-9874-ae842da1cf79
+md"""
+### *Example: Linear Feature Vectors with Random Walk*
+"""
+
+# ╔═╡ 56212ab2-833a-4dec-bcdd-21bce1d680b6
 #=╠═╡
-polynomial_random_walk_mc_v̂, poly_random_walk_rmse = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, order_features_setup(random_walk_state_mrp, 5, 1f0, Float32(num_states), calc_poly_feature)...; α = 0.0001f0, setup_kwargs = random_walk_ve_setup_kwargs)
+function show_random_walk_linear_results(linear_setup, num_episodes, α_mc, α_td, name; nsmooth = 100)
+	v̂_mc, mc_error = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, linear_setup...; α = α_mc, setup_kwargs = random_walk_ve_setup_kwargs)
+	v̂_td, td_error = run_linear_semi_gradient_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), linear_setup...; α = α_td, setup_kwargs = random_walk_ve_setup_kwargs)
+	p1 = plot([scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(mc_error, nsmooth)), name = "Monte Carlo"), scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(td_error, nsmooth)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged <br> over Previous $nsmooth Episodes", showlegend = false))
+	p2 = plot([scatter(y = v̂_mc.(Float32.(1:num_states)), name = "Monte Carlo"), scatter(y = v̂_td.(Float32.(1:num_states)), name = "TD(0)"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "$name Approximation", yaxis_title = "Value", xaxis_title = "State"))
+	@htl("""
+	<div style = "display: flex;">
+	$p1
+	$p2
+	</div>
+	""")
+end
   ╠═╡ =#
 
-# ╔═╡ a09b6907-e5b3-4979-bc22-5b4aa32c5963
+# ╔═╡ 93a617ee-db64-4351-b919-340d950fc148
 #=╠═╡
-polynomial_random_walk_td0_v̂, poly_td_ve = run_linear_semi_gradient_td0_estimation(random_walk_state_mrp, 1f0, 5_000, typemax(Int64), order_features_setup(random_walk_state_mrp, 5, 1f0, Float32(num_states), calc_poly_feature)...; α = 0.005f0, setup_kwargs = random_walk_ve_setup_kwargs)
+@bind poly_feature_params PlutoUI.combine() do Child
+	md"""
+	Number of Order Features: $(Child(:order_num, NumberField(1:100, default = 5)))
+	
+	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-8:1f0, default = 2f-4)))
+	"""
+end |> confirm
   ╠═╡ =#
 
-# ╔═╡ 55ce3135-44b9-4a8d-b0e6-a8a5ec972432
+# ╔═╡ 994f8556-964c-4c6b-8cfe-6f6a99c1ba29
 #=╠═╡
-plot([scatter(y = polynomial_random_walk_mc_v̂.(Float32.(1:num_states)), name = "monte carlo method"), scatter(y = polynomial_random_walk_td0_v̂.(Float32.(1:num_states)), name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Polynomial Basis Function Approximation"))
-  ╠═╡ =#
-
-# ╔═╡ 9164f6e1-5988-45f6-ac1c-2c48b303c3cd
-#=╠═╡
-plot([scatter(x = 1000:5000, y = sqrt.(smooth_error(poly_random_walk_rmse, 1000)), name = "Monte Carlo"), scatter(x = 1000:5000, y = sqrt.(smooth_error(poly_td_ve, 1000)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged over Previous 1000 Episodes"))
+show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, poly_feature_params.order_num, 1f0, Float32(num_states), calc_poly_feature), 25_000, poly_feature_params.α_mc, poly_feature_params.α_td, "Polynomial Basis Function Approximation")
   ╠═╡ =#
 
 # ╔═╡ ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
@@ -896,19 +940,27 @@ begin
 	calc_fourier_feature(s::T, min_value::T, max_value::T, c::NTuple{1, Int64}) where {T<:Real} = cos(Float32(π)*(s - min_value)*c[1] / (max_value - min_value))
 end
 
-# ╔═╡ 483c9b4e-bb4f-4909-aaa1-ddd00b9158dd
+# ╔═╡ c99867b7-2cb0-4bb7-b035-0e86104adefe
+md"""
+### *Example: Fourier Feature Vectors with Random Walk*
+
+Notice that for approximation techniques that are forced to do global approximation, TD(0) can converge faster than Monte Carlo without much loss in accuracy.  Monte Carlo should converge to the same or lower error but may require a very large number of learning steps.
+"""
+
+# ╔═╡ 89262830-1129-4270-8007-32fb0cd2e0ec
 #=╠═╡
-const fourier_random_walk_mc_v̂, fourier_mc_ve = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, order_features_setup(random_walk_state_mrp, 5, 1f0, Float32(num_states), calc_fourier_feature)...; α = 0.00006f0, setup_kwargs = random_walk_ve_setup_kwargs)
+@bind fourier_feature_params PlutoUI.combine() do Child
+	md"""
+	Number of Order Features: $(Child(:order_num, NumberField(1:100, default = 5)))
+	
+	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 3f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-8:1f0, default = 7f-4)))
+	"""
+end |> confirm
   ╠═╡ =#
 
-# ╔═╡ 00c90cd8-b8e7-4b1d-8a7a-e68e6a82a6e3
+# ╔═╡ 111a6762-ab4f-4db9-80f9-10c707623e0f
 #=╠═╡
-const fourier_random_walk_td0_v̂, fourier_td_ve = run_linear_semi_gradient_td0_estimation(random_walk_state_mrp, 1f0, 5_000, typemax(Int64), order_features_setup(random_walk_state_mrp, 5, 1f0, Float32(num_states), calc_fourier_feature)...; α = 0.0006f0, setup_kwargs = random_walk_ve_setup_kwargs)
-  ╠═╡ =#
-
-# ╔═╡ 705aef3d-69dd-4ef2-ba79-9c4233bf3d73
-#=╠═╡
-plot([scatter(y = fourier_random_walk_mc_v̂.(Float32.(1:num_states)), name = "monte carlo method"), scatter(y = fourier_random_walk_td0_v̂.(Float32.(1:num_states)), name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Fourier Basis Function Approximation"))
+show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, fourier_feature_params.order_num, 1f0, Float32(num_states), calc_fourier_feature), 10_000, fourier_feature_params.α_mc, fourier_feature_params.α_td, "Fourier Basis Function Approximation")
   ╠═╡ =#
 
 # ╔═╡ b4aefbb1-dbb7-490c-9fa7-0f68e5a9916c
@@ -919,13 +971,8 @@ function plot_value_error(errs, names, nsmooth)
 		scatter(x = nsmooth:l, y = sqrt.(smooth_error(err, nsmooth)), name = names[i])
 	end
 	for (i, err) in enumerate(errs)]
-	plot(traces, Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged over Previous $nsmooth Episodes"))
+	plot(traces, Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged over <br> Previous $nsmooth Episodes"))
 end
-  ╠═╡ =#
-
-# ╔═╡ 5e4244a5-90e2-4189-972b-ea100c9e79e0
-#=╠═╡
-plot_value_error([fourier_mc_ve, fourier_td_ve], ["Monte Carlo", "TD(0)"], 1000)
   ╠═╡ =#
 
 # ╔═╡ a99ef185-0360-4005-9a8c-f10ca58babda
@@ -1054,7 +1101,7 @@ function tile_coding_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, Stat
 
 	num_features = features_per_tiling*num_tilings
 
-	feature_vector = SparseVector(zeros(T, num_features))
+	feature_vector = zeros(T, num_features)
 
 	#the vector representing how much each offset is shifted from the base for single unit shifts
 	offset = k == 1 ? tile_size/num_tilings/max_d : Tuple(T(l/num_tilings/max_d) for l in tile_size)
@@ -1064,17 +1111,17 @@ function tile_coding_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, Stat
 	end
 
 	function get_feature_vector(s::S)
-		feature_vector = SparseVector(zeros(T, num_features))
+		feature_vector = zeros(T, num_features)
 		update_feature_vector!(feature_vector, s)
 		return feature_vector
 	end
 
-	(args = (feature_vector = feature_vector, feature_vector_update = update_feature_vector!), get_feature_vector = get_feature_vector, num_tiles = num_tiles)
+	(args = (feature_vector = feature_vector, feature_vector_update = update_feature_vector!), get_feature_vector = get_feature_vector, num_tiles = num_tiles, offset = offset, s_range = s_range)
 end
 
 # ╔═╡ e6514762-31e0-4916-aa21-c280674c2fc1
 md"""
-### *Example: 1-Dimensional Tile Coding*
+### *Example: Visualizing 1-Dimensional Tile Coding*
 """
 
 # ╔═╡ 84d9aac5-cf3b-402b-b222-9e8985a80b5b
@@ -1086,7 +1133,7 @@ md"""
 	Number of Tilings: $(Child(:num_tilings, NumberField(1:10, default = 2)))
 	
 	"""
-end
+end |> confirm
   ╠═╡ =#
 
 # ╔═╡ dda74c94-3574-4e7b-bab1-d106111d36d4
@@ -1106,24 +1153,29 @@ The following shows which feature is active for each tiling in the 1 dimensional
 plot(heatmap(x = 1:num_states, y = 1:length(tile_coding_test.get_feature_vector(1f0)), z = reduce(hcat, tile_coding_test.get_feature_vector.(Float32.(1:num_states))), colorscale = "Greys", showscale=false), Layout(xaxis = attr(title = "state", mirror = true, linecolor = "black"), yaxis = attr(title = "Active Features", linecolor="black", mirror = true), title = "Active Tiling Features In White"))
   ╠═╡ =#
 
-# ╔═╡ acc3c44b-2740-4ff8-9a5d-41e4bd1d6e3e
+# ╔═╡ 8e12b92b-e56d-44f0-bf89-3248131b2245
+md"""
+### *Example: Tile Coding with Random Walk Example*
+
+Notice that TD learning in this case is also more stable at higher learning rates as the number of tilings increases
+"""
+
+# ╔═╡ 7e56131f-3afe-4997-a085-60f0d45a9d8d
 #=╠═╡
-const tile_coding_random_walk_mc_v̂, tile_coding_mcve = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), 0.2f0, 50, 1).args...; α = 2f-4 / 50, setup_kwargs = random_walk_ve_setup_kwargs)
+@bind tile_coding_learning_params PlutoUI.combine() do Child
+	md"""
+	Tile Size (% of $s_{max}$): $(Child(:tile_size, NumberField(0.01f0:0.01f0:.99f0, default = 0.1f0)))
+
+	Number of Tilings: $(Child(:num_tilings, NumberField(1:100, default = 20)))
+	
+	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 1f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 6f-4)))
+	"""
+end |> confirm
   ╠═╡ =#
 
-# ╔═╡ 5188026b-4b31-4bd9-8865-108ae959c991
+# ╔═╡ b5a3a529-2d74-4757-9d38-2eae28396d02
 #=╠═╡
-const tile_coding_random_walk_td0_v̂, tile_coding_tdve = run_linear_semi_gradient_td0_estimation(random_walk_state_mrp, 1f0, 5_000, typemax(Int64), tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), 0.2f0, 50, 1).args...; α = 4f-3 / 50, setup_kwargs = random_walk_ve_setup_kwargs)
-  ╠═╡ =#
-
-# ╔═╡ d5d83bb4-fdbd-42f6-bc9a-14741f2786e0
-#=╠═╡
-plot([scatter(y = tile_coding_random_walk_mc_v̂.(Float32.(1:num_states)), name = "monte carlo method"), scatter(y = tile_coding_random_walk_td0_v̂.(Float32.(1:num_states)), name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Tile Coding Approximation"))
-  ╠═╡ =#
-
-# ╔═╡ 605a6ab5-b42a-4278-b61a-05a76bb312e3
-#=╠═╡
-plot_value_error([tile_coding_mcve, tile_coding_tdve], ["Monte Carlo", "TD(0)"], 1000)
+show_random_walk_linear_results(tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_coding_learning_params.tile_size, tile_coding_learning_params.num_tilings, 1).args, 10_000, tile_coding_learning_params.α_mc, tile_coding_learning_params.α_td, "Tile Coding Function Approximation")
   ╠═╡ =#
 
 # ╔═╡ a4d9efaf-1e1e-4115-973f-570014c1fd06
@@ -1194,26 +1246,27 @@ md"""
 ### *Neural Network Parameter Update Implementation*
 """
 
-# ╔═╡ d660b447-99f4-4db9-859a-afa5e0e34d13
-#add more sophisticated parameter update with per parameter learning rates and compare to plain stochastic gradient descent
-
 # ╔═╡ eca42c3b-fa09-4999-b260-c5de95c2987c
-function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32})
+function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32}; λ = 0f0, c = Inf, dropout = 0f0)
 	input_layer_size = size(input, 2)
-	FCANN.nnCostFunction(θs, βs, input_layer_size, layers, input, output, 0f0, ∇θ, ∇β, ∇tanh_z, activations, δs, onesvec; costFunc = "sqErr", resLayers = 1)
+	FCANN.nnCostFunction(θs, βs, input_layer_size, layers, input, output, λ, ∇θ, ∇β, ∇tanh_z, activations, δs, onesvec, dropout; costFunc = "sqErr", resLayers = 1)
 	FCANN.updateParams!(α, θs, βs, ∇θ, ∇β, scales)
-	# return mean((δs[end][:] ./2).^2)
+	if !isinf(c)
+		FCANN.scaleParams!(θs[1:end-1], βs[1:end-1], c)
+	end
 end
 
 # ╔═╡ d1edfc31-23de-427a-9a08-51c4e33f3fc7
-function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32}, mT, mB, vT, vB, θ_est, β_est, θ_avg, β_avg, t)
+function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32}, mT, mB, vT, vB, t; λ = 0f0, c = Inf, dropout = 0f0)
 	input_layer_size = size(input, 2)
-	FCANN.nnCostFunction(θs, βs, input_layer_size, layers, input, output, 0f0, ∇θ, ∇β, ∇tanh_z, activations, δs, onesvec; costFunc = "sqErr", resLayers = 1)
+	FCANN.nnCostFunction(θs, βs, input_layer_size, layers, input, output, λ, ∇θ, ∇β, ∇tanh_z, activations, δs, onesvec; costFunc = "sqErr", resLayers = 1)
 	FCANN.updateM!(0.9f0, mT, mB, ∇θ, ∇β)
 	FCANN.updateV!(0.999f0, vT, vB, ∇θ, ∇β)
-	FCANN.updateParams!(α, 0.9f0, θs, βs, ∇θ, ∇β, mT, mB, vT, vB, t, scales)
-	FCANN.updateEst!(0.999f0, t, θs, βs, θ_avg, β_avg, θ_est, β_est)
-	# return mean((δs[end][:] ./2).^2)
+	FCANN.updateParams!(α, 0.9f0, θs, βs, mT, mB, vT, vB, t, scales)
+	if !isinf(c)
+		FCANN.scaleParams!(θs[1:end-1], βs[1:end-1], c)
+	end
+	# FCANN.updateEst!(0.999f0, t, θs, βs, θ_avg, β_avg, θ_est, β_est)
 end
 
 # ╔═╡ 55f451b2-dcff-4442-a1ea-ac2c53433298
@@ -1224,10 +1277,10 @@ function update_input!(input::Matrix{Float32}, feature_vector::Vector{Float32}, 
 end
 
 # ╔═╡ ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
-function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
+function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2, dropout = 0f0, λ = 0f0, c = Inf) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
 	s0 = problem.initialize_state()
 	update_feature_vector!(feature_vector, s0)
-	θ, β = initializeParams(length(feature_vector), layers, 1, 1, true)
+	θ, β = FCANN.initializeparams_saxe(length(feature_vector), layers, 1, 1; use_μP = true)
 
 	∇θ = deepcopy(θ)
 	∇β = deepcopy(β)
@@ -1249,15 +1302,16 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 	input = zeros(Float32, 1, input_layer_size)
 	output = zeros(Float32, 1, 1)
 	scales = ones(Float32, length(layers)+1)
+	for i in 2:length(scales)
+		scales[i] /= size(θ[i], 2)
+	end
 	
 	function update_parameters!(parameters, s::S, g::T, α::T, gradients, state_representation::Vector{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, scales)
 		update_feature_vector!(state_representation, s)
 		update_input!(input, state_representation, 1)
 		output[1, 1] = g
-		update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, α, scales)
-		# FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
+		update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, α, scales; c = c, λ = λ, dropout = dropout)
 		calculate_error(g, activations[end][1, 1], s)
-		# calculate_error(rand(Float32), g, s)
 	end
 
 	# function update_parameters!(parameters, gradients, state_representation::Vector{Float32}, input::Matrix{T}, state_list::AbstractVector{S}, output::Matrix{T}, α::T)
@@ -1269,168 +1323,25 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 	# 	update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, FCANN.form_tanh_grads(layers, length(state_list)), setup_training(length(state_list))..., α, scales)
 	# end
 
-	function v̂(s::S, parameters, state_representation) 
+	function v̂(s::S, parameters, state_representation, input) 
 		update_feature_vector!(state_representation, s)
 		update_input!(input, state_representation, 1)
 		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
 		return activations[end][1, 1]
 	end
 
-	function v̂(states::AbstractVector{S}, parameters, state_representation)
-		input = zeros(Float32, length(states), length(state_representation))
-		for i in eachindex(states)
-			update_feature_vector!(state_representation, states[i])
-			update_input!(input, state_representation, i)
-		end
-		FCANN.predict(parameters[1], parameters[2], input, 1)
-		# copy(activations[end])
-	end
-
-	function v̂(input::Matrix{T}, output::Matrix{T}, states::AbstractVector{S}, rewards::Vector{T}, γ::T, parameters, state_representation)
-		for i in eachindex(states)
-			update_feature_vector!(state_representation, states[i])
-			update_input!(input, state_representation, i)
-		end
-		v̂′ = FCANN.predict(parameters[1], parameters[2], input, 1)
-		output .= rewards .+ γ .* v̂′
-	end
-
 	update_args = ((∇θ, ∇β), feature_vector, input, output, ∇tanh_z, activations, δs, onesvec, scales)
 	
-	return (value_function = v̂, value_args = (feature_vector,), parameter_update = update_parameters!, update_args = update_args, parameters = (θ, β))
+	return (value_function = v̂, value_args = (feature_vector, input), parameter_update = update_parameters!, update_args = update_args, parameters = (θ, β))
 end
 
-# ╔═╡ 2177af17-b36a-4639-b5cf-f34ad90541e4
-#=╠═╡
-random_walk_ve_setup_kwargs
-  ╠═╡ =#
-
-# ╔═╡ 8decd00b-ca5f-4747-970d-2c5af895f9dd
-md"""
-### *Batch Monte Carlo Estimation Implementation*
-"""
-
-# ╔═╡ 920154d7-f2ba-42b6-8fdb-7d41fd73ab8a
-# ╠═╡ disabled = true
-#=╠═╡
-function gradient_monte_carlo_batch_estimation!(parameters, mrp::StateMRP, γ::T, num_episodes::Integer, update_parameters!::Function, state_representation::AbstractVector{T}; α = one(T)/10, gradients = deepcopy(parameters), use_matrix_output = false, decay_α = false, epkwargs...) where {T<:Real}
-	(states, rewards, _) = runepisode(mrp;epkwargs...)
-	l = length(states)
-	# input = zeros(T, l, length(state_representation))
-	# output = if use_matrix_output
-	# 	zeros(T, l, 1)
-	# else
-	# 	output = zeros(T, l)
-	# end
-	sqerr = gradient_monte_carlo_episode_update!(parameters, gradients, state_representation, zeros(T, l, length(state_representation)), zeros(T, l, 1), update_parameters!, states, rewards, γ, α)
-	rmse_history = zeros(T, num_episodes)
-	rmse_history[1] = sqrt(sqerr)
-	decay_rate = decay_α * (α / num_episodes)
-	for ep in 2:num_episodes
-		α += decay_rate 
-		(states, rewards, _, n_steps) = runepisode!((states, rewards), mrp; epkwargs...)
-		# if use_matrix_output
-		# 	output = zeros(T, l, 1)
-		# else
-		# 	resize!(output, l)
-		# end
-		# input = zeros(T, l, length(state_representation))
-		sqerr = gradient_monte_carlo_episode_update!(parameters, gradients, state_representation, zeros(T, n_steps, length(state_representation)), zeros(T, n_steps, 1), update_parameters!, view(states, 1:n_steps), view(rewards, 1:n_steps), γ, α)
-		rmse_history[ep] = sqrt(sqerr)
-	end
-	return rmse_history
+# ╔═╡ efb65aec-76b2-4159-9b75-8145602b3163
+function run_fcann_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, layers::Vector{Int64}, feature_vector::Vector{T}, update_feature_vector!::Function; setup_kwargs::NamedTuple = NamedTuple(), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
+	setup = fcann_gradient_setup(mdp, layers, feature_vector, update_feature_vector!; setup_kwargs...)
+	error_history = gradient_monte_carlo_policy_estimation!(setup.parameters, mdp, π, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
+	return (v̂ = v̂, parameters = setup.parameters, error_history = error_history)
 end
-  ╠═╡ =#
-
-# ╔═╡ 5bf9c17e-e4d0-4a8d-956d-1f4bc821d9ee
-# ╠═╡ disabled = true
-#=╠═╡
-
-  ╠═╡ =#
-
-# ╔═╡ 4bc908e1-41d2-4231-bc2e-4fa5d0a65ce7
-md"""
-### *Batch Semi-gradient TD0 Estimation Implementation*
-"""
-
-# ╔═╡ 713d89aa-b444-4b9d-87d4-97a23373318a
-# ╠═╡ disabled = true
-#=╠═╡
-function semi_gradient_td0_policy_batch_estimation!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}, batchsize::Integer; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	s = mdp.initialize_state()
-	a = π(s)
-	(r, s′) = mdp.ptf(s, a)
-	statelist = Vector{S}(undef, batchsize)
-	targetlist = Vector{T}(undef, batchsize)
-	input = Matrix{T}(undef, batchsize, length(state_representation))
-	output = Matrix{T}(undef, batchsize, 1)
-	batchcount = 1
-	ep = 1
-	step = 1
-	while (ep <= max_episodes) && (step <= max_steps)
-		v̂′ = mdp.isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
-		v̂ = r + γ*v̂′
-		statelist[batchcount] = s
-		targetlist[batchcount] = v̂
-		if mdp.isterm(s′)
-			s = mdp.initialize_state()
-			ep += 1
-		else
-			s = s′
-		end
-		a = π(s)
-		(r, s′) = mdp.ptf(s, a)
-		step += 1
-		if batchcount == batchsize
-			upate_parameters!(parameters, gradients, state_representation, input, statelist, output, α)
-			batchcount = 1
-		else
-			batchcount += 1
-		end
-	end
-	return parameters
-end
-  ╠═╡ =#
-
-# ╔═╡ 0625c24b-e948-41ce-aa14-8e32f7d6ac11
-# ╠═╡ disabled = true
-#=╠═╡
-function semi_gradient_td0_batch_estimation!(parameters, mrp::StateMRP{T, S, P, F1, F2}, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, update_parameters!::Function, state_representation::AbstractVector{T}, batchsize::Integer; α = one(T)/10, gradients = similar(parameters), epkwargs...) where {T<:Real, S, P, F1, F2}
-	s = mrp.initialize_state()
-	(r, s′) = mrp.ptf(s)
-	statelist = Vector{S}(undef, batchsize)
-	transitionstatelist = Vector{S}(undef, batchsize)
-	rewardlist = Vector{T}(undef, batchsize)
-	input = Matrix{T}(undef, batchsize, length(state_representation))
-	output = Matrix{T}(undef, batchsize, 1)
-	batchcount = 1
-	ep = 1
-	step = 1
-	while (ep <= max_episodes) && (step <= max_steps)
-		# v̂′ = mrp.isterm(s′) ? 0f0 : estimate_value(s′, parameters, state_representation)
-		# v̂ = r + γ*v̂′
-		statelist[batchcount] = s
-		transitionstatelist[batchcount] = s′
-		rewardlist[batchcount] = r
-		if mrp.isterm(s′)
-			s = mrp.initialize_state()
-			ep += 1
-		else
-			s = s′
-		end
-		(r, s′) = mrp.ptf(s)
-		step += 1
-		if batchcount == batchsize
-			estimate_value(input, output, transitionstatelist, rewardlist, γ, parameters, state_representation)
-			update_parameters!(parameters, gradients, state_representation, input, statelist, output, α)
-			batchcount = 1
-		else
-			batchcount += 1
-		end
-	end
-	return parameters
-end
-  ╠═╡ =#
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 md"""
@@ -1443,26 +1354,6 @@ function update_random_walk_vector!(feature_vector::Vector{Float32}, s::Float32)
 	x1 = (s - 500f0) / sqrt(46295f0)
 	feature_vector[1] = x1
 end
-
-# ╔═╡ e2d62bf4-5acc-44ab-9ab0-edc6f814ae18
-#=╠═╡
-function run_random_walk_fcann_monte_carlo_batch_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!)
-	rmse = gradient_monte_carlo_batch_estimation!(setup.parameters, mrp, γ, num_episodes, setup.parameter_update, setup.state_representation; gradients = setup.gradients, use_matrix_output=true,kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.state_representation)
-	return (v̂ = v̂, parameters = setup.parameters, error_history = rmse)
-end
-  ╠═╡ =#
-
-# ╔═╡ 12b80788-b46a-414f-8771-356ba91be3d5
-#=╠═╡
-function run_random_walk_fcann_td0_batch_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}, batchsize::Integer; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!)
-	semi_gradient_td0_batch_estimation!(setup.parameters, mrp, γ, num_episodes, typemax(Int64), setup.value_function, setup.parameter_update, setup.state_representation, batchsize; gradients = setup.gradients, use_matrix_output=true,kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.state_representation)
-	return (v̂ = v̂, parameters = setup.parameters)
-end
-  ╠═╡ =#
 
 # ╔═╡ cfc5964b-3a23-48d9-b320-861fd4a43364
 #=╠═╡
@@ -1484,55 +1375,47 @@ function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ
 end
   ╠═╡ =#
 
+# ╔═╡ fb244ed5-2827-4b39-a5b1-ced0815b000a
+#=╠═╡
+function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td; nsmooth = 100)
+	nn_layers = fill(layer_size, num_layers)
+	
+	v̂_mc, params, mc_error = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers; α = α_mc)
+	v̂_td, params, td_error = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers; α = α_td)
+	p1 = plot([scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(mc_error, nsmooth)), name = "Monte Carlo"), scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(td_error, nsmooth)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged <br> over Previous $nsmooth Episodes", showlegend = false))
+	p2 = plot([scatter(y = v̂_mc.(Float32.(1:num_states)), name = "Monte Carlo"), scatter(y = v̂_td.(Float32.(1:num_states)), name = "TD(0)"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with $nn_layers Layers", yaxis_title = "Value", xaxis_title = "State"))
+	@htl("""
+	<div style = "display: flex;">
+	$p1
+	$p2
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ b1c84d59-3598-46a1-bc1a-fd691d14ab09
+md"""
+Notice again how TD learning is more stable at higher learning rates.  The neural network approximation with this few parameters benefits greatly from bootstrap estimation since all state estimates affect eachother.
+"""
+
 # ╔═╡ 420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
 #=╠═╡
 @bind nn_params PlutoUI.combine() do Child
 	md"""
-	Num Layers: $(Child(:num_layers, NumberField(1:10, default = 3)))
-	Layer Size: $(Child(:layer_size, NumberField(1:100, default = 20)))
+	Num Layers: $(Child(:num_layers, NumberField(1:10, default = 2)))
+	Layer Size: $(Child(:layer_size, NumberField(1:100, default = 4)))
+
+	Training Episodes: $(Child(:num_episodes, NumberField(1:100_000, default = 2000)))
+
+	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 1f-4))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 4f-3)))
 	"""
 end |> confirm
   ╠═╡ =#
 
-# ╔═╡ 3ab43d46-f171-4f3b-b788-91ebbff4420c
+# ╔═╡ 40d07f16-b9ca-4782-bdd2-de15ec6b21e5
 #=╠═╡
-const nn_layers = fill(nn_params.layer_size, nn_params.num_layers)
+show_random_walk_fcann_results(nn_params...; nsmooth = 100)
   ╠═╡ =#
-
-# ╔═╡ d854d97d-0ca1-4cc7-a7a7-2e76ff5f4d1f
-#=╠═╡
-const fcann_random_walk_td0_batch_output = run_random_walk_fcann_td0_batch_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers, 8; α = 5f-6)
-  ╠═╡ =#
-
-# ╔═╡ e15dc0eb-9e83-4994-b953-b28c74e58030
-#=╠═╡
-const fcann_random_walk_mc_output = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers; α = 1f-6)
-  ╠═╡ =#
-
-# ╔═╡ bce990c1-fffc-4393-88b0-8ddb783f57a2
-#=╠═╡
-const fcann_random_walk_td0_output = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, 5_000, nn_layers; α = 7f-5)
-  ╠═╡ =#
-
-# ╔═╡ c8334c7c-7a0e-4cf4-a837-cb0404f2fe1b
-#=╠═╡
-plot([scatter(y = fcann_random_walk_mc_output.v̂(Float32.(1:num_states))[:], name = "monte carlo method"), scatter(y = fcann_random_walk_td0_output.v̂(Float32.(1:num_states))[:], name = "td0 method"), scatter(y = fcann_random_walk_td0_batch_output.v̂(Float32.(1:num_states))[:], name = "td0 batch method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with Layers: $nn_layers"))
-  ╠═╡ =#
-
-# ╔═╡ e122088f-ef7e-48e8-b2bb-d4afd76810a1
-#=╠═╡
-plot([scatter(y = fcann_random_walk_mc_output.v̂(Float32.(1:num_states))[:], name = "monte carlo method"), scatter(y = fcann_random_walk_td0_output.v̂(Float32.(1:num_states))[:], name = "td0 method"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with Layers: $nn_layers"))
-  ╠═╡ =#
-
-# ╔═╡ 6b30d3c2-0dd0-4630-ace3-1571dda25bab
-#=╠═╡
-plot_value_error([fcann_random_walk_mc_output.error_history, fcann_random_walk_td0_output.error_history], ["Monte Carlo", "TD(0)"], 100)
-  ╠═╡ =#
-
-# ╔═╡ b227bf76-4c34-4e07-91ab-ee07ab9c5b77
-md"""
-In this case we have the true value reference, but what do we do in a situation where we don't have that?  We can at least measure the error history per episode through time.
-"""
 
 # ╔═╡ b22ef023-4e6a-4114-b3c2-bf91e16e9a43
 md"""
@@ -1548,17 +1431,17 @@ where
 
 Instead of updating $\mathbf{w}$ incrementally we could use whatever data we have collected so far to compute estimates of $\mathbf{A}$ and $\mathbf{b}$ and then compute the TD fixed point directly.  *Least-Squares TD* or LSTD does this by forming the following estimates: 
 
- $\widehat{\mathbf{A}_t} \doteq \sum_{k=0}^{t-1} \mathbf{x}_k (\mathbf{x}_k - \gamma \mathbf{x}_{k+1})^\top + \epsilon \mathbf{I}$ and $\widehat{\mathbf{b}_t} \doteq \sum_{k=0}^{t-1} R_{k+1} \mathbf{x}_k \tag{9.20}$
+ $\widehat{\mathbf{A}}_t \doteq \sum_{k=0}^{t-1} \mathbf{x}_k (\mathbf{x}_k - \gamma \mathbf{x}_{k+1})^\top + \epsilon \mathbf{I}$ and $\widehat{\mathbf{b}}_t \doteq \sum_{k=0}^{t-1} R_{k+1} \mathbf{x}_k \tag{9.20}$
 
 where $\mathbf{I}$ is the identity matrix, and $\epsilon \mathbf{I}$, for some small $\epsilon \gt 0$, ensures that $\widehat{\mathbf{A}_t}$ is always invertible.  It might seem that these estimates should both be divided by $t$, and indeed they should; as defined here, these are really estimates of $t$ *times* $\mathbf{A}$ and $t$ *times* $\mathbf{b}$.  However, the extra $t$ factors cancel out when LSTD uses these estimates to estimate the TD fixed point as
 
-$\mathbf{w}_t \doteq \widehat{\mathbf{A}_t}^{-1} \widehat{\mathbf{b}_t} \tag{9.21}$
+$\mathbf{w}_t \doteq \widehat{\mathbf{A}}_t^{-1} \widehat{\mathbf{b}}_t \tag{9.21}$
 
 This algorithm is the most data efficient form of linear TD(0), but it is also more expensive computationally.  Recall that semi-gradient TD(0) requires memory and per step computation that is only $O(d)$.  In contrast LSTD requires us to invert $\widehat{\mathbf{A}_t}$ which is $O(d^3)$ on top of the incremental updates to $\widehat{\mathbf{A}_t}$ requiring $O(d^2)$.  Fortunately, the matrix we are inverting is a sum of outer products and there is an $O(d^2)$ incremental update rule for that:
 
 $\begin{flalign}
-\widehat{\mathbf{A}_t}^{-1} &= \left ( \widehat{\mathbf{A}}_{t-1} + \mathbf{x}_{t-1} (\mathbf{x}_{t-1} - \gamma \mathbf{x}_{t})^\top \right )^{-1} \tag{from (9.20)} \\
-&= \widehat{\mathbf{A}}_{t-1} - \frac{\widehat{\mathbf{A}_{t-1}^{-1} \mathbf{x}_{t-1}(\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1}}}{1 + (\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}} \tag{9.22}  
+\widehat{\mathbf{A}}_t^{-1} &= \left ( \widehat{\mathbf{A}}_{t-1} + \mathbf{x}_{t-1} (\mathbf{x}_{t-1} - \gamma \mathbf{x}_{t})^\top \right )^{-1} \tag{from (9.20)} \\
+&= \widehat{\mathbf{A}}_{t-1} - \frac{\widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}(\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1}}{1 + (\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}} \tag{9.22}  
 \end{flalign}$
 
 for $t>0$, with $\widehat{\mathbf{A}}_0 \doteq \epsilon \mathbf{I}$.  Although the identity (9.22), known as *the Sherman-Morrison formula*, is superficially complicated, it involves only vector-matrix and vector-vector multiplications and thus is only $O(d^2)$.  Of course, $O(d^2)$ is still significantly more expensive than the $O(d)$ of semi-gradient TD.  Whether this greater data efficiency of LSTD is worth this computational expense depends on how large $d$ is, how important it is to learn quickly, and the expense of other parts of the system.  The fact that LSTD requires no step-size parameter is sometimes also touted, but the advantage of this is probably overstated since we still need to define $\epsilon$ which affects the sequences of inverses calculated.  Also if the target policy changes it may be undesireable that we keep all of the data, so we may need to use some step size parameter anyway to have old data decay.
@@ -1648,9 +1531,9 @@ begin
 	least_squares_td_policy_estimation(mdp::StateMDP, d::Integer, π::Function, args...; kwargs...) = least_squares_td_estimation(d, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
 end
 
-# ╔═╡ 195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
+# ╔═╡ 2463013a-efad-42a9-874d-a0ecbea9cb49
 md"""
-### *Example: LSTD with Random Walk Example*
+### *State Aggregation LSTD Implementation*
 """
 
 # ╔═╡ e0e51e37-0217-4a76-b6e7-9b6e15429941
@@ -1663,15 +1546,31 @@ function create_state_aggregation_feature_vector_update(assign_state_group::Func
 	end
 end
 
+# ╔═╡ 3aec99c3-ba2c-418f-b448-14eb9e8e423c
+function run_state_aggregation_least_squares_td_estimation(mrp::StateMRP, num_groups::Integer, assign_state_group::Function, γ, max_episodes, max_steps; kwargs...)
+	update_feature_vector! = create_state_aggregation_feature_vector_update(assign_state_group)
+	least_squares_td_estimation(mrp, num_groups, γ, max_episodes, max_steps, update_feature_vector!; kwargs...)
+end
+
+# ╔═╡ 785e0e9e-8591-4df0-9282-b516cb87767e
+function run_state_aggregation_least_squares_td_policy_estimation(mdp::StateMDP, π::Function, num_groups::Integer, assign_state_group::Function, γ, max_episodes, max_steps; kwargs...)
+	update_feature_vector! = create_state_aggregation_feature_vector_update(assign_state_group)
+	least_squares_td_policy_estimation(mdp, num_groups, π, γ, max_episodes, max_steps, update_feature_vector!; kwargs...)
+end
+
+# ╔═╡ 195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
+md"""
+### *Example: LSTD with Random Walk Example*
+"""
+
 # ╔═╡ f10c643b-9205-4b18-841c-255a9354cf97
 #=╠═╡
-function test_least_squares_td_randomwalk(num_episodes; num_groups = 10)
+function state_aggregation_least_squares_td_randomwalk(num_episodes; num_groups = 10, ϵ = 1f-3, α = 1f-3)
 	group_assign = make_random_walk_group_assign(num_states, num_groups)
-	ϵ = 1f-3
+
 	t0 = time()
-	(params, v, error) = least_squares_td_estimation(random_walk_state_mrp, num_groups, 1f0, num_episodes, typemax(Int64), create_state_aggregation_feature_vector_update(group_assign); calculate_error = (v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2, ϵ = ϵ)
+	(params, v, error) = run_state_aggregation_least_squares_td_estimation(random_walk_state_mrp, num_groups, group_assign, 1f0, num_episodes, typemax(Int64); calculate_error = (v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2, ϵ = ϵ)
 	t_lstd = round(time() - t0; sigdigits = 3)
-	α = 1f-3
 	t0 = time()
 	v̂_td, err_history_td = run_state_aggregation_semi_gradient_estimation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α, setup_kwargs = random_walk_ve_setup_kwargs)
 	t_td = round(time() - t0; sigdigits = 3)
@@ -1698,7 +1597,7 @@ md"""
 
 # ╔═╡ 7c5ac88b-453b-40bd-98a4-534fc70c7c45
 #=╠═╡
-test_least_squares_td_randomwalk(10000)
+state_aggregation_least_squares_td_randomwalk(10000; ϵ = 1f-4, α = 1f-2)
   ╠═╡ =#
 
 # ╔═╡ f1272708-4f99-484e-b861-cd50e4f20bc4
@@ -1718,7 +1617,7 @@ function linear_compare_least_squares_td_randomwalk(num_episodes; order_number =
 	errors = []
 	error_names = []
 
-	tests = [ 	(setup = poly_setup, α = 1f-3, ϵ = 1f-4, name = "Polynomial Order $order_number"), 
+	tests = [ 	(setup = poly_setup, α = 1f-6, ϵ = 1f-2, name = "Polynomial Order $order_number"), 
 				(setup = fourier_setup, α = 1f-3, ϵ = 1f-3, name = "Fourier Order $order_number"), 
 				(setup = tile_setup, α = 1f-3 / num_tilings, ϵ = 1f-1, name = "Tile Coding with $num_tilings tilings")
 	]
@@ -1737,7 +1636,9 @@ function linear_compare_least_squares_td_randomwalk(num_episodes; order_number =
 		t_td = round(time() - t0; sigdigits = 3)
 		push!(estimate_traces, scatter(y = v(Float32.(1:1000)), name = "LSTD Estimation $name features"))
 		push!(errors, error)
-		push!(error_names, "$name Features with ϵ = $ϵ")
+		push!(errors, err_history_td)
+		push!(error_names, "$name Features with ϵ = $ϵ LSTD")
+		push!(error_names, "$name Features with α = $α Semi-gradient TD(0)")
 	end
 	
 	
@@ -1866,7 +1767,7 @@ md"""
 
 # ╔═╡ fda4d6cc-5868-4319-81c2-7a20dd0a7e9e
 #=╠═╡
-const random_walk_memory = build_value_memory(random_walk_state_mrp, 1f0, 5000; α = 1f-2)
+const random_walk_memory = build_value_memory(random_walk_state_mrp, 1f0, 100_000; α = 1f-2)
   ╠═╡ =#
 
 # ╔═╡ 4e279cff-9233-430f-9b0b-40e992b34aed
@@ -1933,7 +1834,60 @@ Number of Groups for Kernel Appoximation: $(@bind kernel_num_groups Slider(1:num
 
 # ╔═╡ 9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
 #=╠═╡
-plot([scatter(x = 1:1000, y = random_walk_aggregation_kernel_approximation(random_walk_memory; num_groups = kernel_num_groups).(Float32.(1:num_states)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
+plot([scatter(x = 1:1000, y = random_walk_aggregation_kernel_approximation(random_walk_memory; num_groups = kernel_num_groups).(Float32.(1:num_states)), name = "State Aggregation Kernel Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
+  ╠═╡ =#
+
+# ╔═╡ c04be604-804a-44c3-b2da-98729a5e7508
+md"""
+### Tile Coding Kernel Method
+"""
+
+# ╔═╡ 3e395c5f-2410-4abe-be61-b6345caa9e1c
+#=╠═╡
+@bind tile_coding_kernel_params PlutoUI.combine() do Child
+	md"""
+	Tile Size: $(Child(:tile_size, NumberField(0f0:0.001f0:1f0, default = 0.1f0)))
+
+	Number of Tilings: $(Child(:num_tilings, NumberField(1:100, default = 10)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ b75313dc-ac50-4947-9221-fc1415abc85f
+#takes the dot product of the feature vector for a new state given an existing feature vector, the feature vector for the new state is never constructed
+function get_kernel_weight(feature_vector::AbstractVector{T}, state::T, offset::T, d::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where T<:Real
+	w = zero(T)
+	#for each tiling figure out if the active tile for the query state is active in the reference state
+	for tiling in 1:num_tilings
+		i = max(1, ceil(Int64, (scale_state(state, min_value, range) + offset*d*(tiling-1)) / tile_size))
+		index = min(i + (tiling - 1)*num_tiles, length(feature_vector))
+		w += feature_vector[index]
+	end
+	return w
+end
+
+# ╔═╡ b2dc9155-8cae-4034-bb82-32ad41851fbd
+#=╠═╡
+function random_walk_tile_coding_kernel_approximation(memory::@NamedTuple{states::Vector{Float32}, values::Vector{Float32}}; tile_size = 0.1f0, num_tilings = 10)
+	setup = tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_size, num_tilings, 1)
+	states = memory.states
+	vals = memory.values
+	l = length(states)
+	state_feature_vectors = setup.get_feature_vector.(states)
+	x = zeros(Float32, l)
+	function v̂(s::Float32)
+		for i in 1:l
+			x[i] = get_kernel_weight(state_feature_vectors[i], s, setup.offset, 1, num_tilings, tile_size, setup.num_tiles, 1f0, setup.s_range)
+		end
+		d = sum(x)
+		dot(x, vals) / d
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ d76f37ac-8721-4d10-8f15-20bc03b5ae98
+#=╠═╡
+plot([scatter(x = 1:1000, y = random_walk_tile_coding_kernel_approximation(random_walk_memory; tile_coding_kernel_params...).(Float32.(1:num_states)), name = "Tile-Coding Kernel Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
 
 # ╔═╡ 905b032d-5fa0-4a3c-9055-fec92fd5879e
@@ -2568,6 +2522,7 @@ version = "17.4.0+2"
 # ╟─1adf0786-0897-4119-9336-09de869463b4
 # ╟─b361815f-d5b0-4c71-b331-c3b48ce53e73
 # ╟─ff354a5e-f077-458d-8a0c-0a96a1d57658
+# ╟─6004006e-4113-4f6a-b8ab-2c58ff207773
 # ╠═c46c36f6-42da-4767-9e25-fa0ebe43998f
 # ╠═47116ee6-53db-47fe-bfc9-a322f85b3e4e
 # ╠═2aadb2bf-942b-436e-8b93-111a90b3ea2b
@@ -2576,6 +2531,8 @@ version = "17.4.0+2"
 # ╟─bc479ae0-78ea-4255-863f-dcd126ae9b96
 # ╠═750eef6b-58c6-4428-a44b-25e244aaf1d8
 # ╠═3a0d315b-b5f8-4387-9bb0-fd2a7038752e
+# ╠═75eceb07-f739-4009-8e92-b4742cedb548
+# ╠═e3bd06e5-a16d-474c-b618-1c6f303eda00
 # ╠═9dc8143f-280c-426a-911b-8ec851c9f093
 # ╠═ce3ce1eb-1b88-4d30-aab3-9fa23c9246fe
 # ╠═214714a5-ad1e-4439-8567-9095d10411a6
@@ -2597,6 +2554,7 @@ version = "17.4.0+2"
 # ╠═31818c4e-751e-4a89-835a-d283986326b8
 # ╠═47e47503-64f3-484e-b2d5-b91507b13c79
 # ╟─cf9d7c7d-4519-410a-8a05-af90312e291c
+# ╟─7989d6a9-a52a-4537-9c39-5d6b41f60098
 # ╟─c05ea239-2eea-4f41-b4e3-993db0fe2de5
 # ╠═bfb1858b-5e05-4239-bcae-a3b718074630
 # ╟─f5203959-29ef-406c-abac-4f01fa9630a3
@@ -2610,16 +2568,15 @@ version = "17.4.0+2"
 # ╠═bc2e52ff-7f47-4141-aff1-e752fe217f6a
 # ╟─be715a78-5fcb-48b2-8a4f-c7ba27d34dd3
 # ╟─c609ee03-7217-4068-9da2-c91fb02623a9
-# ╠═eb8b26ed-8429-47b5-ab82-c6d79dd053e4
-# ╠═a09b6907-e5b3-4979-bc22-5b4aa32c5963
-# ╟─55ce3135-44b9-4a8d-b0e6-a8a5ec972432
-# ╠═9164f6e1-5988-45f6-ac1c-2c48b303c3cd
+# ╟─25f4f9d3-d8aa-462c-9874-ae842da1cf79
+# ╠═56212ab2-833a-4dec-bcdd-21bce1d680b6
+# ╟─93a617ee-db64-4351-b919-340d950fc148
+# ╟─994f8556-964c-4c6b-8cfe-6f6a99c1ba29
 # ╟─ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
 # ╠═f1b7b56e-7701-4954-8217-1b2c7d01e309
-# ╠═483c9b4e-bb4f-4909-aaa1-ddd00b9158dd
-# ╠═00c90cd8-b8e7-4b1d-8a7a-e68e6a82a6e3
-# ╟─705aef3d-69dd-4ef2-ba79-9c4233bf3d73
-# ╟─5e4244a5-90e2-4189-972b-ea100c9e79e0
+# ╟─c99867b7-2cb0-4bb7-b035-0e86104adefe
+# ╟─89262830-1129-4270-8007-32fb0cd2e0ec
+# ╟─111a6762-ab4f-4db9-80f9-10c707623e0f
 # ╠═b4aefbb1-dbb7-490c-9fa7-0f68e5a9916c
 # ╟─a99ef185-0360-4005-9a8c-f10ca58babda
 # ╟─168e84f6-429e-45d6-bdbd-f47552fce8b5
@@ -2634,10 +2591,9 @@ version = "17.4.0+2"
 # ╠═dda74c94-3574-4e7b-bab1-d106111d36d4
 # ╟─d17926d5-bcfa-4789-9609-59a69d87d194
 # ╟─71e7eef0-0304-4e26-8991-fa20da83df9a
-# ╠═acc3c44b-2740-4ff8-9a5d-41e4bd1d6e3e
-# ╠═5188026b-4b31-4bd9-8865-108ae959c991
-# ╟─d5d83bb4-fdbd-42f6-bc9a-14741f2786e0
-# ╠═605a6ab5-b42a-4278-b61a-05a76bb312e3
+# ╟─8e12b92b-e56d-44f0-bf89-3248131b2245
+# ╟─7e56131f-3afe-4997-a085-60f0d45a9d8d
+# ╠═b5a3a529-2d74-4757-9d38-2eae28396d02
 # ╟─a4d9efaf-1e1e-4115-973f-570014c1fd06
 # ╟─22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
 # ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
@@ -2647,38 +2603,27 @@ version = "17.4.0+2"
 # ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
 # ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
 # ╟─82828e72-5d30-41b6-a1b6-f258c234b034
-# ╠═d660b447-99f4-4db9-859a-afa5e0e34d13
 # ╠═eca42c3b-fa09-4999-b260-c5de95c2987c
 # ╠═d1edfc31-23de-427a-9a08-51c4e33f3fc7
 # ╠═55f451b2-dcff-4442-a1ea-ac2c53433298
 # ╠═ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
-# ╠═2177af17-b36a-4639-b5cf-f34ad90541e4
-# ╟─8decd00b-ca5f-4747-970d-2c5af895f9dd
-# ╠═920154d7-f2ba-42b6-8fdb-7d41fd73ab8a
-# ╠═5bf9c17e-e4d0-4a8d-956d-1f4bc821d9ee
-# ╟─4bc908e1-41d2-4231-bc2e-4fa5d0a65ce7
-# ╠═713d89aa-b444-4b9d-87d4-97a23373318a
-# ╠═0625c24b-e948-41ce-aa14-8e32f7d6ac11
-# ╠═e2d62bf4-5acc-44ab-9ab0-edc6f814ae18
-# ╠═12b80788-b46a-414f-8771-356ba91be3d5
-# ╠═d854d97d-0ca1-4cc7-a7a7-2e76ff5f4d1f
-# ╠═c8334c7c-7a0e-4cf4-a837-cb0404f2fe1b
+# ╠═efb65aec-76b2-4159-9b75-8145602b3163
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
 # ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
 # ╠═93a1f51f-1d83-408e-a860-26e6280c65ee
+# ╠═fb244ed5-2827-4b39-a5b1-ced0815b000a
+# ╟─b1c84d59-3598-46a1-bc1a-fd691d14ab09
 # ╟─420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
-# ╠═3ab43d46-f171-4f3b-b788-91ebbff4420c
-# ╠═e15dc0eb-9e83-4994-b953-b28c74e58030
-# ╠═bce990c1-fffc-4393-88b0-8ddb783f57a2
-# ╟─e122088f-ef7e-48e8-b2bb-d4afd76810a1
-# ╟─6b30d3c2-0dd0-4630-ace3-1571dda25bab
-# ╟─b227bf76-4c34-4e07-91ab-ee07ab9c5b77
+# ╟─40d07f16-b9ca-4782-bdd2-de15ec6b21e5
 # ╟─b22ef023-4e6a-4114-b3c2-bf91e16e9a43
 # ╟─32c054ee-a7ee-4705-87c3-fb1a4bd956ab
 # ╠═a8d7e5f7-8509-4aa1-b4c6-669339cb173c
-# ╟─195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
+# ╟─2463013a-efad-42a9-874d-a0ecbea9cb49
 # ╠═e0e51e37-0217-4a76-b6e7-9b6e15429941
+# ╠═3aec99c3-ba2c-418f-b448-14eb9e8e423c
+# ╠═785e0e9e-8591-4df0-9282-b516cb87767e
+# ╟─195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
 # ╠═f10c643b-9205-4b18-841c-255a9354cf97
 # ╟─369e5b57-61ce-49e0-97e7-90901f82d37f
 # ╠═7c5ac88b-453b-40bd-98a4-534fc70c7c45
@@ -2702,6 +2647,11 @@ version = "17.4.0+2"
 # ╟─d7ef7190-2031-470a-bc80-e96c93276387
 # ╟─b2d97ba3-0816-4138-ae03-62423b82f960
 # ╟─9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
+# ╟─c04be604-804a-44c3-b2da-98729a5e7508
+# ╟─3e395c5f-2410-4abe-be61-b6345caa9e1c
+# ╠═d76f37ac-8721-4d10-8f15-20bc03b5ae98
+# ╠═b75313dc-ac50-4947-9221-fc1415abc85f
+# ╠═b2dc9155-8cae-4034-bb82-32ad41851fbd
 # ╟─905b032d-5fa0-4a3c-9055-fec92fd5879e
 # ╟─1636120f-9065-45a8-a849-731842374d60
 # ╟─022bb60c-6af7-4dd6-8410-69c7974707e8

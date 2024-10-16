@@ -1,24 +1,17 @@
 ### A Pluto.jl notebook ###
-# v0.19.41
+# v0.19.46
 
 using Markdown
 using InteractiveUtils
 
-# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
-macro bind(def, element)
-    quote
-        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
-        local el = $(esc(element))
-        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
-        el
-    end
-end
-
 # ╔═╡ 86d53794-2251-47d5-a45e-f1da53cd8ef5
+# ╠═╡ skip_as_script = true
+#=╠═╡
 begin
 	using PlutoPlotly, PlutoUI
 	TableOfContents()
 end
+  ╠═╡ =#
 
 # ╔═╡ 17f36458-139b-4f8b-aba9-d0dd586dd82c
 md"""
@@ -304,6 +297,7 @@ The part of this equation in parentheses is identical to what we had in the cont
 """
 
 # ╔═╡ c12ca18c-0780-4c02-9396-82b97f019bc6
+#=╠═╡
 @bind params PlutoUI.combine() do Child
 	md"""
 	Discount Factor $\gamma$: $(Child(:γ, Slider(0.0:0.001:1.0, default = 0.9, show_value = true)))
@@ -311,14 +305,17 @@ The part of this equation in parentheses is identical to what we had in the cont
 	Terminal Step: $(Child(:t_final, Slider(10:1000, default = 101, show_value = true)))
 	"""
 end
+  ╠═╡ =#
 
 # ╔═╡ e4d73777-cf4b-40c5-8922-b9df28d25aa0
+#=╠═╡
 begin
 	t_final = params.t_final
 	t = 0:t_final
 	f(t, t_final, γ) = (γ^(t_final - t) - 1) / (γ - 1)
 	plot(t, f.(t, t_final, params.γ), Layout(xaxis_title = "Time Step", title = "Episodic Reward Factor for $t_final Step Episode"))
 end
+  ╠═╡ =#
 
 # ╔═╡ ede978b8-dd9d-4b26-88c1-7def0dae42ee
 md"""
@@ -585,7 +582,7 @@ PlutoUI = "~0.7.52"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.3"
+julia_version = "1.10.5"
 manifest_format = "2.0"
 project_hash = "518adb648c80095d555fe737933aaac06e6c2875"
 
@@ -929,7 +926,7 @@ version = "1.2.13+1"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.11.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]

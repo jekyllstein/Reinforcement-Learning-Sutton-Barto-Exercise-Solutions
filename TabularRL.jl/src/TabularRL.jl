@@ -16,7 +16,7 @@ export AbstractAveragingMethod, SampleAveraging, ConstantStepAveraging
 
 #--------Functions---------
 #utilities 
-export initialize_state_action_value, initialize_state_value, find_terminal_states, find_available_actions, sample_action, make_random_policy, runepisode, runepisode!, make_greedy_policy!, make_ϵ_greedy_policy!, initialize_afterstate_value
+export initialize_state_action_value, initialize_state_value, find_terminal_states, find_available_actions, sample_action, make_random_policy, runepisode, runepisode!, make_greedy_policy!, make_ϵ_greedy_policy!, initialize_afterstate_value, makelookup
 
 #dynamic programming solution methods
 export bellman_state_value, bellman_state_action_value, bellman_policy_update!, policy_evaluation!, policy_evaluation, mrp_evaluation!, mrp_evaluation, policy_evaluation_q, policy_evaluation_v, policy_iteration!, policy_iteration, policy_iteration_v, value_iteration!, value_iteration, value_iteration_v, value_iteration_q, bellman_afterstate_value, afterstate_policy_iteration!
