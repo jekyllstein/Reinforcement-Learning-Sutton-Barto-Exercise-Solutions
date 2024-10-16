@@ -3101,13 +3101,15 @@ begin
 		make_greedy_policy!(πgreedy, v_π, ptf, γ)
 		πlast .= πgreedy
 		converged = false
-		while !converged
+		iter = 1
+		while !converged && iter <= max_iterations
 			save_history && push!(π_list, copy(πgreedy))
 			(v_π, num_iterations, num_updates) = policy_evaluation!(v_π, πgreedy, ptf, γ; eval_kwargs...)
 			save_history && push!(v_list, copy(v_π))
 			make_greedy_policy!(πgreedy, v_π, ptf, γ)
-			converged = (πgreedy == πlast)
+			converged = all(πgreedy .≈ πlast)
 			πlast .= πgreedy
+			iter += 1
 		end
 	
 		if save_history
@@ -3131,7 +3133,7 @@ policy_iteration_v(problem, γ::T; kwargs...) where T<:Real = policy_iteration(p
 # ╔═╡ 6d74b5de-1fc9-48af-96dd-3e090f691641
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const π_list, v_list = policy_iteration_v(new_gridworld, policy_iteration_params.γ);
+const π_list, v_list = policy_iteration_v(new_gridworld, policy_iteration_params.γ; max_iterations = 100);
   ╠═╡ =#
 
 # ╔═╡ f218de8b-6003-4bd2-9820-48165cfde650
@@ -3826,9 +3828,10 @@ Even with a non-tabular problem, it is possible that the transition function yie
   ╠═╡ =#
 
 # ╔═╡ 9fe0b3d2-be8a-4832-a51f-5347d6cca5bc
-function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, topk::Integer, s::S, c::T, prior::Vector, v_hold::Vector, v_new::SparseVector, apply_bonus!::Function, step_kwargs::NamedTuple, est_kwargs::NamedTuple, compute_max_value::Function, sample_index::Bool) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
+function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, topk::Integer, s::S, c::T, prior::Vector, v_hold::Vector, v_new::SparseVector, apply_bonus!::Function, step_kwargs::NamedTuple, est_kwargs::NamedTuple, compute_max_value::Function, sample_index::Bool, depth, vest) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
 	#if the state is terminal, produce a value of 0
 	mdp.isterm(s) && return (zero(T), 1)
+	depth == 0 && return (vest(mdp, s, γ), 1)
 	
 	#for a state where no actions have been attempted, expand a new node
 	if !haskey(visit_counts, s)
@@ -3889,7 +3892,7 @@ function simulate!(visit_counts, Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 		s′ = transition_states[i]
 		r = rewards[i]
 		p = probabilities[i]
-		(v′, num_visits) = simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s′, c, prior, v_hold, v_new, apply_bonus!, step_kwargs, est_kwargs, compute_max_value, i == sample_index)
+		(v′, num_visits) = simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s′, c, prior, v_hold, v_new, apply_bonus!, step_kwargs, est_kwargs, compute_max_value, i == sample_index, depth - 1, vest)
 		(p*(r + γ*v′), num_visits)
 	end |> foldxl((a, b) -> (a[1]+b[1], a[2]+b[2]))
 
@@ -4016,6 +4019,8 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s
 	make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
 	make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
 	compute_max_value = s -> typemax(T),
+	depth = Inf,
+	vest::Function = (mdp, s, γ) -> zero(T),
 	sim_message = false) where {T<:Real, S, A, F<:Function, P <: StateMDPTransitionDistribution{T, S, F}, F1<:Function, F2<:Function, F3<:Function}
 
 	v_new = SparseVector(length(mdp.actions), Vector{Int64}(), Vector{T}())
@@ -4036,7 +4041,7 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s
 				ETA: $(round(Int64, eta/60)) minutes"""
 			end
 		end
-		simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s, c, prior, v_hold, v_new, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed), compute_max_value, true)
+		simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s, c, prior, v_hold, v_new, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed), compute_max_value, true, depth, vest)
 	end
 	v_hold .= Q[s]
 	make_greedy_policy!(v_hold)
@@ -5452,7 +5457,7 @@ version = "17.4.0+2"
 # ╟─9836edb5-5d95-4091-af9a-849b6d077cbf
 # ╟─4835bed5-a02a-49e9-8a01-63885109339c
 # ╟─a94ecb60-446e-4c23-8417-b144c9827513
-# ╠═872b6292-8318-4161-915c-c3d3b9ef1236
+# ╟─872b6292-8318-4161-915c-c3d3b9ef1236
 # ╟─eaf31da9-89bc-496d-9d33-04941be9e2a8
 # ╠═cc5b0818-bd84-4289-aa41-e83271a85bb1
 # ╟─53402ba0-ad51-4005-a721-30ceaf68d1e7
@@ -5500,7 +5505,7 @@ version = "17.4.0+2"
 # ╠═0fdaf201-2cdf-419d-9452-4ec14ea281dc
 # ╠═6e73940d-15fb-4f61-8100-05fdf7f50e10
 # ╟─3a707040-a763-42f6-9f5c-8c56a5f869f7
-# ╟─73c4f222-a405-493c-9127-0f950cd5fa0e
+# ╠═73c4f222-a405-493c-9127-0f950cd5fa0e
 # ╟─c4e1d754-2535-40be-bbb3-075ca3fa64b9
 # ╟─478aa9a3-ac58-4520-9613-3fcf1a1c1952
 # ╠═481c748f-42ed-4919-a834-b8de140acb06
@@ -5562,7 +5567,7 @@ version = "17.4.0+2"
 # ╠═929c353b-f67c-49ff-85d3-0a27cafc59cf
 # ╟─a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
 # ╟─1d555f77-c404-485a-9244-717c12c80d28
-# ╟─3df86061-63f7-4c1f-a141-e1848f6e83e4
+# ╠═3df86061-63f7-4c1f-a141-e1848f6e83e4
 # ╟─8abba353-2309-4931-bf3f-6b1f500998a7
 # ╠═56124ec7-d826-45ff-b060-82f860c5d7af
 # ╟─7c553f77-7783-439e-834b-53a2cd3bef5a
@@ -5692,7 +5697,7 @@ version = "17.4.0+2"
 # ╠═45f551c5-20b7-42b2-9fd7-12ccfe7c289c
 # ╠═bf0cdd1a-4393-4ce1-92b1-28816fb0e73f
 # ╟─78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
-# ╠═47f7aea5-5bc8-4783-a947-6f3c70f1b92c
+# ╟─47f7aea5-5bc8-4783-a947-6f3c70f1b92c
 # ╟─a912feaa-b2b2-479e-befe-9e919e453e31
 # ╟─9633ce8d-c15a-43f6-9d94-2bee4897b78f
 # ╠═00fa5849-3ee4-432b-ba81-2bfd3db9c866
