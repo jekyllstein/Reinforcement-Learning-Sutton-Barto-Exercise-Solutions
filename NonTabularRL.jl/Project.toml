@@ -18,7 +18,14 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 TailRec = "f6209947-f0a9-4a6b-8802-d6ceac74b6f9"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
+[sources]
+NVIDIALibraries = {url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
+FCANN = {url = "https://github.com/Blackbody-Research/FCANN.jl"}
+TailRec = {url = "https://github.com/TakekazuKATO/TailRec.jl"}
+ApproximationUtils = {path = "../ApproximationUtils.jl"}
+
 [compat]
+julia = "1.11"
 FCANN = "1.8.0"
 LinearAlgebra = "1.11.0"
 NVIDIALibraries = "1.0.0"

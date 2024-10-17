@@ -1,5 +1,7 @@
 settings.json
-.DS_Store
 *Manifest.toml
+.DS_Store
 *nvlib_julia.conf
 *.ptx
+*backup [0-9].jl
+*.bin

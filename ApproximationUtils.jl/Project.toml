@@ -18,7 +18,14 @@ TabularRL = "70984187-0053-49a1-8db7-ddab96a995ff"
 TailRec = "f6209947-f0a9-4a6b-8802-d6ceac74b6f9"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
+[sources]
+NVIDIALibraries = {url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
+FCANN = {url = "https://github.com/Blackbody-Research/FCANN.jl"}
+TailRec = {url = "https://github.com/TakekazuKATO/TailRec.jl"}
+TabularRL = {path = "../TabularRL.jl"}
+
 [compat]
+julia = "1.11"
 FCANN = "1.8.0"
 InteractiveUtils = "1.11.0"
 LinearAlgebra = "1.11.0"
