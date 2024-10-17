@@ -1,0 +1,35 @@
+name = "NonTabularRL"
+uuid = "c7324298-1923-4c4f-bd91-98f34631c25c"
+authors = ["Jason Eckstein <jekyllstein@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+ApproximationUtils = "d30c7613-7be3-47bd-9ebc-e60dbcd590b6"
+FCANN = "8c01af00-eda8-11e9-3d27-59b8c7aa8fdd"
+InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
+NVIDIALibraries = "455bb3cc-869f-42f8-aad9-fcdd684af481"
+PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+TailRec = "f6209947-f0a9-4a6b-8802-d6ceac74b6f9"
+Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
+
+[sources]
+NVIDIALibraries = {url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
+FCANN = {url = "https://github.com/Blackbody-Research/FCANN.jl"}
+TailRec = {url = "https://github.com/TakekazuKATO/TailRec.jl"}
+ApproximationUtils = {path = "../ApproximationUtils.jl"}
+
+[compat]
+FCANN = "1.11.0"
+LinearAlgebra = "1.11.0"
+NVIDIALibraries = "1.0.0"
+Random = "1.11.0"
+Statistics = "1.11.1"
+TailRec = "0.2.0"
+Transducers = "0.4.84"
+julia = "1.11"
