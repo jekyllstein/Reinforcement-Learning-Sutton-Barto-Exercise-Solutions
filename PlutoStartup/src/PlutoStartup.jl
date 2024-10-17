@@ -2,7 +2,7 @@ module PlutoStartup
 
 using Reexport, PrecompileTools, Base.Threads
 
-@reexport using Pluto, PlutoSliderServer, Statistics, StatsBase
+@reexport using Pluto, NonTabularRL
 
 function __init__()
     Pluto.run(launch_browser=false)

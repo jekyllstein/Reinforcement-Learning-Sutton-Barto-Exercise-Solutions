@@ -47,6 +47,10 @@ jobs:
             - name: Run & export Pluto notebooks
               run: |
                 julia -e 'using Pkg
+                  Pkg.activate("TabularRL.jl")
+                  Pkg.instantiate()
+                  Pkg.activate("ApproximationUtils.jl")
+                  Pkg.instantiate()
                   Pkg.activate(mktempdir())
                   Pkg.add([
                     Pkg.PackageSpec(name="PlutoSliderServer", version="0.3.2-0.3"),

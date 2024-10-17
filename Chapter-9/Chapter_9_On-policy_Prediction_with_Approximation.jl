@@ -1,18 +1,14 @@
 ### A Pluto.jl notebook ###
-# v0.19.46
+# v0.20.0
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ 6da69e64-743f-4ea9-9670-fd023c7ffab7
-using PlutoDevMacros
+using PlutoDevMacros, LinearAlgebra, Random, Statistics
 
 # ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) begin
-	using NonTabularRL
-	# using >.Random, >.Statistics, >.LinearAlgebra
-	using >.LinearAlgebra
-end
+PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
 # ╠═╡ skip_as_script = true
@@ -184,6 +180,7 @@ begin
 end
 
 # ╔═╡ cb2005fd-d3e0-4f37-908c-77e4bbac45b8
+# ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
 ### Example 9.1: State Aggregation on the $(@bind num_states NumberField(100:100_000, default = 1000)) State Random Walk
@@ -266,6 +263,7 @@ function make_random_walk_mrp(num_states::Integer)
 end
 
 # ╔═╡ 7814bda0-4306-4060-8f9a-2bcf1cf8e132
+# ╠═╡ skip_as_script = true
 #=╠═╡
 const random_walk_tabular_mrp = make_random_walk_mrp(num_states)
   ╠═╡ =#
@@ -351,6 +349,7 @@ The simplest form of function approximation in which each state is assigned to a
   ╠═╡ =#
 
 # ╔═╡ 91e4e5da-4e0f-48b2-98bd-1e9f1330b0a8
+# ╠═╡ skip_as_script = true
 #=╠═╡
 md"""Number of State Aggregation Groups: $(@bind num_groups NumberField(1:num_states, default = 10))"""
   ╠═╡ =#
@@ -493,6 +492,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 214714a5-ad1e-4439-8567-9095d10411a6
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function figure_9_1()
 	v = random_walk_v.value_function[2:end-1]
@@ -522,6 +522,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ c0e9ea1f-8cbe-4bc1-990f-ffd3ab1989cc
+# ╠═╡ skip_as_script = true
 #=╠═╡
 figure_9_1()
   ╠═╡ =#
@@ -727,6 +728,7 @@ Bootstrapping with state aggregation on the $num_states-state random walk task. 
   ╠═╡ =#
 
 # ╔═╡ 7989d6a9-a52a-4537-9c39-5d6b41f60098
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind fig_9_2_params PlutoUI.combine() do Child
 	md"""
@@ -736,6 +738,7 @@ end |> confirm
   ╠═╡ =#
 
 # ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function figure_9_2(;num_episodes = 100_000, α_mc = 2f-5, α_td = 2f-4)
 	v = random_walk_v.value_function[2:end-1]
@@ -879,6 +882,7 @@ begin
 end
 
 # ╔═╡ be715a78-5fcb-48b2-8a4f-c7ba27d34dd3
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot([scatter(y = [calc_poly_feature(s, 1, 1000, (o,)) for s in 1:1000], name = "Order $o") for o in 0:5], Layout(title = "One Dimensional Polynomial Features"))
   ╠═╡ =#
@@ -896,6 +900,7 @@ md"""
 """
 
 # ╔═╡ 56212ab2-833a-4dec-bcdd-21bce1d680b6
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function show_random_walk_linear_results(linear_setup, num_episodes, α_mc, α_td, name; nsmooth = 100)
 	v̂_mc, mc_error = run_linear_gradient_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, linear_setup...; α = α_mc, setup_kwargs = random_walk_ve_setup_kwargs)
@@ -948,6 +953,7 @@ Notice that for approximation techniques that are forced to do global approximat
 """
 
 # ╔═╡ 89262830-1129-4270-8007-32fb0cd2e0ec
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind fourier_feature_params PlutoUI.combine() do Child
 	md"""
@@ -964,6 +970,7 @@ show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, four
   ╠═╡ =#
 
 # ╔═╡ b4aefbb1-dbb7-490c-9fa7-0f68e5a9916c
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function plot_value_error(errs, names, nsmooth)
 	l = length(first(errs))
@@ -983,6 +990,7 @@ Coarse coding also operates in a state space where we can clearly define one or 
 """
 
 # ╔═╡ 168e84f6-429e-45d6-bdbd-f47552fce8b5
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind coarse_linear_display PlutoUI.combine() do Child
 	md"""
@@ -994,6 +1002,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 40f0fd57-a4ea-47a0-b883-3b038a6612c4
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function show_coarse_coding_regions(x, offset_percentage)
 	make_zone(offsetx, offsety) = scatter(x = [offsetx, 1+offsetx], y = [offsety, offsety], showlegend = false)
@@ -1125,6 +1134,7 @@ md"""
 """
 
 # ╔═╡ 84d9aac5-cf3b-402b-b222-9e8985a80b5b
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind tile_coding_params PlutoUI.combine() do Child
 	md"""
@@ -1161,6 +1171,7 @@ Notice that TD learning in this case is also more stable at higher learning rate
 """
 
 # ╔═╡ 7e56131f-3afe-4997-a085-60f0d45a9d8d
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind tile_coding_learning_params PlutoUI.combine() do Child
 	md"""
@@ -1187,6 +1198,7 @@ We could use striped tilings such that the narrow width of the tile is in the di
 """
 
 # ╔═╡ 22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot([scatter(x = [a, a+2, a+2, a, a], y = [b, b, b+5, b+5, b], line_color = "blue", name = "", showlegend = false) for a in 0:2:8 for b in [0, 5]], Layout(width = 300, height = 300, margin = attr(t = 0, l = 0, r = 0, b = 0), xaxis_title = "Important Dimension", yaxis_title = "Unimportant Dimenson"))
   ╠═╡ =#
@@ -1349,11 +1361,14 @@ md"""
 """
 
 # ╔═╡ 15b93928-98fb-47ed-ba46-e6ee785d46e5
+# ╠═╡ skip_as_script = true
+#=╠═╡
 #this ensures that the state range from 1 to 1000 is mapped to values with a mean 0 and variance of 1
 function update_random_walk_vector!(feature_vector::Vector{Float32}, s::Float32)
 	x1 = (s - 500f0) / sqrt(46295f0)
 	feature_vector[1] = x1
 end
+  ╠═╡ =#
 
 # ╔═╡ cfc5964b-3a23-48d9-b320-861fd4a43364
 #=╠═╡
@@ -1376,6 +1391,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ fb244ed5-2827-4b39-a5b1-ced0815b000a
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td; nsmooth = 100)
 	nn_layers = fill(layer_size, num_layers)
@@ -1399,6 +1415,7 @@ Notice again how TD learning is more stable at higher learning rates.  The neura
 """
 
 # ╔═╡ 420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind nn_params PlutoUI.combine() do Child
 	md"""
@@ -1771,6 +1788,7 @@ const random_walk_memory = build_value_memory(random_walk_state_mrp, 1f0, 100_00
   ╠═╡ =#
 
 # ╔═╡ 4e279cff-9233-430f-9b0b-40e992b34aed
+# ╠═╡ skip_as_script = true
 #=╠═╡
 scatter(x = random_walk_memory.states, y = random_walk_memory.values, mode = "markers") |> plot
   ╠═╡ =#
@@ -1814,6 +1832,7 @@ Note that a constant value is added to the distance in order to deal with the ca
 """
 
 # ╔═╡ c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot([scatter(x = 1:1000, y = random_walk_distance_kernel_approximation(random_walk_memory; distance = (s, s′) -> (s - s′)^2 + 1f1).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
@@ -1833,6 +1852,7 @@ Number of Groups for Kernel Appoximation: $(@bind kernel_num_groups Slider(1:num
   ╠═╡ =#
 
 # ╔═╡ 9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot([scatter(x = 1:1000, y = random_walk_aggregation_kernel_approximation(random_walk_memory; num_groups = kernel_num_groups).(Float32.(1:num_states)), name = "State Aggregation Kernel Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
@@ -1843,6 +1863,7 @@ md"""
 """
 
 # ╔═╡ 3e395c5f-2410-4abe-be61-b6345caa9e1c
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind tile_coding_kernel_params PlutoUI.combine() do Child
 	md"""
@@ -1886,6 +1907,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ d76f37ac-8721-4d10-8f15-20bc03b5ae98
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot([scatter(x = 1:1000, y = random_walk_tile_coding_kernel_approximation(random_walk_memory; tile_coding_kernel_params...).(Float32.(1:num_states)), name = "Tile-Coding Kernel Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
@@ -1915,6 +1937,7 @@ The logistic function can be used to constrain the output of a linear approximat
 """
 
 # ╔═╡ 42ec6c21-996d-4a6f-84fb-f8ac0fb8fd7b
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot(scatter(x = -10:0.01:10, y = logit.(-10:0.01:10)), Layout(xaxis_title = "Linear Output", yaxis_title = "Logistic Output", title = L"f(x) = 1 / (1 + e^{-x})"))
   ╠═╡ =#
@@ -2002,6 +2025,7 @@ This update rule is much simpler than the one in exercise 9.8 and is identical t
 cross_entropy_loss(y, ŷ) = -y*log(ŷ) - (1-y)*log(1-ŷ)
 
 # ╔═╡ b4327edc-0677-4daf-a86d-1bcc908f2337
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot([scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(0, LinRange(0, 1, 1000)), name = "y is false"), scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(1, LinRange(0, 1, 1000)), name = "y is true")], Layout(yaxis_title = "Cross Entropy Loss", xaxis_title = L"\hat y", title = "Cross Entropy Loss for a Single Output where the Target Value is True or False"))
   ╠═╡ =#
@@ -2012,6 +2036,7 @@ md"""
 """
 
 # ╔═╡ 507bcfda-cd09-4873-94a7-a51fefb3c25d
+# ╠═╡ skip_as_script = true
 #=╠═╡
 TableOfContents()
   ╠═╡ =#
@@ -2038,10 +2063,13 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 BenchmarkTools = "~1.5.0"
@@ -2051,15 +2079,16 @@ PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.5.0"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.59"
+Statistics = "~1.11.1"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.5"
+julia_version = "1.11.1"
 manifest_format = "2.0"
-project_hash = "a01161d5dddf2c5ac69b0f14159d92ee394eb735"
+project_hash = "9b98d48d6bf9e14b16c62bf0541fe2aeda787431"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2074,13 +2103,15 @@ version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
-version = "1.1.1"
+version = "1.1.2"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+version = "1.11.0"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+version = "1.11.0"
 
 [[deps.BaseDirs]]
 git-tree-sha1 = "cb25e4b105cc927052c2314f8291854ea59bf70a"
@@ -2137,6 +2168,7 @@ version = "1.1.1+0"
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+version = "1.11.0"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
@@ -2157,12 +2189,13 @@ version = "1.6.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "82d8afa92ecf4b52d78d869f038ebfb881267322"
+git-tree-sha1 = "62ca0547a14c57e98154423419d8a342dca75ca9"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.16.3"
+version = "1.16.4"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -2202,6 +2235,7 @@ version = "1.0.0"
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+version = "1.11.0"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
@@ -2211,9 +2245,9 @@ version = "0.21.4"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "7ae67d8567853d367e3463719356b8989e236069"
+git-tree-sha1 = "2984284a8abcfcc4784d95a9e2ea4e352dd8ede7"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.9.34"
+version = "0.9.36"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
@@ -2234,16 +2268,17 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.4.0+0"
+version = "8.6.0+0"
 
 [[deps.LibGit2]]
 deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+version = "1.11.0"
 
 [[deps.LibGit2_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.6.4+0"
+version = "1.7.2+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
@@ -2252,13 +2287,16 @@ version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+version = "1.11.0"
 
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+version = "1.11.0"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
@@ -2274,18 +2312,20 @@ version = "0.5.13"
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+version = "1.11.0"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+1"
+version = "2.28.6+0"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2023.1.10"
+version = "2023.12.12"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -2294,7 +2334,7 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+4"
+version = "0.3.27+1"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
@@ -2314,9 +2354,13 @@ uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.8.1"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.10.0"
+version = "1.11.0"
+weakdeps = ["REPL"]
+
+    [deps.Pkg.extensions]
+    REPLExt = "REPL"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -2352,9 +2396,9 @@ version = "0.4.0"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "ab55ee1510ad2af0ff674dbcced5e94921f867a9"
+git-tree-sha1 = "eba4810d5e6a01f612b948c9fa94f905b49087b0"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.59"
+version = "0.7.60"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
@@ -2371,10 +2415,11 @@ version = "1.4.3"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+version = "1.11.0"
 
 [[deps.Profile]]
-deps = ["Printf"]
 uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+version = "1.11.0"
 
 [[deps.ProfileCanvas]]
 deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
@@ -2383,12 +2428,14 @@ uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 version = "0.1.0"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
+deps = ["InteractiveUtils", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+version = "1.11.0"
 
 [[deps.Random]]
 deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
@@ -2407,24 +2454,27 @@ version = "0.7.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+version = "1.11.0"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
-
-[[deps.SparseArrays]]
-deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
-uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.10.0"
+version = "1.11.0"
 
 [[deps.Statistics]]
-deps = ["LinearAlgebra", "SparseArrays"]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.10.0"
+version = "1.11.1"
 
-[[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
-uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.1+1"
+    [deps.Statistics.extensions]
+    SparseArraysExt = ["SparseArrays"]
+
+    [deps.Statistics.weakdeps]
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StyledStrings]]
+uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+version = "1.11.0"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -2445,6 +2495,7 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+version = "1.11.0"
 
 [[deps.Tricks]]
 git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
@@ -2459,6 +2510,7 @@ version = "1.5.1"
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
@@ -2467,6 +2519,7 @@ version = "1.0.2"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+version = "1.11.0"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
@@ -2481,7 +2534,7 @@ version = "5.11.0+0"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.52.0+1"
+version = "1.59.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -2649,7 +2702,7 @@ version = "17.4.0+2"
 # ╟─9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
 # ╟─c04be604-804a-44c3-b2da-98729a5e7508
 # ╟─3e395c5f-2410-4abe-be61-b6345caa9e1c
-# ╠═d76f37ac-8721-4d10-8f15-20bc03b5ae98
+# ╟─d76f37ac-8721-4d10-8f15-20bc03b5ae98
 # ╠═b75313dc-ac50-4947-9221-fc1415abc85f
 # ╠═b2dc9155-8cae-4034-bb82-32ad41851fbd
 # ╟─905b032d-5fa0-4a3c-9055-fec92fd5879e

@@ -4,7 +4,7 @@ using Reexport, PrecompileTools
 
 import PlutoDevMacros
 
-@reexport using TabularRL, FCANN, NVIDIALibraries, SparseArrays, LinearAlgebra, TailRec
+@reexport using ApproximationUtils
 
 include(joinpath(@__DIR__, "..", "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
 
@@ -12,7 +12,7 @@ export gradient_monte_carlo_episode_update!, gradient_monte_carlo_policy_estimat
 
 include(joinpath(@__DIR__, "..", "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
 
-export run_fcann_semi_gradient_sarsa
+export run_fcann_semi_gradient_sarsa, run_fcann_semi_gradient_dp, run_linear_differential_semi_gradient_sarsa, run_linear_gradient_monte_carlo_control, run_linear_semi_gradient_sarsa, run_linear_semi_gradient_dp
 
 @setup_workload begin
     γ = 0.9f0

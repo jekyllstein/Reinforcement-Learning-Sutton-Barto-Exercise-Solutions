@@ -1,23 +1,26 @@
 ### A Pluto.jl notebook ###
-# v0.19.46
+# v0.20.0
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ 69fb26ed-763e-44ad-9b70-193e5a1a09b9
-using PlutoDevMacros
+using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers
 
 # ╔═╡ 3f7484b3-272d-410d-92b1-ca13e5d7a8b7
 # ╠═╡ show_logs = false
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) begin
-	using NonTabularRL
-	using >.Random, >.Statistics, >.LinearAlgebra, >.Transducers
-end
+PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ 9fb5dace-a799-4424-bcb3-8542e508dd4b
 # ╠═╡ skip_as_script = true
 #=╠═╡
 using PlutoUI,PlutoPlotly, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+  ╠═╡ =#
+
+# ╔═╡ 318b398a-d8f2-4f39-a45d-fd9023961bf8
+# ╠═╡ skip_as_script = true
+#=╠═╡
+include(joinpath(@__DIR__, "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
   ╠═╡ =#
 
 # ╔═╡ 35d59eae-77fd-11ef-2790-35dd5a834060
@@ -493,7 +496,7 @@ Finally we can create the action-value function and parameter update for the gen
 
 # ╔═╡ 56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
 function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
-	setup = NonTabularRL.linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
+	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
 	l = length(state_representation)
 	num_actions = length(mdp.actions)
 	parameters = zeros(T, l)
@@ -584,24 +587,24 @@ function fcann_action_gradient_setup(mdp::StateMDP, layers::Vector{Int64}, featu
 
 	function update_parameters!(parameters, s, i_a::Integer, g::Float32, α::Float32, gradients, state_representation::Vector{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, scales, mT, mB, vT, vB)
 		update_feature_vector!(state_representation, s)
-		NonTabularRL.update_input!(input, state_representation, 1)
+		update_input!(input, state_representation, 1)
 		for i in 1:num_actions
 			output[1, i] = activations[end][1, i]
 		end
 		output[1, i_a] = g
-		NonTabularRL.update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, α, scales, mT, mB, vT, vB, 10000)
+		update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, α, scales, mT, mB, vT, vB, 10000)
 	end
 
 	function q̂(s, i_a::Integer, parameters, state_representation, input, activations) 
 		update_feature_vector!(state_representation, s)
-		NonTabularRL.update_input!(input, state_representation, 1)
+		update_input!(input, state_representation, 1)
 		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
 		return activations[end][1, i_a]
 	end
 
 	function q̂(action_values::Vector{Float32}, s, parameters, state_representation, input, activations) 
 		update_feature_vector!(state_representation, s)
-		NonTabularRL.update_input!(input, state_representation, 1)
+		update_input!(input, state_representation, 1)
 		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
 		best_action = 1
 		best_value = typemin(Float32)
@@ -635,7 +638,7 @@ end
 
 # ╔═╡ 00e7783f-7f17-4944-a085-ea87509cd75a
 function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where T<:Real
-	setup = NonTabularRL.fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
+	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
 	l = length(state_representation)
 	num_actions = length(mdp.actions)
 	episode_rewards, episode_steps = semi_gradient_dp!(setup.parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
@@ -708,10 +711,16 @@ const mountain_car_transition = StateMDPTransitionSampler(mountain_car_step, ini
 const mountain_car_transition_distribution = StateMDPTransitionDistribution(mountain_car_dist_step, initialize_car_state())
 
 # ╔═╡ 1e9c537a-a731-4b81-8f6a-cb658b52c5be
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountain_car_mdp = StateMDP(mountain_car_actions, mountain_car_transition, initialize_car_state, s -> s[1] == 0.5f0)
+  ╠═╡ =#
 
 # ╔═╡ 5b2ffd90-ead0-42ce-999a-584ed8995910
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountain_car_dist_mdp = StateMDP(mountain_car_actions, mountain_car_transition_distribution, initialize_car_state, s -> s[1] == 0.5f0)
+  ╠═╡ =#
 
 # ╔═╡ f6e08689-040f-4565-9dfb-e9a65d1c1f18
 md"""
@@ -719,6 +728,7 @@ md"""
 """
 
 # ╔═╡ 528533f7-68f1-4d19-9a37-6d4d0d7c38e2
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind constant_params PlutoUI.combine() do Child
 	md"""
@@ -730,6 +740,7 @@ end |> confirm
   ╠═╡ =#
 
 # ╔═╡ afee7bc9-aff0-4c71-a227-9845cb23d4e9
+# ╠═╡ skip_as_script = true
 #=╠═╡
 md"""Number of Steps: $(@bind rand_nsteps confirm(Slider(1:1_000, default = 200, show_value=true)))"""
   ╠═╡ =#
@@ -761,16 +772,19 @@ md"""
 """
 
 # ╔═╡ e86bc86f-9909-458d-b86d-0a4ac4b9d43d
+# ╠═╡ skip_as_script = true
 #=╠═╡
 @bind nsamples NumberField(1:100_000, default = 1000) |> confirm
   ╠═╡ =#
 
 # ╔═╡ b5273dfa-2262-487a-856b-441f007bd163
+# ╠═╡ skip_as_script = true
 #=╠═╡
 (1:nsamples |> Map(i -> runepisode(mountain_car_mdp; max_steps = 100_000)[5] == 100_000) |> foldxt(+)) / nsamples
   ╠═╡ =#
 
 # ╔═╡ dae59fd9-0397-4307-afd8-bafb6f0bfa52
+# ╠═╡ skip_as_script = true
 #=╠═╡
 (1:nsamples |> Map(i -> runepisode(mountain_car_mdp; max_steps = 100_000)[5]) |> foldxt(+)) / nsamples
   ╠═╡ =#
@@ -900,15 +914,13 @@ const mountaincar_policy_iteration = policy_iteration_v(tabular_mountaincar_mdp,
 @bind policy_num Select(eachindex(mountaincar_policy_iteration[1]))
   ╠═╡ =#
 
-# ╔═╡ 58a0b622-1b51-4b42-a416-24109ae41a90
-plot_mountaincar_action_values(tabular_mountaincar_mdp, mountaincar_policy_iteration[policy_num]; dims= 1)[:], mountaincar_policy_iteration[1][policy_num], mountaincar_positions, mountaincar_velocities)
-
 # ╔═╡ 5bc2eda5-5f4c-4165-9afb-16920f30b0c5
 #=╠═╡
 π_optimal_policy_iteration(s) = sample_action(view(mountaincar_policy_iteration[1][end], :, assign_state_index_tabular_mountaincar(s)))
   ╠═╡ =#
 
 # ╔═╡ 8a5d9e3d-e8ef-4cea-8cd8-6975f797d7bd
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function plot_mountaincar_action_values(tabular_mountaincar_mdp, value_function::Matrix{Float32}, π::Matrix{Float32}, mountaincar_positions, mountaincar_velocities)
 	n = 100
@@ -944,6 +956,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ d8d5db17-d89c-47db-b258-6ad1635478b7
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function plot_mountaincar_action_values(tabular_mountaincar_mdp, value_function::Vector{Float32}, π::Matrix{Float32}, mountaincar_positions, mountaincar_velocities)
 	n = 100
@@ -967,6 +980,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 1054cfa3-9f58-4a93-a318-c2d21cf23220
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function show_mountaincar_trajectory(tabular_mountaincar_mdp, π::Matrix{T}, max_steps::Integer, name) where T<:Real
 	state_indices, actions, rewards, sterm, nsteps = runepisode(tabular_mountaincar_mdp; π = π, max_steps = max_steps)
@@ -1029,7 +1043,10 @@ md"""
 """
 
 # ╔═╡ 742100ba-c38e-4840-8988-40990039b527
-setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = NonTabularRL.tile_coding_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), tile_size, num_tilings, (1, 3))
+# ╠═╡ skip_as_script = true
+#=╠═╡
+setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), tile_size, num_tilings, (1, 3))
+  ╠═╡ =#
 
 # ╔═╡ af97f222-08d1-4200-a10b-8da178182175
 md"""
@@ -1044,16 +1061,22 @@ Since we are only learning the value function, the same tiling setup will have f
 """
 
 # ╔═╡ b0cc6ff8-7296-461c-9db7-e52fa518e2e2
+#=╠═╡
 function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
 	v = setup.args.feature_vector
 	run_linear_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ d0cf3806-05c6-4a50-94c8-55c9042d51b7
+# ╠═╡ skip_as_script = true
+#=╠═╡
 (v̂_mountain_car, π_greedy_dp, episode_rewards_dp, episode_steps_dp) = mountaincar_dist_test(100, 0.001f0/32, 0.01f0)
+  ╠═╡ =#
 
 # ╔═╡ 7d21c4cd-ab79-4f40-9b8b-f637b3efcab0
+# ╠═╡ skip_as_script = true
 #=╠═╡
 show_mountaincar_trajectory(π_greedy_dp, 1_000, "DP Learned Policy")
   ╠═╡ =#
@@ -1074,24 +1097,32 @@ function update_mountaincar_feature_vector!(v::Vector{Float32}, s::NTuple{2, Flo
 end
 
 # ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
+#=╠═╡
 function mountaincar_fcann_dp(max_episodes::Integer, α::Float32, ϵ::Float32; layers = [4, 4], max_steps = typemax(Int64), kwargs...)
 	run_fcann_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, 2), update_mountaincar_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mountaincar_fcann_dp_results = mountaincar_fcann_dp(100, 1f-5, 0.1f0; layers = [16, 16, 16], c = 10f0)
+  ╠═╡ =#
 
 # ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
+# ╠═╡ skip_as_script = true
 #=╠═╡
 show_mountaincar_trajectory(mountaincar_fcann_dp_results.π_greedy, 1_000, "DP Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ 00399548-b21c-43b5-90e2-30656ab1541e
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot(scatter(y = -mountaincar_fcann_dp_results.reward_history), Layout(yaxis_type = "log"))
   ╠═╡ =#
 
 # ╔═╡ 5db29488-a150-42ee-aedb-380a3a4fd548
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function plot_mountaincar_action_values(q̂_mountain_car, n1, n2)
 	xvals = LinRange(-1.2f0, 0.5f0, n1)
@@ -1116,7 +1147,14 @@ end
 plot_mountaincar_action_values(tabular_mountaincar_mdp, mountaincar_value_iteration.final_value, mountaincar_value_iteration.optimal_policy, mountaincar_positions, mountaincar_velocities)
   ╠═╡ =#
 
+# ╔═╡ 58a0b622-1b51-4b42-a416-24109ae41a90
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot_mountaincar_action_values(tabular_mountaincar_mdp, mountaincar_policy_iteration[2][policy_num], mountaincar_policy_iteration[1][policy_num], mountaincar_positions, mountaincar_velocities)
+  ╠═╡ =#
+
 # ╔═╡ 2f0d0a71-c65b-4aa0-a493-e7cdccd901eb
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
 	xvals = LinRange(-1.2f0, 0.5f0, n1)
@@ -1137,11 +1175,13 @@ end
   ╠═╡ =#
 
 # ╔═╡ bd1f42e5-94cc-4aef-b82a-9bffd1c951d8
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot_mountaincar_values(v̂_mountain_car, π_greedy_dp)
   ╠═╡ =#
 
 # ╔═╡ b3658e4d-ee8e-45cd-906a-06dd512a6921
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot_mountaincar_values(mountaincar_fcann_dp_results.value_function, mountaincar_fcann_dp_results.π_greedy; n1 = 100, n2 = 100)
   ╠═╡ =#
@@ -1168,21 +1208,25 @@ end
   ╠═╡ =#
 
 # ╔═╡ 5fdbce61-ca25-45e0-b07d-94adf7138446
+# ╠═╡ skip_as_script = true
 #=╠═╡
 mountain_car_fcann = mountaincar_fcann_test(1_000_000, 8f-7, 0.05f0; num_layers = 3, layer_size = 16, compute_value = compute_sarsa_value, λ = 0f-4, c = 10f0, dropout = 0.0f0)
   ╠═╡ =#
 
 # ╔═╡ b9125c5b-01d6-451e-84b5-a419e38425b5
+# ╠═╡ skip_as_script = true
 #=╠═╡
 π_mountain_car_fcann(s) = argmax(i_a -> mountain_car_fcann.value_function(s, i_a), eachindex(mountain_car_actions))
   ╠═╡ =#
 
 # ╔═╡ fc3e0577-45aa-4bba-a275-fa7a352fc5cc
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot_mountaincar_action_values(mountain_car_fcann.value_function, 200, 200)
   ╠═╡ =#
 
 # ╔═╡ 5cbaeb8e-bc02-47c9-87b4-57df554cea9d
+# ╠═╡ skip_as_script = true
 #=╠═╡
 show_mountaincar_trajectory(π_mountain_car_fcann, 1_000, "Sarsa Learned Policy")
   ╠═╡ =#
@@ -1391,10 +1435,16 @@ function mountain_car_differential_step(s::Tuple{Float32, Float32}, i_a::Int64)
 end
 
 # ╔═╡ e5ad765a-341f-4f11-9ae8-37d81cb349d2
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountain_car_differential_transition = StateMDPTransitionSampler(mountain_car_differential_step, initialize_car_state())
+  ╠═╡ =#
 
 # ╔═╡ bc1d7cce-c0f4-47a8-b674-8acb82491c7f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountain_car_differential_mdp = StateMDP(mountain_car_actions, mountain_car_differential_transition, initialize_car_state, s -> s[1] == 0.5f0)
+  ╠═╡ =#
 
 # ╔═╡ d3ba78fa-f032-4bb9-9359-ef3bcff2252d
 # ╠═╡ skip_as_script = true
@@ -1688,31 +1738,31 @@ end
   ╠═╡ =#
 
 # ╔═╡ 30ab21ba-3f5b-46a8-8b8c-753f2755d419
+# ╠═╡ skip_as_script = true
 #=╠═╡
-(q̂_mountain_car, episode_rewards, episode_steps) = mountaincar_test(5000, 0.0001f0/8, 0.01f0)
-  ╠═╡ =#
-
-# ╔═╡ 5d23a0ba-5882-4ef6-ad56-596a3d66d3e8
-#=╠═╡
-π_mountain_car(s) = argmax(i_a -> q̂_mountain_car(s, i_a), eachindex(mountain_car_actions))
-  ╠═╡ =#
-
-# ╔═╡ f2201afe-8952-4dde-9e39-02beeb920f6f
-#=╠═╡
-show_mountaincar_trajectory(π_mountain_car, 1_000, "Sarsa Learned Policy")
+(q̂_mountain_car, π_mountain_car, episode_rewards, episode_steps) = mountaincar_test(5000, 0.0001f0/8, 0.01f0)
   ╠═╡ =#
 
 # ╔═╡ 4afbb723-340b-4d85-9115-027a0ff8dfad
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot_mountaincar_action_values(q̂_mountain_car, 500, 500)
   ╠═╡ =#
 
+# ╔═╡ f2201afe-8952-4dde-9e39-02beeb920f6f
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mountaincar_trajectory(π_mountain_car, 1_000, "Sarsa Learned Policy")
+  ╠═╡ =#
+
 # ╔═╡ c1388562-0708-4a6a-acfe-927413dab5d2
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot(scatter(y = -episode_rewards), Layout(yaxis_type = "log"))
   ╠═╡ =#
 
 # ╔═╡ 1a82ae95-3c3e-4281-bc1d-9eb19bf50286
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function figure_10_2(;α_list = [0.1f0, 0.2f0, 0.5f0], num_episodes = 50, ϵ = 0.05f0)
 	traces = map(α_list) do α
@@ -1723,26 +1773,25 @@ end
   ╠═╡ =#
 
 # ╔═╡ ddcb50be-5287-47f8-89f9-58c026a6b151
+# ╠═╡ skip_as_script = true
 #=╠═╡
 figure_10_2()
   ╠═╡ =#
 
 # ╔═╡ cbac1927-b087-4c4c-98ae-6aa5f0b824ad
+# ╠═╡ skip_as_script = true
 #=╠═╡
-(q̂_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(1_000, 0.002f0/8, 0.25f0; compute_value = compute_q_learning_value)
-  ╠═╡ =#
-
-# ╔═╡ 5515db1c-b3d1-4af5-8613-030a4b0faf09
-#=╠═╡
-π_mountain_car_q(s) = argmax(i_a -> q̂_mountain_car_q(s, i_a), eachindex(mountain_car_actions))
+(q̂_mountain_car_q, π_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(1_000, 0.002f0/8, 0.25f0; compute_value = compute_q_learning_value)
   ╠═╡ =#
 
 # ╔═╡ b5409b69-a254-4355-b2b9-99394eceb2f7
+# ╠═╡ skip_as_script = true
 #=╠═╡
 show_mountaincar_trajectory(π_mountain_car_q, 1_000, "Q-Learning Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot_mountaincar_action_values(q̂_mountain_car_q, 500, 500)
   ╠═╡ =#
@@ -1870,6 +1919,7 @@ function run_access_control_differential_sarsa(max_steps::Int64; num_servers = 1
 end
 
 # ╔═╡ 546a775e-d3c9-4693-9f64-d4c47a84fb9f
+# ╠═╡ skip_as_script = true
 #=╠═╡
 function figure_10_5(;numsteps = 2_000_000, α = 0.01f0, β = 0.01f0, ϵ = 0.1f0)
 	access_control_output = run_access_control_differential_sarsa(numsteps; β = β, α = α, ϵ = ϵ)
@@ -1995,7 +2045,7 @@ md"""
 """
 
 # ╔═╡ 953907cd-9926-4478-99b3-da7068118c22
-function NonTabularRL.gradient_monte_carlo_episode_update!(parameters, update_parameters!::Function, states::AbstractVector{S}, actions::AbstractVector{A}, rewards::AbstractVector{T}, γ::T, α::T, update_args...) where {T<:Real, S, A}
+function gradient_monte_carlo_action_episode_update!(parameters, update_parameters!::Function, states::AbstractVector{S}, actions::AbstractVector{A}, rewards::AbstractVector{T}, γ::T, α::T, update_args...) where {T<:Real, S, A}
 	g = zero(T)
 	l = length(states)
 	for i in l:-1:1
@@ -2009,7 +2059,7 @@ end
 # ╔═╡ 13e477f0-dc15-46cb-9691-c04a1b4c83c8
 function gradient_monte_carlo_action_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, update_parameters!::Function, update_args::Tuple; α = one(T)/10, epkwargs...) where {T<:Real}
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, epkwargs...)
-	gradient_monte_carlo_episode_update!(parameters, update_parameters!, states, actions, rewards, γ, α, update_args...)
+	gradient_monte_carlo_action_episode_update!(parameters, update_parameters!, states, actions, rewards, γ, α, update_args...)
 	step_history = [nsteps]
 	for ep in 2:num_episodes
 		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
@@ -2027,7 +2077,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 		value_function(action_values, s, parameters, value_args...)[2]
 	end
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; epkwargs...)
-	gradient_monte_carlo_episode_update!(parameters, update_parameters!, states, actions, rewards, γ, α, update_args...)
+	gradient_monte_carlo_action_episode_update!(parameters, update_parameters!, states, actions, rewards, γ, α, update_args...)
 	if !suppress_warning && !mdp.isterm(sterm) 
 		@info "Warning: Episode 1 did not conclude in $nsteps steps"
 	end
@@ -2035,7 +2085,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 	reward_history = [sum(rewards)]
 	for ep in 2:num_episodes
 		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π_ϵ_greedy, epkwargs...)
-		gradient_monte_carlo_episode_update!(parameters, update_parameters!, view(states, 1:nsteps), view(actions, 1:nsteps), view(rewards, 1:nsteps), γ, α, update_args...)
+		gradient_monte_carlo_action_episode_update!(parameters, update_parameters!, view(states, 1:nsteps), view(actions, 1:nsteps), view(rewards, 1:nsteps), γ, α, update_args...)
 		if !suppress_warning && !mdp.isterm(sterm) 
 			@info "Warning: Episode $ep did not conclude in $nsteps steps"
 		end
@@ -2054,11 +2104,13 @@ end
   ╠═╡ =#
 
 # ╔═╡ 5c920177-8e46-49c9-9b95-1a657fdcae4e
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot(scatter(y = -smooth_error(episode_rewards_dp, 1)), Layout(yaxis_type = "log"))
   ╠═╡ =#
 
 # ╔═╡ 4ccb8a52-c6af-445d-a39e-d4d9b10c0d6a
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot(scatter(y = -smooth_error(mountain_car_fcann.reward_history, 1)), Layout(yaxis_type = "log"))
   ╠═╡ =#
@@ -2087,6 +2139,7 @@ mc_test = run_linear_gradient_monte_carlo_control(mountain_car_mdp, 1f0, 5_000, 
   ╠═╡ =#
 
 # ╔═╡ b76551e0-c027-4682-b5ae-bba7ea2b987a
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot(smooth_error(mc_test.step_history, 10), Layout(yaxis_type = "log"))
   ╠═╡ =#
@@ -2097,6 +2150,7 @@ show_mountaincar_trajectory(s -> mc_test.π_ϵ_greedy(s, 0.25f0), 10000, "MC Lea
   ╠═╡ =#
 
 # ╔═╡ b55d50a4-b039-4240-b434-42f7b724d24d
+# ╠═╡ skip_as_script = true
 #=╠═╡
 plot_mountaincar_action_values(mc_test.value_function, 100, 100)
   ╠═╡ =#
@@ -2120,6 +2174,7 @@ md"""
 """
 
 # ╔═╡ f5e32900-6eb6-4b61-916d-893c0bcaf214
+# ╠═╡ skip_as_script = true
 #=╠═╡
 TableOfContents()
   ╠═╡ =#
@@ -2141,6 +2196,7 @@ html"""
   ╠═╡ =#
 
 # ╔═╡ dd472c0f-7b43-4abe-ada9-9dc8004a18cb
+# ╠═╡ skip_as_script = true
 #=╠═╡
 begin
 function add_elements(a, b)
@@ -2161,10 +2217,14 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]
 BenchmarkTools = "~1.5.0"
@@ -2174,15 +2234,17 @@ PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.5.0"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.60"
+Statistics = "~1.11.1"
+Transducers = "~0.4.84"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.5"
+julia_version = "1.11.1"
 manifest_format = "2.0"
-project_hash = "be9838d8582d0b0ad1f9af1a75a9e540a766619c"
+project_hash = "f96742aa2407e40995be21bd65f67a020afa7644"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2195,20 +2257,79 @@ git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
 uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 version = "0.3.4"
 
+[[deps.Accessors]]
+deps = ["CompositionsBase", "ConstructionBase", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown"]
+git-tree-sha1 = "b392ede862e506d451fc1616e79aa6f4c673dab8"
+uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
+version = "0.1.38"
+
+    [deps.Accessors.extensions]
+    AccessorsAxisKeysExt = "AxisKeys"
+    AccessorsDatesExt = "Dates"
+    AccessorsIntervalSetsExt = "IntervalSets"
+    AccessorsStaticArraysExt = "StaticArrays"
+    AccessorsStructArraysExt = "StructArrays"
+    AccessorsTestExt = "Test"
+    AccessorsUnitfulExt = "Unitful"
+
+    [deps.Accessors.weakdeps]
+    AxisKeys = "94b1ba4f-4ee9-5380-92f1-94cde586c3c5"
+    Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    Requires = "ae029012-a4dd-5104-9daa-d747884805df"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+
+[[deps.ArgCheck]]
+git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
+version = "2.3.0"
+
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
-version = "1.1.1"
+version = "1.1.2"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+version = "1.11.0"
+
+[[deps.BangBang]]
+deps = ["Accessors", "ConstructionBase", "InitialValues", "LinearAlgebra", "Requires"]
+git-tree-sha1 = "e2144b631226d9eeab2d746ca8880b7ccff504ae"
+uuid = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
+version = "0.4.3"
+
+    [deps.BangBang.extensions]
+    BangBangChainRulesCoreExt = "ChainRulesCore"
+    BangBangDataFramesExt = "DataFrames"
+    BangBangStaticArraysExt = "StaticArrays"
+    BangBangStructArraysExt = "StructArrays"
+    BangBangTablesExt = "Tables"
+    BangBangTypedTablesExt = "TypedTables"
+
+    [deps.BangBang.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+    StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+    Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+    TypedTables = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+version = "1.11.0"
 
 [[deps.BaseDirs]]
 git-tree-sha1 = "cb25e4b105cc927052c2314f8291854ea59bf70a"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
 version = "1.2.4"
+
+[[deps.Baselet]]
+git-tree-sha1 = "aebf55e6d7795e02ca500a689d326ac979aaf89e"
+uuid = "9718e550-a3fa-408a-8086-8db961cd8217"
+version = "0.1.1"
 
 [[deps.BenchmarkTools]]
 deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
@@ -2257,15 +2378,60 @@ deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.1.1+0"
 
+[[deps.CompositionsBase]]
+git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
+uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
+version = "0.1.2"
+weakdeps = ["InverseFunctions"]
+
+    [deps.CompositionsBase.extensions]
+    CompositionsBaseInverseFunctionsExt = "InverseFunctions"
+
+[[deps.ConstructionBase]]
+git-tree-sha1 = "76219f1ed5771adbb096743bff43fb5fdd4c1157"
+uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
+version = "1.5.8"
+
+    [deps.ConstructionBase.extensions]
+    ConstructionBaseIntervalSetsExt = "IntervalSets"
+    ConstructionBaseLinearAlgebraExt = "LinearAlgebra"
+    ConstructionBaseStaticArraysExt = "StaticArrays"
+
+    [deps.ConstructionBase.weakdeps]
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[[deps.DataAPI]]
+git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
+uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
+version = "1.16.0"
+
+[[deps.DataValueInterfaces]]
+git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
+version = "1.0.0"
+
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+version = "1.11.0"
+
+[[deps.DefineSingletons]]
+git-tree-sha1 = "0fba8b706d0178b4dc7fd44a96a92382c9065c2c"
+uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
+version = "0.1.2"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
+
+[[deps.Distributed]]
+deps = ["Random", "Serialization", "Sockets"]
+uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+version = "1.11.0"
 
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
@@ -2280,12 +2446,13 @@ version = "1.6.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "82d8afa92ecf4b52d78d869f038ebfb881267322"
+git-tree-sha1 = "62ca0547a14c57e98154423419d8a342dca75ca9"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.16.3"
+version = "1.16.4"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -2298,6 +2465,11 @@ deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArray
 git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
 uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
 version = "0.2.10"
+
+[[deps.Future]]
+deps = ["Random"]
+uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
+version = "1.11.0"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -2322,9 +2494,30 @@ git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
 uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
+[[deps.InitialValues]]
+git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
+uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
+version = "0.3.1"
+
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+version = "1.11.0"
+
+[[deps.InverseFunctions]]
+git-tree-sha1 = "a779299d77cd080bf77b97535acecd73e1c5e5cb"
+uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
+version = "0.1.17"
+weakdeps = ["Dates", "Test"]
+
+    [deps.InverseFunctions.extensions]
+    InverseFunctionsDatesExt = "Dates"
+    InverseFunctionsTestExt = "Test"
+
+[[deps.IteratorInterfaceExtensions]]
+git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+uuid = "82899510-4779-5014-852e-03e436cf321d"
+version = "1.0.0"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
@@ -2357,16 +2550,17 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.4.0+0"
+version = "8.6.0+0"
 
 [[deps.LibGit2]]
 deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+version = "1.11.0"
 
 [[deps.LibGit2_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.6.4+0"
+version = "1.7.2+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
@@ -2375,13 +2569,16 @@ version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+version = "1.11.0"
 
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+version = "1.11.0"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
@@ -2397,18 +2594,26 @@ version = "0.5.13"
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+version = "1.11.0"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+1"
+version = "2.28.6+0"
+
+[[deps.MicroCollections]]
+deps = ["Accessors", "BangBang", "InitialValues"]
+git-tree-sha1 = "44d32db644e84c75dab479f1bc15ee76a1a3618f"
+uuid = "128add7d-3638-4c79-886c-908ea0c25c34"
+version = "0.2.0"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2023.1.10"
+version = "2023.12.12"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -2417,7 +2622,7 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+4"
+version = "0.3.27+1"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
@@ -2437,9 +2642,13 @@ uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.8.1"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.10.0"
+version = "1.11.0"
+weakdeps = ["REPL"]
+
+    [deps.Pkg.extensions]
+    REPLExt = "REPL"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -2494,10 +2703,11 @@ version = "1.4.3"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+version = "1.11.0"
 
 [[deps.Profile]]
-deps = ["Printf"]
 uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+version = "1.11.0"
 
 [[deps.ProfileCanvas]]
 deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
@@ -2506,12 +2716,14 @@ uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 version = "0.1.0"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
+deps = ["InteractiveUtils", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+version = "1.11.0"
 
 [[deps.Random]]
 deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
@@ -2530,29 +2742,61 @@ version = "0.7.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+version = "1.11.0"
+
+[[deps.Setfield]]
+deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
+git-tree-sha1 = "e2cc6d8c88613c05e1defb55170bf5ff211fbeac"
+uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
+version = "1.1.1"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
+version = "1.11.0"
 
-[[deps.SparseArrays]]
-deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
-uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.10.0"
+[[deps.SplittablesBase]]
+deps = ["Setfield", "Test"]
+git-tree-sha1 = "e08a62abc517eb79667d0a29dc08a3b589516bb5"
+uuid = "171d559e-b47b-412a-8079-5efa626c420e"
+version = "0.1.15"
+
+[[deps.StaticArraysCore]]
+git-tree-sha1 = "192954ef1208c7019899fbf8049e717f92959682"
+uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+version = "1.4.3"
 
 [[deps.Statistics]]
-deps = ["LinearAlgebra", "SparseArrays"]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.10.0"
+version = "1.11.1"
 
-[[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
-uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.1+1"
+    [deps.Statistics.extensions]
+    SparseArraysExt = ["SparseArrays"]
+
+    [deps.Statistics.weakdeps]
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StyledStrings]]
+uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+version = "1.11.0"
 
 [[deps.TOML]]
 deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
+
+[[deps.TableTraits]]
+deps = ["IteratorInterfaceExtensions"]
+git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
+uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
+version = "1.0.1"
+
+[[deps.Tables]]
+deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "OrderedCollections", "TableTraits"]
+git-tree-sha1 = "598cd7c1f68d1e205689b1c2fe65a9f85846f297"
+uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+version = "1.12.0"
 
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
@@ -2568,6 +2812,29 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+version = "1.11.0"
+
+[[deps.Transducers]]
+deps = ["Accessors", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "ConstructionBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "SplittablesBase", "Tables"]
+git-tree-sha1 = "7deeab4ff96b85c5f72c824cae53a1398da3d1cb"
+uuid = "28d57a85-8fef-5791-bfe6-a80928e7c999"
+version = "0.4.84"
+
+    [deps.Transducers.extensions]
+    TransducersAdaptExt = "Adapt"
+    TransducersBlockArraysExt = "BlockArrays"
+    TransducersDataFramesExt = "DataFrames"
+    TransducersLazyArraysExt = "LazyArrays"
+    TransducersOnlineStatsBaseExt = "OnlineStatsBase"
+    TransducersReferenceablesExt = "Referenceables"
+
+    [deps.Transducers.weakdeps]
+    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+    BlockArrays = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    LazyArrays = "5078a376-72f3-5289-bfd5-ec5146d43c02"
+    OnlineStatsBase = "925886fa-5bf2-5e8e-b522-a9147a512338"
+    Referenceables = "42d2dcc6-99eb-4e98-b66c-637b7d73030e"
 
 [[deps.Tricks]]
 git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
@@ -2582,6 +2849,7 @@ version = "1.5.1"
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
@@ -2590,6 +2858,7 @@ version = "1.0.2"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+version = "1.11.0"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
@@ -2604,7 +2873,7 @@ version = "5.11.0+0"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.52.0+1"
+version = "1.59.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -2697,7 +2966,6 @@ version = "17.4.0+2"
 # ╠═742100ba-c38e-4840-8988-40990039b527
 # ╠═7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
 # ╠═30ab21ba-3f5b-46a8-8b8c-753f2755d419
-# ╠═5d23a0ba-5882-4ef6-ad56-596a3d66d3e8
 # ╠═4afbb723-340b-4d85-9115-027a0ff8dfad
 # ╠═f2201afe-8952-4dde-9e39-02beeb920f6f
 # ╠═c1388562-0708-4a6a-acfe-927413dab5d2
@@ -2736,7 +3004,6 @@ version = "17.4.0+2"
 # ╠═5be866c3-0fb2-4d1f-9c31-b85aba332905
 # ╟─f7410fe7-e3d8-4047-8fa7-f076476e9d3a
 # ╠═cbac1927-b087-4c4c-98ae-6aa5f0b824ad
-# ╠═5515db1c-b3d1-4af5-8613-030a4b0faf09
 # ╠═b5409b69-a254-4355-b2b9-99394eceb2f7
 # ╠═f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
 # ╟─09088eee-4cb3-40ac-b127-658ce1332fba
@@ -2802,6 +3069,7 @@ version = "17.4.0+2"
 # ╟─6cea9e69-bf8c-4079-9884-663a728d7b08
 # ╠═69fb26ed-763e-44ad-9b70-193e5a1a09b9
 # ╠═3f7484b3-272d-410d-92b1-ca13e5d7a8b7
+# ╠═318b398a-d8f2-4f39-a45d-fd9023961bf8
 # ╠═9fb5dace-a799-4424-bcb3-8542e508dd4b
 # ╠═f5e32900-6eb6-4b61-916d-893c0bcaf214
 # ╠═ed1bd92c-8cc7-457f-9692-a10a9487c953

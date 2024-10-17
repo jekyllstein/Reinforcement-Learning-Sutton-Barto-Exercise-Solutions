@@ -14,7 +14,7 @@ PlutoDevMacros.@fromparent begin
 end
 
 # ╔═╡ e247734e-d1e4-43f2-a74e-0d0bd5971a4b
-using LinearAlgebra, StatsBase, Base.Threads, DataStructures, DataFrames
+using LinearAlgebra, StatsBase, Base.Threads, DataStructures, DataFrames, JLD2
 
 # ╔═╡ afbace21-a366-4ef1-9b50-198381293d22
 # ╠═╡ skip_as_script = true
@@ -2615,6 +2615,13453 @@ begin
 	isterm(s::WordleState{N}) where N = (last(s.feedback_list) == 0xf2)
 end
 
+# ╔═╡ 16754304-c592-44f3-baec-94a4d824eb49
+struct InformationGainScores
+	scores::Dict{WordleState, @NamedTuple{guess_scores::Vector{Float32}, guess_entropies::Vector{Float32}, best_guess::UInt16, max_score::Float32, min_score::Float32, access_time::Vector{Float64}}}
+	sorted_states::Vector{WordleState}
+	sorted_access_times::Vector{Float64}
+end
+
+# ╔═╡ 5eeed71e-4171-4063-89ee-90cfa5934413
+const information_gain_scores = InformationGainScores(Dict{WordleState, @NamedTuple{guess_scores::Vector{Float32}, guess_entropies::Vector{Float32}, best_guess::UInt16, max_score::Float32, min_score::Float32, access_time::Vector{Float64}}}(), Vector{WordleState}(), Vector{Float64}())
+
+# ╔═╡ 93b857e5-72db-4aaf-abb0-295beab4073c
+Base.hash(s::WordleState) = hash(s.guess_list) + hash(s.feedback_list) 
+
+# ╔═╡ 46c0ce87-a94f-4b15-900f-be92775ee066
+function make_feedback_sets(feedback_matrix, savedata::Bool)
+	fname = "guess_feedback_lookup $(hash(feedback_matrix)).bin"
+	l = size(feedback_matrix, 1)
+	feedback_sets = if isfile(fname)
+		open(fname) do f
+			out = Matrix{BitVector}(undef, l, 243)
+			feedbackset = BitVector(fill(false, l))
+			for feedback in 1:243
+				for guess_index in 1:l
+					read!(f, feedbackset)
+					out[guess_index, feedback] = copy(feedbackset)
+				end
+			end
+			close(f)
+			return out
+		end
+	else
+		make_feedback_sets(feedback_matrix)
+	end
+	if savedata
+		open(fname, "w") do f
+			for feedback in 1:243
+				for guess_index in 1:l
+					write(f, feedback_sets[guess_index, feedback])
+				end
+			end
+			close(f)
+		end
+	end
+	return feedback_sets
+end
+
+# ╔═╡ 852dff48-8c1d-42f2-925e-53f889b1ac6a
+begin
+	WordleState()
+	const greedy_information_gain_lookup = if isfile("greedy_information_gain_lookup.jld2")
+		load("greedy_information_gain_lookup.jld2")["greedy_information_gain_lookup"]
+	else
+		Dict{WordleState, @NamedTuple{best_guess::Int64, best_score::Float32, best_guess_entropy::Float32}}()
+	end
+	const all_guesses_information_gain_lookup = if isfile("all_guesses_information_gain_lookup.jld2")
+		load("all_guesses_information_gain_lookup.jld2")["all_guesses_information_gain_lookup"]
+	else
+		Dict{WordleState, @NamedTuple{guess_scores::Vector{Float32}, expected_entropy::Vector{Float32}, ranked_guess_inds::Vector{Int64}}}()
+	end
+end
+
+# ╔═╡ 20a41989-6650-41dd-b34e-fa23c993e669
+const state_entropy_lookup = Dict{WordleState, Float32}()
+
+# ╔═╡ 97d40991-d719-4e87-bd70-94551a645448
+function display_one_step_guesses(output)
+	[(word = nyt_valid_words[i], score = output.guess_scores[i], expected_entropy = output.expected_entropy[i]) for i in output.ranked_guess_inds]
+end
+
+# ╔═╡ 92cb4e96-714d-425d-a64b-eff26a5f92ef
+#=╠═╡
+md"""
+Using this one step lookahead method to rank the guesses, we can already come up with a candidate policy to test, one that is greedy with respect to this score.
+"""
+  ╠═╡ =#
+
+# ╔═╡ 67b9207a-5004-4488-a8e5-43465adbc26b
+#=╠═╡
+md"""
+The following table shows the candidate guesses ranked according to this scoring heuristic in which case the greedy policy will choose the guess with the highest score.  The scores shown are from the state represented below.
+"""
+  ╠═╡ =#
+
+# ╔═╡ f2ab3716-19a2-4cbb-b46f-a13c297e086d
+#=╠═╡
+md"""
+### Wordle Game Dynamics
+
+In order to simulate games we must have a way of producing the appropriate feedback and taking a game to completion.  By using this type of afterstate MDP all of the transitions are actually deterministic since I have the full probability distribution for every possible outcome
+"""
+  ╠═╡ =#
+
+# ╔═╡ 66105fd7-aa54-4007-a346-67f0ac7e1188
+# show distribution of winning turns for a given guess rather than just mean
+
+# ╔═╡ b1e3f7ea-e2de-4467-b301-0c3cf225e433
+const wordle_transition_lookup = Dict{Tuple{WordleState, UInt16}, @NamedTuple{rewards::Vector{Float32}, transition_states::Vector{WordleState}, probabilities::Vector{Float32}}}()
+
+# ╔═╡ 8e2477a9-ca14-4ecf-9194-9bac5ef25fd4
+#=╠═╡
+md"""
+### Visualize Wordle Transition
+"""
+  ╠═╡ =#
+
+# ╔═╡ 3c2fb945-0173-4de5-9fdf-ea8b9da3cbd3
+# list word patterns and show bar to right scaled to probability
+
+# ╔═╡ 961593ef-964c-4363-b4ba-0d45cfe3d198
+const test_possible_indices = copy(nyt_valid_inds)
+
+# ╔═╡ b43a3b03-2cb4-4bd7-8476-d5b1480adc0b
+const greedy_information_gain_action_lookup = Dict{WordleState, UInt16}()
+
+# ╔═╡ 16f1c036-90c1-4784-b750-3293255e31f7
+game_length(::WordleState{N}) where N = N
+
+# ╔═╡ 1eb7de02-ab3c-4c96-82f5-a09c163faa30
+function display_word_group(turns::Integer, list::Vector{String})
+	l = length(list)
+	"""
+	<div style = "display: flex;">
+	<div style = "width: 7em;">$turns Turns</div>
+	<div style = "width: 8em;">$l Answers</div>
+	<div style = "width: 50em;">$(isempty(list) ? "" : reduce((a, b) -> "$a, $b", list))</div>
+	</div>
+	"""
+end
+
+# ╔═╡ 50b2a4d0-3f0e-49c6-bc8d-b490b2542bb0
+const guess_value_lookup = Dict{Tuple{WordleState, Int64}, Float32}()
+
+# ╔═╡ aaefe619-c7bb-4c1e-acfb-1b2f05ef388d
+score2turns(score) = 7f0 - score
+
+# ╔═╡ 9df47c03-18c5-4e22-a6f9-a55ab5e35c39
+function make_one_answer_hard_mode(guess_index)
+	output = BitVector(fill(false, length(nyt_valid_inds)))
+	output[guess_index] = true
+	return output
+end
+
+# ╔═╡ 4578c627-127e-4a18-972c-03b38cff371b
+#=╠═╡
+md"""
+#### Guess Values for Greedy Information Policy from Starting State
+"""
+  ╠═╡ =#
+
+# ╔═╡ 3b32e495-98ca-472d-a928-c76fb9302a57
+#=╠═╡
+md"""
+### Wordle Evaluation Test State
+"""
+  ╠═╡ =#
+
+# ╔═╡ 7f1f2057-24ca-44c0-8496-b6ef68d895bd
+#=╠═╡
+md"""
+### Defining Wordle Distribution MCTS
+"""
+  ╠═╡ =#
+
+# ╔═╡ 4de12ef4-4e40-41da-aede-e72f8206f173
+make_information_gain_prior_args() = (entropies = zeros(Float32, length(nyt_valid_inds)), answer_inds = copy(nyt_valid_inds), possible_answers = copy(wordle_actions), feedback_entropies = zeros(Float32, 243))
+
+# ╔═╡ b61dfb6f-b2d8-48e1-99b4-345a05274dc5
+#=╠═╡
+md"""
+#### Transition States
+"""
+  ╠═╡ =#
+
+# ╔═╡ 4130d798-e202-4280-b876-9ca989a45a58
+HTML("""
+<div style = "display: flex;">
+<div style = "width: 4em;">Rank</div>
+<div style = "width: 10em;">Transition State</div>
+<div style = "width: 6em;">Remaining Answers</div>
+<div style = "width: 6em;">Simulation Visits</div>
+<div style = "width: 6em;">Tree Policy Expected Turns</div>
+<div style = "width: 6em;">Greedy Policy Expected Turns</div>
+<div style = "width: 6em;">Minimum Possible Turns</div>
+<div style = "width: 7em;">Possible Improvement</div>
+<div style = "width: 7em;">Tree Improvement</div>
+<div>Percent Chance</div>
+</div>
+""")
+
+# ╔═╡ a7bca65e-e932-4bee-aa4a-bd6da2215472
+# ╠═╡ disabled = true
+#=╠═╡
+explore_tree_state(explore_state, root_wordle_visit_counts, root_wordle_values)
+  ╠═╡ =#
+
+# ╔═╡ cdec4e37-6cfc-40c3-9fcc-e7bcb7cbe6e0
+function display_policy_compare(d::Dict)
+	valid_keys = filter(k -> !isempty(d[k]), keys(d)) |> collect
+	improvement_dict = Dict(i => Vector{String}() for i in -6:6)
+	for k in valid_keys
+		improvement = k[1] - k[2]
+		number_of_words = length(d[k])
+		for word in d[k]
+			push!(improvement_dict[improvement], word) 
+		end
+	end
+	valid_keys = filter(k -> !isempty(improvement_dict[k]), keys(improvement_dict))
+	map(collect(valid_keys)) do k
+		(policy2_improvement = k, number_of_words = length(improvement_dict[k]), word_list = improvement_dict[k])
+	end |> DataFrame
+end	
+
+# ╔═╡ 06138a4e-67a3-47a3-84a5-92013fd404ca
+# ╠═╡ disabled = true
+#=╠═╡
+begin
+	root_mcts_params
+	const base_mcts_options = show_afterstate_mcts_guesses(tree_values, WordleState())
+	const mcts_options, set_mcts_options = @use_state(base_mcts_options)
+end
+  ╠═╡ =#
+
+# ╔═╡ 10d1f403-34c8-46ce-8cfc-d289608f465c
+# ╠═╡ disabled = true
+#=╠═╡
+const track_run, set_run = @use_state("Completed")
+  ╠═╡ =#
+
+# ╔═╡ 41e0cddb-e78d-477b-849a-124754340a3c
+# ╠═╡ disabled = true
+#=╠═╡
+if mcts_counter > 0
+	@use_effect([]) do
+		set_run("Starting mcts evaluation")
+		t = time()
+		schedule(Task() do
+			nsims = 10
+			nruns = ceil(Int64, root_mcts_params.nsims / nsims)
+			for i in 1:nruns
+				stop_mcts_eval > 0 && break	
+				elapsed_minutes = (time() - t)/60
+				etr = (elapsed_minutes * nruns / i) - elapsed_minutes
+				set_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $(round(Int64, etr)) minutes left")
+				output = @spawn show_afterstate_mcts_guesses(run_wordle_afterstate_mcts(WordleState(), nsims; tree_values = tree_values, sim_message = false, p_scale = 100f0, topn = root_mcts_params.topn), WordleState())
+				set_mcts_options(fetch(output))
+				sleep(.01)
+			end
+			if stop_mcts_eval > 0
+				set_run("Interrupted")
+			else
+				set_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
+			end
+		end)
+	end
+else
+	set_run("Waiting to run mcts evaluation")
+	sleep(0.01)
+end
+  ╠═╡ =#
+
+# ╔═╡ 03bbb910-dfa7-4c28-b811-afa9e5ca0e63
+# ╠═╡ disabled = true
+#=╠═╡
+track_run
+  ╠═╡ =#
+
+# ╔═╡ cb3b46cf-8375-43b2-8736-97882e9b5e18
+# ╠═╡ disabled = true
+#=╠═╡
+display_tree_results(WordleState(), mcts_options)
+  ╠═╡ =#
+
+# ╔═╡ 1ba2fd82-f651-43b3-9411-753eef787b68
+#idea to show all of the game states or the branching for the base policy from the root state or any later state.  Want to show all of the resulting games and their probability weight or maybe pieces of the tree how it branches down
+
+# ╔═╡ 0812f3c2-35ab-4e2d-87c0-35a7b44af6d4
+#another idea is to identify how many and which actions differ from the base policy using a particular starting guess so it would show a state, the policy action in that state, and the tree action instead 
+
+# ╔═╡ d2052e0c-c506-45b5-8deb-76d5e60d300e
+const root_guess_candidates = ["trace"] #, "crate", "crane", "slate"]
+
+# ╔═╡ 9ee34b0a-2e11-403f-839b-4e9991bc0eac
+const root_guess_bit_filter = BitVector([in(w, root_guess_candidates) for w in nyt_valid_words])
+
+# ╔═╡ 7d4f39fc-0669-4ded-a890-780d3c6b8e70
+const root_candidate_tree_fname = "wordle_root_candidate_tree.jld2"
+
+# ╔═╡ b6b40be8-90e3-4335-93ef-f8d92ef1676d
+# ╠═╡ disabled = true
+#=╠═╡
+if isfile(root_candidate_tree_fname)
+	mcts_output
+	wordle_root_candidate_greedy_information_gain_prior!
+	const root_candidate_load = load(root_candidate_tree_fname)
+	const root_guess_candidate_visits = root_candidate_load["root_guess_candidate_visits"]
+	const root_guess_candidate_values = root_candidate_load["root_guess_candidate_values"]
+else
+	const root_guess_candidate_visits = deepcopy(mcts_output[2])
+	const root_guess_candidate_values = deepcopy(mcts_output[3])
+end
+  ╠═╡ =#
+
+# ╔═╡ 0da02107-ad39-4c43-9dfc-2e68736d8063
+#for root state only select one of the root guess candidates
+function wordle_root_candidate_greedy_information_gain_prior!(prior::Vector{Float32}, s::WordleState{0}; kwargs...)
+	prior .= root_guess_bit_filter ./ length(root_guess_candidates)
+	return word_index[first(root_guess_candidates)]
+end
+
+# ╔═╡ 8a9ed8ec-10b6-43e8-bb9a-e8eba96f3ea0
+#=╠═╡
+if run_root_guess_candidate_mcts > 0
+	monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_root_candidate_greedy_information_gain_prior!, 100f0, root_guess_candidate_mcts_params.topn;
+		nsims = root_guess_candidate_mcts_params.nsims,
+		sim_message = true,
+		visit_counts = root_guess_candidate_visits,
+		Q = root_guess_candidate_values,
+		make_step_kwargs = k -> (possible_indices = test_possible_indices,)
+		)
+	show_wordle_mcts_guesses(root_guess_candidate_visits, root_guess_candidate_values, WordleState())
+else
+	md"""
+	Showing preliminary results for 1 run.  Waiting to run MCTS for $(root_guess_candidate_mcts_params.nsims) simulations
+	
+	$(show_wordle_mcts_guesses(root_guess_candidate_visits, root_guess_candidate_values, WordleState()))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ a6eb37ac-09fc-4f24-b987-0f1e200dfebc
+function create_save_item(d::Dict{S, V}, s::WordleState) where {S<:WordleState, V}
+	((s.guess_list, s.feedback_list), d[s])
+end
+
+# ╔═╡ 36fb4201-8261-4551-ae38-eba073e3046b
+#=╠═╡
+const root_candidate_mcts_options, set_root_candidate_mcts_options = @use_state(nothing)
+  ╠═╡ =#
+
+# ╔═╡ b3a7619f-82ac-4a6b-9206-ed1b5cfa0078
+#=╠═╡
+const track_root_candidate_run, set_root_candidate_run = @use_state("Completed")
+  ╠═╡ =#
+
+# ╔═╡ 1642481e-8da9-475c-98b4-92e36d90065b
+#=╠═╡
+track_root_candidate_run
+  ╠═╡ =#
+
+# ╔═╡ b9a41bbb-8706-4f1d-beb7-f55ad8ad5ce7
+begin
+	get_wordle_substate(s::WordleState{0}, N::Integer) = s
+	function get_wordle_substate(s::WordleState{N}, N2::Integer) where N
+		newN = min(N, N2)
+		WordleState(s.guess_list[1:newN], s.feedback_list[1:newN])
+	end
+end
+
+# ╔═╡ 8327c794-200f-400f-8bdd-d043c548522c
+#comparing the tree to the greedy policy can always look at a given state and highlight an action with the most percentage improvement so far and you can rank these improvements down the tree and show a list of ways in which the tree performance is better than the greedy policy.  It would e a list like, in this state you do this instead of what the greedy policy would do and the overall improvement is this, you can show the total tree improvement as well as just the improvement as measured by the greedy policy value.
+
+# ╔═╡ a107e7ff-56e8-4f31-b061-a7895ea29965
+#=╠═╡
+md"""
+### MCTS Evalaution of Wordle Test State
+"""
+  ╠═╡ =#
+
+# ╔═╡ 23bb63d2-4287-40b8-af9b-89cb98185f17
+#for a given feedback, show how likely that was for the guess and how good/bad that is for the policy vs the expected value
+
+# ╔═╡ b9e9f12d-aa40-49d2-9dc2-ac6110d869d7
+HTML("""
+<div style = "display: flex;">
+<div style = "width: 4em;">Rank</div>
+<div style = "width: 10em;">Transition State</div>
+<div style = "width: 6em;">Remaining Answers</div>
+<div style = "width: 6em;">Simulation Visits</div>
+<div style = "width: 6em;">Tree Policy Expected Turns</div>
+<div style = "width: 6em;">Greedy Policy Expected Turns</div>
+<div style = "width: 6em;">Minimum Possible Turns</div>
+<div style = "width: 7em;">Possible Improvement</div>
+<div style = "width: 7em;">Tree Improvement</div>
+<div>Percent Chance</div>
+</div>
+""")
+
+# ╔═╡ 1e4b84d7-6fe9-4b1e-9f14-3a663421cb1f
+Base.string(s::WordleState{0}) = "WordleStart"
+
+# ╔═╡ d4378e47-e231-495c-8e72-de864097421e
+Base.show(s::WordleState{0}) = "WordleStart"
+
+# ╔═╡ 13044009-df94-4dd1-93b2-a774015ab1de
+Base.display(s::WordleState{0}) = "WordleStart"
+
+# ╔═╡ 9711392c-33e0-4281-a871-7216dc146de6
+#=╠═╡
+md"""
+## Wordle Hard Mode
+
+In hard mode, one is only permitted to make guesses that are in the list of possible remaining answers.  They do not however need to be answers that are known valid answers but any valid guess that is consistent with the information revealed so far.
+"""
+  ╠═╡ =#
+
+# ╔═╡ 6cb17eea-2ec9-48d5-9900-635687d5300f
+const hardmode_scores = Dict{WordleState, @NamedTuple{guess_scores::SparseVector{Float32, Int64}, guess_entropies::SparseVector{Float32, Int64}, best_guess::UInt16, max_score::Float32, min_score::Float32}}()
+
+# ╔═╡ 5d8c0ce9-275b-4a9e-afd3-4c6028b0600c
+make_hardmode_information_gain_kwargs() = (scores = zeros(Float32, length(nyt_valid_inds)), entropies = zeros(Float32, length(nyt_valid_inds)), allowed_guess_inds = copy(nyt_valid_inds), possible_answer_inds = copy(nyt_valid_inds), possible_answers = copy(wordle_actions), feedback_entropies = zeros(Float32, 243))
+
+# ╔═╡ 3cb9ba3c-1b9c-4a6c-b8f2-cade651df78d
+const hardmode_greedy_lookup = Dict{WordleState, Int64}()
+
+# ╔═╡ d68d26f3-112d-4542-aab8-0477369f3a52
+#=╠═╡
+md"""
+### Wordle Hard Mode MCTS
+"""
+  ╠═╡ =#
+
+# ╔═╡ f2106242-c6f9-4bb2-85f0-059b3e9db621
+#=╠═╡
+md"""
+## Don't Wordle
+
+In *Don't Wordle* a player must enter six guesses without guessing the true word.  Also all guesses must conform to hard mode rules.  For example, once a letter is yellow, it must appear in all future guesses.  The game is too difficult with only these rules, so a player also has a fixed number of *undos* which remove the previously made guess.  The information revealed by the guess is still available to the player but not counted for determining valid hard mode guesses.  
+
+For Don't Wordle the score can simply be 1 for a win and 0 for a loss since it is not trivial to win every game.  I will start with a version of the game that does not have any undos and then proceed to add undos.  Also, the default heuristic strategy for the game can be minimizing the information gain.
+"""
+  ╠═╡ =#
+
+# ╔═╡ a0433105-3429-4b03-9f26-b01af2dc3979
+const dontwordle_valid_words_raw = "aahed
+aalii
+aargh
+aarti
+abaca
+abaci
+aback
+abacs
+abaft
+abaka
+abamp
+aband
+abase
+abash
+abask
+abate
+abaya
+abbas
+abbed
+abbes
+abbey
+abbot
+abcee
+abeam
+abear
+abele
+abers
+abets
+abhor
+abide
+abies
+abled
+abler
+ables
+ablet
+ablow
+abmho
+abode
+abohm
+aboil
+aboma
+aboon
+abord
+abore
+abort
+about
+above
+abram
+abray
+abrim
+abrin
+abris
+absey
+absit
+abuna
+abune
+abuse
+abuts
+abuzz
+abyes
+abysm
+abyss
+acais
+acari
+accas
+accoy
+acerb
+acers
+aceta
+achar
+ached
+aches
+achoo
+acids
+acidy
+acing
+acini
+ackee
+acker
+acmes
+acmic
+acned
+acnes
+acock
+acold
+acorn
+acred
+acres
+acrid
+acros
+acted
+actin
+acton
+actor
+acute
+acyls
+adage
+adapt
+adaws
+adays
+adbot
+addax
+added
+adder
+addio
+addle
+adeem
+adept
+adhan
+adieu
+adios
+adits
+adman
+admen
+admin
+admit
+admix
+adobe
+adobo
+adopt
+adore
+adorn
+adown
+adoze
+adrad
+adred
+adsum
+aduki
+adult
+adunc
+adust
+advew
+adyta
+adzed
+adzes
+aecia
+aedes
+aegis
+aeons
+aerie
+aeros
+aesir
+afald
+afara
+afars
+afear
+affix
+afire
+aflaj
+afoot
+afore
+afoul
+afrit
+afros
+after
+again
+agama
+agami
+agape
+agars
+agast
+agate
+agave
+agaze
+agene
+agent
+agers
+agger
+aggie
+aggri
+aggro
+aggry
+aghas
+agila
+agile
+aging
+agios
+agism
+agist
+agita
+aglee
+aglet
+agley
+agloo
+aglow
+aglus
+agmas
+agoge
+agone
+agons
+agony
+agood
+agora
+agree
+agria
+agrin
+agros
+agued
+agues
+aguna
+aguti
+ahead
+aheap
+ahent
+ahigh
+ahind
+ahing
+ahint
+ahold
+ahull
+ahuru
+aidas
+aided
+aider
+aides
+aidoi
+aidos
+aiery
+aigas
+aight
+ailed
+aimed
+aimer
+ainee
+ainga
+aioli
+aired
+airer
+airns
+airth
+airts
+aisle
+aitch
+aitus
+aiver
+aiyee
+aizle
+ajies
+ajiva
+ajuga
+ajwan
+akees
+akela
+akene
+aking
+akita
+akkas
+alaap
+alack
+alamo
+aland
+alane
+alang
+alans
+alant
+alapa
+alaps
+alarm
+alary
+alate
+alays
+albas
+albee
+album
+alcid
+alcos
+aldea
+alder
+aldol
+aleck
+alecs
+alefs
+aleft
+aleph
+alert
+alews
+aleye
+alfas
+algae
+algal
+algas
+algid
+algin
+algor
+algum
+alias
+alibi
+alien
+alifs
+align
+alike
+aline
+alist
+alive
+aliya
+alkie
+alkos
+alkyd
+alkyl
+allay
+allee
+allel
+alley
+allis
+allod
+allot
+allow
+alloy
+allyl
+almah
+almas
+almeh
+almes
+almud
+almug
+alods
+aloed
+aloes
+aloft
+aloha
+aloin
+alone
+along
+aloof
+aloos
+aloud
+alowe
+alpha
+altar
+alter
+altho
+altos
+alula
+alums
+alure
+alvar
+alway
+amahs
+amain
+amass
+amate
+amaut
+amaze
+amban
+amber
+ambit
+amble
+ambos
+ambry
+ameba
+ameer
+amend
+amene
+amens
+ament
+amias
+amice
+amici
+amide
+amido
+amids
+amies
+amiga
+amigo
+amine
+amino
+amins
+amirs
+amiss
+amity
+amlas
+amman
+ammon
+ammos
+amnia
+amnic
+amnio
+amoks
+amole
+among
+amort
+amour
+amove
+amowt
+amped
+ample
+amply
+ampul
+amrit
+amuck
+amuse
+amyls
+anana
+anata
+ancho
+ancle
+ancon
+andro
+anear
+anele
+anent
+angas
+angel
+anger
+angle
+anglo
+angry
+angst
+anigh
+anile
+anils
+anima
+anime
+animi
+anion
+anise
+anker
+ankhs
+ankle
+ankus
+anlas
+annal
+annas
+annat
+annex
+annoy
+annul
+anoas
+anode
+anole
+anomy
+ansae
+antae
+antar
+antas
+anted
+antes
+antic
+antis
+antra
+antre
+antsy
+anura
+anvil
+anyon
+aorta
+apace
+apage
+apaid
+apart
+apayd
+apays
+apeak
+apeek
+apers
+apert
+apery
+apgar
+aphid
+aphis
+apian
+aping
+apiol
+apish
+apism
+apnea
+apode
+apods
+apoop
+aport
+appal
+appay
+appel
+apple
+apply
+appro
+appui
+appuy
+apres
+apron
+apses
+apsis
+apsos
+apted
+apter
+aptly
+aquae
+aquas
+araba
+araks
+arame
+arars
+arbas
+arbor
+arced
+archi
+arcos
+arcus
+ardeb
+ardor
+ardri
+aread
+areae
+areal
+arear
+areas
+areca
+aredd
+arede
+arefy
+areic
+arena
+arene
+arepa
+arere
+arete
+arets
+arett
+argal
+argan
+argil
+argle
+argol
+argon
+argot
+argue
+argus
+arhat
+arias
+ariel
+ariki
+arils
+ariot
+arise
+arish
+arked
+arled
+arles
+armed
+armer
+armet
+armil
+armor
+arnas
+arnut
+aroba
+aroha
+aroid
+aroma
+arose
+arpas
+arpen
+arrah
+arras
+array
+arret
+arris
+arrow
+arroz
+arsed
+arses
+arsey
+arsis
+arson
+artal
+artel
+artic
+artis
+artsy
+aruhe
+arums
+arval
+arvee
+arvos
+aryls
+asana
+ascon
+ascot
+ascus
+asdic
+ashed
+ashen
+ashes
+ashet
+aside
+asked
+asker
+askew
+askoi
+askos
+aspen
+asper
+aspic
+aspie
+aspis
+aspro
+assai
+assam
+assay
+asses
+asset
+assez
+assot
+aster
+astir
+astun
+asura
+asway
+aswim
+asyla
+ataps
+ataxy
+atigi
+atilt
+atimy
+atlas
+atman
+atmas
+atmos
+atocs
+atoke
+atoks
+atoll
+atoms
+atomy
+atone
+atony
+atopy
+atria
+atrip
+attap
+attar
+attic
+atuas
+audad
+audio
+audit
+auger
+aught
+augur
+aulas
+aulic
+auloi
+aulos
+aumil
+aunes
+aunts
+aunty
+aurae
+aural
+aurar
+auras
+aurei
+aures
+auric
+auris
+aurum
+autos
+auxin
+avail
+avale
+avant
+avast
+avels
+avens
+avers
+avert
+avgas
+avian
+avine
+avion
+avise
+aviso
+avize
+avoid
+avows
+avyze
+await
+awake
+award
+aware
+awarn
+awash
+awato
+awave
+aways
+awdls
+aweel
+aweto
+awful
+awing
+awmry
+awned
+awner
+awoke
+awols
+awork
+axels
+axial
+axile
+axils
+axing
+axiom
+axion
+axite
+axled
+axles
+axman
+axmen
+axoid
+axone
+axons
+ayahs
+ayaya
+ayelp
+aygre
+ayins
+ayont
+ayres
+ayrie
+azans
+azide
+azido
+azine
+azlon
+azoic
+azole
+azons
+azote
+azoth
+azuki
+azure
+azurn
+azury
+azygy
+azyme
+azyms
+baaed
+baals
+babas
+babel
+babes
+babka
+baboo
+babul
+babus
+bacca
+bacco
+baccy
+bacha
+bachs
+backs
+bacon
+baddy
+badge
+badly
+baels
+baffs
+baffy
+bafts
+bagel
+baggy
+baghs
+bagie
+bahts
+bahus
+bahut
+bails
+bairn
+baisa
+baith
+baits
+baiza
+baize
+bajan
+bajra
+bajri
+bajus
+baked
+baken
+baker
+bakes
+bakra
+balas
+balds
+baldy
+baled
+baler
+bales
+balks
+balky
+balls
+bally
+balms
+balmy
+baloo
+balsa
+balti
+balun
+balus
+bambi
+banak
+banal
+banco
+bancs
+banda
+bandh
+bands
+bandy
+baned
+banes
+bangs
+bania
+banjo
+banks
+banns
+bants
+bantu
+banty
+banya
+bapus
+barbe
+barbs
+barby
+barca
+barde
+bardo
+bards
+bardy
+bared
+barer
+bares
+barfi
+barfs
+barge
+baric
+barks
+barky
+barms
+barmy
+barns
+barny
+baron
+barps
+barra
+barre
+barro
+barry
+barye
+basal
+basan
+based
+basen
+baser
+bases
+basho
+basic
+basij
+basil
+basin
+basis
+basks
+bason
+basse
+bassi
+basso
+bassy
+basta
+baste
+basti
+basto
+basts
+batch
+bated
+bates
+bathe
+baths
+batik
+baton
+batta
+batts
+battu
+batty
+bauds
+bauks
+baulk
+baurs
+bavin
+bawds
+bawdy
+bawks
+bawls
+bawns
+bawrs
+bawty
+bayed
+bayer
+bayes
+bayle
+bayou
+bayts
+bazar
+bazoo
+beach
+beads
+beady
+beaks
+beaky
+beals
+beams
+beamy
+beano
+beans
+beany
+beard
+beare
+bears
+beast
+beath
+beats
+beaty
+beaus
+beaut
+beaux
+bebop
+becap
+becke
+becks
+bedad
+bedel
+bedes
+bedew
+bedim
+bedye
+beech
+beedi
+beefs
+beefy
+beeps
+beers
+beery
+beets
+befit
+befog
+begad
+began
+begar
+begat
+begem
+beget
+begin
+begot
+begum
+begun
+beige
+beigy
+being
+beins
+bekah
+belah
+belar
+belay
+belch
+belee
+belga
+belie
+belle
+bells
+belly
+belon
+below
+belts
+bemad
+bemas
+bemix
+bemud
+bench
+bends
+bendy
+benes
+benet
+benga
+benis
+benne
+benni
+benny
+bento
+bents
+benty
+bepat
+beray
+beres
+beret
+bergs
+berko
+berks
+berme
+berms
+berob
+berry
+berth
+beryl
+besat
+besaw
+besee
+beses
+beset
+besit
+besom
+besot
+besti
+bests
+betas
+beted
+betel
+betes
+beths
+betid
+beton
+betta
+betty
+bevel
+bever
+bevor
+bevue
+bevvy
+bewet
+bewig
+bezel
+bezes
+bezil
+bezzy
+bhais
+bhaji
+bhang
+bhats
+bhels
+bhoot
+bhuna
+bhuts
+biach
+biali
+bialy
+bibbs
+bibes
+bible
+biccy
+bicep
+bices
+biddy
+bided
+bider
+bides
+bidet
+bidis
+bidon
+bield
+biers
+biffo
+biffs
+biffy
+bifid
+bigae
+biggs
+biggy
+bigha
+bight
+bigly
+bigos
+bigot
+bijou
+biked
+biker
+bikes
+bikie
+bilbo
+bilby
+biled
+biles
+bilge
+bilgy
+bilks
+bills
+billy
+bimah
+bimas
+bimbo
+binal
+bindi
+binds
+biner
+bines
+binge
+bingo
+bings
+bingy
+binit
+binks
+bints
+biogs
+biome
+biont
+biota
+biped
+bipod
+birch
+birds
+birks
+birle
+birls
+biros
+birrs
+birse
+birsy
+birth
+bises
+bisks
+bisom
+bison
+bitch
+biter
+bites
+bitos
+bitou
+bitsy
+bitte
+bitts
+bitty
+bivia
+bivvy
+bizes
+bizzo
+bizzy
+blabs
+black
+blade
+blads
+blady
+blaer
+blaes
+blaff
+blags
+blahs
+blain
+blame
+blams
+bland
+blank
+blare
+blart
+blase
+blash
+blast
+blate
+blats
+blatt
+blaud
+blawn
+blaws
+blays
+blaze
+bleak
+blear
+bleat
+blebs
+blech
+bleed
+bleep
+blees
+blend
+blent
+blert
+bless
+blest
+blets
+bleys
+blimp
+blimy
+blind
+bling
+blini
+blink
+blins
+bliny
+blips
+bliss
+blist
+blite
+blits
+blitz
+blive
+bloat
+blobs
+block
+blocs
+blogs
+bloke
+blond
+blood
+blook
+bloom
+bloop
+blore
+blots
+blown
+blows
+blowy
+blubs
+blude
+bluds
+bludy
+blued
+bluer
+blues
+bluet
+bluey
+bluff
+bluid
+blume
+blunk
+blunt
+blurb
+blurs
+blurt
+blush
+blype
+boabs
+boaks
+board
+boars
+boart
+boast
+boats
+bobac
+bobak
+bobas
+bobby
+bobol
+bobos
+bocca
+bocce
+bocci
+boche
+bocks
+boded
+bodes
+bodge
+bodhi
+bodle
+boeps
+boets
+boeuf
+boffo
+boffs
+bogan
+bogey
+boggy
+bogie
+bogle
+bogue
+bogus
+bohea
+bohos
+boils
+boing
+boink
+boite
+boked
+bokeh
+bokes
+bokos
+bolar
+bolas
+bolds
+boles
+bolix
+bolls
+bolos
+bolts
+bolus
+bomas
+bombe
+bombo
+bombs
+bonce
+bonds
+boned
+boner
+bones
+boney
+bongo
+bongs
+bonie
+bonks
+bonne
+bonny
+bonus
+bonza
+bonze
+booai
+booay
+boobs
+booby
+boody
+booed
+boofy
+boogy
+boohs
+books
+booky
+bools
+booms
+boomy
+boong
+boons
+boord
+boors
+boose
+boost
+booth
+boots
+booty
+booze
+boozy
+boppy
+borak
+boral
+boras
+borax
+borde
+bords
+bored
+boree
+borel
+borer
+bores
+borgo
+boric
+borks
+borms
+borna
+borne
+boron
+borts
+borty
+bortz
+bosie
+bosks
+bosky
+bosom
+boson
+bossy
+bosun
+botas
+botch
+botel
+botes
+bothy
+botte
+botts
+botty
+bouge
+bough
+bouks
+boule
+boult
+bound
+bouns
+bourd
+bourg
+bourn
+bouse
+bousy
+bouts
+bovid
+bowat
+bowed
+bowel
+bower
+bowes
+bowet
+bowie
+bowls
+bowne
+bowrs
+bowse
+boxed
+boxen
+boxer
+boxes
+boxla
+boxty
+boyar
+boyau
+boyed
+boyfs
+boygs
+boyla
+boyos
+boysy
+bozos
+braai
+brace
+brach
+brack
+bract
+brads
+braes
+brags
+braid
+brail
+brain
+brake
+braks
+braky
+brame
+brand
+brane
+brank
+brans
+brant
+brash
+brass
+brast
+brats
+brava
+brave
+bravi
+bravo
+brawl
+brawn
+braws
+braxy
+brays
+braza
+braze
+bread
+break
+bream
+brede
+breds
+breed
+breem
+breer
+brees
+breid
+breis
+breme
+brens
+brent
+brere
+brers
+breve
+brews
+breys
+briar
+bribe
+brick
+bride
+brief
+brier
+bries
+brigs
+briki
+briks
+brill
+brims
+brine
+bring
+brink
+brins
+briny
+brios
+brise
+brisk
+briss
+brith
+brits
+britt
+brize
+broad
+broch
+brock
+brods
+brogh
+brogs
+broil
+broke
+brome
+bromo
+bronc
+brond
+brood
+brook
+brool
+broom
+broos
+brose
+brosy
+broth
+brown
+brows
+brugh
+bruin
+bruit
+brule
+brume
+brung
+brunt
+brush
+brusk
+brust
+brute
+bruts
+buats
+buaze
+bubal
+bubas
+bubba
+bubbe
+bubby
+bubus
+buchu
+bucko
+bucks
+bucku
+budas
+buddy
+budge
+budis
+budos
+buffa
+buffe
+buffi
+buffo
+buffs
+buffy
+bufos
+bufty
+buggy
+bugle
+buhls
+buhrs
+buiks
+build
+built
+buist
+bukes
+bulbs
+bulge
+bulgy
+bulks
+bulky
+bulla
+bulls
+bully
+bulse
+bumbo
+bumfs
+bumph
+bumps
+bumpy
+bunas
+bunce
+bunch
+bunco
+bunde
+bundh
+bunds
+bundt
+bundu
+bundy
+bungs
+bungy
+bunia
+bunje
+bunjy
+bunko
+bunks
+bunns
+bunny
+bunts
+bunty
+bunya
+buoys
+buppy
+buran
+buras
+burbs
+burds
+buret
+burfi
+burgh
+burgs
+burin
+burka
+burke
+burks
+burls
+burly
+burns
+burnt
+buroo
+burps
+burqa
+burro
+burrs
+burry
+bursa
+burse
+burst
+busby
+bused
+buses
+bushy
+busks
+busky
+bussu
+busti
+busts
+busty
+butch
+buteo
+butes
+butle
+butoh
+butte
+butts
+butty
+butut
+butyl
+buxom
+buyer
+buzzy
+bwana
+bwazi
+byded
+bydes
+byked
+bykes
+bylaw
+byres
+byrls
+byssi
+bytes
+byway
+caaed
+cabal
+cabas
+cabby
+caber
+cabin
+cable
+cabob
+caboc
+cabre
+cacao
+cacas
+cache
+cacks
+cacky
+cacti
+caddy
+cadee
+cades
+cadet
+cadge
+cadgy
+cadie
+cadis
+cadre
+caeca
+caese
+cafes
+caffs
+caged
+cager
+cages
+cagey
+cagot
+cahow
+caids
+cains
+caird
+cairn
+cajon
+cajun
+caked
+cakes
+cakey
+calfs
+calid
+calif
+calix
+calks
+calla
+calls
+calms
+calmy
+calos
+calpa
+calps
+calve
+calyx
+caman
+camas
+camel
+cameo
+cames
+camis
+camos
+campi
+campo
+camps
+campy
+camus
+canal
+candy
+caned
+caneh
+caner
+canes
+cangs
+canid
+canna
+canns
+canny
+canoe
+canon
+canso
+canst
+canto
+cants
+canty
+capas
+caped
+caper
+capes
+capex
+caphs
+capiz
+caple
+capon
+capos
+capot
+capri
+capul
+caput
+carap
+carat
+carbo
+carbs
+carby
+cardi
+cards
+cardy
+cared
+carer
+cares
+caret
+carex
+cargo
+carks
+carle
+carls
+carns
+carny
+carob
+carol
+carom
+caron
+carpi
+carps
+carrs
+carry
+carse
+carta
+carte
+carts
+carve
+carvy
+casas
+casco
+cased
+cases
+casks
+casky
+caste
+casts
+casus
+catch
+cater
+cates
+catty
+cauda
+cauks
+cauld
+caulk
+cauls
+caums
+caups
+cauri
+causa
+cause
+cavas
+caved
+cavel
+caver
+caves
+cavie
+cavil
+cawed
+cawks
+caxon
+cease
+ceaze
+cebid
+cecal
+cecum
+cedar
+ceded
+ceder
+cedes
+cedis
+ceiba
+ceili
+ceils
+celeb
+cella
+celli
+cello
+cells
+celom
+celts
+cense
+cento
+cents
+centu
+ceorl
+cepes
+cerci
+cered
+ceres
+cerge
+ceria
+ceric
+cerne
+ceroc
+ceros
+certs
+certy
+cesse
+cesta
+cesti
+cetes
+cetyl
+cezve
+chace
+chack
+chaco
+chado
+chads
+chafe
+chaff
+chaft
+chain
+chair
+chais
+chalk
+chals
+champ
+chams
+chana
+chang
+chank
+chant
+chaos
+chape
+chaps
+chapt
+chara
+chard
+chare
+chark
+charm
+charr
+chars
+chart
+chary
+chase
+chasm
+chats
+chave
+chavs
+chawk
+chaws
+chaya
+chays
+cheap
+cheat
+check
+cheek
+cheep
+cheer
+chefs
+cheka
+chela
+chelp
+chemo
+chems
+chere
+chert
+chess
+chest
+cheth
+chevy
+chews
+chewy
+chiao
+chias
+chibs
+chica
+chich
+chick
+chico
+chics
+chide
+chief
+chiel
+chiks
+child
+chile
+chili
+chill
+chimb
+chime
+chimo
+chimp
+china
+chine
+ching
+chink
+chino
+chins
+chips
+chirk
+chirl
+chirm
+chiro
+chirp
+chirr
+chirt
+chiru
+chits
+chive
+chivs
+chivy
+chizz
+chock
+choco
+chocs
+chode
+chogs
+choil
+choir
+choke
+choko
+choky
+chola
+choli
+cholo
+chomp
+chons
+choof
+chook
+choom
+choon
+chops
+chord
+chore
+chose
+chota
+chott
+chout
+choux
+chowk
+chows
+chubs
+chuck
+chufa
+chuff
+chugs
+chump
+chums
+chunk
+churl
+churn
+churr
+chuse
+chute
+chuts
+chyle
+chyme
+chynd
+cibol
+cided
+cider
+cides
+ciels
+cigar
+ciggy
+cilia
+cills
+cimar
+cimex
+cinch
+cinct
+cines
+cinqs
+cions
+cippi
+circa
+circs
+cires
+cirls
+cirri
+cisco
+cissy
+cists
+cital
+cited
+citer
+cites
+cives
+civet
+civic
+civie
+civil
+civvy
+clach
+clack
+clade
+clads
+claes
+clags
+claim
+clame
+clamp
+clams
+clang
+clank
+clans
+claps
+clapt
+claro
+clart
+clary
+clash
+clasp
+class
+clast
+clats
+claut
+clave
+clavi
+claws
+clays
+clean
+clear
+cleat
+cleck
+cleek
+cleep
+clefs
+cleft
+clegs
+cleik
+clems
+clepe
+clept
+clerk
+cleve
+clews
+click
+clied
+clies
+cliff
+clift
+climb
+clime
+cline
+cling
+clink
+clint
+clipe
+clips
+clipt
+clits
+cloak
+cloam
+clock
+clods
+cloff
+clogs
+cloke
+clomb
+clomp
+clone
+clonk
+clons
+cloop
+cloot
+clops
+close
+clote
+cloth
+clots
+cloud
+clour
+clous
+clout
+clove
+clown
+clows
+cloye
+cloys
+cloze
+clubs
+cluck
+clued
+clues
+cluey
+clump
+clung
+clunk
+clype
+cnida
+coach
+coact
+coady
+coala
+coals
+coaly
+coapt
+coarb
+coast
+coate
+coati
+coats
+cobbs
+cobby
+cobia
+coble
+cobra
+cobza
+cocas
+cocci
+cocco
+cocks
+cocky
+cocoa
+cocos
+codas
+codec
+coded
+coden
+coder
+codes
+codex
+codon
+coeds
+coffs
+cogie
+cogon
+cogue
+cohab
+cohen
+cohoe
+cohog
+cohos
+coifs
+coign
+coils
+coins
+coirs
+coits
+coked
+cokes
+colas
+colby
+colds
+coled
+coles
+coley
+colic
+colin
+colls
+colly
+colog
+colon
+color
+colts
+colza
+comae
+comal
+comas
+combe
+combi
+combo
+combs
+comby
+comer
+comes
+comet
+comfy
+comic
+comix
+comma
+commo
+comms
+commy
+compo
+comps
+compt
+comte
+comus
+conch
+condo
+coned
+cones
+coney
+confs
+conga
+conge
+congo
+conia
+conic
+conin
+conks
+conky
+conne
+conns
+conte
+conto
+conus
+convo
+cooch
+cooed
+cooee
+cooer
+cooey
+coofs
+cooks
+cooky
+cools
+cooly
+coomb
+cooms
+coomy
+coons
+coops
+coopt
+coost
+coots
+cooze
+copal
+copay
+coped
+copen
+coper
+copes
+coppy
+copra
+copse
+copsy
+coqui
+coral
+coram
+corbe
+corby
+cords
+cored
+corer
+cores
+corey
+corgi
+coria
+corks
+corky
+corms
+corni
+corno
+corns
+cornu
+corny
+corps
+corse
+corso
+cosec
+cosed
+coses
+coset
+cosey
+cosie
+costa
+coste
+costs
+cotan
+coted
+cotes
+coths
+cotta
+cotts
+couch
+coude
+cough
+could
+count
+coupe
+coups
+courb
+courd
+coure
+cours
+court
+couta
+couth
+coved
+coven
+cover
+coves
+covet
+covey
+covin
+cowal
+cowan
+cowed
+cower
+cowks
+cowls
+cowps
+cowry
+coxae
+coxal
+coxed
+coxes
+coxib
+coyau
+coyed
+coyer
+coyly
+coypu
+cozed
+cozen
+cozes
+cozey
+cozie
+craal
+crabs
+crack
+craft
+crags
+craic
+craig
+crake
+crame
+cramp
+crams
+crane
+crank
+crans
+crape
+craps
+crapy
+crare
+crash
+crass
+crate
+crave
+crawl
+craws
+crays
+craze
+crazy
+creak
+cream
+credo
+creds
+creed
+creek
+creel
+creep
+crees
+creme
+crems
+crena
+crepe
+creps
+crept
+crepy
+cress
+crest
+crewe
+crews
+crias
+cribs
+crick
+cried
+crier
+cries
+crime
+crimp
+crims
+crine
+crios
+cripe
+crips
+crise
+crisp
+crith
+crits
+croak
+croci
+crock
+crocs
+croft
+crogs
+cromb
+crome
+crone
+cronk
+crons
+crony
+crook
+crool
+croon
+crops
+crore
+cross
+crost
+croup
+crout
+crowd
+crown
+crows
+croze
+cruck
+crude
+crudo
+cruds
+crudy
+cruel
+crues
+cruet
+cruft
+crumb
+crump
+crunk
+cruor
+crura
+cruse
+crush
+crust
+crusy
+cruve
+crwth
+cryer
+crypt
+ctene
+cubby
+cubeb
+cubed
+cuber
+cubes
+cubic
+cubit
+cuddy
+cuffo
+cuffs
+cuifs
+cuing
+cuish
+cuits
+cukes
+culch
+culet
+culex
+culls
+cully
+culms
+culpa
+culti
+cults
+culty
+cumec
+cumin
+cundy
+cunei
+cunit
+cunts
+cupel
+cupid
+cuppa
+cuppy
+curat
+curbs
+curch
+curds
+curdy
+cured
+curer
+cures
+curet
+curfs
+curia
+curie
+curio
+curli
+curls
+curly
+curns
+curny
+currs
+curry
+curse
+cursi
+curst
+curve
+curvy
+cusec
+cushy
+cusks
+cusps
+cuspy
+cusso
+cusum
+cutch
+cuter
+cutes
+cutey
+cutie
+cutin
+cutis
+cutto
+cutty
+cutup
+cuvee
+cuzes
+cwtch
+cyano
+cyans
+cyber
+cycad
+cycas
+cycle
+cyclo
+cyder
+cylix
+cymae
+cymar
+cymas
+cymes
+cymol
+cynic
+cysts
+cytes
+cyton
+czars
+daals
+dabba
+daces
+dacha
+dacks
+dadah
+dadas
+daddy
+dados
+daffs
+daffy
+dagga
+daggy
+dagos
+dahls
+daiko
+daily
+daine
+daint
+dairy
+daisy
+daker
+daled
+dales
+dalis
+dalle
+dally
+dalts
+daman
+damar
+dames
+damme
+damns
+damps
+dampy
+dance
+dancy
+dandy
+dangs
+danio
+danks
+danny
+dants
+daraf
+darbs
+darcy
+dared
+darer
+dares
+darga
+dargs
+daric
+daris
+darks
+darky
+darns
+darre
+darts
+darzi
+dashi
+dashy
+datal
+dated
+dater
+dates
+datos
+datto
+datum
+daube
+daubs
+dauby
+dauds
+dault
+daunt
+daurs
+dauts
+daven
+davit
+dawah
+dawds
+dawed
+dawen
+dawks
+dawns
+dawts
+dayan
+daych
+daynt
+dazed
+dazer
+dazes
+deads
+deair
+deals
+dealt
+deans
+deare
+dearn
+dears
+deary
+deash
+death
+deave
+deaws
+deawy
+debag
+debar
+debby
+debel
+debes
+debit
+debts
+debud
+debug
+debur
+debus
+debut
+debye
+decad
+decaf
+decal
+decan
+decay
+decko
+decks
+decor
+decos
+decoy
+decry
+dedal
+deeds
+deedy
+deely
+deems
+deens
+deeps
+deere
+deers
+deets
+deeve
+deevs
+defat
+defer
+deffo
+defis
+defog
+degas
+degum
+degus
+deice
+deids
+deify
+deign
+deils
+deism
+deist
+deity
+deked
+dekes
+dekko
+delay
+deled
+deles
+delfs
+delft
+delis
+dells
+delly
+delos
+delph
+delta
+delts
+delve
+deman
+demes
+demic
+demit
+demob
+demoi
+demon
+demos
+dempt
+demur
+denar
+denay
+dench
+denes
+denet
+denim
+denis
+dense
+dents
+deoxy
+depot
+depth
+derat
+deray
+derby
+dered
+deres
+derig
+derma
+derms
+derns
+derny
+deros
+derro
+derry
+derth
+dervs
+desex
+deshi
+desis
+desks
+desse
+deter
+detox
+deuce
+devas
+devel
+devil
+devis
+devon
+devos
+devot
+dewan
+dewar
+dewax
+dewed
+dexes
+dexie
+dhaba
+dhaks
+dhals
+dhikr
+dhobi
+dhole
+dholl
+dhols
+dhoti
+dhows
+dhuti
+diact
+dials
+diane
+diary
+diazo
+dibbs
+diced
+dicer
+dices
+dicey
+dicht
+dicks
+dicky
+dicot
+dicta
+dicts
+dicty
+diddy
+didie
+didos
+didst
+diebs
+diels
+diene
+diets
+diffs
+dight
+digit
+dikas
+diked
+diker
+dikes
+dikey
+dildo
+dilli
+dills
+dilly
+dimbo
+dimer
+dimes
+dimly
+dimps
+dinar
+dined
+diner
+dines
+dinge
+dingo
+dings
+dingy
+dinic
+dinks
+dinky
+dinna
+dinos
+dints
+diode
+diols
+diota
+dippy
+dipso
+diram
+direr
+dirge
+dirke
+dirks
+dirls
+dirts
+dirty
+disas
+disci
+disco
+discs
+dishy
+disks
+disme
+dital
+ditas
+ditch
+dited
+dites
+ditsy
+ditto
+ditts
+ditty
+ditzy
+divan
+divas
+dived
+diver
+dives
+divis
+divna
+divos
+divot
+divvy
+diwan
+dixie
+dixit
+diyas
+dizen
+dizzy
+djinn
+djins
+doabs
+doats
+dobby
+dobes
+dobie
+dobla
+dobra
+dobro
+docht
+docks
+docos
+docus
+doddy
+dodge
+dodgy
+dodos
+doeks
+doers
+doest
+doeth
+doffs
+dogan
+doges
+dogey
+doggo
+doggy
+dogie
+dogma
+dohyo
+doilt
+doily
+doing
+doits
+dojos
+dolce
+dolci
+doled
+doles
+dolia
+dolls
+dolly
+dolma
+dolor
+dolos
+dolts
+domal
+domed
+domes
+domic
+donah
+donas
+donee
+doner
+donga
+dongs
+donko
+donna
+donne
+donny
+donor
+donsy
+donut
+doobs
+dooce
+doody
+dooks
+doole
+dools
+dooly
+dooms
+doomy
+doona
+doorn
+doors
+doozy
+dopas
+doped
+doper
+dopes
+dopey
+dorad
+dorba
+dorbs
+doree
+dores
+doric
+doris
+dorks
+dorky
+dorms
+dormy
+dorps
+dorrs
+dorsa
+dorse
+dorts
+dorty
+dosai
+dosas
+dosed
+doseh
+doser
+doses
+dosha
+dotal
+doted
+doter
+dotes
+dotty
+douar
+doubt
+douce
+doucs
+dough
+douks
+doula
+douma
+doums
+doups
+doura
+douse
+douts
+doved
+doven
+dover
+doves
+dovie
+dowar
+dowds
+dowdy
+dowed
+dowel
+dower
+dowie
+dowle
+dowls
+dowly
+downa
+downs
+downy
+dowps
+dowry
+dowse
+dowts
+doxed
+doxes
+doxie
+doyen
+doyly
+dozed
+dozen
+dozer
+dozes
+drabs
+drack
+draco
+draff
+draft
+drags
+drail
+drain
+drake
+drama
+drams
+drank
+drant
+drape
+draps
+drats
+drave
+drawl
+drawn
+draws
+drays
+dread
+dream
+drear
+dreck
+dreed
+dreer
+drees
+dregs
+dreks
+drent
+drere
+dress
+drest
+dreys
+dribs
+drice
+dried
+drier
+dries
+drift
+drill
+drily
+drink
+drips
+dript
+drive
+droid
+droil
+droit
+droke
+drole
+droll
+drome
+drone
+drony
+droob
+droog
+drook
+drool
+droop
+drops
+dropt
+dross
+drouk
+drove
+drown
+drows
+drubs
+drugs
+druid
+drums
+drunk
+drupe
+druse
+drusy
+druxy
+dryad
+dryas
+dryer
+dryly
+dsobo
+dsomo
+duads
+duals
+duans
+duars
+dubbo
+ducal
+ducat
+duces
+duchy
+ducks
+ducky
+ducts
+duddy
+duded
+dudes
+duels
+duets
+duett
+duffs
+dufus
+duing
+duits
+dukas
+duked
+dukes
+dukka
+dulce
+dules
+dulia
+dulls
+dully
+dulse
+dumas
+dumbo
+dumbs
+dumka
+dumky
+dummy
+dumps
+dumpy
+dunam
+dunce
+dunch
+dunes
+dungs
+dungy
+dunks
+dunno
+dunny
+dunsh
+dunts
+duomi
+duomo
+duped
+duper
+dupes
+duple
+duply
+duppy
+dural
+duras
+dured
+dures
+durgy
+durns
+duroc
+duros
+duroy
+durra
+durrs
+durry
+durst
+durum
+durzi
+dusks
+dusky
+dusts
+dusty
+dutch
+duvet
+duxes
+dwaal
+dwale
+dwalm
+dwams
+dwang
+dwarf
+dwaum
+dweeb
+dwell
+dwelt
+dwile
+dwine
+dyads
+dyers
+dying
+dyked
+dykes
+dykey
+dykon
+dynel
+dynes
+dzhos
+eager
+eagle
+eagre
+ealed
+eales
+eaned
+eards
+eared
+earls
+early
+earns
+earnt
+earst
+earth
+eased
+easel
+easer
+eases
+easle
+easts
+eaten
+eater
+eathe
+eaved
+eaves
+ebbed
+ebbet
+ebons
+ebony
+ebook
+ecads
+eched
+eches
+echos
+eclat
+ecrus
+edema
+edged
+edger
+edges
+edict
+edify
+edile
+edits
+educe
+educt
+eejit
+eensy
+eerie
+eeven
+eevns
+effed
+egads
+egers
+egest
+eggar
+egged
+egger
+egmas
+egret
+ehing
+eider
+eidos
+eight
+eigne
+eiked
+eikon
+eilds
+eisel
+eject
+ejido
+eking
+ekkas
+elain
+eland
+elans
+elate
+elbow
+elchi
+elder
+eldin
+elect
+elegy
+elemi
+elfed
+elfin
+eliad
+elide
+elint
+elite
+elmen
+eloge
+elogy
+eloin
+elope
+elops
+elpee
+elsin
+elude
+elute
+elvan
+elven
+elver
+elves
+emacs
+email
+embar
+embay
+embed
+ember
+embog
+embow
+embox
+embus
+emcee
+emeer
+emend
+emerg
+emery
+emeus
+emics
+emirs
+emits
+emmas
+emmer
+emmet
+emmew
+emmys
+emoji
+emong
+emote
+emove
+empts
+empty
+emule
+emure
+emyde
+emyds
+enact
+enarm
+enate
+ended
+ender
+endew
+endow
+endue
+enema
+enemy
+enews
+enfix
+eniac
+enjoy
+enlit
+enmew
+ennog
+ennui
+enoki
+enols
+enorm
+enows
+enrol
+ensew
+ensky
+ensue
+enter
+entia
+entry
+enure
+enurn
+envoi
+envoy
+enzym
+eorls
+eosin
+epact
+epees
+ephah
+ephas
+ephod
+ephor
+epics
+epoch
+epode
+epopt
+epoxy
+epris
+equal
+eques
+equid
+equip
+erase
+erbia
+erect
+erevs
+ergon
+ergos
+ergot
+erhus
+erica
+erick
+erics
+ering
+erned
+ernes
+erode
+erose
+erred
+error
+erses
+eruct
+erugo
+erupt
+eruvs
+erven
+ervil
+escar
+escot
+esile
+eskar
+esker
+esnes
+essay
+esses
+ester
+estoc
+estop
+estro
+etage
+etape
+etats
+etens
+ethal
+ether
+ethic
+ethne
+ethos
+ethyl
+etics
+etnas
+ettin
+ettle
+etude
+etuis
+etwee
+etyma
+eughs
+euked
+eupad
+euros
+eusol
+evade
+evens
+event
+evert
+every
+evets
+evhoe
+evict
+evils
+evite
+evohe
+evoke
+ewers
+ewest
+ewhow
+ewked
+exact
+exalt
+exams
+excel
+exeat
+execs
+exeem
+exeme
+exert
+exfil
+exies
+exile
+exine
+exing
+exist
+exits
+exode
+exome
+exons
+expat
+expel
+expos
+extol
+extra
+exude
+exuls
+exult
+exurb
+eyass
+eyers
+eying
+eyots
+eyras
+eyres
+eyrie
+eyrir
+ezine
+fabby
+fable
+faced
+facer
+faces
+facet
+facia
+facta
+facts
+faddy
+faded
+fader
+fades
+fadge
+fados
+faena
+faery
+faffs
+faffy
+faggy
+fagin
+fagot
+faiks
+fails
+faine
+fains
+faint
+fairs
+fairy
+faith
+faked
+faker
+fakes
+fakey
+fakie
+fakir
+falaj
+falls
+false
+famed
+fames
+fanal
+fancy
+fands
+fanes
+fanga
+fango
+fangs
+fanks
+fanny
+fanon
+fanos
+fanum
+faqir
+farad
+farce
+farci
+farcy
+fards
+fared
+farer
+fares
+farle
+farls
+farms
+faros
+farro
+farse
+farts
+fasci
+fasti
+fasts
+fatal
+fated
+fates
+fatly
+fatso
+fatty
+fatwa
+faugh
+fauld
+fault
+fauna
+fauns
+faurd
+fauts
+fauve
+favas
+favel
+faver
+faves
+favor
+favus
+fawns
+fawny
+faxed
+faxes
+fayed
+fayer
+fayne
+fayre
+fazed
+fazes
+feals
+feare
+fears
+feart
+fease
+feast
+feats
+feaze
+fecal
+feces
+fecht
+fecit
+fecks
+fedex
+feebs
+feeds
+feels
+feens
+feers
+feese
+feeze
+fehme
+feign
+feint
+feist
+felch
+felid
+fella
+fells
+felly
+felon
+felts
+felty
+femal
+femes
+femme
+femmy
+femur
+fence
+fends
+fendy
+fenis
+fenks
+fenny
+fents
+feods
+feoff
+feral
+ferer
+feres
+feria
+ferly
+fermi
+ferms
+ferns
+ferny
+ferry
+fesse
+festa
+fests
+festy
+fetal
+fetas
+fetch
+feted
+fetes
+fetid
+fetor
+fetta
+fetts
+fetus
+fetwa
+feuar
+feuds
+feued
+fever
+fewer
+feyed
+feyer
+feyly
+fezes
+fezzy
+fiars
+fiats
+fiber
+fibre
+fibro
+fices
+fiche
+fichu
+ficin
+ficos
+ficus
+fides
+fidge
+fidos
+fiefs
+field
+fiend
+fient
+fiere
+fiers
+fiery
+fiest
+fifed
+fifer
+fifes
+fifis
+fifth
+fifty
+figgy
+fight
+figos
+fiked
+fikes
+filar
+filch
+filed
+filer
+files
+filet
+filii
+filks
+fille
+fillo
+fills
+filly
+filmi
+films
+filmy
+filos
+filth
+filum
+final
+finca
+finch
+finds
+fined
+finer
+fines
+finis
+finks
+finny
+finos
+fiord
+fiqhs
+fique
+fired
+firer
+fires
+firie
+firks
+firms
+firns
+firry
+first
+firth
+fiscs
+fishy
+fisks
+fists
+fisty
+fitch
+fitly
+fitna
+fitte
+fitts
+fiver
+fives
+fixed
+fixer
+fixes
+fixit
+fizzy
+fjeld
+fjord
+flabs
+flack
+flaff
+flags
+flail
+flair
+flake
+flaks
+flaky
+flame
+flamm
+flams
+flamy
+flane
+flank
+flans
+flaps
+flare
+flary
+flash
+flask
+flats
+flava
+flawn
+flaws
+flawy
+flaxy
+flays
+fleam
+fleas
+fleck
+fleek
+fleer
+flees
+fleet
+flegs
+fleme
+flesh
+fleur
+flews
+flexi
+flexo
+fleys
+flick
+flics
+flied
+flier
+flies
+flimp
+flims
+fling
+flint
+flips
+flirs
+flirt
+flisk
+flite
+flits
+flitt
+float
+flobs
+flock
+flocs
+floes
+flogs
+flong
+flood
+floor
+flops
+flora
+flors
+flory
+flosh
+floss
+flota
+flote
+flour
+flout
+flown
+flows
+flubs
+flued
+flues
+fluey
+fluff
+fluid
+fluke
+fluky
+flume
+flump
+flung
+flunk
+fluor
+flurr
+flush
+flute
+fluty
+fluyt
+flyby
+flyer
+flype
+flyte
+foals
+foams
+foamy
+focal
+focus
+foehn
+fogey
+foggy
+fogie
+fogle
+fogou
+fohns
+foids
+foils
+foins
+foist
+folds
+foley
+folia
+folic
+folie
+folio
+folks
+folky
+folly
+fomes
+fonda
+fonds
+fondu
+fones
+fonly
+fonts
+foods
+foody
+fools
+foots
+footy
+foram
+foray
+forbs
+forby
+force
+fordo
+fords
+forel
+fores
+forex
+forge
+forgo
+forks
+forky
+forme
+forms
+forte
+forth
+forts
+forty
+forum
+forza
+forze
+fossa
+fosse
+fouat
+fouds
+fouer
+fouet
+foule
+fouls
+found
+fount
+fours
+fouth
+fovea
+fowls
+fowth
+foxed
+foxes
+foxie
+foyer
+foyle
+foyne
+frabs
+frack
+fract
+frags
+frail
+fraim
+frame
+franc
+frank
+frape
+fraps
+frass
+frate
+frati
+frats
+fraud
+fraus
+frays
+freak
+freed
+freer
+frees
+freet
+freit
+fremd
+frena
+freon
+frere
+fresh
+frets
+friar
+fribs
+fried
+frier
+fries
+frigs
+frill
+frise
+frisk
+frist
+frith
+frits
+fritt
+fritz
+frize
+frizz
+frock
+froes
+frogs
+frond
+frons
+front
+frore
+frorn
+frory
+frosh
+frost
+froth
+frown
+frows
+frowy
+froze
+frugs
+fruit
+frump
+frush
+frust
+fryer
+fubar
+fubby
+fubsy
+fucks
+fucus
+fuddy
+fudge
+fudgy
+fuels
+fuero
+fuffs
+fuffy
+fugal
+fuggy
+fugie
+fugio
+fugle
+fugly
+fugue
+fugus
+fujis
+fulls
+fully
+fumed
+fumer
+fumes
+fumet
+fundi
+funds
+fundy
+fungi
+fungo
+fungs
+funks
+funky
+funny
+fural
+furan
+furca
+furls
+furol
+furor
+furrs
+furry
+furth
+furze
+furzy
+fused
+fusee
+fusel
+fuses
+fusil
+fusks
+fussy
+fusts
+fusty
+futon
+fuzed
+fuzee
+fuzes
+fuzil
+fuzzy
+fyces
+fyked
+fykes
+fyles
+fyrds
+fytte
+gabba
+gabby
+gable
+gaddi
+gades
+gadge
+gadid
+gadis
+gadje
+gadjo
+gadso
+gaffe
+gaffs
+gaged
+gager
+gages
+gaids
+gaily
+gains
+gairs
+gaita
+gaits
+gaitt
+gajos
+galah
+galas
+galax
+galea
+galed
+gales
+galls
+gally
+galop
+galut
+galvo
+gamas
+gamay
+gamba
+gambe
+gambo
+gambs
+gamed
+gamer
+games
+gamey
+gamic
+gamin
+gamma
+gamme
+gammy
+gamps
+gamut
+ganch
+gandy
+ganef
+ganev
+gangs
+ganja
+ganof
+gants
+gaols
+gaped
+gaper
+gapes
+gapos
+gappy
+garbe
+garbo
+garbs
+garda
+gares
+garis
+garms
+garni
+garre
+garth
+garum
+gases
+gasps
+gaspy
+gassy
+gasts
+gatch
+gated
+gater
+gates
+gaths
+gator
+gauch
+gaucy
+gauds
+gaudy
+gauge
+gauje
+gault
+gaums
+gaumy
+gaunt
+gaups
+gaurs
+gauss
+gauze
+gauzy
+gavel
+gavot
+gawcy
+gawds
+gawks
+gawky
+gawps
+gawsy
+gayal
+gayer
+gayly
+gazal
+gazar
+gazed
+gazer
+gazes
+gazon
+gazoo
+geals
+geans
+geare
+gears
+geats
+gebur
+gecko
+gecks
+geeks
+geeky
+geeps
+geese
+geest
+geist
+geits
+gelds
+gelee
+gelid
+gelly
+gelts
+gemel
+gemma
+gemmy
+gemot
+genal
+genas
+genes
+genet
+genic
+genie
+genii
+genip
+genny
+genoa
+genom
+genre
+genro
+gents
+genty
+genua
+genus
+geode
+geoid
+gerah
+gerbe
+geres
+gerle
+germs
+germy
+gerne
+gesse
+gesso
+geste
+gests
+getas
+getup
+geums
+geyan
+geyer
+ghast
+ghats
+ghaut
+ghazi
+ghees
+ghest
+ghost
+ghoul
+ghyll
+giant
+gibed
+gibel
+giber
+gibes
+gibli
+gibus
+giddy
+gifts
+gigas
+gighe
+gigot
+gigue
+gilas
+gilds
+gilet
+gills
+gilly
+gilpy
+gilts
+gimel
+gimme
+gimps
+gimpy
+ginch
+ginge
+gings
+ginks
+ginny
+ginzo
+gipon
+gippo
+gippy
+gipsy
+girds
+girls
+girly
+girns
+giron
+giros
+girrs
+girsh
+girth
+girts
+gismo
+gisms
+gists
+gitch
+gites
+giust
+gived
+given
+giver
+gives
+gizmo
+glace
+glade
+glads
+glady
+glaik
+glair
+glams
+gland
+glans
+glare
+glary
+glass
+glaum
+glaur
+glaze
+glazy
+gleam
+glean
+gleba
+glebe
+gleby
+glede
+gleds
+gleed
+gleek
+glees
+gleet
+gleis
+glens
+glent
+gleys
+glial
+glias
+glibs
+glide
+gliff
+glift
+glike
+glime
+glims
+glint
+glisk
+glits
+glitz
+gloam
+gloat
+globe
+globi
+globs
+globy
+glode
+glogg
+gloms
+gloom
+gloop
+glops
+glory
+gloss
+glost
+glout
+glove
+glows
+gloze
+glued
+gluer
+glues
+gluey
+glugs
+glume
+glums
+gluon
+glute
+gluts
+glyph
+gnarl
+gnarr
+gnars
+gnash
+gnats
+gnawn
+gnaws
+gnome
+gnows
+goads
+goafs
+goals
+goary
+goats
+goaty
+goban
+gobar
+gobbi
+gobbo
+gobby
+gobis
+gobos
+godet
+godly
+godso
+goels
+goers
+goest
+goeth
+goety
+gofer
+goffs
+gogga
+gogos
+goier
+going
+gojis
+golds
+goldy
+golem
+goles
+golfs
+golly
+golpe
+golps
+gombo
+gomer
+gompa
+gonad
+gonch
+gonef
+goner
+gongs
+gonia
+gonif
+gonks
+gonna
+gonof
+gonys
+gonzo
+gooby
+goods
+goody
+gooey
+goofs
+goofy
+googs
+gooks
+gooky
+goold
+gools
+gooly
+goons
+goony
+goops
+goopy
+goors
+goory
+goose
+goosy
+gopak
+gopik
+goral
+goras
+gored
+gores
+gorge
+goris
+gorms
+gormy
+gorps
+gorse
+gorsy
+gosht
+gosse
+gotch
+goths
+gothy
+gotta
+gouch
+gouge
+gouks
+goura
+gourd
+gouts
+gouty
+gowan
+gowds
+gowfs
+gowks
+gowls
+gowns
+goxes
+goyim
+goyle
+graal
+grabs
+grace
+grade
+grads
+graff
+graft
+grail
+grain
+graip
+grama
+grame
+gramp
+grams
+grana
+grand
+grans
+grant
+grape
+graph
+grapy
+grasp
+grass
+grate
+grave
+gravs
+gravy
+grays
+graze
+great
+grebe
+grebo
+grece
+greed
+greek
+green
+grees
+greet
+grege
+grego
+grein
+grens
+grese
+greve
+grews
+greys
+grice
+gride
+grids
+grief
+griff
+grift
+grigs
+grike
+grill
+grime
+grimy
+grind
+grins
+griot
+gripe
+grips
+gript
+gripy
+grise
+grist
+grisy
+grith
+grits
+grize
+groan
+groat
+grody
+grogs
+groin
+groks
+groma
+grone
+groof
+groom
+grope
+gross
+grosz
+grots
+grouf
+group
+grout
+grove
+grovy
+growl
+grown
+grows
+grrls
+grrrl
+grubs
+grued
+gruel
+grues
+grufe
+gruff
+grume
+grump
+grund
+grunt
+gryce
+gryde
+gryke
+grype
+grypt
+guaco
+guana
+guano
+guans
+guard
+guars
+guava
+gucks
+gucky
+gudes
+guess
+guest
+guffs
+gugas
+guide
+guids
+guild
+guile
+guilt
+guimp
+guiro
+guise
+gulag
+gular
+gulas
+gulch
+gules
+gulet
+gulfs
+gulfy
+gulls
+gully
+gulph
+gulps
+gulpy
+gumbo
+gumma
+gummi
+gummy
+gumps
+gundy
+gunge
+gungy
+gunks
+gunky
+gunny
+guppy
+guqin
+gurdy
+gurge
+gurls
+gurly
+gurns
+gurry
+gursh
+gurus
+gushy
+gusla
+gusle
+gusli
+gussy
+gusto
+gusts
+gusty
+gutsy
+gutta
+gutty
+guyed
+guyle
+guyot
+guyse
+gwine
+gyals
+gyans
+gybed
+gybes
+gyeld
+gymps
+gynae
+gynie
+gynny
+gynos
+gyoza
+gypos
+gyppo
+gyppy
+gypsy
+gyral
+gyred
+gyres
+gyron
+gyros
+gyrus
+gytes
+gyved
+gyves
+haafs
+haars
+habit
+hable
+habus
+hacek
+hacks
+hadal
+haded
+hades
+hadji
+hadst
+haems
+haets
+haffs
+hafiz
+hafts
+haggs
+hahas
+haick
+haika
+haiks
+haiku
+hails
+haily
+hains
+haint
+hairs
+hairy
+haith
+hajes
+hajis
+hajji
+hakam
+hakas
+hakea
+hakes
+hakim
+hakus
+halal
+haled
+haler
+hales
+halfa
+halfs
+halid
+hallo
+halls
+halma
+halms
+halon
+halos
+halse
+halts
+halva
+halve
+halwa
+hamal
+hamba
+hamed
+hames
+hammy
+hamza
+hanap
+hance
+hanch
+hands
+handy
+hangi
+hangs
+hanks
+hanky
+hansa
+hanse
+hants
+haole
+haoma
+hapax
+haply
+happi
+happy
+hapus
+haram
+hards
+hardy
+hared
+harem
+hares
+harim
+harks
+harls
+harms
+harns
+haros
+harps
+harpy
+harry
+harsh
+harts
+hashy
+hasks
+hasps
+hasta
+haste
+hasty
+hatch
+hated
+hater
+hates
+hatha
+hauds
+haufs
+haugh
+hauld
+haulm
+hauls
+hault
+hauns
+haunt
+hause
+haute
+haven
+haver
+haves
+havoc
+hawed
+hawks
+hawms
+hawse
+hayed
+hayer
+hayey
+hayle
+hazan
+hazed
+hazel
+hazer
+hazes
+heads
+heady
+heald
+heals
+heame
+heaps
+heapy
+heard
+heare
+hears
+heart
+heast
+heath
+heats
+heave
+heavy
+heben
+hebes
+hecht
+hecks
+heder
+hedge
+hedgy
+heeds
+heedy
+heels
+heeze
+hefte
+hefts
+hefty
+heids
+heigh
+heils
+heirs
+heist
+hejab
+hejra
+heled
+heles
+helio
+helix
+hello
+hells
+helms
+helos
+helot
+helps
+helve
+hemal
+hemes
+hemic
+hemin
+hemps
+hempy
+hence
+hench
+hends
+henge
+henna
+henny
+henry
+hents
+hepar
+herbs
+herby
+herds
+heres
+herls
+herma
+herms
+herns
+heron
+heros
+herry
+herse
+hertz
+herye
+hesps
+hests
+hetes
+heths
+heuch
+heugh
+hevea
+hewed
+hewer
+hewgh
+hexad
+hexed
+hexer
+hexes
+hexyl
+heyed
+hiant
+hicks
+hided
+hider
+hides
+hiems
+highs
+hight
+hijab
+hijra
+hiked
+hiker
+hikes
+hikoi
+hilar
+hilch
+hillo
+hills
+hilly
+hilts
+hilum
+hilus
+himbo
+hinau
+hinds
+hinge
+hings
+hinky
+hinny
+hints
+hiois
+hiply
+hippo
+hippy
+hired
+hiree
+hirer
+hires
+hissy
+hists
+hitch
+hithe
+hived
+hiver
+hives
+hizen
+hoaed
+hoagy
+hoard
+hoars
+hoary
+hoast
+hobby
+hobos
+hocks
+hocus
+hodad
+hodja
+hoers
+hogan
+hogen
+hoggs
+hoghs
+hohed
+hoick
+hoied
+hoiks
+hoing
+hoise
+hoist
+hokas
+hoked
+hokes
+hokey
+hokis
+hokku
+hokum
+holds
+holed
+holes
+holey
+holks
+holla
+hollo
+holly
+holme
+holms
+holon
+holos
+holts
+homas
+homed
+homer
+homes
+homey
+homie
+homme
+homos
+honan
+honda
+honds
+honed
+honer
+hones
+honey
+hongi
+hongs
+honks
+honky
+honor
+hooch
+hoods
+hoody
+hooey
+hoofs
+hooka
+hooks
+hooky
+hooly
+hoons
+hoops
+hoord
+hoors
+hoosh
+hoots
+hooty
+hoove
+hopak
+hoped
+hoper
+hopes
+hoppy
+horah
+horal
+horas
+horde
+horis
+horks
+horme
+horns
+horny
+horse
+horst
+horsy
+hosed
+hosel
+hosen
+hoser
+hoses
+hosey
+hosta
+hosts
+hotch
+hotel
+hoten
+hotly
+hotty
+houff
+houfs
+hough
+hound
+houri
+hours
+house
+houts
+hovea
+hoved
+hovel
+hoven
+hover
+hoves
+howbe
+howdy
+howes
+howff
+howfs
+howks
+howls
+howre
+howso
+hoxed
+hoxes
+hoyas
+hoyed
+hoyle
+hubby
+hucks
+hudna
+hudud
+huers
+huffs
+huffy
+huger
+huggy
+huhus
+huias
+hulas
+hules
+hulks
+hulky
+hullo
+hulls
+hully
+human
+humas
+humfs
+humic
+humid
+humor
+humph
+humps
+humpy
+humus
+hunch
+hunks
+hunky
+hunts
+hurds
+hurls
+hurly
+hurra
+hurry
+hurst
+hurts
+hushy
+husks
+husky
+husos
+hussy
+hutch
+hutia
+huzza
+huzzy
+hwyls
+hydra
+hydro
+hyena
+hyens
+hygge
+hying
+hykes
+hylas
+hyleg
+hyles
+hylic
+hymen
+hymns
+hynde
+hyoid
+hyped
+hyper
+hypes
+hypha
+hyphy
+hypos
+hyrax
+hyson
+hythe
+iambi
+iambs
+ibrik
+icers
+iched
+iches
+ichor
+icier
+icily
+icing
+icker
+ickle
+icons
+ictal
+ictic
+ictus
+idant
+ideal
+ideas
+idees
+ident
+idiom
+idiot
+idled
+idler
+idles
+idola
+idols
+idyll
+idyls
+iftar
+igapo
+igged
+igloo
+iglus
+ihram
+ikans
+ikats
+ikons
+ileac
+ileal
+ileum
+ileus
+iliac
+iliad
+ilial
+ilium
+iller
+illth
+image
+imago
+imams
+imari
+imaum
+imbar
+imbed
+imbue
+imide
+imido
+imids
+imine
+imino
+immew
+immit
+immix
+imped
+impel
+impis
+imply
+impot
+impro
+imshi
+imshy
+inane
+inapt
+inarm
+inbox
+inbye
+incel
+incle
+incog
+incur
+incus
+incut
+indew
+index
+india
+indie
+indol
+indow
+indri
+indue
+inept
+inerm
+inert
+infer
+infix
+infos
+infra
+ingan
+ingle
+ingot
+inion
+inked
+inker
+inkle
+inlay
+inlet
+inned
+inner
+innit
+inorb
+input
+inrun
+inset
+inspo
+intel
+inter
+intil
+intis
+intra
+intro
+inula
+inure
+inurn
+inust
+invar
+inwit
+iodic
+iodid
+iodin
+ionic
+iotas
+ippon
+irade
+irate
+irids
+iring
+irked
+iroko
+irone
+irons
+irony
+isbas
+ishes
+isled
+isles
+islet
+isnae
+issei
+issue
+istle
+itchy
+items
+ither
+ivied
+ivies
+ivory
+ixias
+ixnay
+ixora
+ixtle
+izard
+izars
+izzat
+jaaps
+jabot
+jacal
+jacks
+jacky
+jaded
+jades
+jafas
+jaffa
+jagas
+jager
+jaggs
+jaggy
+jagir
+jagra
+jails
+jaker
+jakes
+jakey
+jalap
+jalop
+jambe
+jambo
+jambs
+jambu
+james
+jammy
+jamon
+janes
+janns
+janny
+janty
+japan
+japed
+japer
+japes
+jarks
+jarls
+jarps
+jarta
+jarul
+jasey
+jaspe
+jasps
+jatos
+jauks
+jaunt
+jaups
+javas
+javel
+jawan
+jawed
+jaxie
+jazzy
+jeans
+jeats
+jebel
+jedis
+jeels
+jeely
+jeeps
+jeers
+jeeze
+jefes
+jeffs
+jehad
+jehus
+jelab
+jello
+jells
+jelly
+jembe
+jemmy
+jenny
+jeons
+jerid
+jerks
+jerky
+jerry
+jesse
+jests
+jesus
+jetes
+jeton
+jetty
+jeune
+jewed
+jewel
+jewie
+jhala
+jiaos
+jibba
+jibbs
+jibed
+jiber
+jibes
+jiffs
+jiffy
+jiggy
+jigot
+jihad
+jills
+jilts
+jimmy
+jimpy
+jingo
+jinks
+jinne
+jinni
+jinns
+jirds
+jirga
+jirre
+jisms
+jived
+jiver
+jives
+jivey
+jnana
+jobed
+jobes
+jocko
+jocks
+jocky
+jocos
+jodel
+joeys
+johns
+joins
+joint
+joist
+joked
+joker
+jokes
+jokey
+jokol
+joled
+joles
+jolls
+jolly
+jolts
+jolty
+jomon
+jomos
+jones
+jongs
+jonty
+jooks
+joram
+jorum
+jotas
+jotty
+jotun
+joual
+jougs
+jouks
+joule
+jours
+joust
+jowar
+jowed
+jowls
+jowly
+joyed
+jubas
+jubes
+jucos
+judas
+judge
+judgy
+judos
+jugal
+jugum
+juice
+juicy
+jujus
+juked
+jukes
+jukus
+julep
+jumar
+jumbo
+jumby
+jumps
+jumpy
+junco
+junks
+junky
+junta
+junto
+jupes
+jupon
+jural
+jurat
+jurel
+jures
+juror
+justs
+jutes
+jutty
+juves
+juvie
+kaama
+kabab
+kabar
+kabob
+kacha
+kacks
+kadai
+kades
+kadis
+kafir
+kagos
+kagus
+kahal
+kaiak
+kaids
+kaies
+kaifs
+kaika
+kaiks
+kails
+kaims
+kaing
+kains
+kakas
+kakis
+kalam
+kales
+kalif
+kalis
+kalpa
+kamas
+kames
+kamik
+kamis
+kamme
+kanae
+kanas
+kandy
+kaneh
+kanes
+kanga
+kangs
+kanji
+kants
+kanzu
+kaons
+kapas
+kaphs
+kapok
+kapow
+kappa
+kapus
+kaput
+karas
+karat
+karks
+karma
+karns
+karoo
+karos
+karri
+karst
+karsy
+karts
+karzy
+kasha
+kasme
+katal
+katas
+katis
+katti
+kaugh
+kauri
+kauru
+kaury
+kaval
+kavas
+kawas
+kawau
+kawed
+kayak
+kayle
+kayos
+kazis
+kazoo
+kbars
+kebab
+kebar
+kebob
+kecks
+kedge
+kedgy
+keech
+keefs
+keeks
+keels
+keema
+keeno
+keens
+keeps
+keets
+keeve
+kefir
+kehua
+keirs
+kelep
+kelim
+kells
+kelly
+kelps
+kelpy
+kelts
+kelty
+kembo
+kembs
+kemps
+kempt
+kempy
+kenaf
+kench
+kendo
+kenos
+kente
+kents
+kepis
+kerbs
+kerel
+kerfs
+kerky
+kerma
+kerne
+kerns
+keros
+kerry
+kerve
+kesar
+kests
+ketas
+ketch
+ketes
+ketol
+kevel
+kevil
+kexes
+keyed
+keyer
+khadi
+khafs
+khaki
+khans
+khaph
+khats
+khaya
+khazi
+kheda
+kheth
+khets
+khoja
+khors
+khoum
+khuds
+kiaat
+kiack
+kiang
+kibbe
+kibbi
+kibei
+kibes
+kibla
+kicks
+kicky
+kiddo
+kiddy
+kidel
+kidge
+kiefs
+kiers
+kieve
+kievs
+kight
+kikes
+kikoi
+kiley
+kilim
+kills
+kilns
+kilos
+kilps
+kilts
+kilty
+kimbo
+kinas
+kinda
+kinds
+kindy
+kines
+kings
+kinin
+kinks
+kinky
+kinos
+kiore
+kiosk
+kipes
+kippa
+kipps
+kirby
+kirks
+kirns
+kirri
+kisan
+kissy
+kists
+kited
+kiter
+kites
+kithe
+kiths
+kitty
+kitul
+kivas
+kiwis
+klang
+klaps
+klett
+klick
+klieg
+kliks
+klong
+kloof
+kluge
+klutz
+knack
+knags
+knaps
+knarl
+knars
+knaur
+knave
+knawe
+knead
+kneed
+kneel
+knees
+knell
+knelt
+knife
+knish
+knits
+knive
+knobs
+knock
+knoll
+knops
+knosp
+knots
+knout
+knowe
+known
+knows
+knubs
+knurl
+knurr
+knurs
+knuts
+koala
+koans
+koaps
+koban
+kobos
+koels
+koffs
+kofta
+kogal
+kohas
+kohen
+kohls
+koine
+kojis
+kokam
+kokas
+koker
+kokra
+kokum
+kolas
+kolos
+kombu
+konbu
+kondo
+konks
+kooks
+kooky
+koori
+kopek
+kophs
+kopje
+koppa
+korai
+koran
+koras
+korat
+kores
+korma
+koros
+korun
+korus
+koses
+kotch
+kotos
+kotow
+koura
+kraal
+krabs
+kraft
+krais
+krait
+krang
+krans
+kranz
+kraut
+krays
+kreep
+kreng
+krewe
+krill
+krona
+krone
+kroon
+krubi
+krunk
+ksars
+kubie
+kudos
+kudus
+kudzu
+kufis
+kugel
+kuias
+kukri
+kukus
+kulak
+kulan
+kulas
+kulfi
+kumis
+kumys
+kuris
+kurre
+kurta
+kurus
+kusso
+kutas
+kutch
+kutis
+kutus
+kuzus
+kvass
+kvell
+kwela
+kyack
+kyaks
+kyang
+kyars
+kyats
+kybos
+kydst
+kyles
+kylie
+kylin
+kylix
+kyloe
+kynde
+kynds
+kypes
+kyrie
+kytes
+kythe
+laari
+labda
+label
+labia
+labis
+labor
+labra
+laced
+lacer
+laces
+lacet
+lacey
+lacks
+laddy
+laded
+laden
+lader
+lades
+ladle
+laers
+laevo
+lagan
+lager
+lahal
+lahar
+laich
+laics
+laids
+laigh
+laika
+laiks
+laird
+lairs
+lairy
+laith
+laity
+laked
+laker
+lakes
+lakhs
+lakin
+laksa
+laldy
+lalls
+lamas
+lambs
+lamby
+lamed
+lamer
+lames
+lamia
+lammy
+lamps
+lanai
+lanas
+lance
+lanch
+lande
+lands
+lanes
+lanks
+lanky
+lants
+lapel
+lapin
+lapis
+lapje
+lapse
+larch
+lards
+lardy
+laree
+lares
+large
+largo
+laris
+larks
+larky
+larns
+larnt
+larum
+larva
+lased
+laser
+lases
+lassi
+lasso
+lassu
+lassy
+lasts
+latah
+latch
+lated
+laten
+later
+latex
+lathe
+lathi
+laths
+lathy
+latke
+latte
+latus
+lauan
+lauch
+lauds
+laufs
+laugh
+laund
+laura
+laval
+lavas
+laved
+laver
+laves
+lavra
+lavvy
+lawed
+lawer
+lawin
+lawks
+lawns
+lawny
+laxed
+laxer
+laxes
+laxly
+layed
+layer
+layin
+layup
+lazar
+lazed
+lazes
+lazos
+lazzi
+lazzo
+leach
+leads
+leady
+leafs
+leafy
+leaks
+leaky
+leams
+leans
+leant
+leany
+leaps
+leapt
+leare
+learn
+lears
+leary
+lease
+leash
+least
+leats
+leave
+leavy
+leaze
+leben
+leccy
+ledes
+ledge
+ledgy
+ledum
+leear
+leech
+leeks
+leeps
+leers
+leery
+leese
+leets
+leeze
+lefte
+lefts
+lefty
+legal
+leger
+leges
+legge
+leggo
+leggy
+legit
+lehrs
+lehua
+leirs
+leish
+leman
+lemed
+lemel
+lemes
+lemma
+lemme
+lemon
+lemur
+lends
+lenes
+lengs
+lenis
+lenos
+lense
+lenti
+lento
+leone
+leper
+lepid
+lepra
+lepta
+lered
+leres
+lerps
+lesbo
+leses
+lests
+letch
+lethe
+letup
+leuch
+leuco
+leuds
+leugh
+levas
+levee
+level
+lever
+leves
+levin
+levis
+lewis
+lexes
+lexis
+lezes
+lezza
+lezzy
+liana
+liane
+liang
+liard
+liars
+liart
+libel
+liber
+libra
+libri
+lichi
+licht
+licit
+licks
+lidar
+lidos
+liefs
+liege
+liens
+liers
+lieus
+lieve
+lifer
+lifes
+lifts
+ligan
+liger
+ligge
+light
+ligne
+liked
+liken
+liker
+likes
+likin
+lilac
+lills
+lilos
+lilts
+liman
+limas
+limax
+limba
+limbi
+limbo
+limbs
+limby
+limed
+limen
+limes
+limey
+limit
+limma
+limns
+limos
+limpa
+limps
+linac
+linch
+linds
+lindy
+lined
+linen
+liner
+lines
+liney
+linga
+lingo
+lings
+lingy
+linin
+links
+linky
+linns
+linny
+linos
+lints
+linty
+linum
+linux
+lions
+lipas
+lipes
+lipid
+lipin
+lipos
+lippy
+liras
+lirks
+lirot
+lisks
+lisle
+lisps
+lists
+litai
+litas
+lited
+liter
+lites
+lithe
+litho
+liths
+litre
+lived
+liven
+liver
+lives
+livid
+livor
+livre
+llama
+llano
+loach
+loads
+loafs
+loams
+loamy
+loans
+loast
+loath
+loave
+lobar
+lobby
+lobed
+lobes
+lobos
+lobus
+local
+loche
+lochs
+locie
+locis
+locks
+locos
+locum
+locus
+loden
+lodes
+lodge
+loess
+lofts
+lofty
+logan
+loges
+loggy
+logia
+logic
+logie
+login
+logoi
+logon
+logos
+lohan
+loids
+loins
+loipe
+loirs
+lokes
+lolls
+lolly
+lolog
+lomas
+lomed
+lomes
+loner
+longa
+longe
+longs
+looby
+looed
+looey
+loofa
+loofs
+looie
+looks
+looky
+looms
+loons
+loony
+loops
+loopy
+loord
+loose
+loots
+loped
+loper
+lopes
+loppy
+loral
+loran
+lords
+lordy
+lorel
+lores
+loric
+loris
+lorry
+losed
+losel
+losen
+loser
+loses
+lossy
+lotah
+lotas
+lotes
+lotic
+lotos
+lotsa
+lotta
+lotte
+lotto
+lotus
+loued
+lough
+louie
+louis
+louma
+lound
+louns
+loupe
+loups
+loure
+lours
+loury
+louse
+lousy
+louts
+lovat
+loved
+lover
+loves
+lovey
+lovie
+lowan
+lowed
+lower
+lowes
+lowly
+lownd
+lowne
+lowns
+lowps
+lowry
+lowse
+lowts
+loxed
+loxes
+loyal
+lozen
+luach
+luaus
+lubed
+lubes
+lubra
+luces
+lucid
+lucks
+lucky
+lucre
+ludes
+ludic
+ludos
+luffa
+luffs
+luged
+luger
+luges
+lulls
+lulus
+lumas
+lumbi
+lumen
+lumme
+lummy
+lumps
+lumpy
+lunar
+lunas
+lunch
+lunes
+lunet
+lunge
+lungi
+lungs
+lunks
+lunts
+lupin
+lupus
+lurch
+lured
+lurer
+lures
+lurex
+lurgi
+lurgy
+lurid
+lurks
+lurry
+lurve
+luser
+lushy
+lusks
+lusts
+lusty
+lusus
+lutea
+luted
+luter
+lutes
+luvvy
+luxed
+luxer
+luxes
+lweis
+lyams
+lyard
+lyart
+lyase
+lycea
+lycee
+lycra
+lying
+lymes
+lymph
+lynch
+lynes
+lyres
+lyric
+lysed
+lyses
+lysin
+lysis
+lysol
+lyssa
+lyted
+lytes
+lythe
+lytic
+lytta
+maaed
+maare
+maars
+mabes
+macas
+macaw
+maced
+macer
+maces
+mache
+machi
+macho
+machs
+macks
+macle
+macon
+macro
+madam
+madge
+madid
+madly
+madre
+maerl
+mafia
+mafic
+mages
+maggs
+magic
+magma
+magot
+magus
+mahoe
+mahua
+mahwa
+maids
+maiko
+maiks
+maile
+maill
+mails
+maims
+mains
+maire
+mairs
+maise
+maist
+maize
+major
+makar
+maker
+makes
+makis
+makos
+malam
+malar
+malas
+malax
+males
+malic
+malik
+malis
+malls
+malms
+malmy
+malts
+malty
+malus
+malva
+malwa
+mamas
+mamba
+mambo
+mamee
+mamey
+mamie
+mamma
+mammy
+manas
+manat
+mandi
+maneb
+maned
+maneh
+manes
+manet
+manga
+mange
+mango
+mangs
+mangy
+mania
+manic
+manis
+manky
+manly
+manna
+manor
+manos
+manse
+manta
+manto
+manty
+manul
+manus
+mapau
+maple
+maqui
+marae
+marah
+maras
+march
+marcs
+mardy
+mares
+marge
+margs
+maria
+marid
+marka
+marks
+marle
+marls
+marly
+marms
+maron
+maror
+marra
+marri
+marry
+marse
+marsh
+marts
+marvy
+masas
+mased
+maser
+mases
+mashy
+masks
+mason
+massa
+masse
+massy
+masts
+masty
+masus
+matai
+match
+mated
+mater
+mates
+matey
+maths
+matin
+matlo
+matte
+matts
+matza
+matzo
+mauby
+mauds
+mauls
+maund
+mauri
+mausy
+mauts
+mauve
+mauzy
+maven
+mavie
+mavin
+mavis
+mawed
+mawks
+mawky
+mawns
+mawrs
+maxed
+maxes
+maxim
+maxis
+mayan
+mayas
+maybe
+mayed
+mayor
+mayos
+mayst
+mazed
+mazer
+mazes
+mazey
+mazut
+mbira
+meads
+meals
+mealy
+meane
+means
+meant
+meany
+meare
+mease
+meath
+meats
+meaty
+mebos
+mecca
+mechs
+mecks
+medal
+media
+medic
+medii
+medle
+meeds
+meers
+meets
+meffs
+meins
+meint
+meiny
+meith
+mekka
+melas
+melba
+melds
+melee
+melic
+melik
+mells
+melon
+melts
+melty
+memes
+memos
+menad
+mends
+mened
+menes
+menge
+mengs
+mensa
+mense
+mensh
+menta
+mento
+menus
+meous
+meows
+merch
+mercs
+mercy
+merde
+mered
+merel
+merer
+meres
+merge
+meril
+meris
+merit
+merks
+merle
+merls
+merry
+merse
+mesal
+mesas
+mesel
+meses
+meshy
+mesic
+mesne
+meson
+messy
+mesto
+metal
+meted
+meter
+metes
+metho
+meths
+metic
+metif
+metis
+metol
+metre
+metro
+meuse
+meved
+meves
+mewed
+mewls
+meynt
+mezes
+mezze
+mezzo
+mhorr
+miaou
+miaow
+miasm
+miaul
+micas
+miche
+micht
+micks
+micky
+micos
+micra
+micro
+middy
+midge
+midgy
+midis
+midst
+miens
+mieve
+miffs
+miffy
+mifty
+miggs
+might
+mihas
+mihis
+miked
+mikes
+mikra
+mikva
+milch
+milds
+miler
+miles
+milfs
+milia
+milko
+milks
+milky
+mille
+mills
+milor
+milos
+milpa
+milts
+milty
+miltz
+mimed
+mimeo
+mimer
+mimes
+mimic
+mimsy
+minae
+minar
+minas
+mince
+mincy
+minds
+mined
+miner
+mines
+minge
+mings
+mingy
+minim
+minis
+minke
+minks
+minny
+minor
+minos
+mints
+minty
+minus
+mired
+mires
+mirex
+mirid
+mirin
+mirks
+mirky
+mirly
+miros
+mirth
+mirvs
+mirza
+misch
+misdo
+miser
+mises
+misgo
+misos
+missa
+missy
+mists
+misty
+mitch
+miter
+mites
+mitis
+mitre
+mitts
+mixed
+mixen
+mixer
+mixes
+mixte
+mixup
+mizen
+mizzy
+mneme
+moans
+moats
+mobby
+mobes
+mobey
+mobie
+moble
+mocha
+mochi
+mochs
+mochy
+mocks
+modal
+model
+modem
+moder
+modes
+modge
+modii
+modus
+moers
+mofos
+moggy
+mogul
+mohel
+mohos
+mohrs
+mohua
+mohur
+moile
+moils
+moira
+moire
+moist
+moits
+mojos
+mokes
+mokis
+mokos
+molal
+molar
+molas
+molds
+moldy
+moled
+moles
+molla
+molls
+molly
+molto
+molts
+molys
+momes
+momma
+mommy
+momus
+monad
+monal
+monas
+monde
+mondo
+moner
+money
+mongo
+mongs
+monic
+monie
+monks
+monos
+monte
+month
+monty
+moobs
+mooch
+moods
+moody
+mooed
+mooks
+moola
+mooli
+mools
+mooly
+moong
+moons
+moony
+moops
+moors
+moory
+moose
+moots
+moove
+moped
+moper
+mopes
+mopey
+moppy
+mopsy
+mopus
+morae
+moral
+moras
+morat
+moray
+morel
+mores
+moria
+morne
+morns
+moron
+morph
+morra
+morro
+morse
+morts
+mosed
+moses
+mosey
+mosks
+mosso
+mossy
+moste
+mosts
+moted
+motel
+moten
+motes
+motet
+motey
+moths
+mothy
+motif
+motis
+motor
+motte
+motto
+motts
+motty
+motus
+motza
+mouch
+moues
+mould
+mouls
+moult
+mound
+mount
+moups
+mourn
+mouse
+moust
+mousy
+mouth
+moved
+mover
+moves
+movie
+mowas
+mowed
+mower
+mowra
+moxas
+moxie
+moyas
+moyle
+moyls
+mozed
+mozes
+mozos
+mpret
+mucho
+mucic
+mucid
+mucin
+mucks
+mucky
+mucor
+mucro
+mucus
+muddy
+mudge
+mudir
+mudra
+muffs
+mufti
+mugga
+muggs
+muggy
+muhly
+muids
+muils
+muirs
+muist
+mujik
+mulch
+mulct
+muled
+mules
+muley
+mulga
+mulie
+mulla
+mulls
+mulse
+mulsh
+mumms
+mummy
+mumps
+mumsy
+mumus
+munch
+munga
+munge
+mungo
+mungs
+munis
+munts
+muntu
+muons
+mural
+muras
+mured
+mures
+murex
+murid
+murks
+murky
+murls
+murly
+murra
+murre
+murri
+murrs
+murry
+murti
+murva
+musar
+musca
+mused
+muser
+muses
+muset
+musha
+mushy
+music
+musit
+musks
+musky
+musos
+musse
+mussy
+musth
+musts
+musty
+mutch
+muted
+muter
+mutes
+mutha
+mutis
+muton
+mutts
+muxed
+muxes
+muzak
+muzzy
+mvule
+myall
+mylar
+mynah
+mynas
+myoid
+myoma
+myope
+myops
+myopy
+myrrh
+mysid
+mythi
+myths
+mythy
+myxos
+mzees
+naams
+naans
+nabes
+nabis
+nabks
+nabla
+nabob
+nache
+nacho
+nacre
+nadas
+nadir
+naeve
+naevi
+naffs
+nagas
+naggy
+nagor
+nahal
+naiad
+naifs
+naiks
+nails
+naira
+nairu
+naive
+naked
+naker
+nakfa
+nalas
+naled
+nalla
+named
+namer
+names
+namma
+namus
+nanas
+nance
+nancy
+nandu
+nanna
+nanny
+nanos
+nanua
+napas
+naped
+napes
+napoo
+nappa
+nappe
+nappy
+naras
+narco
+narcs
+nards
+nares
+naric
+naris
+narks
+narky
+narre
+nasal
+nashi
+nasty
+natal
+natch
+nates
+natis
+natty
+nauch
+naunt
+naval
+navar
+navel
+naves
+navew
+navvy
+nawab
+nazes
+nazir
+nazis
+nduja
+neafe
+neals
+neaps
+nears
+neath
+neats
+nebek
+nebel
+necks
+neddy
+needs
+needy
+neeld
+neele
+neemb
+neems
+neeps
+neese
+neeze
+negro
+negus
+neifs
+neigh
+neist
+neive
+nelis
+nelly
+nemas
+nemns
+nempt
+nenes
+neons
+neper
+nepit
+neral
+nerds
+nerdy
+nerka
+nerks
+nerol
+nerts
+nertz
+nerve
+nervy
+nests
+netes
+netop
+netts
+netty
+neuks
+neume
+neums
+nevel
+never
+neves
+nevus
+newbs
+newed
+newel
+newer
+newie
+newly
+newsy
+newts
+nexts
+nexus
+ngaio
+ngana
+ngati
+ngoma
+ngwee
+nicad
+nicer
+niche
+nicht
+nicks
+nicol
+nidal
+nided
+nides
+nidor
+nidus
+niece
+niefs
+nieve
+nifes
+niffs
+niffy
+nifty
+niger
+nighs
+night
+nihil
+nikab
+nikah
+nikau
+nills
+nimbi
+nimbs
+nimps
+niner
+nines
+ninja
+ninny
+ninon
+ninth
+nipas
+nippy
+niqab
+nirls
+nirly
+nisei
+nisse
+nisus
+niter
+nites
+nitid
+niton
+nitre
+nitro
+nitry
+nitty
+nival
+nixed
+nixer
+nixes
+nixie
+nizam
+nkosi
+noahs
+nobby
+noble
+nobly
+nocks
+nodal
+noddy
+nodes
+nodus
+noels
+noggs
+nohow
+noils
+noily
+noint
+noirs
+noise
+noisy
+noles
+nolls
+nolos
+nomad
+nomas
+nomen
+nomes
+nomic
+nomoi
+nomos
+nonas
+nonce
+nones
+nonet
+nongs
+nonis
+nonny
+nonyl
+noobs
+nooit
+nooks
+nooky
+noons
+noops
+noose
+nopal
+noria
+noris
+norks
+norma
+norms
+north
+nosed
+noser
+noses
+nosey
+notal
+notch
+noted
+noter
+notes
+notum
+nould
+noule
+nouls
+nouns
+nouny
+noups
+novae
+novas
+novel
+novum
+noway
+nowed
+nowls
+nowts
+nowty
+noxal
+noxes
+noyau
+noyed
+noyes
+nubby
+nubia
+nucha
+nuddy
+nuder
+nudes
+nudge
+nudie
+nudzh
+nuffs
+nugae
+nuked
+nukes
+nulla
+nulls
+numbs
+numen
+nummy
+nunny
+nurds
+nurdy
+nurls
+nurrs
+nurse
+nutso
+nutsy
+nutty
+nyaff
+nyala
+nying
+nylon
+nymph
+nyssa
+oaked
+oaken
+oaker
+oakum
+oared
+oases
+oasis
+oasts
+oaten
+oater
+oaths
+oaves
+obang
+obeah
+obeli
+obese
+obeys
+obias
+obied
+obiit
+obits
+objet
+oboes
+obole
+oboli
+obols
+occam
+occur
+ocean
+ocher
+oches
+ochre
+ochry
+ocker
+ocrea
+octad
+octal
+octan
+octas
+octet
+octyl
+oculi
+odahs
+odals
+odder
+oddly
+odeon
+odeum
+odism
+odist
+odium
+odors
+odour
+odyle
+odyls
+ofays
+offal
+offed
+offer
+offie
+oflag
+often
+ofter
+ogams
+ogeed
+ogees
+oggin
+ogham
+ogive
+ogled
+ogler
+ogles
+ogmic
+ogres
+ohias
+ohing
+ohmic
+ohone
+oidia
+oiled
+oiler
+oinks
+oints
+ojime
+okapi
+okays
+okehs
+okras
+oktas
+olden
+older
+oldie
+oleic
+olein
+olent
+oleos
+oleum
+olios
+olive
+ollas
+ollav
+oller
+ollie
+ology
+olpae
+olpes
+omasa
+omber
+ombre
+ombus
+omega
+omens
+omers
+omits
+omlah
+omovs
+omrah
+oncer
+onces
+oncet
+oncus
+onely
+oners
+onery
+onion
+onium
+onkus
+onlay
+onned
+onset
+ontic
+oobit
+oohed
+oomph
+oonts
+ooped
+oorie
+ooses
+ootid
+oozed
+oozes
+opahs
+opals
+opens
+opepe
+opera
+opine
+oping
+opium
+oppos
+opsin
+opted
+opter
+optic
+orach
+oracy
+orals
+orang
+orant
+orate
+orbed
+orbit
+orcas
+orcin
+order
+ordos
+oread
+orfes
+organ
+orgia
+orgic
+orgue
+oribi
+oriel
+orixa
+orles
+orlon
+orlop
+ormer
+ornis
+orpin
+orris
+ortho
+orval
+orzos
+oscar
+oshac
+osier
+osmic
+osmol
+ossia
+ostia
+otaku
+otary
+other
+ottar
+otter
+ottos
+oubit
+oucht
+ouens
+ought
+ouija
+oulks
+oumas
+ounce
+oundy
+oupas
+ouped
+ouphe
+ouphs
+ourie
+ousel
+ousts
+outby
+outdo
+outed
+outer
+outgo
+outre
+outro
+outta
+ouzel
+ouzos
+ovals
+ovary
+ovate
+ovels
+ovens
+overs
+overt
+ovine
+ovist
+ovoid
+ovoli
+ovolo
+ovule
+owche
+owies
+owing
+owled
+owler
+owlet
+owned
+owner
+owres
+owrie
+owsen
+oxbow
+oxers
+oxeye
+oxide
+oxids
+oxies
+oxime
+oxims
+oxlip
+oxter
+oyers
+ozeki
+ozone
+ozzie
+paals
+paans
+pacas
+paced
+pacer
+paces
+pacey
+pacha
+packs
+pacos
+pacta
+pacts
+paddy
+padis
+padle
+padma
+padre
+padri
+paean
+paedo
+paeon
+pagan
+paged
+pager
+pages
+pagle
+pagod
+pagri
+paiks
+pails
+pains
+paint
+paire
+pairs
+paisa
+paise
+pakka
+palas
+palay
+palea
+paled
+paler
+pales
+palet
+palis
+palki
+palla
+palls
+pally
+palms
+palmy
+palpi
+palps
+palsa
+palsy
+pampa
+panax
+pance
+panda
+pands
+pandy
+paned
+panel
+panes
+panga
+pangs
+panic
+panim
+panko
+panne
+panni
+pansy
+panto
+pants
+panty
+paoli
+paolo
+papal
+papas
+papaw
+paper
+papes
+pappi
+pappy
+parae
+paras
+parch
+pardi
+pards
+pardy
+pared
+paren
+pareo
+parer
+pares
+pareu
+parev
+parge
+pargo
+paris
+parka
+parki
+parks
+parky
+parle
+parly
+parma
+parol
+parps
+parra
+parrs
+parry
+parse
+parti
+parts
+party
+parve
+parvo
+paseo
+pases
+pasha
+pashm
+paska
+paspy
+passe
+pasta
+paste
+pasts
+pasty
+patch
+pated
+paten
+pater
+pates
+paths
+patin
+patio
+patka
+patly
+patsy
+patte
+patty
+patus
+pauas
+pauls
+pause
+pavan
+paved
+paven
+paver
+paves
+pavid
+pavin
+pavis
+pawas
+pawaw
+pawed
+pawer
+pawks
+pawky
+pawls
+pawns
+paxes
+payed
+payee
+payer
+payor
+paysd
+peace
+peach
+peage
+peags
+peaks
+peaky
+peals
+peans
+peare
+pearl
+pears
+peart
+pease
+peats
+peaty
+peavy
+peaze
+pebas
+pecan
+pechs
+pecke
+pecks
+pecky
+pedal
+pedes
+pedis
+pedro
+peece
+peeks
+peels
+peens
+peeoy
+peepe
+peeps
+peers
+peery
+peeve
+peggy
+peghs
+peins
+peise
+peize
+pekan
+pekes
+pekin
+pekoe
+pelas
+pelau
+peles
+pelfs
+pells
+pelma
+pelon
+pelta
+pelts
+penal
+pence
+pends
+pendu
+pened
+penes
+pengo
+penie
+penis
+penks
+penna
+penne
+penni
+penny
+pents
+peons
+peony
+pepla
+pepos
+peppy
+pepsi
+perai
+perce
+perch
+percs
+perdu
+perdy
+perea
+peres
+peril
+peris
+perks
+perky
+perms
+perns
+perog
+perps
+perry
+perse
+perst
+perts
+perve
+pervo
+pervs
+pervy
+pesky
+pesos
+pesto
+pests
+pesty
+petal
+petar
+peter
+petit
+petre
+petri
+petti
+petto
+petty
+pewee
+pewit
+peyse
+phage
+phang
+phare
+pharm
+phase
+pheer
+phene
+pheon
+phese
+phial
+phish
+phizz
+phlox
+phoca
+phone
+phono
+phons
+phony
+photo
+phots
+phpht
+phuts
+phyla
+phyle
+piani
+piano
+pians
+pibal
+pical
+picas
+piccy
+picks
+picky
+picot
+picra
+picul
+piece
+piend
+piers
+piert
+pieta
+piets
+piety
+piezo
+piggy
+pight
+pigmy
+piing
+pikas
+pikau
+piked
+piker
+pikes
+pikey
+pikis
+pikul
+pilae
+pilaf
+pilao
+pilar
+pilau
+pilaw
+pilch
+pilea
+piled
+pilei
+piler
+piles
+pilis
+pills
+pilot
+pilow
+pilum
+pilus
+pimas
+pimps
+pinas
+pinch
+pined
+pines
+piney
+pingo
+pings
+pinko
+pinks
+pinky
+pinna
+pinny
+pinon
+pinot
+pinta
+pinto
+pints
+pinup
+pions
+piony
+pious
+pioye
+pioys
+pipal
+pipas
+piped
+piper
+pipes
+pipet
+pipis
+pipit
+pippy
+pipul
+pique
+pirai
+pirls
+pirns
+pirog
+pisco
+pises
+pisky
+pisos
+pissy
+piste
+pitas
+pitch
+piths
+pithy
+piton
+pitot
+pitta
+piums
+pivot
+pixel
+pixes
+pixie
+pized
+pizes
+pizza
+plaas
+place
+plack
+plage
+plaid
+plain
+plait
+plane
+plank
+plans
+plant
+plaps
+plash
+plasm
+plast
+plate
+plats
+platt
+platy
+playa
+plays
+plaza
+plead
+pleas
+pleat
+plebe
+plebs
+plena
+pleon
+plesh
+plews
+plica
+plied
+plier
+plies
+plims
+pling
+plink
+ploat
+plods
+plong
+plonk
+plook
+plops
+plots
+plotz
+plouk
+plows
+ploye
+ploys
+pluck
+plues
+pluff
+plugs
+plumb
+plume
+plump
+plums
+plumy
+plunk
+pluot
+plush
+pluto
+plyer
+poach
+poaka
+poake
+poboy
+pocks
+pocky
+podal
+poddy
+podex
+podge
+podgy
+podia
+poems
+poeps
+poesy
+poets
+pogey
+pogge
+pogos
+pohed
+poilu
+poind
+point
+poise
+pokal
+poked
+poker
+pokes
+pokey
+pokie
+polar
+poled
+poler
+poles
+poley
+polio
+polis
+polje
+polka
+polks
+polls
+polly
+polos
+polts
+polyp
+polys
+pombe
+pomes
+pommy
+pomos
+pomps
+ponce
+poncy
+ponds
+pones
+poney
+ponga
+pongo
+pongs
+pongy
+ponks
+ponts
+ponty
+ponzu
+pooch
+poods
+pooed
+poofs
+poofy
+poohs
+pooja
+pooka
+pooks
+pools
+poons
+poops
+poopy
+poori
+poort
+poots
+poove
+poovy
+popes
+poppa
+poppy
+popsy
+porae
+poral
+porch
+pored
+porer
+pores
+porge
+porgy
+porin
+porks
+porky
+porno
+porns
+porny
+porta
+ports
+porty
+posed
+poser
+poses
+posey
+posho
+posit
+posse
+posts
+potae
+potch
+poted
+potes
+potin
+potoo
+potsy
+potto
+potts
+potty
+pouch
+pouff
+poufs
+pouke
+pouks
+poule
+poulp
+poult
+pound
+poupe
+poupt
+pours
+pouts
+pouty
+powan
+power
+powin
+pownd
+powns
+powny
+powre
+poxed
+poxes
+poynt
+poyou
+poyse
+pozzy
+praam
+prads
+prahu
+prams
+prana
+prang
+prank
+praos
+prase
+prate
+prats
+pratt
+praty
+praus
+prawn
+prays
+predy
+preed
+preen
+prees
+preif
+prems
+premy
+prent
+preon
+preop
+preps
+presa
+prese
+press
+prest
+preve
+prexy
+preys
+prial
+price
+prick
+pricy
+pride
+pried
+prief
+prier
+pries
+prigs
+prill
+prima
+prime
+primi
+primo
+primp
+prims
+primy
+prink
+print
+prion
+prior
+prise
+prism
+priss
+privy
+prize
+proas
+probe
+probs
+prods
+proem
+profs
+progs
+proin
+proke
+prole
+proll
+promo
+proms
+prone
+prong
+pronk
+proof
+props
+prore
+prose
+proso
+pross
+prost
+prosy
+proto
+proud
+proul
+prove
+prowl
+prows
+proxy
+proyn
+prude
+prune
+prunt
+pruta
+pryer
+pryse
+psalm
+pseud
+pshaw
+psion
+psoae
+psoai
+psoas
+psora
+psych
+psyop
+pubco
+pubes
+pubic
+pubis
+pucan
+pucer
+puces
+pucka
+pucks
+puddy
+pudge
+pudgy
+pudic
+pudor
+pudsy
+pudus
+puers
+puffa
+puffs
+puffy
+puggy
+pugil
+puhas
+pujah
+pujas
+pukas
+puked
+puker
+pukes
+pukey
+pukka
+pukus
+pulao
+pulas
+puled
+puler
+pules
+pulik
+pulis
+pulka
+pulks
+pulli
+pulls
+pully
+pulmo
+pulps
+pulpy
+pulse
+pulus
+pumas
+pumie
+pumps
+punas
+punce
+punch
+punga
+pungs
+punji
+punka
+punks
+punky
+punny
+punto
+punts
+punty
+pupae
+pupal
+pupas
+pupil
+puppy
+pupus
+purda
+pured
+puree
+purer
+pures
+purge
+purin
+puris
+purls
+purpy
+purrs
+purse
+pursy
+purty
+puses
+pushy
+pusle
+pussy
+putid
+puton
+putti
+putto
+putts
+putty
+puzel
+pwned
+pyats
+pyets
+pygal
+pygmy
+pyins
+pylon
+pyned
+pynes
+pyoid
+pyots
+pyral
+pyran
+pyres
+pyrex
+pyric
+pyros
+pyxed
+pyxes
+pyxie
+pyxis
+pzazz
+qadis
+qaids
+qajaq
+qanat
+qapik
+qibla
+qophs
+qorma
+quack
+quads
+quaff
+quags
+quail
+quair
+quais
+quake
+quaky
+quale
+qualm
+quant
+quare
+quark
+quart
+quash
+quasi
+quass
+quate
+quats
+quayd
+quays
+qubit
+quean
+queen
+queer
+quell
+queme
+quena
+quern
+query
+quest
+queue
+queyn
+queys
+quich
+quick
+quids
+quiet
+quiff
+quill
+quilt
+quims
+quina
+quine
+quino
+quins
+quint
+quipo
+quips
+quipu
+quire
+quirk
+quirt
+quist
+quite
+quits
+quoad
+quods
+quoif
+quoin
+quoit
+quoll
+quonk
+quops
+quota
+quote
+quoth
+quran
+qursh
+quyte
+rabat
+rabbi
+rabic
+rabid
+rabis
+raced
+racer
+races
+rache
+racks
+racon
+radar
+radge
+radii
+radio
+radix
+radon
+raffs
+rafts
+ragas
+ragde
+raged
+ragee
+rager
+rages
+ragga
+raggs
+raggy
+ragis
+ragus
+rahed
+rahui
+raias
+raids
+raiks
+raile
+rails
+raine
+rains
+rainy
+raird
+raise
+raita
+raits
+rajah
+rajas
+rajes
+raked
+rakee
+raker
+rakes
+rakia
+rakis
+rakus
+rales
+rally
+ralph
+ramal
+ramee
+ramen
+ramet
+ramie
+ramin
+ramis
+rammy
+ramps
+ramus
+ranas
+rance
+ranch
+rands
+randy
+ranee
+ranga
+range
+rangi
+rangs
+rangy
+ranid
+ranis
+ranke
+ranks
+rants
+raped
+raper
+rapes
+raphe
+rapid
+rappe
+rared
+raree
+rarer
+rares
+rarks
+rased
+raser
+rases
+rasps
+raspy
+rasse
+rasta
+ratal
+ratan
+ratas
+ratch
+rated
+ratel
+rater
+rates
+ratha
+rathe
+raths
+ratio
+ratoo
+ratos
+ratty
+ratus
+rauns
+raupo
+raved
+ravel
+raven
+raver
+raves
+ravey
+ravin
+rawer
+rawin
+rawly
+rawns
+raxed
+raxes
+rayah
+rayas
+rayed
+rayle
+rayne
+rayon
+razed
+razee
+razer
+razes
+razoo
+razor
+reach
+react
+readd
+reads
+ready
+reais
+reaks
+realm
+realo
+reals
+reame
+reams
+reamy
+reans
+reaps
+rearm
+rears
+reast
+reata
+reate
+reave
+rebar
+rebbe
+rebec
+rebel
+rebid
+rebit
+rebop
+rebus
+rebut
+rebuy
+recal
+recap
+recce
+recco
+reccy
+recit
+recks
+recon
+recta
+recti
+recto
+recur
+recut
+redan
+redds
+reddy
+reded
+redes
+redia
+redid
+redip
+redly
+redon
+redos
+redox
+redry
+redub
+redux
+redye
+reech
+reede
+reeds
+reedy
+reefs
+reefy
+reeks
+reeky
+reels
+reens
+reest
+reeve
+refed
+refel
+refer
+reffo
+refis
+refit
+refix
+refly
+refry
+regal
+regar
+reges
+reggo
+regie
+regma
+regna
+regos
+regur
+rehab
+rehem
+reifs
+reify
+reign
+reiki
+reiks
+reink
+reins
+reird
+reist
+reive
+rejig
+rejon
+reked
+rekes
+rekey
+relax
+relay
+relet
+relic
+relie
+relit
+rello
+reman
+remap
+remen
+remet
+remex
+remit
+remix
+renal
+renay
+rends
+renew
+reney
+renga
+renig
+renin
+renne
+renos
+rente
+rents
+reoil
+reorg
+repay
+repeg
+repel
+repin
+repla
+reply
+repos
+repot
+repps
+repro
+reran
+rerig
+rerun
+resat
+resaw
+resay
+resee
+reses
+reset
+resew
+resid
+resin
+resit
+resod
+resow
+resto
+rests
+resty
+resus
+retag
+retax
+retch
+retem
+retia
+retie
+retox
+retro
+retry
+reuse
+revel
+revet
+revie
+revue
+rewan
+rewax
+rewed
+rewet
+rewin
+rewon
+rewth
+rexes
+rezes
+rheas
+rheme
+rheum
+rhies
+rhime
+rhine
+rhino
+rhody
+rhomb
+rhone
+rhumb
+rhyme
+rhyne
+rhyta
+riads
+rials
+riant
+riata
+ribas
+ribby
+ribes
+riced
+ricer
+rices
+ricey
+richt
+ricin
+ricks
+rider
+rides
+ridge
+ridgy
+ridic
+riels
+riems
+rieve
+rifer
+riffs
+rifle
+rifte
+rifts
+rifty
+riggs
+right
+rigid
+rigol
+rigor
+riled
+riles
+riley
+rille
+rills
+rimae
+rimed
+rimer
+rimes
+rimus
+rinds
+rindy
+rines
+rings
+rinks
+rinse
+rioja
+riots
+riped
+ripen
+riper
+ripes
+ripps
+risen
+riser
+rises
+rishi
+risks
+risky
+risps
+risus
+rites
+ritts
+ritzy
+rival
+rivas
+rived
+rivel
+riven
+river
+rives
+rivet
+riyal
+rizas
+roach
+roads
+roams
+roans
+roars
+roary
+roast
+roate
+robed
+robes
+robin
+roble
+robot
+rocks
+rocky
+roded
+rodeo
+rodes
+roger
+rogue
+roguy
+rohes
+roids
+roils
+roily
+roins
+roist
+rojak
+rojis
+roked
+roker
+rokes
+rolag
+roles
+rolfs
+rolls
+romal
+roman
+romeo
+romps
+ronde
+rondo
+roneo
+rones
+ronin
+ronne
+ronte
+ronts
+roods
+roofs
+roofy
+rooks
+rooky
+rooms
+roomy
+roons
+roops
+roopy
+roosa
+roose
+roost
+roots
+rooty
+roped
+roper
+ropes
+ropey
+roque
+roral
+rores
+roric
+rorid
+rorie
+rorts
+rorty
+rosed
+roses
+roset
+roshi
+rosin
+rosit
+rosti
+rosts
+rotal
+rotan
+rotas
+rotch
+roted
+rotes
+rotis
+rotls
+roton
+rotor
+rotos
+rotte
+rouen
+roues
+rouge
+rough
+roule
+rouls
+roums
+round
+roups
+roupy
+rouse
+roust
+route
+routh
+routs
+roved
+roven
+rover
+roves
+rowan
+rowdy
+rowed
+rowel
+rowen
+rower
+rowie
+rowme
+rownd
+rowth
+rowts
+royal
+royne
+royst
+rozet
+rozit
+ruana
+rubai
+rubby
+rubel
+rubes
+rubin
+ruble
+rubli
+rubus
+ruche
+rucks
+rudas
+rudds
+ruddy
+ruder
+rudes
+rudie
+rudis
+rueda
+ruers
+ruffe
+ruffs
+rugae
+rugal
+rugby
+ruggy
+ruing
+ruins
+rukhs
+ruled
+ruler
+rules
+rumal
+rumba
+rumbo
+rumen
+rumes
+rumly
+rummy
+rumor
+rumpo
+rumps
+rumpy
+runch
+runds
+runed
+runes
+rungs
+runic
+runny
+runts
+runty
+rupee
+rupia
+rural
+rurps
+rurus
+rusas
+ruses
+rushy
+rusks
+rusma
+russe
+rusts
+rusty
+ruths
+rutin
+rutty
+ryals
+rybat
+ryked
+rykes
+rymme
+rynds
+ryots
+ryper
+saags
+sabal
+sabed
+saber
+sabes
+sabha
+sabin
+sabir
+sable
+sabot
+sabra
+sabre
+sacks
+sacra
+saddo
+sades
+sadhe
+sadhu
+sadis
+sadly
+sados
+sadza
+safed
+safer
+safes
+sagas
+sager
+sages
+saggy
+sagos
+sagum
+saheb
+sahib
+saice
+saick
+saics
+saids
+saiga
+sails
+saims
+saine
+sains
+saint
+sairs
+saist
+saith
+sajou
+sakai
+saker
+sakes
+sakia
+sakis
+sakti
+salad
+salal
+salat
+salep
+sales
+salet
+salic
+salix
+salle
+sally
+salmi
+salol
+salon
+salop
+salpa
+salps
+salsa
+salse
+salto
+salts
+salty
+salue
+salut
+salve
+salvo
+saman
+samas
+samba
+sambo
+samek
+samel
+samen
+sames
+samey
+samfu
+sammy
+sampi
+samps
+sands
+sandy
+saned
+saner
+sanes
+sanga
+sangh
+sango
+sangs
+sanko
+sansa
+santo
+sants
+saola
+sapan
+sapid
+sapor
+sappy
+saran
+sards
+sared
+saree
+sarge
+sargo
+sarin
+saris
+sarks
+sarky
+sarod
+saros
+sarus
+saser
+sasin
+sasse
+sassy
+satai
+satay
+sated
+satem
+sates
+satin
+satis
+satyr
+sauba
+sauce
+sauch
+saucy
+saugh
+sauls
+sault
+sauna
+saunt
+saury
+saute
+sauts
+saved
+saver
+saves
+savey
+savin
+savor
+savoy
+savvy
+sawah
+sawed
+sawer
+saxes
+sayed
+sayer
+sayid
+sayne
+sayon
+sayst
+sazes
+scabs
+scads
+scaff
+scags
+scail
+scala
+scald
+scale
+scall
+scalp
+scaly
+scamp
+scams
+scand
+scans
+scant
+scapa
+scape
+scapi
+scare
+scarf
+scarp
+scars
+scart
+scary
+scath
+scats
+scatt
+scaud
+scaup
+scaur
+scaws
+sceat
+scena
+scend
+scene
+scent
+schav
+schmo
+schul
+schwa
+scion
+sclim
+scody
+scoff
+scogs
+scold
+scone
+scoog
+scoop
+scoot
+scopa
+scope
+scops
+score
+scorn
+scots
+scoug
+scoup
+scour
+scout
+scowl
+scowp
+scows
+scrab
+scrae
+scrag
+scram
+scran
+scrap
+scrat
+scraw
+scray
+scree
+screw
+scrim
+scrip
+scrob
+scrod
+scrog
+scrow
+scrub
+scrum
+scuba
+scudi
+scudo
+scuds
+scuff
+scuft
+scugs
+sculk
+scull
+sculp
+sculs
+scums
+scups
+scurf
+scurs
+scuse
+scuta
+scute
+scuts
+scuzz
+scyes
+sdayn
+sdein
+seals
+seame
+seams
+seamy
+seans
+seare
+sears
+sease
+seats
+seaze
+sebum
+secco
+sechs
+sects
+sedan
+seder
+sedes
+sedge
+sedgy
+sedum
+seeds
+seedy
+seeks
+seeld
+seels
+seely
+seems
+seeps
+seepy
+seers
+sefer
+segar
+segni
+segno
+segol
+segos
+segue
+sehri
+seifs
+seils
+seine
+seirs
+seise
+seism
+seity
+seiza
+seize
+sekos
+sekts
+selah
+seles
+selfs
+sella
+selle
+sells
+selva
+semee
+semen
+semes
+semie
+semis
+senas
+sends
+senes
+sengi
+senna
+senor
+sensa
+sense
+sensi
+sente
+senti
+sents
+senvy
+senza
+sepad
+sepal
+sepia
+sepic
+sepoy
+septa
+septs
+serac
+serai
+seral
+sered
+serer
+seres
+serfs
+serge
+seric
+serif
+serin
+serks
+seron
+serow
+serra
+serre
+serrs
+serry
+serum
+serve
+servo
+sesey
+sessa
+setae
+setal
+seton
+setts
+setup
+seven
+sever
+sewan
+sewar
+sewed
+sewel
+sewen
+sewer
+sewin
+sexed
+sexer
+sexes
+sexto
+sexts
+seyen
+shack
+shade
+shads
+shady
+shaft
+shags
+shahs
+shake
+shako
+shakt
+shaky
+shale
+shall
+shalm
+shalt
+shaly
+shama
+shame
+shams
+shand
+shank
+shans
+shape
+shaps
+shard
+share
+shark
+sharn
+sharp
+shash
+shaul
+shave
+shawl
+shawm
+shawn
+shaws
+shaya
+shays
+shchi
+sheaf
+sheal
+shear
+sheas
+sheds
+sheel
+sheen
+sheep
+sheer
+sheet
+sheik
+shelf
+shell
+shend
+shent
+sheol
+sherd
+shere
+shero
+shets
+sheva
+shewn
+shews
+shiai
+shied
+shiel
+shier
+shies
+shift
+shill
+shily
+shims
+shine
+shins
+shiny
+ships
+shire
+shirk
+shirr
+shirs
+shirt
+shish
+shiso
+shist
+shite
+shits
+shiur
+shiva
+shive
+shivs
+shlep
+shlub
+shmek
+shmoe
+shoal
+shoat
+shock
+shoed
+shoer
+shoes
+shogi
+shogs
+shoji
+shojo
+shola
+shone
+shook
+shool
+shoon
+shoos
+shoot
+shope
+shops
+shore
+shorl
+shorn
+short
+shote
+shots
+shott
+shout
+shove
+showd
+shown
+shows
+showy
+shoyu
+shred
+shrew
+shris
+shrow
+shrub
+shrug
+shtik
+shtum
+shtup
+shuck
+shule
+shuln
+shuls
+shuns
+shunt
+shura
+shush
+shute
+shuts
+shwas
+shyer
+shyly
+sials
+sibbs
+sibyl
+sices
+sicht
+sicko
+sicks
+sicky
+sidas
+sided
+sider
+sides
+sidha
+sidhe
+sidle
+siege
+sield
+siens
+sient
+sieth
+sieur
+sieve
+sifts
+sighs
+sight
+sigil
+sigla
+sigma
+signa
+signs
+sijos
+sikas
+siker
+sikes
+silds
+siled
+silen
+siler
+siles
+silex
+silks
+silky
+sills
+silly
+silos
+silts
+silty
+silva
+simar
+simas
+simba
+simis
+simps
+simul
+since
+sinds
+sined
+sines
+sinew
+singe
+sings
+sinhs
+sinks
+sinky
+sinus
+siped
+sipes
+sippy
+sired
+siree
+siren
+sires
+sirih
+siris
+siroc
+sirra
+sirup
+sisal
+sises
+sissy
+sista
+sists
+sitar
+sited
+sites
+sithe
+sitka
+situp
+situs
+siver
+sixer
+sixes
+sixmo
+sixte
+sixth
+sixty
+sizar
+sized
+sizel
+sizer
+sizes
+skags
+skail
+skald
+skank
+skart
+skate
+skats
+skatt
+skaws
+skean
+skear
+skeds
+skeed
+skeef
+skeen
+skeer
+skees
+skeet
+skegg
+skegs
+skein
+skelf
+skell
+skelm
+skelp
+skene
+skens
+skeos
+skeps
+skers
+skets
+skews
+skids
+skied
+skier
+skies
+skiey
+skiff
+skill
+skimo
+skimp
+skims
+skink
+skins
+skint
+skios
+skips
+skirl
+skirr
+skirt
+skite
+skits
+skive
+skivy
+sklim
+skoal
+skody
+skoff
+skogs
+skols
+skool
+skort
+skosh
+skran
+skrik
+skuas
+skugs
+skulk
+skull
+skunk
+skyed
+skyer
+skyey
+skyfs
+skyre
+skyrs
+skyte
+slabs
+slack
+slade
+slaes
+slags
+slaid
+slain
+slake
+slams
+slane
+slang
+slank
+slant
+slaps
+slart
+slash
+slate
+slats
+slaty
+slave
+slaws
+slays
+slebs
+sleds
+sleek
+sleep
+sleer
+sleet
+slept
+slews
+sleys
+slice
+slick
+slide
+slier
+slily
+slime
+slims
+slimy
+sling
+slink
+slipe
+slips
+slipt
+slish
+slits
+slive
+sloan
+slobs
+sloes
+slogs
+sloid
+slojd
+slomo
+sloom
+sloop
+sloot
+slope
+slops
+slopy
+slorm
+slosh
+sloth
+slots
+slove
+slows
+sloyd
+slubb
+slubs
+slued
+slues
+sluff
+slugs
+sluit
+slump
+slums
+slung
+slunk
+slurb
+slurp
+slurs
+sluse
+slush
+sluts
+slyer
+slyly
+slype
+smaak
+smack
+smaik
+small
+smalm
+smalt
+smarm
+smart
+smash
+smaze
+smear
+smeek
+smees
+smeik
+smeke
+smell
+smelt
+smerk
+smews
+smile
+smirk
+smirr
+smirs
+smite
+smith
+smits
+smock
+smogs
+smoke
+smoko
+smoky
+smolt
+smoor
+smoot
+smore
+smorg
+smote
+smout
+smowt
+smugs
+smurs
+smush
+smuts
+snabs
+snack
+snafu
+snags
+snail
+snake
+snaky
+snaps
+snare
+snarf
+snark
+snarl
+snars
+snary
+snash
+snath
+snaws
+snead
+sneak
+sneap
+snebs
+sneck
+sneds
+sneed
+sneer
+snees
+snell
+snibs
+snick
+snide
+snies
+sniff
+snift
+snigs
+snipe
+snips
+snipy
+snirt
+snits
+snobs
+snods
+snoek
+snoep
+snogs
+snoke
+snood
+snook
+snool
+snoop
+snoot
+snore
+snort
+snots
+snout
+snowk
+snows
+snowy
+snubs
+snuck
+snuff
+snugs
+snush
+snyes
+soaks
+soaps
+soapy
+soare
+soars
+soave
+sobas
+sober
+socas
+soces
+socko
+socks
+socle
+sodas
+soddy
+sodic
+sodom
+sofar
+sofas
+softa
+softs
+softy
+soger
+soggy
+sohur
+soils
+soily
+sojas
+sojus
+sokah
+soken
+sokes
+sokol
+solah
+solan
+solar
+solas
+solde
+soldi
+soldo
+solds
+soled
+solei
+soler
+soles
+solid
+solon
+solos
+solum
+solus
+solve
+soman
+somas
+sonar
+sonce
+sonde
+sones
+songs
+sonic
+sonly
+sonne
+sonny
+sonse
+sonsy
+sooey
+sooks
+sooky
+soole
+sools
+sooms
+soops
+soote
+sooth
+soots
+sooty
+sophs
+sophy
+sopor
+soppy
+sopra
+soral
+soras
+sorbo
+sorbs
+sorda
+sordo
+sords
+sored
+soree
+sorel
+sorer
+sores
+sorex
+sorgo
+sorns
+sorra
+sorry
+sorta
+sorts
+sorus
+soths
+sotol
+souce
+souct
+sough
+souks
+souls
+soums
+sound
+soups
+soupy
+sours
+souse
+south
+souts
+sowar
+sowce
+sowed
+sower
+sowff
+sowfs
+sowle
+sowls
+sowms
+sownd
+sowne
+sowps
+sowse
+sowth
+soyas
+soyle
+soyuz
+sozin
+space
+spacy
+spade
+spado
+spaed
+spaer
+spaes
+spags
+spahi
+spail
+spain
+spait
+spake
+spald
+spale
+spall
+spalt
+spams
+spane
+spang
+spank
+spans
+spard
+spare
+spark
+spars
+spart
+spasm
+spate
+spats
+spaul
+spawl
+spawn
+spaws
+spayd
+spays
+spaza
+spazz
+speak
+speal
+spean
+spear
+speat
+speck
+specs
+spect
+speed
+speel
+speer
+speil
+speir
+speks
+speld
+spelk
+spell
+spelt
+spend
+spent
+speos
+sperm
+spets
+speug
+spews
+spewy
+spial
+spica
+spice
+spick
+spics
+spicy
+spide
+spied
+spiel
+spier
+spies
+spiff
+spifs
+spike
+spiks
+spiky
+spile
+spill
+spilt
+spims
+spina
+spine
+spink
+spins
+spiny
+spire
+spirt
+spiry
+spite
+spits
+spitz
+spivs
+splat
+splay
+split
+splog
+spode
+spods
+spoil
+spoke
+spoof
+spook
+spool
+spoom
+spoon
+spoor
+spoot
+spore
+spork
+sport
+sposh
+spots
+spout
+sprad
+sprag
+sprat
+spray
+spred
+spree
+sprew
+sprig
+sprit
+sprod
+sprog
+sprue
+sprug
+spuds
+spued
+spuer
+spues
+spugs
+spule
+spume
+spumy
+spunk
+spurn
+spurs
+spurt
+sputa
+spyal
+spyre
+squab
+squad
+squat
+squaw
+squeg
+squib
+squid
+squit
+squiz
+stabs
+stack
+stade
+staff
+stage
+stags
+stagy
+staid
+staig
+stain
+stair
+stake
+stale
+stalk
+stall
+stamp
+stand
+stane
+stang
+stank
+staph
+staps
+stare
+stark
+starn
+starr
+stars
+start
+stash
+state
+stats
+staun
+stave
+staws
+stays
+stead
+steak
+steal
+steam
+stean
+stear
+stedd
+stede
+steds
+steed
+steek
+steel
+steem
+steen
+steep
+steer
+steil
+stein
+stela
+stele
+stell
+steme
+stems
+stend
+steno
+stens
+stent
+steps
+stept
+stere
+stern
+stets
+stews
+stewy
+steys
+stich
+stick
+stied
+sties
+stiff
+stilb
+stile
+still
+stilt
+stime
+stims
+stimy
+sting
+stink
+stint
+stipa
+stipe
+stire
+stirk
+stirp
+stirs
+stive
+stivy
+stoae
+stoai
+stoas
+stoat
+stobs
+stock
+stoep
+stogy
+stoic
+stoit
+stoke
+stole
+stoln
+stoma
+stomp
+stond
+stone
+stong
+stonk
+stonn
+stony
+stood
+stook
+stool
+stoop
+stoor
+stope
+stops
+stopt
+store
+stork
+storm
+story
+stoss
+stots
+stott
+stoun
+stoup
+stour
+stout
+stove
+stown
+stowp
+stows
+strad
+strae
+strag
+strak
+strap
+straw
+stray
+strep
+strew
+stria
+strig
+strim
+strip
+strop
+strow
+stroy
+strum
+strut
+stubs
+stuck
+stude
+studs
+study
+stuff
+stull
+stulm
+stumm
+stump
+stums
+stung
+stunk
+stuns
+stunt
+stupa
+stupe
+sture
+sturt
+styed
+styes
+style
+styli
+stylo
+styme
+stymy
+styre
+styte
+suave
+subah
+subas
+subby
+suber
+subha
+succi
+sucks
+sucky
+sucre
+sudds
+sudor
+sudsy
+suede
+suent
+suers
+suete
+suets
+suety
+sugan
+sugar
+sughs
+sugos
+suhur
+suids
+suing
+suint
+suite
+suits
+sujee
+sukhs
+sukuk
+sulci
+sulfa
+sulfo
+sulks
+sulky
+sully
+sulph
+sulus
+sumac
+sumis
+summa
+sumos
+sumph
+sumps
+sunis
+sunks
+sunna
+sunns
+sunny
+sunup
+super
+supes
+supra
+surah
+sural
+suras
+surat
+surds
+sured
+surer
+sures
+surfs
+surfy
+surge
+surgy
+surly
+surra
+sused
+suses
+sushi
+susus
+sutor
+sutra
+sutta
+swabs
+swack
+swads
+swage
+swags
+swail
+swain
+swale
+swaly
+swami
+swamp
+swamy
+swang
+swank
+swans
+swaps
+swapt
+sward
+sware
+swarf
+swarm
+swart
+swash
+swath
+swats
+swayl
+sways
+sweal
+swear
+sweat
+swede
+sweed
+sweel
+sweep
+sweer
+swees
+sweet
+sweir
+swell
+swelt
+swept
+swerf
+sweys
+swies
+swift
+swigs
+swile
+swill
+swims
+swine
+swing
+swink
+swipe
+swire
+swirl
+swish
+swiss
+swith
+swits
+swive
+swizz
+swobs
+swole
+swoln
+swoon
+swoop
+swops
+swopt
+sword
+swore
+sworn
+swots
+swoun
+swung
+sybbe
+sybil
+syboe
+sybow
+sycee
+syces
+sycon
+syens
+syker
+sykes
+sylis
+sylph
+sylva
+symar
+synch
+syncs
+synds
+syned
+synes
+synod
+synth
+syped
+sypes
+syphs
+syrah
+syren
+syrup
+sysop
+sythe
+syver
+taals
+taata
+tabby
+taber
+tabes
+tabid
+tabis
+tabla
+table
+taboo
+tabor
+tabun
+tabus
+tacan
+taces
+tacet
+tache
+tacho
+tachs
+tacit
+tacks
+tacky
+tacos
+tacts
+taels
+taffy
+tafia
+taggy
+tagma
+tahas
+tahrs
+taiga
+taigs
+taiko
+tails
+tains
+taint
+taira
+taish
+taits
+tajes
+takas
+taken
+taker
+takes
+takhi
+takin
+takis
+takky
+talak
+talaq
+talar
+talas
+talcs
+talcy
+talea
+taler
+tales
+talks
+talky
+talls
+tally
+talma
+talon
+talpa
+taluk
+talus
+tamal
+tamed
+tamer
+tames
+tamin
+tamis
+tammy
+tamps
+tanas
+tanga
+tangi
+tango
+tangs
+tangy
+tanhs
+tanka
+tanks
+tanky
+tanna
+tansy
+tanti
+tanto
+tanty
+tapas
+taped
+tapen
+taper
+tapes
+tapet
+tapir
+tapis
+tappa
+tapus
+taras
+tardo
+tardy
+tared
+tares
+targa
+targe
+tarns
+taroc
+tarok
+taros
+tarot
+tarps
+tarre
+tarry
+tarsi
+tarts
+tarty
+tasar
+tased
+taser
+tases
+tasks
+tassa
+tasse
+tasso
+taste
+tasty
+tatar
+tater
+tates
+taths
+tatie
+tatou
+tatts
+tatty
+tatus
+taube
+tauld
+taunt
+tauon
+taupe
+tauts
+tavah
+tavas
+taver
+tawai
+tawas
+tawed
+tawer
+tawie
+tawny
+tawse
+tawts
+taxed
+taxer
+taxes
+taxis
+taxol
+taxon
+taxor
+taxus
+tayra
+tazza
+tazze
+teach
+teade
+teads
+teaed
+teaks
+teals
+teams
+tears
+teary
+tease
+teats
+teaze
+techs
+techy
+tecta
+teddy
+teels
+teems
+teend
+teene
+teens
+teeny
+teers
+teeth
+teffs
+teggs
+tegua
+tegus
+tehrs
+teiid
+teils
+teind
+teins
+telae
+telco
+teles
+telex
+telia
+telic
+tells
+telly
+teloi
+telos
+temed
+temes
+tempi
+tempo
+temps
+tempt
+temse
+tench
+tends
+tendu
+tenes
+tenet
+tenge
+tenia
+tenne
+tenno
+tenny
+tenon
+tenor
+tense
+tenth
+tents
+tenty
+tenue
+tepal
+tepas
+tepee
+tepid
+tepoy
+terai
+teras
+terce
+terek
+teres
+terfe
+terfs
+terga
+terms
+terne
+terns
+terra
+terry
+terse
+terts
+tesla
+testa
+teste
+tests
+testy
+tetes
+teths
+tetra
+tetri
+teuch
+teugh
+tewed
+tewel
+tewit
+texas
+texes
+texts
+thack
+thagi
+thaim
+thale
+thali
+thana
+thane
+thang
+thank
+thans
+thanx
+tharm
+thars
+thaws
+thawy
+thebe
+theca
+theed
+theek
+thees
+theft
+thegn
+theic
+thein
+their
+thelf
+thema
+theme
+thens
+theow
+there
+therm
+these
+thesp
+theta
+thete
+thews
+thewy
+thick
+thief
+thigh
+thigs
+thilk
+thill
+thine
+thing
+think
+thins
+thiol
+third
+thirl
+thoft
+thole
+tholi
+thong
+thorn
+thoro
+thorp
+those
+thous
+thowl
+thrae
+thraw
+three
+threw
+thrid
+thrip
+throb
+throe
+throw
+thrum
+thuds
+thugs
+thuja
+thumb
+thump
+thunk
+thurl
+thuya
+thyme
+thymi
+thymy
+tians
+tiara
+tiars
+tibia
+tical
+ticca
+ticed
+tices
+tichy
+ticks
+ticky
+tidal
+tiddy
+tided
+tides
+tiers
+tiffs
+tifos
+tifts
+tiger
+tiges
+tight
+tigon
+tikas
+tikes
+tikis
+tikka
+tilak
+tilde
+tiled
+tiler
+tiles
+tills
+tilly
+tilth
+tilts
+timbo
+timed
+timer
+times
+timid
+timon
+timps
+tinas
+tinct
+tinds
+tinea
+tined
+tines
+tinge
+tings
+tinks
+tinny
+tints
+tinty
+tipis
+tippy
+tipsy
+tired
+tires
+tirls
+tiros
+tirrs
+titan
+titch
+titer
+tithe
+titis
+title
+titre
+titty
+titup
+tiyin
+tiyns
+tizes
+tizzy
+toads
+toady
+toast
+toaze
+tocks
+tocky
+tocos
+today
+todde
+toddy
+toeas
+toffs
+toffy
+tofts
+tofus
+togae
+togas
+toged
+toges
+togue
+tohos
+toile
+toils
+toing
+toise
+toits
+tokay
+toked
+token
+toker
+tokes
+tokos
+tolan
+tolar
+tolas
+toled
+toles
+tolls
+tolly
+tolts
+tolus
+tolyl
+toman
+tombs
+tomes
+tomia
+tommy
+tomos
+tonal
+tondi
+tondo
+toned
+toner
+tones
+toney
+tonga
+tongs
+tonic
+tonka
+tonks
+tonne
+tonus
+tools
+tooms
+toons
+tooth
+toots
+topaz
+toped
+topee
+topek
+toper
+topes
+tophe
+tophi
+tophs
+topic
+topis
+topoi
+topos
+toppy
+toque
+torah
+toran
+toras
+torch
+torcs
+tores
+toric
+torii
+toros
+torot
+torrs
+torse
+torsi
+torsk
+torso
+torta
+torte
+torts
+torus
+tosas
+tosed
+toses
+toshy
+tossy
+total
+toted
+totem
+toter
+totes
+totty
+touch
+tough
+touks
+touns
+tours
+touse
+tousy
+touts
+touze
+touzy
+towed
+towel
+tower
+towie
+towns
+towny
+towse
+towsy
+towts
+towze
+towzy
+toxic
+toxin
+toyed
+toyer
+toyon
+toyos
+tozed
+tozes
+tozie
+trabs
+trace
+track
+tract
+trade
+trads
+tragi
+traik
+trail
+train
+trait
+tramp
+trams
+trank
+tranq
+trans
+trant
+trape
+traps
+trapt
+trash
+trass
+trats
+tratt
+trave
+trawl
+trayf
+trays
+tread
+treat
+treck
+treed
+treen
+trees
+trefa
+treif
+treks
+trema
+trems
+trend
+tress
+trest
+trets
+trews
+treyf
+treys
+triac
+triad
+trial
+tribe
+trice
+trick
+tride
+tried
+trier
+tries
+triff
+trigo
+trigs
+trike
+trild
+trill
+trims
+trine
+trins
+triol
+trior
+trios
+tripe
+trips
+tripy
+trist
+trite
+troad
+troak
+troat
+trock
+trode
+trods
+trogs
+trois
+troke
+troll
+tromp
+trona
+tronc
+trone
+tronk
+trons
+troop
+trooz
+trope
+troth
+trots
+trout
+trove
+trows
+troys
+truce
+truck
+trued
+truer
+trues
+trugo
+trugs
+trull
+truly
+trump
+trunk
+truss
+trust
+truth
+tryer
+tryke
+tryma
+tryps
+tryst
+tsade
+tsadi
+tsars
+tsked
+tsuba
+tsubo
+tuans
+tuart
+tuath
+tubae
+tubal
+tubar
+tubas
+tubby
+tubed
+tuber
+tubes
+tucks
+tufas
+tuffe
+tuffs
+tufts
+tufty
+tugra
+tuile
+tuina
+tuism
+tuktu
+tules
+tulip
+tulle
+tulpa
+tulsi
+tumid
+tummy
+tumor
+tumps
+tumpy
+tunas
+tunds
+tuned
+tuner
+tunes
+tungs
+tunic
+tunny
+tupek
+tupik
+tuple
+tuque
+turbo
+turds
+turfs
+turfy
+turks
+turme
+turms
+turns
+turnt
+turps
+turrs
+tushy
+tusks
+tusky
+tutee
+tutor
+tutti
+tutty
+tutus
+tuxes
+tuyer
+twaes
+twain
+twals
+twang
+twank
+twats
+tways
+tweak
+tweed
+tweel
+tween
+tweep
+tweer
+tweet
+twerk
+twerp
+twice
+twier
+twigs
+twill
+twilt
+twine
+twink
+twins
+twiny
+twire
+twirl
+twirp
+twist
+twite
+twits
+twixt
+twoer
+twyer
+tyees
+tyers
+tying
+tyiyn
+tykes
+tyler
+tymps
+tynde
+tyned
+tynes
+typal
+typed
+types
+typey
+typic
+typos
+typps
+typto
+tyran
+tyred
+tyres
+tyros
+tythe
+tzars
+udals
+udder
+udons
+ugali
+ugged
+uhlan
+uhuru
+ukase
+ulama
+ulans
+ulcer
+ulema
+ulmin
+ulnad
+ulnae
+ulnar
+ulnas
+ulpan
+ultra
+ulvas
+ulyie
+ulzie
+umami
+umbel
+umber
+umble
+umbos
+umbra
+umbre
+umiac
+umiak
+umiaq
+ummah
+ummas
+ummed
+umped
+umphs
+umpie
+umpty
+umrah
+umras
+unais
+unapt
+unarm
+unary
+unaus
+unbag
+unban
+unbar
+unbed
+unbid
+unbox
+uncap
+unces
+uncia
+uncle
+uncos
+uncoy
+uncus
+uncut
+undam
+undee
+under
+undid
+undos
+undue
+undug
+uneth
+unfed
+unfit
+unfix
+ungag
+unget
+ungod
+ungot
+ungum
+unhat
+unhip
+unica
+unify
+union
+unite
+units
+unity
+unjam
+unked
+unket
+unkid
+unlaw
+unlay
+unled
+unlet
+unlid
+unlit
+unman
+unmet
+unmew
+unmix
+unpay
+unpeg
+unpen
+unpin
+unred
+unrid
+unrig
+unrip
+unsaw
+unsay
+unsee
+unset
+unsew
+unsex
+unsod
+untax
+untie
+until
+untin
+unwed
+unwet
+unwit
+unwon
+unzip
+upbow
+upbye
+updos
+updry
+upend
+upjet
+uplay
+upled
+uplit
+upped
+upper
+upran
+uprun
+upsee
+upset
+upsey
+uptak
+upter
+uptie
+uraei
+urali
+uraos
+urare
+urari
+urase
+urate
+urban
+urbex
+urbia
+urdee
+ureal
+ureas
+uredo
+ureic
+urena
+urent
+urged
+urger
+urges
+urial
+urine
+urite
+urman
+urnal
+urned
+urped
+ursae
+ursid
+urson
+urubu
+urvas
+usage
+users
+usher
+using
+usnea
+usque
+usual
+usure
+usurp
+usury
+uteri
+utile
+utter
+uveal
+uveas
+uvula
+vacua
+vaded
+vades
+vagal
+vague
+vagus
+vails
+vaire
+vairs
+vairy
+vakas
+vakil
+vales
+valet
+valid
+valis
+valor
+valse
+value
+valve
+vamps
+vampy
+vanda
+vaned
+vanes
+vangs
+vants
+vaped
+vaper
+vapes
+vapid
+vapor
+varan
+varas
+vardy
+varec
+vares
+varia
+varix
+varna
+varus
+varve
+vasal
+vases
+vasts
+vasty
+vatic
+vatus
+vauch
+vault
+vaunt
+vaute
+vauts
+vawte
+vaxes
+veale
+veals
+vealy
+veena
+veeps
+veers
+veery
+vegan
+vegas
+veges
+vegie
+vegos
+vehme
+veils
+veily
+veins
+veiny
+velar
+velds
+veldt
+veles
+vells
+velum
+venae
+venal
+vends
+vendu
+veney
+venge
+venin
+venom
+vents
+venue
+venus
+verbs
+verge
+verra
+verry
+verse
+verso
+verst
+verts
+vertu
+verve
+vespa
+vesta
+vests
+vetch
+vexed
+vexer
+vexes
+vexil
+vezir
+vials
+viand
+vibes
+vibex
+vibey
+vicar
+viced
+vices
+vichy
+video
+viers
+views
+viewy
+vifda
+viffs
+vigas
+vigia
+vigil
+vigor
+vilde
+viler
+villa
+villi
+vills
+vimen
+vinal
+vinas
+vinca
+vined
+viner
+vines
+vinew
+vinic
+vinos
+vints
+vinyl
+viola
+viold
+viols
+viper
+viral
+vired
+vireo
+vires
+virga
+virge
+virid
+virls
+virtu
+virus
+visas
+vised
+vises
+visie
+visit
+visne
+vison
+visor
+vista
+visto
+vitae
+vital
+vitas
+vitex
+vitro
+vitta
+vivas
+vivat
+vivda
+viver
+vives
+vivid
+vixen
+vizir
+vizor
+vleis
+vlies
+vlogs
+voars
+vocab
+vocal
+voces
+voddy
+vodka
+vodou
+vodun
+voema
+vogie
+vogue
+voice
+voids
+voila
+voile
+voips
+volae
+volar
+voled
+voles
+volet
+volks
+volta
+volte
+volti
+volts
+volva
+volve
+vomer
+vomit
+voted
+voter
+votes
+vouch
+vouge
+voulu
+vowed
+vowel
+vower
+voxel
+vozhd
+vraic
+vrils
+vroom
+vrous
+vrouw
+vrows
+vuggs
+vuggy
+vughs
+vughy
+vulgo
+vulns
+vulva
+vutty
+vying
+waacs
+wacke
+wacko
+wacks
+wacky
+wadds
+waddy
+waded
+wader
+wades
+wadge
+wadis
+wadts
+wafer
+waffs
+wafts
+waged
+wager
+wages
+wagga
+wagon
+wagyu
+wahoo
+waide
+waifs
+waift
+wails
+wains
+wairs
+waist
+waite
+waits
+waive
+wakas
+waked
+waken
+waker
+wakes
+wakfs
+waldo
+walds
+waled
+waler
+wales
+walie
+walis
+walks
+walla
+walls
+wally
+walty
+waltz
+wamed
+wames
+wamus
+wands
+waned
+wanes
+waney
+wangs
+wanks
+wanky
+wanle
+wanly
+wanna
+wants
+wanty
+wanze
+waqfs
+warbs
+warby
+wards
+wared
+wares
+warez
+warks
+warms
+warns
+warps
+warre
+warst
+warts
+warty
+wases
+washy
+wasms
+wasps
+waspy
+waste
+wasts
+watap
+watch
+water
+watts
+wauff
+waugh
+wauks
+waulk
+wauls
+waurs
+waved
+waver
+waves
+wavey
+wawas
+wawes
+wawls
+waxed
+waxen
+waxer
+waxes
+wayed
+wazir
+wazoo
+weald
+weals
+weamb
+weans
+wears
+weary
+weave
+webby
+weber
+wecht
+wedel
+wedge
+wedgy
+weeds
+weedy
+weeke
+weeks
+weels
+weems
+weens
+weeny
+weeps
+weepy
+weest
+weete
+weets
+wefte
+wefts
+weids
+weigh
+weils
+weird
+weirs
+weise
+weize
+wekas
+welch
+welds
+welke
+welks
+welkt
+wells
+welly
+welsh
+welts
+wembs
+wench
+wends
+wenge
+wenny
+wents
+weros
+wersh
+wests
+wetas
+wetly
+wexed
+wexes
+whack
+whale
+whamo
+whams
+whang
+whaps
+whare
+wharf
+whata
+whats
+whaup
+whaur
+wheal
+whear
+wheat
+wheel
+wheen
+wheep
+wheft
+whelk
+whelm
+whelp
+whens
+where
+whets
+whews
+wheys
+which
+whids
+whiff
+whift
+whigs
+while
+whilk
+whims
+whine
+whins
+whiny
+whios
+whips
+whipt
+whirl
+whirr
+whirs
+whish
+whisk
+whiss
+whist
+white
+whits
+whity
+whizz
+whole
+whomp
+whoof
+whoop
+whoot
+whops
+whore
+whorl
+whort
+whose
+whoso
+whows
+whump
+whups
+whyda
+wicca
+wicks
+wicky
+widdy
+widen
+wider
+wides
+widow
+width
+wield
+wiels
+wifed
+wifes
+wifey
+wifie
+wifty
+wigan
+wigga
+wiggy
+wight
+wikis
+wilco
+wilds
+wiled
+wiles
+wilga
+wilis
+wilja
+wills
+willy
+wilts
+wimps
+wimpy
+wince
+winch
+winds
+windy
+wined
+wines
+winey
+winge
+wings
+wingy
+winks
+winna
+winns
+winos
+winze
+wiped
+wiper
+wipes
+wired
+wirer
+wires
+wirra
+wised
+wiser
+wises
+wisha
+wisht
+wisps
+wispy
+wists
+witan
+witch
+wited
+wites
+withe
+withs
+withy
+witty
+wived
+wiver
+wives
+wizen
+wizes
+woads
+woald
+wocks
+wodge
+woful
+wojus
+woken
+woker
+wokka
+wolds
+wolfs
+wolly
+wolve
+woman
+wombs
+womby
+women
+womyn
+wonga
+wongi
+wonks
+wonky
+wonts
+woods
+woody
+wooed
+wooer
+woofs
+woofy
+woold
+wools
+wooly
+woons
+woops
+woopy
+woose
+woosh
+wootz
+woozy
+words
+wordy
+works
+world
+worms
+wormy
+worry
+worse
+worst
+worth
+worts
+would
+wound
+woven
+wowed
+wowee
+woxen
+wrack
+wrang
+wraps
+wrapt
+wrast
+wrate
+wrath
+wrawl
+wreak
+wreck
+wrens
+wrest
+wrick
+wried
+wrier
+wries
+wring
+wrist
+write
+writs
+wroke
+wrong
+wroot
+wrote
+wroth
+wrung
+wryer
+wryly
+wuddy
+wudus
+wulls
+wurst
+wuses
+wushu
+wussy
+wuxia
+wyled
+wyles
+wynds
+wynns
+wyted
+wytes
+xebec
+xenia
+xenic
+xenon
+xeric
+xerox
+xerus
+xoana
+xrays
+xylan
+xylem
+xylic
+xylol
+xylyl
+xysti
+xysts
+yaars
+yabas
+yabba
+yabby
+yacca
+yacht
+yacka
+yacks
+yaffs
+yager
+yages
+yagis
+yahoo
+yaird
+yakka
+yakow
+yales
+yamen
+yampy
+yamun
+yangs
+yanks
+yapok
+yapon
+yapps
+yappy
+yarak
+yarco
+yards
+yarer
+yarfa
+yarks
+yarns
+yarrs
+yarta
+yarto
+yates
+yauds
+yauld
+yaups
+yawed
+yawey
+yawls
+yawns
+yawny
+yawps
+ybore
+yclad
+ycled
+ycond
+ydrad
+ydred
+yeads
+yeahs
+yealm
+yeans
+yeard
+yearn
+years
+yeast
+yecch
+yechs
+yechy
+yedes
+yeeds
+yeesh
+yeggs
+yelks
+yells
+yelms
+yelps
+yelts
+yenta
+yente
+yerba
+yerds
+yerks
+yeses
+yesks
+yests
+yesty
+yetis
+yetts
+yeuks
+yeuky
+yeven
+yeves
+yewen
+yexed
+yexes
+yfere
+yield
+yiked
+yikes
+yills
+yince
+yipes
+yippy
+yirds
+yirks
+yirrs
+yirth
+yites
+yitie
+ylems
+ylike
+ylkes
+ymolt
+ympes
+yobbo
+yobby
+yocks
+yodel
+yodhs
+yodle
+yogas
+yogee
+yoghs
+yogic
+yogin
+yogis
+yoick
+yojan
+yoked
+yokel
+yoker
+yokes
+yokul
+yolks
+yolky
+yomim
+yomps
+yonic
+yonis
+yonks
+yoofs
+yoops
+yores
+yorks
+yorps
+youks
+young
+yourn
+yours
+yourt
+youse
+youth
+yowed
+yowes
+yowie
+yowls
+yowza
+yrapt
+yrent
+yrivd
+yrneh
+ysame
+ytost
+yuans
+yucas
+yucca
+yucch
+yucko
+yucks
+yucky
+yufts
+yugas
+yuked
+yukes
+yukky
+yukos
+yulan
+yules
+yummo
+yummy
+yumps
+yupon
+yuppy
+yurta
+yurts
+yuzus
+zabra
+zacks
+zaida
+zaidy
+zaire
+zakat
+zaman
+zambo
+zamia
+zanja
+zante
+zanza
+zanze
+zappy
+zarfs
+zaris
+zatis
+zaxes
+zayin
+zazen
+zeals
+zebec
+zebra
+zebub
+zebus
+zedas
+zeins
+zendo
+zerda
+zerks
+zeros
+zests
+zesty
+zetas
+zexes
+zezes
+zhomo
+zibet
+ziffs
+zigan
+zilas
+zilch
+zilla
+zills
+zimbi
+zimbs
+zinco
+zincs
+zincy
+zineb
+zines
+zings
+zingy
+zinke
+zinky
+zippo
+zippy
+ziram
+zitis
+zizel
+zizit
+zlote
+zloty
+zoaea
+zobos
+zobus
+zocco
+zoeae
+zoeal
+zoeas
+zoism
+zoist
+zombi
+zonae
+zonal
+zonda
+zoned
+zoner
+zones
+zonks
+zooea
+zooey
+zooid
+zooks
+zooms
+zoons
+zooty
+zoppa
+zoppo
+zoril
+zoris
+zorro
+zouks
+zowee
+zowie
+zulus
+zupan
+zupas
+zuppa
+zurfs
+zuzim
+zygal
+zygon
+zymes
+zymic";
+
+# ╔═╡ 013d1153-d3c0-405c-8797-3419ffeb4d4f
+const dontwordle_valid_words = split(dontwordle_valid_words_raw, '\n') #these are based on the first revision of the NYT word list before it was expanded to over 14000
+
+# ╔═╡ 65334860-bd8b-4c08-a30a-c0baf80280ce
+function make_dontwordle_inds()
+	dontwordle_valid_inds = BitVector(fill(false, length(nyt_valid_inds)))
+	for word in dontwordle_valid_words
+		i = word_index[word]
+		dontwordle_valid_inds[i] = true
+	end
+	return dontwordle_valid_inds
+end
+
+# ╔═╡ 0cff6b40-02fa-4916-b710-98ad589b799d
+const dontwordle_valid_inds = make_dontwordle_inds()
+
+# ╔═╡ c4946f7f-5d17-4a66-a493-b2a2698dc1d5
+begin
+	struct DontWordleState{Nguess, Nundo}
+		guesses::WordleState{Nguess}
+		undos::WordleState{Nundo}
+	end
+
+	DontWordleState() = DontWordleState(WordleState(), WordleState())
+	
+	function Base.:(==)(s1::DontWordleState{N1, N2}, s2::DontWordleState{N1, N2}) where {N1, N2}
+		(s1.guesses == s2.guesses) && (s1.undos == s2.undos)
+	end
+
+	Base.:(==)(s1::DontWordleState{0, 0}, s2::DontWordleState{0, 0}) = true
+
+	Base.:(==)(s1::DontWordleState, s2::DontWordleState) = false
+
+	#games are over after 6 guesses or after all undos have been used
+	isterm(s::DontWordleState{6, N}) where N = true
+	isterm(s::DontWordleState) = last(s.guesses.feedback_list) == 0xf2
+	isterm(s::DontWordleState{0, M}) where M = false
+end
+
 # ╔═╡ 05b55c5f-0471-4032-9e7a-b61c58b33ce1
 begin
 	"""
@@ -2709,23 +16156,6 @@ function get_feedback_bytes(guess::SVector{5, UInt8}, answer::SVector{5, UInt8};
 	return UInt8(feedback)
 end
 
-# ╔═╡ e88225c3-931f-4672-8a38-ab58116a2b75
-function make_feedback_sets(feedback_matrix)
-	l = size(feedback_matrix, 1)
-	out = Matrix{BitVector}(undef, l, 243)
-	
-	for feedback in 0:242
-		for guess_index in 1:l
-			out[guess_index, feedback+1] = BitVector(feedback_matrix[:, guess_index] .== feedback)
-		end
-	end
-	#bit vectors that represent the indices of possible answers consistent with a combination of guess and feedback
-	return out
-end
-
-# ╔═╡ 93b857e5-72db-4aaf-abb0-295beab4073c
-Base.hash(s::WordleState) = hash(s.guess_list) + hash(s.feedback_list) 
-
 # ╔═╡ 4541253d-09fa-4485-80e0-0d64207be03d
 begin
 	"""
@@ -2793,37 +16223,18 @@ end
 #compute the feedback matrix and save the results, each column contains the feedback value for all of the possible answers for a given guess
 const feedback_matrix = make_feedback_matrix(nyt_valid_words, false)
 
-# ╔═╡ 46c0ce87-a94f-4b15-900f-be92775ee066
-function make_feedback_sets(feedback_matrix, savedata::Bool)
-	fname = "guess_feedback_lookup $(hash(feedback_matrix)).bin"
+# ╔═╡ e88225c3-931f-4672-8a38-ab58116a2b75
+function make_feedback_sets(feedback_matrix)
 	l = size(feedback_matrix, 1)
-	feedback_sets = if isfile(fname)
-		open(fname) do f
-			out = Matrix{BitVector}(undef, l, 243)
-			feedbackset = BitVector(fill(false, l))
-			for feedback in 1:243
-				for guess_index in 1:l
-					read!(f, feedbackset)
-					out[guess_index, feedback] = copy(feedbackset)
-				end
-			end
-			close(f)
-			return out
-		end
-	else
-		make_feedback_sets(feedback_matrix)
-	end
-	if savedata
-		open(fname, "w") do f
-			for feedback in 1:243
-				for guess_index in 1:l
-					write(f, feedback_sets[guess_index, feedback])
-				end
-			end
-			close(f)
+	out = Matrix{BitVector}(undef, l, 243)
+	
+	for feedback in 0:242
+		for guess_index in 1:l
+			out[guess_index, feedback+1] = BitVector(feedback_matrix[:, guess_index] .== feedback)
 		end
 	end
-	return feedback_sets
+	#bit vectors that represent the indices of possible answers consistent with a combination of guess and feedback
+	return out
 end
 
 # ╔═╡ f8d41dde-4b0d-432b-8223-d55bcce94736
@@ -2853,6 +16264,212 @@ end
 function count_possible(guess_index, feedback, base_indices)
 	new_possible_indices = get_possible_indices(guess_index, feedback)
 	dot(new_possible_indices, base_indices)
+end
+
+# ╔═╡ b75bb4fe-6b09-4d7c-8bc0-6bf224d2c95a
+function get_possible_indices!(inds::BitVector, guess_list::SVector{N, UInt16}, feedback_list::SVector{N, UInt8}; baseline = wordle_original_inds) where N
+	inds .= baseline
+	for i in 1:N
+		inds .*= get_possible_indices(guess_list[i], feedback_list[i])
+	end
+	return inds
+end
+
+# ╔═╡ d9c4ff04-12ba-4e1c-bc52-4c12388d514b
+function calculate_state_entropy(s::WordleState; possible_indices = copy(nyt_valid_inds))
+	haskey(state_entropy_lookup, s) && return state_entropy_lookup[s]
+	get_possible_indices!(possible_indices, s)
+	n = sum(possible_indices)
+	state_entropy_lookup[s] = Float32(log2(n))
+end
+
+# ╔═╡ 1967f344-0d2e-4af0-a6b5-d8489079629d
+#figure out which guess we would expectc produce the largest increase in information given a state
+function find_best_information_gain_guess(possible_answer_inds::BitVector, guess_count::Integer, possible_answers::Vector{Int64}, feedback_entropies::Vector{Float32})
+	l = sum(possible_answer_inds)
+	iszero(l) && error("No possible answers left")
+
+	starting_entropy = Float32(wordle_original_entropy)
+	(l == 1) && return (best_guess = wordle_actions[findfirst(possible_answer_inds)], best_score = starting_entropy / (guess_count + 1), best_entropy = 0f0)
+	
+	view(possible_answers, 1:l) .= view(wordle_actions, possible_answer_inds)
+
+	best_guess = 1
+	best_score = 0f0
+	
+	best_entropy = starting_entropy
+
+	feedback_entropies .= -1f0
+	for guess_index in wordle_actions
+		final_entropy = 0.0f0
+		score = 0.0f0
+		
+		@fastmath @inbounds for i in view(possible_answers, 1:l)
+			f = feedback_matrix[i, guess_index]
+			if feedback_entropies[f + 0x01] == -1f0
+				n = dot(get_possible_indices(guess_index, f), possible_answer_inds)
+				entropy = Float32(log2(n))
+				feedback_entropies[f+0x01] = entropy
+			else
+				entropy = feedback_entropies[f + 0x01]
+			end
+			information_gain = starting_entropy - entropy
+			win = (guess_index == i)
+			oneleft = iszero(entropy)
+			d = guess_count + win + 2*(oneleft*!win) + 3*(!oneleft)
+			score += information_gain / d
+			final_entropy += entropy
+		end
+
+		final_entropy /= l
+		score /= l
+		if score > best_score
+			best_score = score
+			best_entropy = final_entropy
+			best_guess = guess_index
+		end
+	end
+
+	return (best_guess = best_guess, best_score = best_score, best_guess_entropy = best_entropy)
+end
+
+# ╔═╡ 5003d34f-39b1-48f0-9ee9-5d38c1c2a5f0
+#figure out which guess we would expectc produce the largest increase in information given a state
+function eval_guess_information_gain_scores!(scores::Vector{Float32}, entropies::Vector{Float32}, possible_answer_inds::BitVector, guess_count::Integer, possible_answers::Vector{UInt16}, feedback_entropies::Vector{Float32})
+	l = sum(possible_answer_inds)
+	iszero(l) && error("No possible answers left")
+
+	# starting_entropy = Float32(wordle_original_entropy)
+	starting_entropy = Float32(log2(l))
+	if (l == 1) 
+		# best_score = starting_entropy / (guess_count + 1)
+		best_score = 1f0
+		# other_score = starting_entropy / (guess_count + 2)
+		other_score = 0f0
+		scores .= other_score
+		best_guess = findfirst(possible_answer_inds)
+		scores[best_guess] = best_score
+		entropies .= 0f0
+		return (guess_scores = scores, guess_entropies = entropies, best_guess = best_guess, max_score = best_score, min_score = other_score)
+	elseif (l == 2)
+		best_score = 0.5f0
+		scores .= 0f0
+		best_guesses = findall(possible_answer_inds)
+		scores[best_guesses] .= best_score
+		entropies .= 0f0
+		return (guess_scores = scores, guess_entropies = entropies, best_guess = best_guesses[1], max_score = best_score, min_score = 0f0)
+	end
+	
+	view(possible_answers, 1:l) .= view(wordle_actions, possible_answer_inds)
+
+	best_guess = 1
+	max_score = typemin(Float32)
+	min_score = typemax(Float32)
+	
+	best_entropy = starting_entropy
+
+	for guess_index in wordle_actions
+		final_entropy = 0.0f0
+		# score = 0.0f0
+		feedback_entropies .= -1f0
+		win_probability = 0f0
+		@fastmath @inbounds for i in view(possible_answers, 1:l)
+			f = feedback_matrix[i, guess_index]
+			if feedback_entropies[f + 0x01] == -1f0
+				n = dot(get_possible_indices(guess_index, f), possible_answer_inds)
+				entropy = Float32(log2(n))
+				feedback_entropies[f+0x01] = entropy
+			else
+				entropy = feedback_entropies[f + 0x01]
+			end
+			# information_gain = starting_entropy - entropy
+			win = (guess_index == i)
+			win_probability += win
+			# oneleft = iszero(entropy)
+			# d = guess_count + win + 2*(oneleft*!win) + 3*(!oneleft)
+			# score += information_gain / d
+			final_entropy += entropy
+		end
+		
+		final_entropy /= l
+		win_probability /= l
+		# score /= l
+		score = (starting_entropy - final_entropy) / (1f0 - win_probability)
+		scores[guess_index] = score
+		entropies[guess_index] = final_entropy
+
+		if score > max_score
+			max_score = score
+			best_guess = guess_index
+		end
+
+		if score < min_score
+			min_score = score
+		end
+	end
+
+	return (guess_scores = scores, guess_entropies = entropies, best_guess = best_guess, max_score = max_score, min_score = min_score)
+end
+
+# ╔═╡ 5d87942f-188a-437e-b923-7e91b9f5b923
+function eval_guess_information_gain_scores(s::WordleState{N}; scores = zeros(Float32, length(nyt_valid_inds)), entropies = zeros(Float32, length(nyt_valid_inds)), answer_inds::BitVector = copy(nyt_valid_inds), possible_answers = copy(wordle_actions), feedback_entropies = zeros(Float32, 243), maxentries = Sys.total_physical_memory() / 3 / ((14855 * 64 + 16 + 32 + 32 + 64)/8)) where N
+	access_time = time()
+	push!(information_gain_scores.sorted_states, s)
+	push!(information_gain_scores.sorted_access_times, access_time)
+	if haskey(information_gain_scores.scores, s)
+		output = information_gain_scores.scores[s]
+		greedy_information_gain_action_lookup[s] = output.best_guess
+		old_access_time = output.access_time[1]
+		i = searchsortedfirst(information_gain_scores.sorted_access_times, old_access_time)
+		@assert information_gain_scores.sorted_states[i] == s
+		deleteat!(information_gain_scores.sorted_states, i)
+		deleteat!(information_gain_scores.sorted_access_times, i)
+		output.access_time[1] = access_time
+		return (guess_scores = output.guess_scores, guess_entropies = output.guess_entropies, best_guess = output.best_guess, max_score = output.max_score, min_score = output.min_score)
+	elseif length(information_gain_scores.scores) >= maxentries
+		s_del = first(information_gain_scores.sorted_states)
+		delete!(information_gain_scores.scores, s_del)
+		deleteat!(information_gain_scores.sorted_states, 1)
+		deleteat!(information_gain_scores.sorted_access_times, 1)
+	end
+	get_possible_indices!(answer_inds, s; baseline = wordle_original_inds)
+	output = eval_guess_information_gain_scores!(scores, entropies, answer_inds, N, possible_answers, feedback_entropies)
+	information_gain_scores.scores[s] = (;deepcopy(output)..., access_time = [access_time])
+	sizehint!(information_gain_scores.scores, round(Int64, maxentries))
+	greedy_information_gain_action_lookup[s] = output.best_guess
+	return output
+end
+
+# ╔═╡ 9a75b05d-82fd-4a3c-8cb9-5161dfc18949
+function wordle_greedy_information_gain_π(s::WordleState; kwargs...)
+	haskey(greedy_information_gain_action_lookup, s) && return greedy_information_gain_action_lookup[s]
+	output = eval_guess_information_gain_scores(s; kwargs...)
+	greedy_information_gain_action_lookup[s] = output.best_guess
+	return output.best_guess
+end
+
+# ╔═╡ 3d935fe6-16d9-4fce-8a2d-33c763801b94
+function wordle_greedy_information_gain_prior!(prior::Vector{Float32}, s::WordleState; kwargs...)
+	output = eval_guess_information_gain_scores(s; kwargs...)
+	prior .= output.guess_scores .- output.min_score
+	return Int64(output.best_guess)
+end
+
+# ╔═╡ 430ee1a8-8267-4a72-8380-e7460a28e47e
+#otherwise use the normal prior
+wordle_root_candidate_greedy_information_gain_prior!(args...; kwargs...) = wordle_greedy_information_gain_prior!(args...; kwargs...)
+
+# ╔═╡ 64dbd6c6-2691-4580-97e3-bb2f875472d7
+#if a state value reaches this point, then there can be no improvement
+function maximum_possible_score(s::WordleState{N}; possible_indices = copy(nyt_valid_inds)) where N
+	get_possible_indices!(possible_indices, s)
+	l = sum(possible_indices)
+	iszero(l) && error("Not a valid state")
+	#from a non terminal state, the best possible outcome is to win on the next turn, this will always be the maximum score for any state and is actually achievable when there's only one answer left
+	l == 1 && return -1f0 
+
+	#if there is more than one answer left, then the best possible outcome is to either win on the next turn or guarantee a win on the following turn.  For n words left, the probability of guessing correctly on the next turn is 1/n resulting in a best possible expected value for remaining turns of (1/n) + 2*(n-1)/n = (1 + 2n - 2)/n = (2n - 1)/n
+	-Float32((2*l - 1)/l)
 end
 
 # ╔═╡ c1858879-2a20-4af6-af4c-a03d26dda7a3
@@ -2973,21 +16590,6 @@ function eval_guess_information_gain(possible_answer_inds::BitVector, guess_coun
 	(guess_scores = guess_scores, expected_entropy = expected_entropy, ranked_guess_inds = sortperm(guess_scores, rev=true))
 end
 
-# ╔═╡ b75bb4fe-6b09-4d7c-8bc0-6bf224d2c95a
-function get_possible_indices!(inds::BitVector, guess_list::SVector{N, UInt16}, feedback_list::SVector{N, UInt8}; baseline = wordle_original_inds) where N
-	inds .= baseline
-	for i in 1:N
-		inds .*= get_possible_indices(guess_list[i], feedback_list[i])
-	end
-	return inds
-end
-
-# ╔═╡ 852dff48-8c1d-42f2-925e-53f889b1ac6a
-begin
-	const greedy_information_gain_lookup = Dict{WordleState, @NamedTuple{best_guess::Int64, best_score::Float32, best_guess_entropy::Float32}}()
-	const all_guesses_information_gain_lookup = Dict{WordleState, @NamedTuple{guess_scores::Vector{Float32}, expected_entropy::Vector{Float32}, ranked_guess_inds::Vector{Int64}}}()
-end
-
 # ╔═╡ 4eb18ec4-b327-4f97-a380-10469441cff8
 function eval_guess_information_gain(s::WordleState{N}; possible_indices = copy(nyt_valid_inds), save_all_scores = false, kwargs...) where N
 	save_all_scores && haskey(all_guesses_information_gain_lookup, s) && return all_guesses_information_gain_lookup[s]
@@ -3003,37 +16605,14 @@ function eval_guess_information_gain(s::WordleState{N}; possible_indices = copy(
 
 	(length(out) == 1) && return out
 	
-	if save_all_scores
+	if save_all_scores && N < 2
 		all_guesses_information_gain_lookup[s] = out
-	else
+	elseif !save_all_scores
 		greedy_information_gain_lookup[s] = out
 	end
 	
 	return out
 end
-
-# ╔═╡ 20a41989-6650-41dd-b34e-fa23c993e669
-const state_entropy_lookup = Dict{WordleState, Float32}()
-
-# ╔═╡ d9c4ff04-12ba-4e1c-bc52-4c12388d514b
-function calculate_state_entropy(s::WordleState; possible_indices = copy(nyt_valid_inds))
-	haskey(state_entropy_lookup, s) && return state_entropy_lookup[s]
-	get_possible_indices!(possible_indices, s)
-	n = sum(possible_indices)
-	state_entropy_lookup[s] = Float32(log2(n))
-end
-
-# ╔═╡ 97d40991-d719-4e87-bd70-94551a645448
-function display_one_step_guesses(output)
-	[(word = nyt_valid_words[i], score = output.guess_scores[i], expected_entropy = output.expected_entropy[i]) for i in output.ranked_guess_inds]
-end
-
-# ╔═╡ 92cb4e96-714d-425d-a64b-eff26a5f92ef
-#=╠═╡
-md"""
-Using this one step lookahead method to rank the guesses, we can already come up with a candidate policy to test, one that is greedy with respect to this score.
-"""
-  ╠═╡ =#
 
 # ╔═╡ a383cd80-dd49-4f9f-ba67-1f58ea7eb0b6
 # ╠═╡ skip_as_script = true
@@ -3046,48 +16625,10 @@ const wordle_start_information_gain_guesses = eval_guess_information_gain(Wordle
 const wordle_start_information_gain_lookup = Dict(a.word => (;a..., rank = i) for (i, a) in enumerate(wordle_start_information_gain_guesses))
   ╠═╡ =#
 
-# ╔═╡ 67b9207a-5004-4488-a8e5-43465adbc26b
-#=╠═╡
-md"""
-The following table shows the candidate guesses ranked according to this scoring heuristic in which case the greedy policy will choose the guess with the highest score.  The scores shown are from the state represented below.
-"""
-  ╠═╡ =#
-
-# ╔═╡ f2ab3716-19a2-4cbb-b46f-a13c297e086d
-#=╠═╡
-md"""
-### Wordle Game Dynamics
-
-In order to simulate games we must have a way of producing the appropriate feedback and taking a game to completion.  By using this type of afterstate MDP all of the transitions are actually deterministic since I have the full probability distribution for every possible outcome
-"""
-  ╠═╡ =#
-
-# ╔═╡ 66105fd7-aa54-4007-a346-67f0ac7e1188
-# show distribution of winning turns for a given guess rather than just mean
-
-# ╔═╡ b1e3f7ea-e2de-4467-b301-0c3cf225e433
-const wordle_transition_lookup = Dict{Tuple{WordleState, UInt16}, @NamedTuple{rewards::Vector{Float32}, transition_states::Vector{WordleState}, probabilities::Vector{Float32}}}()
-
-# ╔═╡ 8e2477a9-ca14-4ecf-9194-9bac5ef25fd4
-#=╠═╡
-md"""
-### Visualize Wordle Transition
-"""
-  ╠═╡ =#
-
-# ╔═╡ 3c2fb945-0173-4de5-9fdf-ea8b9da3cbd3
-# list word patterns and show bar to right scaled to probability
-
-# ╔═╡ 961593ef-964c-4363-b4ba-0d45cfe3d198
-const test_possible_indices = copy(nyt_valid_inds)
-
-# ╔═╡ f6253866-7bef-400f-9713-e0fd5054b201
-scoregame(s::WordleState{6}) = Float32((wordle_original_entropy - calculate_state_entropy(s)) / (7f0 - (last(s.feedback_list) == 0xf2)))
-
-# ╔═╡ cda5622b-f4f7-4ec2-a848-ff5eb9c9b66b
-function scoregame(s::WordleState{N}) where N
-	!isterm(s) && return 0f0
-	Float32(wordle_original_entropy / N)
+# ╔═╡ 35f4bf5e-0da0-4d0f-a5d8-956d773e716e
+begin
+	step_reward(s::WordleState{6}) = -1f0 - (s.feedback_list[6] != 0xf2)
+	step_reward(s::WordleState) = -1f0
 end
 
 # ╔═╡ bd744b6d-db57-42bf-88c0-c667dfb03f5f
@@ -3110,7 +16651,8 @@ function wordle_transition(s::WordleState{N}, a::UInt16; possible_indices = copy
 	new_guess_list = SVector{N+1}([s.guess_list; a])
 	for (i, f) in enumerate(rawprobabilities.nzind)
 		s′ = WordleState(new_guess_list, SVector{N+1}([s.feedback_list; UInt8(f-1)]))
-		r = scoregame(s′)
+		# r = scoregame(s′)
+		r = step_reward(s′)
 		transition_states[i] = s′
 		rewards[i] = r
 	end
@@ -3128,33 +16670,13 @@ const wordle_transition_distribution = StateMDPTransitionDistribution(wordle_tra
 # ╔═╡ d3d0df67-ec26-4352-9164-a53d14d1b065
 const wordle_mdp = StateMDP(wordle_actions, wordle_transition_distribution, () -> WordleState(), isterm)
 
-# ╔═╡ 9a75b05d-82fd-4a3c-8cb9-5161dfc18949
-function wordle_greedy_information_gain_π(s::WordleState; kwargs...)
-	score = eval_guess_information_gain(s; kwargs...)
-	score.best_guess
-end
-
 # ╔═╡ 05ffe4f9-8cd6-424e-8955-e3ca21c486f3
-function wordle_greedy_information_gain_state_value(s::WordleState; possible_indices = copy(nyt_valid_inds), possible_answers = copy(wordle_actions))
-	π(s) = wordle_greedy_information_gain_π(s; possible_indices = possible_indices, possible_answers = possible_answers)
+function wordle_greedy_information_gain_state_value(s::WordleState; possible_indices = copy(nyt_valid_inds))
+	kwargs = make_information_gain_prior_args()
+	scores = zeros(Float32, length(nyt_valid_inds))
+	π(s) = wordle_greedy_information_gain_π(s; scores = scores, kwargs...)
 	distribution_rollout(wordle_mdp, π, 1f0; s0 = s, usethreads=false, possible_indices = possible_indices)
 end
-
-# ╔═╡ 2b8af0f4-d71e-4ff6-aad8-fd54463d587c
-begin
-function wordle_greedy_information_gain_guess_value(s::WordleState, guess_index::Int64; possible_indices = copy(nyt_valid_inds), possible_answers = copy(wordle_actions))
-	π(s) = wordle_greedy_information_gain_π(s; possible_indices = possible_indices, possible_answers = possible_answers)
-	distribution_rollout(wordle_mdp, π, 1f0; s0 = s, i_a0 = guess_index, usethreads=false, possible_indices = possible_indices)
-end
-
-wordle_greedy_information_gain_guess_value(s::WordleState, guess; kwargs...) = wordle_greedy_information_gain_guess_value(s, conv_guess(guess); kwargs...)
-end
-
-# ╔═╡ 379e4103-ca2a-4711-9df7-d6cd83afe653
-const score_values = [(winning_turn = n, score = wordle_original_entropy / n) for n in 1:6]
-
-# ╔═╡ aaefe619-c7bb-4c1e-acfb-1b2f05ef388d
-score2turns(score) = wordle_original_entropy / score
 
 # ╔═╡ 8cb865b4-8928-4210-96d5-6d6a71deb03b
 begin
@@ -3163,20 +16685,20 @@ begin
 	(expected_score = greedy_information_gain_root_score, expected_turns = score2turns(greedy_information_gain_root_score))
 end
 
-# ╔═╡ 09c89ae6-83e2-4f86-8c3f-b1528235c70a
-#=╠═╡
-#expected score for random game
+# ╔═╡ 2b8af0f4-d71e-4ff6-aad8-fd54463d587c
 begin
-	random_game_score = mean(sample_rollout(wordle_mdp, s -> rand(wordle_actions), 1f0) for _ in 1:1_000)
-	(expected_score = random_game_score, expected_turns = score2turns(random_game_score))
+function wordle_greedy_information_gain_guess_value(s::WordleState, guess_index::Int64; possible_indices = copy(nyt_valid_inds))
+	k = (s, guess_index)
+	haskey(guess_value_lookup, k) && return guess_value_lookup[k]
+	kwargs = make_information_gain_prior_args()
+	scores = zeros(Float32, length(nyt_valid_inds))
+	π(s) = wordle_greedy_information_gain_π(s; scores = scores, kwargs...)
+	v = distribution_rollout(wordle_mdp, π, 1f0; s0 = s, i_a0 = guess_index, usethreads=false, possible_indices = possible_indices)
+	guess_value_lookup[k] = v
+	return v
 end
-  ╠═╡ =#
 
-# ╔═╡ 9df47c03-18c5-4e22-a6f9-a55ab5e35c39
-function make_one_answer_hard_mode(guess_index)
-	output = BitVector(fill(false, length(nyt_valid_inds)))
-	output[guess_index] = true
-	return output
+wordle_greedy_information_gain_guess_value(s::WordleState, guess; kwargs...) = wordle_greedy_information_gain_guess_value(s, conv_guess(guess); kwargs...)
 end
 
 # ╔═╡ 2fa84583-4ff7-48d0-bd62-cb7380535e91
@@ -3190,7 +16712,7 @@ function wordle_greedy_information_gain_one_step_policy_iteration(s::WordleState
 
 	guess_scores = eval_guess_information_gain(s; save_all_scores = true)
 
-	isa(guess_scores, @NamedTuple{best_guess::UInt16}) && return (best_guess = guess_scores.best_guess, best_value = wordle_original_entropy/(N+1), hard_mode_indices = make_one_answer_hard_mode(guess_scores.best_guess), likely_answer_indices = make_one_answer_hard_mode(guess_scores.best_guess), sorted_guesses = [(guess = nyt_valid_words[guess_scores.best_guess], guess_index = guess_scores.best_guess, expected_value = wordle_original_entropy/(N+1), information_gain_rank = 1, information_gain_score = wordle_original_entropy/(N+1), expected_entropy = 0.0, answer_probability = 1.0, hard_mode_guess = true)])	
+	isa(guess_scores, @NamedTuple{best_guess::UInt16}) && return (best_guess = guess_scores.best_guess, best_value = wordle_original_entropy/(N+1), hard_mode_indices = make_one_answer_hard_mode(guess_scores.best_guess), likely_answer_indices = make_one_answer_hard_mode(guess_scores.best_guess), sorted_guesses = [(guess = nyt_valid_words[guess_scores.best_guess], guess_index = guess_scores.best_guess, expected_value = -N-1, information_gain_rank = 1, information_gain_score = wordle_original_entropy/(N+1), expected_entropy = 0.0, answer_probability = 1.0, hard_mode_guess = true)])	
 	
 	scoreinds = view(guess_scores.ranked_guess_inds, 1:num_evaluations)
 	hard_mode_indices = get_possible_indices(s; baseline = nyt_valid_inds)
@@ -3215,22 +16737,8 @@ function wordle_greedy_information_gain_one_step_policy_iteration(s::WordleState
 		end
 	end
 	sorted_inds = sortperm(output; rev=true)
-	(best_guess = best_guess, best_value = best_score, hard_mode_indices = hard_mode_indices, likely_answer_indices = likely_answer_indices, sorted_guesses = [(guess = nyt_valid_words[guess_index], guess_index = guess_index, expected_value = output[i], expected_turns = score2turns(output[i]), information_gain_rank = i, information_gain_score = guess_scores.guess_scores[guess_index], expected_entropy = guess_scores.expected_entropy[guess_index], answer_probability = likely_answer_indices[guess_index] / num_likely, hard_mode_guess = Bool(hard_mode_indices[guess_index])) for (i, guess_index) in enumerate(scoreinds)][sorted_inds])
+	(best_guess = best_guess, best_value = best_score, hard_mode_indices = hard_mode_indices, likely_answer_indices = likely_answer_indices, sorted_guesses = [(guess = nyt_valid_words[guess_index], guess_index = guess_index, expected_value = output[i], expected_turns = -output[i], information_gain_rank = i, information_gain_score = guess_scores.guess_scores[guess_index], expected_entropy = guess_scores.expected_entropy[guess_index], answer_probability = likely_answer_indices[guess_index] / num_likely, hard_mode_guess = Bool(hard_mode_indices[guess_index])) for (i, guess_index) in enumerate(scoreinds)][sorted_inds])
 end
-
-# ╔═╡ 4578c627-127e-4a18-972c-03b38cff371b
-#=╠═╡
-md"""
-#### Guess Values for Greedy Information Policy from Starting State
-"""
-  ╠═╡ =#
-
-# ╔═╡ 3b32e495-98ca-472d-a928-c76fb9302a57
-#=╠═╡
-md"""
-### Wordle Evaluation Test State
-"""
-  ╠═╡ =#
 
 # ╔═╡ e804f5fc-c817-4851-a14b-fdcca1180773
 #=╠═╡
@@ -3267,66 +16775,14 @@ function evaluate_wordle_state(s::WordleState; num_evaluations = 100, filter_har
 end
   ╠═╡ =#
 
-# ╔═╡ 7f1f2057-24ca-44c0-8496-b6ef68d895bd
-#=╠═╡
-md"""
-### Defining Wordle Distribution MCTS
-"""
-  ╠═╡ =#
-
-# ╔═╡ 3d935fe6-16d9-4fce-8a2d-33c763801b94
-function wordle_greedy_information_gain_prior!(prior::Vector{Float32}, s::WordleState; kwargs...)
-	output = eval_guess_information_gain(s; save_all_scores = true, possible_indices = test_possible_indices)
-	
-	if length(output) == 1
-		prior .= 0f0
-		prior[output[1]] = 1f0
-		return output[1]
-	else
-		min_score = output.guess_scores[last(output.ranked_guess_inds)]
-		guess_scores = output.guess_scores
-		prior .= guess_scores .- min_score
-		return first(output.ranked_guess_inds)
-	end
-end
-
-# ╔═╡ e093dd57-040b-4983-a95f-057097fcefff
-function run_wordle_mcts(s::WordleState, nsims::Integer; π_dist! = wordle_greedy_information_gain_prior!, topn = 10, p_scale = 100f0, kwargs...)
-	possible_indices = copy(nyt_valid_inds)
-	possible_answers = copy(wordle_actions)
-	score_vector = zeros(Float32, length(nyt_valid_inds))
-	(mcts_guess, visit_counts, values) = monte_carlo_tree_search(wordle_mdp, 1f0, s, π_dist!, p_scale, topn; nsims = nsims, sim_message=true, kwargs...)
-	return (visit_counts, values)
-end
-
-# ╔═╡ 20cc401d-1b93-4351-9ae8-27807fcd89eb
-#consider adding something where it shows which feedback values have the most improvement compared to the greedy policy and then which potential answers are consistent with that feedback
-
-# ╔═╡ b61dfb6f-b2d8-48e1-99b4-345a05274dc5
-#=╠═╡
-md"""
-#### Transition States
-"""
-  ╠═╡ =#
-
-# ╔═╡ 20646ed4-aef5-40a6-8094-9e085dba3361
-# ╠═╡ show_logs = false
-const base_mcts_output = monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_greedy_information_gain_prior!, 100f0, 10; 
-	nsims = 1, 
-	sim_message = true, 
-	)
-
-# ╔═╡ 124d67ad-c6fb-4de6-9d5a-6d08081321e8
-const mcts_output = deepcopy(base_mcts_output)
-
 # ╔═╡ a9e89449-74ea-45d1-93eb-48d11903d03c
 #=╠═╡
 function display_tree_results(s::WordleState, ranked_guesses; calc_guess_value = wordle_greedy_information_gain_guess_value)
-	information_gain_results = eval_guess_information_gain(s; save_all_scores=true)
+	information_gain_results = eval_guess_information_gain_scores(s)
 
-	isa(information_gain_results, @NamedTuple{best_guess::UInt16}) && return md"""Only one valid answer remains: $(nyt_valid_words[information_gain_results.best_guess])"""
+	ranked_guess_inds = sortperm(information_gain_results.guess_scores; rev=true)
 	
-	word_rank_lookup = Dict(nyt_valid_words[information_gain_results.ranked_guess_inds[i]] => i for i in eachindex(nyt_valid_words))
+	word_rank_lookup = Dict(nyt_valid_words[ranked_guess_inds[i]] => i for i in eachindex(nyt_valid_words))
 
 	hard_mode_indices = get_possible_indices(s; baseline = nyt_valid_inds)
 	likely_answer_indices = get_possible_indices(s)
@@ -3340,7 +16796,7 @@ function display_tree_results(s::WordleState, ranked_guesses; calc_guess_value =
 		wordind = word_index[a.word]
 		policy_value = calc_guess_value(s, a.word; possible_indices = test_possible_indices)
 		tree_improvement = a.values - policy_value
-		(word = a.word, expected_turns = score2turns(a.values), visits = round(Int64, a.visits), tree_value = a.values, policy_value = policy_value, policy_rank = word_rank_lookup[a.word], tree_improvement = tree_improvement < 1f-4 ? 0.0 : round(tree_improvement; sigdigits = 2)) 
+		(word = a.word, expected_turns = -a.values, visits = round(Int64, a.visits), tree_value = a.values, policy_value = policy_value, policy_rank = word_rank_lookup[a.word], tree_improvement = tree_improvement < 1f-4 ? 0.0 : round(tree_improvement; sigdigits = 2)) 
 	end
 	for a in ranked_guesses] |> DataFrame
 
@@ -3375,125 +16831,111 @@ function show_wordle_mcts_guesses(visit_counts::Dict, values::Dict, s::WordleSta
 end
   ╠═╡ =#
 
-# ╔═╡ 06138a4e-67a3-47a3-84a5-92013fd404ca
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	root_mcts_params
-	const base_mcts_options = show_afterstate_mcts_guesses(tree_values, WordleState())
-	const mcts_options, set_mcts_options = @use_state(base_mcts_options)
-end
-  ╠═╡ =#
-
-# ╔═╡ 10d1f403-34c8-46ce-8cfc-d289608f465c
-# ╠═╡ disabled = true
-#=╠═╡
-const track_run, set_run = @use_state("Completed")
-  ╠═╡ =#
-
-# ╔═╡ 41e0cddb-e78d-477b-849a-124754340a3c
-# ╠═╡ disabled = true
-#=╠═╡
-if mcts_counter > 0
-	@use_effect([]) do
-		set_run("Starting mcts evaluation")
-		t = time()
-		schedule(Task() do
-			nsims = 10
-			nruns = ceil(Int64, root_mcts_params.nsims / nsims)
-			for i in 1:nruns
-				stop_mcts_eval > 0 && break	
-				elapsed_minutes = (time() - t)/60
-				etr = (elapsed_minutes * nruns / i) - elapsed_minutes
-				set_run("Running $i of $nruns after $(round(Int64, (time() - t)/60)) minutes.  Estimated $(round(Int64, etr)) minutes left")
-				output = @spawn show_afterstate_mcts_guesses(run_wordle_afterstate_mcts(WordleState(), nsims; tree_values = tree_values, sim_message = false, p_scale = 100f0, topn = root_mcts_params.topn), WordleState())
-				set_mcts_options(fetch(output))
-				sleep(.01)
-			end
-			if stop_mcts_eval > 0
-				set_run("Interrupted")
-			else
-				set_run("Completed after $(round(Int64, (time() - t) / 60)) minutes")
-			end
-		end)
-	end
-else
-	set_run("Waiting to run mcts evaluation")
-	sleep(0.01)
-end
-  ╠═╡ =#
-
-# ╔═╡ 03bbb910-dfa7-4c28-b811-afa9e5ca0e63
-# ╠═╡ disabled = true
-#=╠═╡
-track_run
-  ╠═╡ =#
-
-# ╔═╡ cb3b46cf-8375-43b2-8736-97882e9b5e18
-# ╠═╡ disabled = true
-#=╠═╡
-display_tree_results(WordleState(), mcts_options)
-  ╠═╡ =#
-
-# ╔═╡ 1ba2fd82-f651-43b3-9411-753eef787b68
-#idea to show all of the game states or the branching for the base policy from the root state or any later state.  Want to show all of the resulting games and their probability weight or maybe pieces of the tree how it branches down
-
-# ╔═╡ 0812f3c2-35ab-4e2d-87c0-35a7b44af6d4
-#another idea is to identify how many and which actions differ from the base policy using a particular starting guess so it would show a state, the policy action in that state, and the tree action instead 
-
-# ╔═╡ d2052e0c-c506-45b5-8deb-76d5e60d300e
-const root_guess_candidates = ["trace", "crate", "crane", "slate"]
-
-# ╔═╡ 9ee34b0a-2e11-403f-839b-4e9991bc0eac
-const root_guess_bit_filter = BitVector([in(w, root_guess_candidates) for w in nyt_valid_words])
-
-# ╔═╡ b6b40be8-90e3-4335-93ef-f8d92ef1676d
-const root_guess_candidate_visits = deepcopy(mcts_output[2])
-
-# ╔═╡ 0413f30f-b75f-44cc-9c6b-1a4313b81c51
-const root_guess_candidate_values = deepcopy(mcts_output[3])
-
-# ╔═╡ 0da02107-ad39-4c43-9dfc-2e68736d8063
-#for root state only select one of the root guess candidates
-function wordle_root_candidate_greedy_information_gain_prior!(prior::Vector{Float32}, s::WordleState{0}; kwargs...)
-	prior .= root_guess_bit_filter ./ length(root_guess_candidates)
-	return word_index[first(root_guess_candidates)]
-end
-
-# ╔═╡ 430ee1a8-8267-4a72-8380-e7460a28e47e
-#otherwise use the normal prior
-wordle_root_candidate_greedy_information_gain_prior!(args...; kwargs...) = wordle_greedy_information_gain_prior!(args...; kwargs...)
-
-# ╔═╡ 9a3d52a0-f6a3-43ef-a3f1-b8c37f79baf4
-length(keys(root_guess_candidate_values))
-
-# ╔═╡ 36fb4201-8261-4551-ae38-eba073e3046b
-#=╠═╡
-const root_candidate_mcts_options, set_root_candidate_mcts_options = @use_state(nothing)
-  ╠═╡ =#
-
-# ╔═╡ b3a7619f-82ac-4a6b-9206-ed1b5cfa0078
-#=╠═╡
-const track_root_candidate_run, set_root_candidate_run = @use_state("Completed")
-  ╠═╡ =#
-
-# ╔═╡ 1642481e-8da9-475c-98b4-92e36d90065b
-#=╠═╡
-track_root_candidate_run
-  ╠═╡ =#
-
 # ╔═╡ c8d9a991-ff7b-448e-820c-a1f4a89ee22e
 #=╠═╡
 isnothing(root_candidate_mcts_options) ? md"""Waiting for results""" : display_tree_results(WordleState(), root_candidate_mcts_options)
   ╠═╡ =#
 
-# ╔═╡ b9a41bbb-8706-4f1d-beb7-f55ad8ad5ce7
+# ╔═╡ 09c89ae6-83e2-4f86-8c3f-b1528235c70a
+#=╠═╡
+#expected score for random game
 begin
-	get_wordle_substate(s::WordleState{0}, N::Integer) = s
-	function get_wordle_substate(s::WordleState{N}, N2::Integer) where N
-		newN = min(N, N2)
-		WordleState(s.guess_list[1:newN], s.feedback_list[1:newN])
+	random_game_score = mean(sample_rollout(wordle_mdp, s -> rand(wordle_actions), 1f0) for _ in 1:1_000)
+	(expected_score = random_game_score, expected_turns = score2turns(random_game_score))
+end
+  ╠═╡ =#
+
+# ╔═╡ e093dd57-040b-4983-a95f-057097fcefff
+function run_wordle_mcts(s::WordleState, nsims::Integer; π_dist! = wordle_greedy_information_gain_prior!, prior_kwargs = make_information_gain_prior_args(), topn = 10, p_scale = 100f0, kwargs...)
+	possible_indices = copy(nyt_valid_inds)
+	max_value(s) = maximum_possible_score(s; possible_indices = possible_indices)
+	(mcts_guess, visit_counts, values) = monte_carlo_tree_search(wordle_mdp, 1f0, s, (prior, s) -> π_dist!(prior, s; prior_kwargs...), p_scale, topn; nsims = nsims, sim_message=true, compute_max_value = max_value, kwargs...)
+	return (visit_counts, values)
+end
+
+# ╔═╡ e92e232e-9e8c-4b84-aa1b-49a67a079380
+# ╠═╡ show_logs = false
+const (root_wordle_visit_counts, root_wordle_values) = run_wordle_mcts(WordleState(), 1; 
+		topn = 10, 
+		p_scale = 100f0,
+		c = 1f0,
+		make_step_kwargs = k -> (possible_indices = test_possible_indices,))
+
+# ╔═╡ 58ce6598-0cf0-4450-b50f-afc2da287755
+function wordle_root_tree_policy(s::WordleState)
+	values = root_wordle_values[s]
+	visits = root_wordle_visit_counts[s]
+	i = argmax(values[i] for i in visits.nzind)
+	visits.nzind[i]
+end
+
+# ╔═╡ 164fccfc-56c5-4538-acf1-90ec13db38f8
+Base.summarysize(root_wordle_values)
+
+# ╔═╡ a41be793-431d-42f0-885b-7ff89efa0252
+distribution_rollout(wordle_mdp, wordle_greedy_information_gain_π, 1f0) |> score2turns
+
+# ╔═╡ f6253866-7bef-400f-9713-e0fd5054b201
+#games will be scored at a maximum of 6 for winning on the first guess down to 0 for failing to win within 6 guesses
+begin
+	scoregame(s::WordleState{0}) = 0f0
+	function scoregame(s::WordleState{N}) where N
+		win = Float32(s.feedback_list[N] == 0xf2)
+		(6f0 - N + 1f0)*win
 	end
+end
+
+# ╔═╡ 8ab11beb-930a-43cb-9a52-f19f49819f1b
+function run_wordle_answer_game(s::WordleState, π::Function, true_answer_index::Integer; kwargs...)
+	i_a = π(s; kwargs...)
+	while !isterm(s)
+		f = feedback_matrix[true_answer_index, i_a]
+		s = WordleState(vcat(s.guess_list, wordle_actions[i_a]), vcat(s.feedback_list, f))
+		i_a = π(s; kwargs...)
+	end
+	return s
+end
+
+# ╔═╡ 7a9e09f2-70ca-4180-9c1c-56d74e743098
+function run_wordle_answer_games(s0::WordleState, π::Function; possible_indices = copy(nyt_valid_inds))
+	get_possible_indices!(possible_indices, s0; baseline = wordle_original_inds)
+	answer_indices = findall(possible_indices)
+	games = Vector{WordleState}(undef, length(answer_indices))
+	for (i, answer_index) in enumerate(answer_indices)
+		s = s0
+		while !isterm(s)
+			i_a = π(s)
+			f = feedback_matrix[answer_index, i_a]
+			s = WordleState(vcat(s.guess_list, wordle_actions[i_a]), vcat(s.feedback_list, f))
+		end
+		games[i] = deepcopy(s)
+	end
+	return games, answer_indices
+end
+
+# ╔═╡ b301b451-3276-45fa-8777-eb2069b3e580
+function analyze_wordle_policy_over_answers(s::WordleState, π::Function; kwargs...)
+	games, answer_indices = run_wordle_answer_games(s, π; kwargs...)
+	game_length_words = [Vector{String}() for _ in 1:6]
+	for (i, g) in enumerate(games)
+		@assert g.feedback_list[end] == 0xf2 #make sure that every game is a win
+		push!(game_length_words[game_length(g)], nyt_valid_words[answer_indices[i]])
+	end
+	return game_length_words
+end
+
+# ╔═╡ c58f7788-5d64-45af-b5a1-9b30c24f730c
+function compare_wordle_polices_over_answers(s::WordleState, π1::Function, π2::Function)
+	games1, answer_indices1 = run_wordle_answer_games(s, π1)
+	games2, answer_indices2 = run_wordle_answer_games(s, π2)
+	@assert answer_indices1 == answer_indices2
+	result_compare = Dict((l1, l2) => Set{String}() for l1 in 1:6 for l2 in 1:6)
+	for i in eachindex(answer_indices1)
+		l1 = game_length(games1[i])
+		l2 = game_length(games2[i])
+		push!(result_compare[(l1, l2)], nyt_valid_words[answer_indices1[i]])
+	end
+	return result_compare
 end
 
 # ╔═╡ 71e35ad3-1c42-4ffd-946b-5eb9e6b72f86
@@ -3509,107 +16951,704 @@ begin
 	end
 end
 
-# ╔═╡ 8327c794-200f-400f-8bdd-d043c548522c
-#comparing the tree to the greedy policy can always look at a given state and highlight an action with the most percentage improvement so far and you can rank these improvements down the tree and show a list of ways in which the tree performance is better than the greedy policy.  It would e a list like, in this state you do this instead of what the greedy policy would do and the overall improvement is this, you can show the total tree improvement as well as just the improvement as measured by the greedy policy value.
+# ╔═╡ b88f9cc7-6232-41b3-92b3-3e920d446a5f
+#figure out which guess we would expectc produce the largest increase in information given a state
+function eval_hardmode_guess_information_gain_scores!(scores::Vector{Float32}, entropies::Vector{Float32}, allowed_guess_inds::BitVector, possible_answer_inds::BitVector, guess_count::Integer, possible_answers::Vector{UInt16}, feedback_entropies::Vector{Float32})
+	l = sum(possible_answer_inds)
+	iszero(l) && error("No possible answers left")
 
-# ╔═╡ a107e7ff-56e8-4f31-b061-a7895ea29965
-#=╠═╡
-md"""
-### MCTS Evalaution of Wordle Test State
-"""
-  ╠═╡ =#
+	# starting_entropy = Float32(wordle_original_entropy)
+	starting_entropy = Float32(log2(l))
+	scores .= 0f0
+	entropies .= 0f0
+	if (l == 1) 
+		# best_score = starting_entropy / (guess_count + 1)
+		best_score = 1f0
+		# other_score = starting_entropy / (guess_count + 2)
+		best_guess = findfirst(possible_answer_inds)
+		scores[best_guess] = best_score
+		return (guess_scores = scores, guess_entropies = entropies, best_guess = best_guess, max_score = best_score, min_score = 0f0)
+	elseif (l == 2)
+		best_score = 0.5f0
+		best_guesses = findall(possible_answer_inds)
+		scores[best_guesses] .= best_score
+		return (guess_scores = scores, guess_entropies = entropies, best_guess = best_guesses[1], max_score = best_score, min_score = 0f0)
+	end
+	
+	view(possible_answers, 1:l) .= view(wordle_actions, possible_answer_inds)
 
-# ╔═╡ 1e4b84d7-6fe9-4b1e-9f14-3a663421cb1f
-Base.string(s::WordleState{0}) = "WordleStart"
+	best_guess = 1
+	max_score = typemin(Float32)
+	min_score = typemax(Float32)
+	
+	best_entropy = starting_entropy
 
-# ╔═╡ d4378e47-e231-495c-8e72-de864097421e
-Base.show(s::WordleState{0}) = "WordleStart"
+	for guess_index in view(wordle_actions, allowed_guess_inds)
+		final_entropy = 0.0f0
+		# score = 0.0f0
+		feedback_entropies .= -1f0
+		win_probability = 0f0
+		@fastmath @inbounds for i in view(possible_answers, 1:l)
+			f = feedback_matrix[i, guess_index]
+			if feedback_entropies[f + 0x01] == -1f0
+				n = dot(get_possible_indices(guess_index, f), possible_answer_inds)
+				entropy = Float32(log2(n))
+				feedback_entropies[f+0x01] = entropy
+			else
+				entropy = feedback_entropies[f + 0x01]
+			end
+			# information_gain = starting_entropy - entropy
+			win = (guess_index == i)
+			win_probability += Float32(win)
+			# oneleft = iszero(entropy)
+			# d = guess_count + win + 2*(oneleft*!win) + 3*(!oneleft)
+			# score += information_gain / d
+			final_entropy += entropy
+		end
+		
+		final_entropy /= l
+		win_probability /= l
+		# score /= l
+		score = (starting_entropy - final_entropy) / (1f0 - win_probability)
+		scores[guess_index] = score
+		entropies[guess_index] = final_entropy
 
-# ╔═╡ 13044009-df94-4dd1-93b2-a774015ab1de
-Base.display(s::WordleState{0}) = "WordleStart"
+		if score > max_score
+			max_score = score
+			best_guess = guess_index
+		end
 
-# ╔═╡ 9711392c-33e0-4281-a871-7216dc146de6
-#=╠═╡
-md"""
-## Wordle Hard Mode
-
-In hard mode, one is only permitted to make guesses that are in the list of possible remaining answers.  They do not however need to be answers that are known valid answers but any valid guess that is consistent with the information revealed so far.
-"""
-  ╠═╡ =#
-
-# ╔═╡ d5a9ab96-beb1-4f72-b049-2795ee0c5940
-const wordle_hardmode_mdp = StateMDP(wordle_actions, wordle_transition_distribution, () -> WordleState(), isterm; is_valid_action = (s, i_a; kwargs...) -> get_possible_indices(s; baseline = nyt_valid_inds, kwargs...)[i_a])
-
-# ╔═╡ 7958fbb7-4aea-4a87-80cf-282475ea59bc
-all_guesses_information_gain_lookup[WordleState()]
-
-# ╔═╡ 638ceba3-c89d-47fc-98ee-6310c80f12be
-function eval_hardmode_guess_information_gain(s::WordleState{N}; possible_indices = copy(nyt_valid_inds), kwargs...) where N
-	out = if haskey(all_guesses_information_gain_lookup, s)
-		all_guesses_information_gain_lookup[s]
-	else
-		get_possible_indices!(possible_indices, s)
-		eval_guess_information_gain(possible_indices, N; save_all_scores = true, kwargs...)
+		if score < min_score
+			min_score = score
+		end
 	end
 
-	(length(out) == 1) && return out
-
-	get_possible_indices!(possible_indices, s; baseline = nyt_valid_inds)
-	i_best = findfirst(i -> possible_indices[i], out.ranked_guess_inds)
-	best_guess = out.ranked_guess_inds[i_best]
-	(best_guess = best_guess, best_score = out.guess_scores[best_guess], best_entropy = out.expected_entropy[best_guess])
+	return (guess_scores = scores, guess_entropies = entropies, best_guess = best_guess, max_score = max_score, min_score = min_score)
 end
 
-# ╔═╡ 3cb9ba3c-1b9c-4a6c-b8f2-cade651df78d
-const hardmode_greedy_lookup = Dict{WordleState, Int64}()
+# ╔═╡ 839c4998-ac37-4964-8590-11d4840c83aa
+function eval_hardmode_guess_information_gain_scores(s::WordleState{N}; scores = zeros(Float32, length(nyt_valid_inds)), entropies = zeros(Float32, length(nyt_valid_inds)), allowed_guess_inds = copy(nyt_valid_inds), possible_answer_inds = copy(nyt_valid_inds), possible_answers = copy(wordle_actions), feedback_entropies = zeros(Float32, 243)) where N
+	haskey(hardmode_scores, s) && return hardmode_scores[s]
+	get_possible_indices!(allowed_guess_inds, s; baseline = nyt_valid_inds)
+	possible_answer_inds .= allowed_guess_inds .* wordle_original_inds
+	output = eval_hardmode_guess_information_gain_scores!(scores, entropies, allowed_guess_inds, possible_answer_inds, N, possible_answers, feedback_entropies)
+	hardmode_scores[s] = (guess_scores = SparseVector(output.guess_scores), guess_entropies = SparseVector(output.guess_entropies), best_guess = output.best_guess, max_score = output.max_score, min_score = output.min_score)
+	hardmode_greedy_lookup[s] = Int64(output.best_guess)
+	return hardmode_scores[s]
+end
 
 # ╔═╡ 6670e6d3-ff00-4a91-98c2-830c3aed92de
 function wordle_hardmode_greedy_information_gain_π(s::WordleState; kwargs...)
 	haskey(hardmode_greedy_lookup, s) && return hardmode_greedy_lookup[s]
-	score = eval_hardmode_guess_information_gain(s; kwargs...)
-	hardmode_greedy_lookup[s] = score.best_guess
+	output = eval_hardmode_guess_information_gain_scores(s; kwargs...)
+	hardmode_greedy_lookup[s] = Int64(output.best_guess)
 end
-
-# ╔═╡ a41be793-431d-42f0-885b-7ff89efa0252
-distribution_rollout(wordle_mdp, wordle_greedy_information_gain_π, 1f0) |> score2turns
 
 # ╔═╡ 460d6485-b13e-4deb-a0bd-53b9ebe0c47f
-distribution_rollout(wordle_hardmode_mdp, s -> wordle_hardmode_greedy_information_gain_π(s; possible_indices = test_possible_indices), 1f0) |> score2turns
-
-# ╔═╡ 876a257b-2bec-4562-8a49-e03e81b04b85
-function wordle_hardmode_greedy_information_gain_prior!(prior::Vector{Float32}, s::WordleState; kwargs...)
-	output = eval_guess_information_gain(s; save_all_scores = true, possible_indices = test_possible_indices)
-	
-	if length(output) == 1
-		prior .= 0f0
-		prior[output[1]] = 1f0
-		return output[1]
-	else
-		get_possible_indices!(test_possible_indices, s; baseline = nyt_valid_inds)
-		guess_scores = output.guess_scores
-		prior .= guess_scores .* test_possible_indices
-		haskey(hardmode_greedy_lookup, s) && return hardmode_greedy_lookup[s]
-		i_best = findfirst(i -> test_possible_indices[i], output.ranked_guess_inds)
-		best_guess = output.ranked_guess_inds[i_best]
-	end
-end
+distribution_rollout(wordle_mdp, s -> wordle_hardmode_greedy_information_gain_π(s), 1f0) |> score2turns
 
 # ╔═╡ 5df48271-77d3-4ab5-aba2-bd3cc0b9f078
 begin
 function wordle_hardmode_greedy_information_gain_guess_value(s::WordleState, guess_index::Int64; possible_indices = copy(nyt_valid_inds), possible_answers = copy(wordle_actions))
-	π(s) = wordle_hardmode_greedy_information_gain_π(s; possible_indices = possible_indices, possible_answers = possible_answers)
+	kwargs = make_hardmode_information_gain_kwargs()
+	π(s) = wordle_hardmode_greedy_information_gain_π(s; kwargs...)
 	distribution_rollout(wordle_mdp, π, 1f0; s0 = s, i_a0 = guess_index, usethreads=false, possible_indices = possible_indices)
 end
 
 wordle_hardmode_greedy_information_gain_guess_value(s::WordleState, guess; kwargs...) = wordle_hardmode_greedy_information_gain_guess_value(s, conv_guess(guess); kwargs...)
 end
 
-# ╔═╡ d68d26f3-112d-4542-aab8-0477369f3a52
+# ╔═╡ 4dd064bc-db44-4b18-90ed-5bc67c12774e
+function wordle_hardmode_greedy_information_gain_prior!(prior::Vector{Float32}, s::WordleState; kwargs...)
+	output = eval_hardmode_guess_information_gain_scores(s; kwargs...)
+	prior .= 0f0
+	if output.max_score == output.min_score
+		prior[output.guess_scores.nzind] .= 1f0
+	else
+		priorsum = 0f0
+		@inbounds @simd for i in eachindex(output.guess_scores.nzind)
+			v = output.guess_scores.nzval[i] - output.min_score
+			prior[output.guess_scores.nzind[i]] = output.guess_scores.nzval[i] - output.min_score
+			priorsum += v
+		end
+		@assert priorsum > 0 "For state $s the prior distribution is all 0"
+	end
+	return Int64(output.best_guess)
+end
+
+# ╔═╡ 6c514cb4-03d9-4108-aca3-489212bea90e
+const (root_wordle_hardmode_visit_counts, root_wordle_hardmode_values) = run_wordle_mcts(WordleState(), 1; 
+		topn = 10, 
+		p_scale = 100f0,
+		c = 1f0,
+		make_step_kwargs = k -> (possible_indices = test_possible_indices,),
+		π_dist! = wordle_hardmode_greedy_information_gain_prior!,
+		prior_kwargs = make_hardmode_information_gain_kwargs())
+
+# ╔═╡ d5a9ab96-beb1-4f72-b049-2795ee0c5940
+const wordle_hardmode_mdp = StateMDP(wordle_actions, wordle_transition_distribution, () -> WordleState(), isterm; is_valid_action = (s, i_a; kwargs...) -> get_possible_indices(s; baseline = nyt_valid_inds, kwargs...)[i_a])
+
+# ╔═╡ ed8472be-d0e2-4e9d-b752-fd64250e1db2
+const dontwordle_actions = [wordle_actions; UInt16(0)] #the action of 0 here represents undo
+
+# ╔═╡ 8895b0b9-9fd1-4f5d-8132-564d9fecbf3d
+begin
+	#every step will be a reward of 0 except for a win.  a win can only occur if 6 guesses are made and the final guess is not the correct word
+	scoregame(s::DontWordleState{6, N}) where N = Float32(s.guesses.feedback_list[6] != 0xf2)
+	scoregame(s::DontWordleState) = 0f0
+end
+
+# ╔═╡ 50135114-e4f8-4042-805a-05425318f55e
+begin
+	conv_dontwordle_action(a::Integer) = UInt16(a)
+	conv_dontwordle_action(word::AbstractString) = conv_guess(word)
+	conv_dontwordle_action(s::Symbol) = s == :undo ? UInt16(0) : error("not a valid action")
+end
+
+# ╔═╡ e1252197-4592-4485-8390-40253c01f6b6
+const dontwordle_transition_lookup = Dict{Tuple{DontWordleState, UInt16}, @NamedTuple{rewards::Vector{Float32}, transition_states::Vector{DontWordleState}, probabilities::Vector{Float32}}}()
+
+# ╔═╡ b0b4164d-7299-4e5d-a993-01ffafefa43b
+begin
+#produces the distribution of possible feedback and thus transition states given an afterstate
+function dontwordle_transition(s::DontWordleState{Nguess, Nundo}, a::UInt16, maxundos::Integer; possible_indices = copy(nyt_valid_inds), possible_answers = wordle_original_inds, usecache = true) where {Nguess, Nundo}
+	isterm(s) && error("Cannot transition out of terminal state")
+	usecache && haskey(dontwordle_transition_lookup, (s, a)) && return dontwordle_transition_lookup[(s, a)]
+	a == 0 && Nguess == 0 && error("No guess to undo")
+	a == 0 && Nundo == maxundos && error("No more undos left")
+	a == 0 && return (rewards = [0f0], transition_states = [DontWordleState(WordleState(s.guesses.guess_list[1:Nguess-1], s.guesses.feedback_list[1:Nguess-1]), WordleState([s.undos.guess_list; s.guesses.guess_list[Nguess]], [s.undos.feedback_list; s.guesses.feedback_list[Nguess]]))], probabilities = [1f0])
+	
+	get_possible_indices!(possible_indices, s.guesses; baseline = dontwordle_valid_inds)
+	
+	#check to see that guess is a valid hardmode guess
+	!possible_indices[a] && error("the guess $(nyt_valid_words[a]) is not one of the remaining answers for state $s") 
+
+	possible_indices .*= possible_answers
+	#check which answers are still possible including undos
+	get_possible_indices!(possible_indices, s.undos; baseline = possible_indices)
+	
+	n = sum(possible_indices)
+	rawprobabilities = SparseVector(zeros(Float32, 243))
+	
+	for answer_index in view(wordle_actions, possible_indices)
+		f = feedback_matrix[answer_index, a]
+		rawprobabilities[f+1] += 1f0
+	end
+	rawprobabilities ./= n
+	probabilities = rawprobabilities.nzval
+	transition_states = Vector{DontWordleState}(undef, length(probabilities))
+	rewards = zeros(Float32, length(probabilities))
+	new_guess_list = SVector{Nguess+1}([s.guesses.guess_list; a])
+	for (i, f) in enumerate(rawprobabilities.nzind)
+		wordle_s′ = WordleState(new_guess_list, SVector{Nguess+1}([s.guesses.feedback_list; UInt8(f-1)]))
+		s′ = DontWordleState(wordle_s′, s.undos)
+		r = scoregame(s′)
+		transition_states[i] = s′
+		rewards[i] = r
+	end
+	output = (rewards = rewards, transition_states = transition_states, probabilities = probabilities)
+	if usecache
+		dontwordle_transition_lookup[(s, a)] = output
+	end
+	return output
+end
+
+dontwordle_transition(s::DontWordleState, action, maxundos::Integer; kwargs...) = dontwordle_transition(s, conv_dontwordle_action(action))
+end
+
+# ╔═╡ c52535b6-cfbe-4207-8d7d-1787cb58c3ca
+function create_dontwordle_mdp(maxundos::Integer)
+	possible_indices = copy(nyt_valid_inds)
+	step(s::DontWordleState, i_a::Integer; kwargs...) = dontwordle_transition(s, dontwordle_actions[i_a], maxundos; kwargs...)
+	transition = StateMDPTransitionDistribution(step, DontWordleState())
+	StateMDP(dontwordle_actions, transition, () -> DontWordleState(), isterm)
+end
+
+# ╔═╡ 43ccabd2-3688-4016-88d7-29a26d46986c
+const dontwordle_mdp = create_dontwordle_mdp(2)
+
+# ╔═╡ 9a8b5ba7-45c0-4190-b047-5e9c9e10c530
+#figure out which guess we would expectc produce the largest increase in information given a state
+function eval_guess_dontwordle_score(possible_answer_inds::BitVector, valid_guess_inds::BitVector, undos_left::Integer; possible_answers = copy(wordle_actions), save_all_scores = false)
+	#number of words left that could be the true answer
+	l = sum(possible_answer_inds)
+	iszero(l) && error("No possible answers left")
+
+	#number of valid hard mode guesses left
+	lhard = sum(valid_guess_inds)
+
+	#usually the number of hard mode guesses is larger than the number of possible answers, that way we can safely make a guess that is guaranteed not to wordle.  If that is not the case meaning that there are no hard mode guesses left that couldn't also be real answers, then we should use an undo if it is available.
+	(undos_left > 0) && (lhard == l) && return (best_action = length(dontwordle_actions),)
+
+	#if only one hardmode guess is left then select that word
+	(lhard == 1) && return (best_action = findfirst(valid_guess_inds),)
+	
+	view(possible_answers, 1:l) .= view(wordle_actions, possible_answer_inds)
+
+	if save_all_scores
+		expected_entropy = zeros(Float32, lhard)
+	end
+
+	best_guess = findfirst(valid_guess_inds)
+	highest_entropy = 0f0
+	
+	if l > 1000
+		feedback_entropies = zeros(Float32, 243)
+		#iterate through all of the possible answers but calculate the entropy based on the number of hard mode guesses left
+		for (j, guess_index) in enumerate(view(wordle_actions, valid_guess_inds))
+			final_entropy = 0.0f0
+			# @fastmath @inbounds @simd for i in view(possible_answers, 1:l)
+			@fastmath @inbounds for f in 0x00:0xf2
+				n = dot(get_possible_indices(guess_index, f), valid_guess_inds)
+				feedback_entropies[f+1] = Float32(log2(n))
+			end
+			
+			@fastmath @inbounds @simd for i in view(possible_answers, 1:l)
+				f = feedback_matrix[i, guess_index]
+				final_entropy += feedback_entropies[f+1]
+			end
+	
+			final_entropy /= l
+			
+			if final_entropy > highest_entropy
+				highest_entropy = final_entropy
+				best_guess = guess_index
+			end
+	
+			if save_all_scores
+				expected_entropy[j] = final_entropy
+			end
+		end
+	else
+		for (j, guess_index) in enumerate(view(wordle_actions, valid_guess_inds))
+			final_entropy = 0.0f0
+			@fastmath @inbounds for i in 1:l
+				answer_index = possible_answers[i]
+				f = feedback_matrix[answer_index, guess_index]
+				n = dot(get_possible_indices(guess_index, f), valid_guess_inds)
+				final_entropy += Float32(log2(n))
+			end
+	
+			final_entropy /= l
+			if final_entropy > highest_entropy
+				highest_entropy = final_entropy
+				best_guess = guess_index
+			end
+	
+			if save_all_scores
+				expected_entropy[j] = final_entropy
+			end
+		end
+	end
+
+	#every word leaves only one valid guess left
+	best_guess_out = if highest_entropy == 0f0
+		if lhard == l
+			(best_action = best_guess, best_guess_entropy = 0f0)
+		else
+			best_guess = findfirst(i -> valid_guess_inds[i] && !possible_answer_inds[i], eachindex(valid_guess_inds))
+			(best_action = best_guess, best_guess_entropy = 0f0)
+		end
+	else
+		(best_action = best_guess, best_guess_entropy = highest_entropy)
+	end
+
+	!save_all_scores && return best_guess_out
+	
+	(valid_guesses = findall(valid_guess_inds), expected_entropy = expected_entropy, ranked_guess_inds = sortperm(expected_entropy, rev=true))
+end
+
+# ╔═╡ e7b49bac-0785-4311-a2e9-fa618bcf5eb7
+begin
+	const dontwordle_score_lookup = Dict{Tuple{DontWordleState, Integer}, NamedTuple}()
+	const dontwordle_full_score_lookup = Dict{Tuple{DontWordleState, Integer}, NamedTuple}()
+end
+
+# ╔═╡ db05290f-ae09-4321-9979-dda7ddb3bb18
+function eval_guess_dontwordle_score(s::DontWordleState{Nguess, Nundo}, maxundos::Integer; possible_indices = copy(nyt_valid_inds), hardmode_indices = copy(nyt_valid_inds), save_all_scores = false, kwargs...) where {Nguess, Nundo}
+	save_all_scores && haskey(dontwordle_full_score_lookup, (s, maxundos)) && return dontwordle_full_score_lookup[(s, maxundos)]
+	!save_all_scores && haskey(dontwordle_score_lookup, (s, maxundos)) && return dontwordle_score_lookup[(s, maxundos)]
+	if !save_all_scores && haskey(dontwordle_full_score_lookup, (s, maxundos))
+		output = dontwordle_full_score_lookup[(s, maxundos)]
+		length(output) == 1 && return output
+		best_guess_index = output.ranked_guess_inds[1]
+		return (best_action = output.valid_guesses[best_guess_index], best_guess_entropy = output.expected_entropy[best_guess_index])
+	end
+	get_possible_indices!(hardmode_indices, s.guesses; baseline = dontwordle_valid_inds)
+
+	get_possible_indices!(possible_indices, s.undos; baseline = hardmode_indices)
+	possible_indices .*= wordle_original_inds
+
+	undos_left = maxundos - Nundo
+	# undos_left <=1 && @info "In state $s only have $undos_left undos left"
+	output = eval_guess_dontwordle_score(possible_indices, hardmode_indices, undos_left; save_all_scores = save_all_scores, kwargs...)
+	if save_all_scores
+		dontwordle_full_score_lookup[(s, maxundos)] = output
+	else
+		dontwordle_score_lookup[(s, maxundos)] = output
+	end
+	return output
+end
+
+# ╔═╡ 70b62b2d-c833-4b58-9f86-81980d3dd06a
+function dontwordle_greedy_entropy_π(s::DontWordleState, maxundos::Integer; kwargs...)
+	score = eval_guess_dontwordle_score(s, maxundos; kwargs...)
+	score.best_action
+end
+
+# ╔═╡ f4631d73-9465-479d-828d-6924d03a6cda
+function dontwordle_greedy_entropy_state_value(s::DontWordleState, maxundos::Integer; possible_indices = copy(nyt_valid_inds), possible_answers = copy(wordle_actions), hardmode_indices = copy(nyt_valid_inds))
+	π(s) = dontwordle_greedy_entropy_π(s, maxundos; possible_indices = possible_indices, hardmode_indices = hardmode_indices, possible_answers = possible_answers)
+	distribution_rollout(dontwordle_mdp, π, 1f0; s0 = s, usethreads=false, possible_indices = possible_indices)
+end
+
+# ╔═╡ 3f73964c-c171-4759-888e-af43e53b4b2e
+function dontwordle_greedy_entropy_state_guess_value(s::DontWordleState, action_index::Int64, maxundos::Integer; possible_indices = copy(nyt_valid_inds), possible_answers = copy(wordle_actions), hardmode_indices = copy(nyt_valid_inds))
+	π(s) = dontwordle_greedy_entropy_π(s, maxundos; possible_indices = possible_indices, hardmode_indices = hardmode_indices, possible_answers = possible_answers)
+	distribution_rollout(dontwordle_mdp, π, 1f0; s0 = s, i_a0 = action_index, usethreads=false, possible_indices = possible_indices)
+end
+
+# ╔═╡ 3424be60-3f82-450e-9293-7b1f58542f7e
+const root_dontwordle_scores = eval_guess_dontwordle_score(DontWordleState(), 2; save_all_scores=true)
+
+# ╔═╡ 66baf9cc-a76c-429d-b143-f46e82134602
+const top_scoring_root_dontwordle_guesses = [(word = nyt_valid_words[i], index = i) for i in root_dontwordle_scores.ranked_guess_inds]
+
+# ╔═╡ 3b765ff5-5d48-4525-9e3b-d374815eb4c4
+# ╠═╡ show_logs = false
+# ╠═╡ disabled = true
+#=╠═╡
+const dontwordle_policy_iteration = [begin
+	guess_index = root_dontwordle_scores.ranked_guess_inds[i]
+	v = dontwordle_greedy_entropy_state_guess_value(DontWordleState(), guess_index, 5) 
+	@info "Done with guess rank $i = $(nyt_valid_words[guess_index]) with an expected value of $v"
+	(guess = nyt_valid_words[guess_index], expected_value = v, greedy_policy_rank = i, expected_entropy = root_dontwordle_scores.expected_entropy[guess_index])
+end
+for i in 1:10] |> DataFrame |> d -> sort(d, :expected_value, rev=true)
+  ╠═╡ =#
+
+# ╔═╡ e3a0438a-24cf-498e-bb38-362e678e0992
+const test_hardmode_indices = copy(nyt_valid_inds)
+
+# ╔═╡ 0cb3c137-99f4-4ec7-95c4-1ec3e1322d3d
+function dontwordle_greedy_entropy_prior!(prior::Vector{Float32}, s::DontWordleState{Nguess, Nundo}, maxundos::Integer; kwargs...) where {Nguess, Nundo}
+	output = eval_guess_dontwordle_score(s, maxundos; save_all_scores = true, possible_indices = test_possible_indices, hardmode_indices = test_hardmode_indices)
+
+	if haskey(dontwordle_full_score_lookup, (s, maxundos)) #in this case the possible indices won't be updated
+		#hardmode guesses
+		get_possible_indices!(test_hardmode_indices, s.guesses; baseline = dontwordle_valid_inds)
+		
+		#actual answer guesses
+		get_possible_indices!(test_possible_indices, s.undos; baseline = test_hardmode_indices)
+		test_possible_indices .*= wordle_original_inds
+	end
+
+	undos_left = maxundos - Nundo
+	allow_undo = (undos_left > 0) && (Nguess > 0)
+	
+	if length(output) == 1
+		# @info "in state $s there is only one likely action $(output[1])"
+		prior .= 0f0
+		prior[output[1]] = 1f0
+		return output[1]
+	else
+		valid_guesses = output.valid_guesses
+		min_score = output.expected_entropy[last(output.ranked_guess_inds)]
+		max_score = output.expected_entropy[first(output.ranked_guess_inds)]
+		
+		if max_score == min_score #in this case all of the words likely only leave one valid answer
+			num_answer = sum(test_possible_indices)
+			num_guess = sum(test_hardmode_indices)
+			prior[end] = Float32(allow_undo)
+			if num_answer == num_guess
+				# @info "hard mode words: $(nyt_valid_words[test_hardmode_indices])"
+				view(prior, 1:(length(prior) - 1)) .= test_hardmode_indices #select from among the valid hard mode guesses
+				allow_undo && return length(dontwordle_actions)
+			else
+				# @info "hard mode words: $(nyt_valid_words[test_hardmode_indices])"
+				view(prior, 1:(length(prior) - 1)) .= (test_hardmode_indices .- test_possible_indices) #select from among the valid hard mode guesses that are also not answers
+			end
+			return findfirst(isone, prior)
+		else
+			guess_scores = output.expected_entropy
+			prior .= 0f0
+			prior[end] = max_score*Float32(allow_undo)
+			view(prior, valid_guesses) .= guess_scores .- min_score
+			return valid_guesses[first(output.ranked_guess_inds)]
+		end
+	end
+end
+
+# ╔═╡ af66fab5-3921-4fdf-9820-ca6ad5a21769
+function run_dontwordle_mcts(s::DontWordleState, maxundos::Integer, nsims::Integer; π_dist! = (prior, s; kwargs...) -> dontwordle_greedy_entropy_prior!(prior, s, maxundos; kwargs...), topn = 10, p_scale = 100f0, mdp = dontwordle_mdp, kwargs...)
+	possible_indices = copy(nyt_valid_inds)
+	possible_answers = copy(wordle_actions)
+	(mcts_guess, visit_counts, values) = monte_carlo_tree_search(mdp, 1f0, s, π_dist!, p_scale, topn; nsims = nsims, compute_max_value = s -> 1f0, sim_message=true, kwargs...)
+	return (visit_counts, values)
+end
+
+# ╔═╡ 773f6fa9-8b07-40ad-9c01-cf1a27ceeca8
 #=╠═╡
 md"""
-### Wordle Hard Mode MCTS
+### Don'twordle MCTS
 """
   ╠═╡ =#
+
+# ╔═╡ 2a125dec-d4bb-4214-bec8-db95821a6d45
+const (dontwordle_root_visits, dontwordle_root_values) = run_dontwordle_mcts(DontWordleState(), 2, 1)
+
+# ╔═╡ 1919ceb3-31aa-49f0-929d-3faa034e2f63
+function show_dontwordle_mcts_guesses(visit_counts::Dict, values::Dict, s::DontWordleState; maxundos = 2, kwargs...)
+	if !haskey(visit_counts, s)
+		(visit_counts, values) = run_dontwordle_mcts(DontWordleState(), maxundos, 100)
+	end
+	inds = visit_counts[s].nzind
+	scores = eval_guess_dontwordle_score(s, maxundos; save_all_scores=true)
+	length(scores) == 1 && return [nyt_valid_words; "undo action"][scores.best_action]
+	valid_guesses = scores.valid_guesses
+	policy_rank_lookup = Dict(valid_guesses[scores.ranked_guess_inds[i]] => i for i in eachindex(scores.ranked_guess_inds))
+	undoind = length(dontwordle_actions)
+	ranked_guesses = sort([(word = i == undoind ? "undo action" : nyt_valid_words[i], visits = round(Int64, visit_counts[s][i]), values = values[s][i], policy_rank = i == undoind ? nothing : policy_rank_lookup[i]) for i in inds]; by = t -> t.values, rev=true)
+	DataFrame(ranked_guesses)
+end
+
+# ╔═╡ b28792a8-319a-4b16-9f8d-eec2c4b4be49
+function dontwordle_greedy_excludeguess_prior!(prior::Vector{Float32}, s::DontWordleState; exclude_guess_indices = [12221, 12472],maxundos = 5, kwargs...)
+	action = dontwordle_greedy_entropy_prior!(prior, s, maxundos; kwargs...)
+	prior[exclude_guess_indices] .= 0f0
+	if iszero(sum(prior))
+		inds = get_possible_indices(s.guesses; baseline = nyt_valid_inds)
+		view(prior, 1:length(nyt_valid_inds)) .= inds
+		prior[exclude_guess_indices] .= 0f0
+	end
+	return argmax(prior)
+end
+
+# ╔═╡ 5c40b6c3-3638-4c26-9e74-235a6cb90078
+#=╠═╡
+md"""
+### Don't Wordle New Test State
+"""
+  ╠═╡ =#
+
+# ╔═╡ bb131186-d25c-465a-9c55-46dc2a2f0256
+#=╠═╡
+md"""
+### One Undo Variation
+"""
+  ╠═╡ =#
+
+# ╔═╡ 1817dd59-2cbd-4704-88dd-e3ec761c9163
+const dontwordle_oneundo_mdp = create_dontwordle_mdp(1)
+
+# ╔═╡ 98ea8bac-11a6-4e52-a197-47b190a306a6
+const (dontwordle_oneundo_root_visits, dontwordle_oneundo_root_values) = run_dontwordle_mcts(DontWordleState(), 1, 1; mdp = dontwordle_oneundo_mdp)
+
+# ╔═╡ 955df8dd-a52b-4df9-a941-799a9e7d2d27
+#=╠═╡
+md"""
+### No Undo Variation
+"""
+  ╠═╡ =#
+
+# ╔═╡ a7dfa2f2-724a-40c0-94dc-0aeeba6c40ac
+const dontwordle_noundo_mdp = create_dontwordle_mdp(0)
+
+# ╔═╡ 510e77ba-ac46-475d-a7e1-a734e31f4bcc
+const (dontwordle_noundo_root_visits, dontwordle_noundo_root_values) = run_dontwordle_mcts(DontWordleState(), 0, 1; mdp = dontwordle_noundo_mdp, c = 1f0)
+
+# ╔═╡ 17daab93-b3ad-4eea-a032-05e61b2fb690
+#=╠═╡
+md"""
+## Absurdle Environment
+
+Absurdle is a deterministic version of wordle where the feedback for a guess is always the least informative with respect to the list of possible answers.  When the game starts, the list of original wordle answers is possible.  Once a guess is made, all of the potential feedback values are considered.  Each feedback results in a new state with a subset of the original possible answers.  The game will always select the feedback which keeps this value as large as possible.
+"""
+  ╠═╡ =#
+
+# ╔═╡ 72ec3834-da5d-4986-84d2-fc5047719aa5
+function get_absurdle_feedback(possible_answer_inds::BitVector, guess_index::Integer)
+	highest_n = 0
+	feedback = 0x00
+	@fastmath @inbounds @simd for f in 0x00:0xf2
+		n = dot(get_possible_indices(guess_index, f), possible_answer_inds)
+		new_high = (n > highest_n)
+		feedback = (feedback * !new_high) + (f*new_high)
+		highest_n = (highest_n * !new_high) + (n*new_high)
+	end
+	return feedback, highest_n
+end
+
+# ╔═╡ 7f60a260-b073-414a-8f4a-ead768ca2b16
+const absurdle_feedback_lookup = Dict{Tuple{WordleState, Int64}, Tuple{UInt8, Int64}}()
+
+# ╔═╡ 711bc605-7b7e-4fc8-9eec-c5afada0c0cd
+const absurdle_test_possible_indices = copy(nyt_valid_inds)
+
+# ╔═╡ fa50ef5e-6f9f-42c6-9d04-fc7512c59bd9
+function get_absurdle_feedback(s::WordleState, guess_index::Integer; usecache = true, possible_indices = absurdle_test_possible_indices)
+	usecache && haskey(absurdle_feedback_lookup, (s, Int64(guess_index))) && return absurdle_feedback_lookup[(s, Int64(guess_index))]
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	output = get_absurdle_feedback(possible_indices, guess_index)
+	if usecache
+		absurdle_feedback_lookup[(s, Int64(guess_index))] = output
+	end
+	return output
+end
+
+# ╔═╡ 365f112b-8754-4cb3-8521-51d87f8820bd
+function absurdle_prior!(information_gain::Vector{Float32}, s::WordleState; possible_indices = absurdle_test_possible_indices)
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	base_n = sum(possible_indices)
+	starting_entropy = log2(base_n)
+	winning_guess = 0
+	best_guess = 1
+	lowest_entropy = typemax(Float32)
+	for i in eachindex(information_gain)
+		(feedback, highest_n) = if haskey(absurdle_feedback_lookup, (s, i))
+			absurdle_feedback_lookup[(s, i)]
+		else
+			get_absurdle_feedback(possible_indices, i)
+		end
+		if feedback == 0xf2
+			information_gain .= 0f0
+			information_gain[i] = 1f0
+			best_guess = i
+			break
+		end
+		final_entropy = log2(highest_n)
+		if final_entropy < lowest_entropy
+			best_guess = i
+			lowest_entropy = final_entropy
+		end
+		information_gain[i] = Float32(starting_entropy - final_entropy)
+	end
+	return best_guess
+end
+
+# ╔═╡ 2d8ad341-f825-42a9-b796-07a0184f8a89
+function absurdle_transition(s::WordleState{N}, guess_index::Int64; kwargs...) where N
+	(feedback, n) = get_absurdle_feedback(s, guess_index; kwargs...)
+	s′ = WordleState([s.guess_list; UInt16(guess_index)], [s.feedback_list; feedback])
+	win = feedback == 0xf2
+	score = -1f0
+	probabilities = [1f0]
+	states = [s′]
+	rewards = [score]
+	return (rewards, states, probabilities)
+end
+
+# ╔═╡ b4b39f69-7c0d-438e-98eb-c07863c8b7e8
+const absurdle_transition_distribution = StateMDPTransitionDistribution(absurdle_transition, WordleState())
+
+# ╔═╡ 122e878c-75ad-40ef-9061-004acb7a301a
+begin
+	absurdle_isterm(s::WordleState{0}) = false
+	absurdle_isterm(s::WordleState{N}) where N = s.feedback_list[N] == 0xf2
+end
+
+# ╔═╡ b7c1aee0-bff2-4440-a386-41f83809ee9f
+const absurdle_mdp = StateMDP(wordle_actions, absurdle_transition_distribution, () -> WordleState(), absurdle_isterm)
+
+# ╔═╡ 0a05e6da-1965-4803-b5f9-1816076b7ee3
+function rank_absurdle_guesses(s::WordleState{N}; save_all_scores = false, kwargs...) where N
+	if save_all_scores
+		l = length(wordle_actions)
+		scores = Vector{Float32}(undef, l)
+		feedbacks = Vector{UInt8}(undef, l)
+		counts = Vector{Int64}(undef, l)
+	end
+	best_guess_index = first(wordle_actions)
+	best_score = 0f0
+	@inbounds @simd for guess_index in wordle_actions
+		(feedback, n) = get_absurdle_feedback(s, guess_index; kwargs...)
+		win = (feedback == 0xf2)
+		entropy = log2(n)
+		information_gain = wordle_original_entropy - entropy
+		score = information_gain / (N + 2 - win) #always rank winning guesses higher than others even if final entropy is 0
+		newbest = (score > best_score)
+		best_score = (best_score * !newbest) + (score*newbest)
+		best_guess_index = (best_guess_index * !newbest) + (guess_index*newbest)
+
+		if save_all_scores
+			scores[guess_index] = score
+			feedbacks[guess_index] = feedback
+			counts[guess_index] = n
+		end
+	end
+
+	simple_output = (best_guess = best_guess_index, best_score = best_score)
+	!save_all_scores && return simple_output
+	return (;simple_output..., best_score = best_score, guess_scores = scores, guess_feedback = feedbacks, guess_remaining_counts = counts)
+end
+
+# ╔═╡ 5503dee5-32c5-4c11-b761-921fab0fb1bb
+function rank_absurdle_guesses!(scores::Vector{Float32}, s::WordleState{N}; kwargs...) where N
+	best_guess_index = first(wordle_actions)
+	best_score = 0f0
+	@inbounds @simd for guess_index in wordle_actions
+		(feedback, n) = get_absurdle_feedback(s, guess_index; kwargs...)
+		win = (feedback == 0xf2)
+		entropy = log2(n)
+		information_gain = wordle_original_entropy - entropy
+		score = information_gain / (N + 1 - win) #always rank winning guesses higher than others even if final entropy is 0
+		newbest = (score > best_score)
+		best_score = (best_score * !newbest) + (score*newbest)
+		best_guess_index = (best_guess_index * !newbest) + (guess_index*newbest)
+		scores[guess_index] = score
+	end
+
+	(best_guess = best_guess_index, best_score = best_score, guess_scores = scores)
+end
+
+# ╔═╡ 54e18f37-7dfc-4c81-9893-344331b32dd7
+const absurdle_scores = zeros(Float32, length(nyt_valid_inds))
+
+# ╔═╡ 9153e796-3185-48fc-bff6-f07078bdfc14
+function absurdle_greedy_policy(s::WordleState; absurdle_scores = absurdle_scores, kwargs...)
+	# output = rank_absurdle_guesses(s; kwargs...)
+	# return Int64(output.best_guess)
+	absurdle_prior!(absurdle_scores, s; kwargs...)
+end
+
+# ╔═╡ 3153a447-9f56-42a2-aa19-95e8a230ac22
+#=╠═╡
+md"""
+### Absurdle MCTS
+"""
+  ╠═╡ =#
+
+# ╔═╡ 9101a345-650e-42c6-93d0-515f92f5c72f
+function absurdle_greedy_prior!(prior::Vector{Float32}, s::WordleState; kwargs...)
+	output = rank_absurdle_guesses!(prior, s; kwargs...)
+	return Int64(output.best_guess)
+end
+
+# ╔═╡ eb2afee9-6c33-4e66-99eb-0899dedaa2a6
+function absurdle_uniform_prior!(prior::Vector{Float32}, s::WordleState; possible_indices = absurdle_test_possible_indices)
+	prior .= 1f0
+	get_possible_indices!(possible_indices, s; baseline = wordle_original_inds)
+	return findfirst(possible_indices)
+end
+
+# ╔═╡ ff70b9ad-18e5-4b9f-ade4-888de0fbbc5d
+function run_absurdle_mcts(s::WordleState, nsims::Integer; π_dist! = absurdle_prior!, topn = 10, p_scale = 100f0, mdp = absurdle_mdp, kwargs...)
+	(mcts_guess, visit_counts, values) = monte_carlo_tree_search(mdp, 1f0, s, π_dist!, p_scale, topn; nsims = nsims, sim_message=true, kwargs...)
+	return (visit_counts, values)
+end
+
+# ╔═╡ 66bb9ca5-93b1-4bec-8eb7-5581c44b56cd
+const (absurdle_root_visits, absurdle_root_values) = run_absurdle_mcts(WordleState(), 1; π_dist! = absurdle_greedy_prior!)
+
+# ╔═╡ 526d423e-c65a-49fd-b15b-e4598254af93
+function show_absurdle_mcts_guesses(visit_counts::Dict, values::Dict, s::WordleState)
+	inds = visit_counts[s].nzind
+	output = rank_absurdle_guesses(s; save_all_scores=true)
+	ranked_guess_inds = sortperm(output.guess_scores; rev=true)
+	policy_rank_lookup = Dict(zip(ranked_guess_inds, eachindex(ranked_guess_inds)))
+	ranked_guesses = sort([(word = nyt_valid_words[i], expected_turns =  -values[s][i], visits = visit_counts[s][i], expected_value = values[s][i], policy_rank = policy_rank_lookup[i]) for i in inds]; by = t -> t.expected_value, rev=true)
+	DataFrame(ranked_guesses)
+end
 
 # ╔═╡ aaf516b5-f982-44c3-bcae-14d46ad72e82
 #=╠═╡
@@ -4351,6 +18390,9 @@ md"""
 ## Playable Game Element
 """
   ╠═╡ =#
+
+# ╔═╡ 014696a0-0568-4944-ad2f-1811b726b2ee
+sample_answer() = rand(wordle_original_answers)
 
 # ╔═╡ bab1c451-bf1b-495c-9448-0be284063733
 mapreduce(add_elements, 1:5) do nrows
@@ -5185,11 +19227,6 @@ end |> confirm
 const new_test_state = WordleState(new_test_state_raw.state.guesses, new_test_state_raw.state.feedback)
   ╠═╡ =#
 
-# ╔═╡ 8efb0ddc-b86e-4682-bb35-6ae6c9cfa20e
-#=╠═╡
-eval_guess_information_gain(new_test_state)
-  ╠═╡ =#
-
 # ╔═╡ 9f9b8db2-7c74-49f0-b067-bb6aa433fbe0
 #=╠═╡
 md"""Show Only Hard Mode Guesses: $(@bind filter_hard CheckBox())"""
@@ -5214,6 +19251,7 @@ end
 @bind root_mcts_params PlutoUI.combine() do Child
 	md"""
 	Top N for Prior Sampling: $(Child(:topn, NumberField(1:1000, default = 10)))
+	Exploration Constant: $(Child(:c, NumberField(1f0:0.001f0:100f0, default = 1f0)))
 	Number of Simulations: $(Child(:nsims, NumberField(1:100_000, default = 100)))
 	"""
 end |> confirm
@@ -5222,20 +19260,39 @@ end |> confirm
 # ╔═╡ a6c2eb9a-32cb-4343-8e40-fa2b27d4d792
 #=╠═╡
 if run_root_mcts > 0
-	monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_greedy_information_gain_prior!, 100f0, root_mcts_params.topn;
-		nsims = root_mcts_params.nsims,
+	run_wordle_mcts(WordleState(), root_mcts_params.nsims; 
+		topn = root_mcts_params.topn, 
+		p_scale = 100f0, 
 		sim_message = true,
-		visit_counts = mcts_output[2],
-		Q = mcts_output[3],
-		make_step_kwargs = k -> (possible_indices = test_possible_indices,)
-		)
-	show_wordle_mcts_guesses(mcts_output[2], mcts_output[3], WordleState())
+		c = root_mcts_params.c, 
+		visit_counts = root_wordle_visit_counts,
+		Q = root_wordle_values,
+		make_step_kwargs = k -> (possible_indices = test_possible_indices,))
+	show_wordle_mcts_guesses(root_wordle_visit_counts, root_wordle_values, WordleState())
 else
 	md"""
 	Showing preliminary results for 1 run.  Waiting to run MCTS for $(root_mcts_params.nsims) simulations
 	
-	$(show_wordle_mcts_guesses(mcts_output[2], mcts_output[3], WordleState()))
+	$(show_wordle_mcts_guesses(root_wordle_visit_counts, root_wordle_values, WordleState()))
 	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 57d62f1e-6213-4328-94ac-b4b3126ddd5b
+#=╠═╡
+begin
+	root_mcts_params
+	run_root_mcts
+	compare_wordle_polices_over_answers(WordleState(), wordle_greedy_information_gain_π, wordle_root_tree_policy) |> display_policy_compare |> df -> sort(df, "policy2_improvement")
+end
+  ╠═╡ =#
+
+# ╔═╡ 28b733b6-3989-493a-a00d-24c48da6b338
+#=╠═╡
+begin
+	root_mcts_params
+	run_root_mcts
+	compare_wordle_polices_over_answers(new_test_state, wordle_greedy_information_gain_π, wordle_root_tree_policy) |> display_policy_compare |> df -> sort(df, "policy2_improvement")
 end
   ╠═╡ =#
 
@@ -5243,8 +19300,9 @@ end
 #=╠═╡
 begin 
 	root_mcts_params
-	visited_guesses = mcts_output[2][WordleState()].nzind
-	ranked_visited_inds = sortperm(mcts_output[3][WordleState()][visited_guesses]; rev=true)
+	run_root_mcts
+	visited_guesses = root_wordle_visit_counts[WordleState()].nzind
+	ranked_visited_inds = sortperm(root_wordle_values[WordleState()][visited_guesses]; rev=true)
 	md"""Select a root guess to explore: $(@bind root_guess Select([nyt_valid_words[i] for i in visited_guesses[ranked_visited_inds]]))"""
 end
   ╠═╡ =#
@@ -5267,6 +19325,11 @@ const ranked_transition_states = Dict(zip(root_transitions.transition_states[ran
 # ╔═╡ e610c03c-4bd9-40e1-a019-87c4fce39602
 #=╠═╡
 md"""Select transition state: $(@bind explore_state Select([a[2] => string(a[1]) for a in zip(eachindex(ranked_transition_inds), root_transitions.transition_states[ranked_transition_inds])]))"""
+  ╠═╡ =#
+
+# ╔═╡ 11fba9cf-1094-4deb-8e1a-ddd781314aa9
+#=╠═╡
+compare_wordle_polices_over_answers(explore_state, wordle_greedy_information_gain_π, wordle_root_tree_policy) |> display_policy_compare |> df -> sort(df, "policy2_improvement")
   ╠═╡ =#
 
 # ╔═╡ caaeeaee-94b7-498d-a746-a2c5c7177347
@@ -5320,26 +19383,6 @@ end
 	Number of Simulations: $(Child(:nsims, NumberField(1:100_000, default = 100)))
 	"""
 end |> confirm
-  ╠═╡ =#
-
-# ╔═╡ 8a9ed8ec-10b6-43e8-bb9a-e8eba96f3ea0
-#=╠═╡
-if run_root_guess_candidate_mcts > 0
-	monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_root_candidate_greedy_information_gain_prior!, 100f0, root_guess_candidate_mcts_params.topn;
-		nsims = root_guess_candidate_mcts_params.nsims,
-		sim_message = true,
-		visit_counts = root_guess_candidate_visits,
-		Q = root_guess_candidate_values,
-		make_step_kwargs = k -> (possible_indices = test_possible_indices,)
-		)
-	show_wordle_mcts_guesses(root_guess_candidate_visits, root_guess_candidate_values, WordleState())
-else
-	md"""
-	Showing preliminary results for 1 run.  Waiting to run MCTS for $(root_guess_candidate_mcts_params.nsims) simulations
-	
-	$(show_wordle_mcts_guesses(root_guess_candidate_visits, root_guess_candidate_values, WordleState()))
-	"""
-end
   ╠═╡ =#
 
 # ╔═╡ 12126ca1-b728-4a91-bc53-f0dacd412265
@@ -5409,12 +19452,27 @@ end
 
 # ╔═╡ bd37635d-5f92-4fe4-9245-44a4019fcd54
 #=╠═╡
-@bind run_new_state_mcts CounterButton("Evaluate new state")
+begin
+	new_test_state
+	@bind run_new_state_mcts CounterButton("Evaluate new state")
+end
   ╠═╡ =#
 
 # ╔═╡ 9f132408-31f3-4ad3-a486-f6a94b276f32
 #=╠═╡
-md"""Request additional simulations: $(@bind new_state_num_sims confirm(NumberField(0:10_000, default = 0)))"""
+begin
+	new_test_state
+	md"""Request additional simulations: $(@bind new_state_num_sims confirm(NumberField(0:10_000, default = 0)))"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 0a4ac51e-ab8f-467f-9281-691023af400a
+#=╠═╡
+begin
+	visited_new_guesses = root_wordle_visit_counts[new_test_state].nzind
+	ranked_new_visited_inds = sortperm(root_wordle_values[new_test_state][visited_new_guesses]; rev=true)
+	md"""Select a guess to explore: $(@bind candidate_guess Select([nyt_valid_words[i] for i in visited_new_guesses[ranked_new_visited_inds]]))"""
+end
   ╠═╡ =#
 
 # ╔═╡ f82f878f-0dfb-4d87-94ff-1b5564e30f5c
@@ -5432,33 +19490,148 @@ md"""Request additional simulations: $(@bind new_state_num_sims confirm(NumberFi
 end |> confirm
   ╠═╡ =#
 
-# ╔═╡ 5e42c44e-4fb8-4b50-baeb-da7bafdf83e6
-# ╠═╡ show_logs = false
-#=╠═╡
-const mcts_hardmode_output = monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_hardmode_greedy_information_gain_prior!, 100f0, root_hardmode_mcts_params.topn; 
-	nsims = 1, 
-	sim_message = true, 
-	)
-  ╠═╡ =#
-
 # ╔═╡ 5724fed9-8f1e-4fad-b631-88fe86354e14
 #=╠═╡
 if run_hardmode_root_mcts > 0
-	monte_carlo_tree_search(wordle_mdp, 1f0, WordleState(), wordle_hardmode_greedy_information_gain_prior!, 100f0, root_hardmode_mcts_params.topn;
-		nsims = root_hardmode_mcts_params.nsims,
+	run_wordle_mcts(WordleState(), root_hardmode_mcts_params.nsims; 
+		topn = 10, 
+		p_scale = 100f0, 
 		sim_message = true,
-		visit_counts = mcts_hardmode_output[2],
-		Q = mcts_hardmode_output[3],
-		make_step_kwargs = k -> (possible_indices = test_possible_indices,)
-		)
-	show_wordle_mcts_guesses(mcts_hardmode_output[2], mcts_hardmode_output[3], WordleState(); calc_guess_value = wordle_hardmode_greedy_information_gain_guess_value)
+		c = 1f0, 
+		visit_counts = root_wordle_hardmode_visit_counts,
+		Q = root_wordle_hardmode_values,
+		make_step_kwargs = k -> (possible_indices = test_possible_indices,),
+		π_dist! = wordle_hardmode_greedy_information_gain_prior!,
+		prior_kwargs = make_hardmode_information_gain_kwargs())
+	show_wordle_mcts_guesses(root_wordle_hardmode_visit_counts, root_wordle_hardmode_values, WordleState(); calc_guess_value = wordle_hardmode_greedy_information_gain_guess_value)
 else
 	md"""
 	Showing preliminary results for 1 run.  Waiting to run MCTS for $(root_hardmode_mcts_params.nsims) simulations
 	
-	$(show_wordle_mcts_guesses(mcts_hardmode_output[2], mcts_hardmode_output[3], WordleState(); calc_guess_value = wordle_hardmode_greedy_information_gain_guess_value))
+	$(show_wordle_mcts_guesses(root_wordle_hardmode_visit_counts, root_wordle_hardmode_values, WordleState(); calc_guess_value = wordle_hardmode_greedy_information_gain_guess_value))
 	"""
 end
+  ╠═╡ =#
+
+# ╔═╡ f1166557-4073-4d82-b4c0-db7189e7b381
+#=╠═╡
+@bind run_button_dontwordle_mcts CounterButton("Run Dontwordle MCTS")
+  ╠═╡ =#
+
+# ╔═╡ 9fef413d-773a-432f-a3e0-780ec1431c1c
+#=╠═╡
+if run_button_dontwordle_mcts > 0
+	run_dontwordle_mcts(DontWordleState(), 2, 1_000; visit_counts = dontwordle_root_visits, Q = dontwordle_root_values, c = 2f0)
+	show_dontwordle_mcts_guesses(dontwordle_root_visits, dontwordle_root_values, DontWordleState())
+end
+  ╠═╡ =#
+
+# ╔═╡ aec20c62-092a-4778-a9ed-4a7aacd24d50
+#=╠═╡
+@bind new_dontwordle_test_state_raw PlutoUI.combine() do Child
+	md"""
+	Number of Guesses to Evaluate: $(Child(:num_evals, NumberField(1:10000, default = 10)))
+	
+	$(Child(:state, WordleGameInput()))
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ c715ce58-caf3-4fe3-b01f-60cc29dff1af
+#=╠═╡
+const test_dontwordle_state = DontWordleState(WordleState(new_dontwordle_test_state_raw.state.guesses, new_dontwordle_test_state_raw.state.feedback), new_dontwordle_test_state_raw.state.undos |> isempty ? WordleState() : WordleState([a[1] for a in new_dontwordle_test_state_raw.state.undos], [a[2] for a in new_dontwordle_test_state_raw.state.undos]))
+  ╠═╡ =#
+
+# ╔═╡ a03295ca-646b-4548-ac62-c6e7a8b4b54d
+#=╠═╡
+function show_dontwordle_guess_scores(s::DontWordleState, maxundos::Integer)
+	output = eval_guess_dontwordle_score(test_dontwordle_state, maxundos; save_all_scores = true)
+	ranked_guess_inds = output.valid_guesses[output.ranked_guess_inds]
+	ranked_entropies = output.expected_entropy[output.ranked_guess_inds]
+	[(word = nyt_valid_words[ranked_guess_inds[i]], expected_entropy = ranked_entropies[i], expected_words_left = 2^(ranked_entropies[i])) for i in eachindex(ranked_guess_inds)] |> DataFrame
+end
+  ╠═╡ =#
+
+# ╔═╡ 3e2e41f9-95b5-4eaa-81a6-3a9669a55c1a
+#=╠═╡
+@bind run_button_oneundo_dontwordle_mcts CounterButton("Run Dontwordle MCTS with One Undos")
+  ╠═╡ =#
+
+# ╔═╡ 789f5070-dd89-4884-9d7c-6c08843c5711
+#=╠═╡
+if run_button_oneundo_dontwordle_mcts > 0
+	run_dontwordle_mcts(DontWordleState(), 1, 100_000; visit_counts = dontwordle_oneundo_root_visits, Q = dontwordle_oneundo_root_values, mdp = dontwordle_oneundo_mdp, c = 1f0)
+	show_dontwordle_mcts_guesses(dontwordle_oneundo_root_visits, dontwordle_oneundo_root_values, DontWordleState(); maxundos = 1)
+else
+	show_dontwordle_mcts_guesses(dontwordle_oneundo_root_visits, dontwordle_oneundo_root_values, DontWordleState(); maxundos = 1)
+end
+  ╠═╡ =#
+
+# ╔═╡ 79a43e2d-e34d-4821-b8e3-bbe4aa33cca0
+#=╠═╡
+@bind run_button_noundo_dontwordle_mcts CounterButton("Run Dontwordle MCTS with No Undos")
+  ╠═╡ =#
+
+# ╔═╡ c52a6849-8201-4153-99c0-c46c43622958
+#=╠═╡
+if run_button_noundo_dontwordle_mcts > 0
+	run_dontwordle_mcts(DontWordleState(), 0, 100_000; visit_counts = dontwordle_noundo_root_visits, Q = dontwordle_noundo_root_values, mdp = dontwordle_noundo_mdp, c = 1f0)
+	show_dontwordle_mcts_guesses(dontwordle_noundo_root_visits, dontwordle_noundo_root_values, DontWordleState(); maxundos = 0)
+else
+	show_dontwordle_mcts_guesses(dontwordle_noundo_root_visits, dontwordle_noundo_root_values, DontWordleState(); maxundos = 0)
+end
+  ╠═╡ =#
+
+# ╔═╡ 5cb34251-a56e-4002-8e25-35932996502a
+#=╠═╡
+@bind run_button_absurdle_mcts CounterButton("Run Absurdle MCTS from Root State")
+  ╠═╡ =#
+
+# ╔═╡ 3e16c985-37e6-49e1-9561-21c79552425c
+#=╠═╡
+if run_button_absurdle_mcts > 0
+	run_absurdle_mcts(WordleState(), 10; visit_counts = absurdle_root_visits, Q = absurdle_root_values, p_scale = 100f0, topn = 10, c = 1f0, π_dist! = absurdle_greedy_prior!)
+	show_absurdle_mcts_guesses(absurdle_root_visits, absurdle_root_values, WordleState())
+else
+	show_absurdle_mcts_guesses(absurdle_root_visits, absurdle_root_values, WordleState())
+end
+  ╠═╡ =#
+
+# ╔═╡ f22fb00d-37f0-4a83-bf60-048b936bf04d
+#=╠═╡
+@bind absurdle_test_state_raw PlutoUI.combine() do Child
+	md"""
+	$(Child(:state, WordleGameInput()))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 6c532310-1f80-419a-a74b-7814bad6a354
+#=╠═╡
+const absurdle_test_state = WordleState(absurdle_test_state_raw.state.guesses, absurdle_test_state_raw.state.feedback)
+  ╠═╡ =#
+
+# ╔═╡ a79b430a-84d7-4253-bfc5-ffb200b98767
+#=╠═╡
+begin
+	run_button_absurdle_mcts
+	absurdle_answers_left = get_possible_indices(absurdle_test_state; baseline = nyt_valid_inds)
+	if haskey(absurdle_root_visits, absurdle_test_state)
+		show_absurdle_mcts_guesses(absurdle_root_visits, absurdle_root_values, absurdle_test_state)
+	else
+		nyt_valid_words[absurdle_answers_left]
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ 729ef5f5-1538-48dc-b028-2bb112921fb2
+#=╠═╡
+@bind testgame WordleGame()
+  ╠═╡ =#
+
+# ╔═╡ 8d328017-7f7a-45d0-90bc-77ddd036101f
+#=╠═╡
+testgame
   ╠═╡ =#
 
 # ╔═╡ d7b0a4ba-ba18-41ad-ade3-dde119f08a13
@@ -5606,28 +19779,137 @@ Base.show(s::WordleState; kwargs...) = show_wordle_game(s; sizepct = 20, truncat
 # ╔═╡ 052913b1-1f6f-49b6-bf4d-cefef430fea9
 Base.display(s::WordleState; kwargs...) = show_wordle_game(s; sizepct = 20, truncate = true, kwargs...)
 
-# ╔═╡ 3db1f32f-372c-44c3-9bde-915ce823de44
+# ╔═╡ 2ae69afa-42e5-4c3e-ada0-a71cb288dfb0
 #=╠═╡
-[(i, display(s)) for (i, s) in enumerate(root_transitions.transition_states[ranked_transition_inds])]
+function display_word_groups(s::WordleState, π::Function)
+	word_group_analysis = analyze_wordle_policy_over_answers(s, π)
+	@htl("""
+	<div style = "font: 2em bold;">Starting State</div>
+	$(display(s))
+	<hr>
+	<div style = "display: flex;">
+	<div style = "width: 7em;">Number of Turns</div>
+	<div style = "width: 8em;">Remaining Answers</div>
+	<div style = "width: 50em;">Answer Words</div>
+	</div>
+	<hr>
+	$(HTML(mapreduce(i -> display_word_group(i, word_group_analysis[i]), add_elements, 1:6)))
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 6abd318a-9c0b-457e-aac2-c70a580c66cd
+#=╠═╡
+display_word_groups(explore_state, wordle_greedy_information_gain_π)
+  ╠═╡ =#
+
+# ╔═╡ e08de788-8947-4882-ae51-f7cbb0daa83b
+#=╠═╡
+display_word_groups(explore_state, wordle_root_tree_policy)
+  ╠═╡ =#
+
+# ╔═╡ 2c1a68f8-19e7-4224-8c26-0f5704b07389
+#=╠═╡
+@htl("""
+<div style = "height: 600px;">
+$(HTML(mapreduce(add_elements, setdiff(1:length(ranked_transition_inds), [ranked_transition_states[k] for k in filter(isterm, keys(ranked_transition_states))])) do rank
+	i = ranked_transition_inds[rank]
+	p = root_transitions.probabilities[i]
+	s = root_transitions.transition_states[i]
+	possible_indices = get_possible_indices(s)
+	l = sum(possible_indices)
+	policy_value = wordle_greedy_information_gain_state_value(s; possible_indices = possible_indices)
+	tree_value = maximum(root_wordle_values[s][i] for i in root_wordle_visit_counts[s].nzind)
+	maximum_value = maximum_possible_score(s; possible_indices = possible_indices)
+	possible_improvement = maximum_value - policy_value
+	if possible_improvement < 1f-5
+		possible_improvement = 0f0
+	end
+	tree_improvement = tree_value - policy_value
+	"""
+	<div style = "display: flex;">
+	<div style = "width: 4em;">$rank</div>
+	<div style = "width: 10em;">$(display(s).content)</div>
+	<div style = "width: 6em;">$l</div>
+	<div style = "width: 6em;">$(round(Int64, sum(root_wordle_visit_counts[s]) / l))</div>
+	<div style = "width: 6em;">$(round(-tree_value; sigdigits = 3))</div>
+	<div style = "width: 6em;">$(round(-policy_value; sigdigits = 3))</div>
+	<div style = "width: 6em;">$(round(-maximum_value; sigdigits = 3))</div>
+	<div style = "width: 7em;">$(round(possible_improvement; sigdigits = 3))</div>
+	<div style = "width: 7em;">$(round(tree_improvement; sigdigits = 3))</div>
+	<div style = "width: $(round(1000*p))px; background-color: blue; border: 1px solid black;">$(round(p*100; sigdigits = 2))</div>
+	</div>
+	"""
+end))
+</div>
+""")
+  ╠═╡ =#
+
+# ╔═╡ a00b4f9b-eb74-4fa1-bc70-a97844b59022
+#=╠═╡
+function display_transition_states(s::WordleState, guess_candidate::Integer)
+	transitions = wordle_transition(s, guess_candidate)
+	ranked_transition_inds = sortperm(transitions.probabilities; rev=true)
+	ranked_transition_states = Dict(zip(transitions.transition_states[ranked_transition_inds], eachindex(transitions.probabilities)))
+	@htl("""
+	<div style = "height: 600px;">
+	$(HTML(mapreduce(add_elements, setdiff(1:length(ranked_transition_inds), [ranked_transition_states[k] for k in filter(isterm, keys(ranked_transition_states))])) do rank
+		i = ranked_transition_inds[rank]
+		p = transitions.probabilities[i]
+		s = transitions.transition_states[i]
+		possible_indices = get_possible_indices(s)
+		l = sum(possible_indices)
+		policy_value = wordle_greedy_information_gain_state_value(s; possible_indices = possible_indices)
+		tree_value = maximum(root_wordle_values[s][i] for i in root_wordle_visit_counts[s].nzind)
+		maximum_value = maximum_possible_score(s; possible_indices = possible_indices)
+		possible_improvement = maximum_value - policy_value
+		if possible_improvement < 1f-5
+			possible_improvement = 0f0
+		end
+		tree_improvement = tree_value - policy_value
+		"""
+		<div style = "display: flex;">
+		<div style = "width: 4em;">$rank</div>
+		<div style = "width: 10em;">$(display(s).content)</div>
+		<div style = "width: 6em;">$l</div>
+		<div style = "width: 6em;">$(round(Int64, sum(root_wordle_visit_counts[s]) / l))</div>
+		<div style = "width: 6em;">$(round(-tree_value; sigdigits = 3))</div>
+		<div style = "width: 6em;">$(round(-policy_value; sigdigits = 3))</div>
+		<div style = "width: 6em;">$(round(-maximum_value; sigdigits = 3))</div>
+		<div style = "width: 7em;">$(round(possible_improvement; sigdigits = 3))</div>
+		<div style = "width: 7em;">$(round(tree_improvement; sigdigits = 3))</div>
+		<div style = "width: $(round(1000*p))px; background-color: blue; border: 1px solid black;">$(round(p*100; sigdigits = 2))</div>
+		</div>
+		"""
+	end))
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 90c5ee33-b6ae-4cde-b554-cedba77c0e0c
+#=╠═╡
+display_transition_states(new_test_state, word_index[candidate_guess])
   ╠═╡ =#
 
 # ╔═╡ 4d3a8b0a-4116-4cc6-9ef4-bc1a405db8bb
 #=╠═╡
-function explore_tree_state(s::WordleState)
+function explore_tree_state(s::WordleState, full_tree_visits::Dict, full_tree_values::Dict)
 	transition_probability = root_transitions.probabilities[findfirst(s′ == s for s′ in root_transitions.transition_states)]
 	most_probable_ind = argmax(root_transitions.probabilities)
 	most_probable_state = root_transitions.transition_states[most_probable_ind]
 	probability_ranking = ranked_transition_states[s]
 	possible_words = get_possible_words(s)
-	tree_visits = mcts_output[2][s]
-	inds = tree_visits.nzind
-	tree_values = mcts_output[3][s][inds]
-	ranked_inds = sortperm(tree_values; rev = true)
-	ranked_guesses = [nyt_valid_words[inds[i]] for i in ranked_inds]
-	ranked_values = tree_values[ranked_inds]
+	# tree_visits = full_tree_visits[s]
+	# inds = tree_visits.nzind
+	# tree_values = full_tree_values[s][inds]
+	# ranked_inds = sortperm(tree_values; rev = true)
+	# ranked_guesses = [nyt_valid_words[inds[i]] for i in ranked_inds]
+	# ranked_values = tree_values[ranked_inds]
 	greedy_information_gain_guess = wordle_greedy_information_gain_π(s)
 	greedy_guess = nyt_valid_words[greedy_information_gain_guess]
-	output = DataFrame((Explored_Guesses = ranked_guesses[i], Tree_Values = ranked_values[i], Greedy_Guess = ranked_guesses[i] == greedy_guess) for i in eachindex(ranked_values))
+	greedy_value = full_tree_values[s][greedy_information_gain_guess]
+	# output = DataFrame((Explored_Guesses = ranked_guesses[i], Tree_Values = ranked_values[i], Tree_Visits = tree_visits.nzind[ranked_inds[i]], Greedy_Guess = ranked_guesses[i] == greedy_guess) for i in eachindex(ranked_values))
 	md"""
 	Most Probable Feedback State with Probability $(root_transitions.probabilities[most_probable_ind]):
 
@@ -5642,29 +19924,27 @@ function explore_tree_state(s::WordleState)
 	$possible_words
 
 	Explored Guesses:
+
+	Greedy guess is $greedy_guess with a value of $greedy_value
 	
-	$output
+	$(show_wordle_mcts_guesses(full_tree_visits, full_tree_values, s))
 	"""
 end
-  ╠═╡ =#
-
-# ╔═╡ a7bca65e-e932-4bee-aa4a-bd6da2215472
-#=╠═╡
-explore_tree_state(explore_state)
   ╠═╡ =#
 
 # ╔═╡ e1782372-cb2b-440c-80f1-27d42f31bf57
 #=╠═╡
 if run_new_state_mcts > 0
 	if new_state_num_sims > 0
-		(_, new_visit_counts, new_q) = monte_carlo_tree_search(wordle_mdp, 1f0, new_test_state, wordle_root_candidate_greedy_information_gain_prior!, 100f0, 10;
-			nsims = new_state_num_sims,
+		(new_visit_counts, new_q) = run_wordle_mcts(new_test_state, new_state_num_sims; 
+			topn = 10, 
+			p_scale = 100f0, 
 			sim_message = true,
-			make_step_kwargs = k -> (possible_indices = test_possible_indices,)
-			)
+			c = 10f0, 
+			make_step_kwargs = k -> (possible_indices = test_possible_indices,))
 		show_wordle_mcts_guesses(new_visit_counts, new_q, new_test_state)
 	else
-		show_wordle_mcts_guesses(root_guess_candidate_visits, root_guess_candidate_values, new_test_state)
+		show_wordle_mcts_guesses(root_wordle_visit_counts, root_wordle_values, new_test_state)
 	end
 else
 	md"""
@@ -5672,6 +19952,44 @@ else
 	"""
 end
   ╠═╡ =#
+
+# ╔═╡ 0d712e31-4554-4f12-bd02-4386b5d06607
+#=╠═╡
+function show_dontwordle_game(s::DontWordleState)
+	guesses_left = get_possible_indices(s.guesses; baseline = dontwordle_valid_inds)
+	answers_left = get_possible_indices(s.undos; baseline = guesses_left)
+	answers_left .*= wordle_original_inds
+	words_left = if sum(answers_left) < 10
+		mapreduce(a -> nyt_valid_words[a], (a, b) -> "$a $b", findall(answers_left))
+	else
+		""
+	end
+	@htl("""
+	<div style = "display: flex;">
+	<div>Guesses $(show_wordle_game(test_dontwordle_state.guesses; sizepct = 50))</div>
+	<div>Undos $(show_wordle_game(test_dontwordle_state.undos; sizepct = 50))</div>
+	</div>
+	<div>$(sum(guesses_left)) valid guesses remain with $(sum(answers_left)) possible answer(s) $words_left</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 1593e79d-8571-4848-9ed4-9e44416dbd49
+#=╠═╡
+begin
+	new_dontwordle_test_state_raw
+	@htl("""
+	<div style = "display: flex;">
+	<div>$(show_dontwordle_game(test_dontwordle_state))</div>
+	
+	<div>$(show_dontwordle_mcts_guesses(dontwordle_oneundo_root_visits, dontwordle_oneundo_root_values, test_dontwordle_state; maxundos = 1))</div>
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ eabcf79e-67d3-478f-abbc-cd8ba04138e5
+runepisode(absurdle_mdp; π = absurdle_greedy_policy)[4] |> show_wordle_game
 
 # ╔═╡ c809ed82-919c-4a7e-9acb-664499859760
 #=╠═╡
@@ -5759,6 +20077,7 @@ BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
@@ -5774,11 +20093,12 @@ BenchmarkTools = "~1.5.0"
 DataFrames = "~1.6.1"
 DataStructures = "~0.18.20"
 HypertextLiteral = "~0.9.5"
+JLD2 = "~0.4.52"
 PlutoDevMacros = "~0.9.0"
 PlutoHooks = "~0.0.5"
 PlutoPlotly = "~0.5.0"
 PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.59"
+PlutoUI = "~0.7.60"
 StatsBase = "~0.34.3"
 """
 
@@ -5786,9 +20106,9 @@ StatsBase = "~0.34.3"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.4"
+julia_version = "1.10.5"
 manifest_format = "2.0"
-project_hash = "46613f0112cb4f4dd698e65381d48a682a05e9bf"
+project_hash = "ceafd966df824b7570b8b1714b4bf92071f3ef4f"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -6001,6 +20321,12 @@ git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
 uuid = "82899510-4779-5014-852e-03e436cf321d"
 version = "1.0.0"
 
+[[deps.JLD2]]
+deps = ["FileIO", "MacroTools", "Mmap", "OrderedCollections", "PrecompileTools", "Requires", "TranscodingStreams"]
+git-tree-sha1 = "049950edff105ff73918d29dbf109220ff364157"
+uuid = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+version = "0.4.52"
+
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
 git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
@@ -6009,9 +20335,9 @@ version = "0.21.4"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "7ae67d8567853d367e3463719356b8989e236069"
+git-tree-sha1 = "4b415b6cccb9ab61fec78a621572c82ac7fa5776"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.9.34"
+version = "0.9.35"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
@@ -6178,9 +20504,9 @@ version = "0.4.0"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "ab55ee1510ad2af0ff674dbcced5e94921f867a9"
+git-tree-sha1 = "eba4810d5e6a01f612b948c9fa94f905b49087b0"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.59"
+version = "0.7.60"
 
 [[deps.PooledArrays]]
 deps = ["DataAPI", "Future"]
@@ -6326,6 +20652,11 @@ version = "0.1.1"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+[[deps.TranscodingStreams]]
+git-tree-sha1 = "e84b3a11b9bece70d14cce63406bbc79ed3464d2"
+uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
+version = "0.11.2"
+
 [[deps.Tricks]]
 git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
@@ -6356,7 +20687,7 @@ version = "1.2.13+1"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.11.0+0"
 
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -6417,6 +20748,12 @@ version = "17.4.0+2"
 # ╠═2b7adbb7-5c64-42fe-8178-3d1187f4b3fb
 # ╟─e5b1d8e5-f224-44e3-8190-b8146ed3ea92
 # ╟─32c30d8e-de5b-43a0-bfdb-8fb86037de7f
+# ╠═1967f344-0d2e-4af0-a6b5-d8489079629d
+# ╠═5003d34f-39b1-48f0-9ee9-5d38c1c2a5f0
+# ╠═16754304-c592-44f3-baec-94a4d824eb49
+# ╠═5eeed71e-4171-4063-89ee-90cfa5934413
+# ╠═5d87942f-188a-437e-b923-7e91b9f5b923
+# ╠═64dbd6c6-2691-4580-97e3-bb2f875472d7
 # ╠═c1858879-2a20-4af6-af4c-a03d26dda7a3
 # ╟─be061e94-d403-453a-99fb-7a1e13bebf52
 # ╠═b75bb4fe-6b09-4d7c-8bc0-6bf224d2c95a
@@ -6439,6 +20776,7 @@ version = "17.4.0+2"
 # ╟─f2ab3716-19a2-4cbb-b46f-a13c297e086d
 # ╠═66105fd7-aa54-4007-a346-67f0ac7e1188
 # ╠═b1e3f7ea-e2de-4467-b301-0c3cf225e433
+# ╠═35f4bf5e-0da0-4d0f-a5d8-956d773e716e
 # ╠═bd744b6d-db57-42bf-88c0-c667dfb03f5f
 # ╟─8e2477a9-ca14-4ecf-9194-9bac5ef25fd4
 # ╟─70dcac79-2839-4c1d-8f48-cbe294b3ffb0
@@ -6451,15 +20789,21 @@ version = "17.4.0+2"
 # ╠═c9b7a2bd-6f77-4df0-a50e-b71446b8a274
 # ╠═d3d0df67-ec26-4352-9164-a53d14d1b065
 # ╠═f6253866-7bef-400f-9713-e0fd5054b201
-# ╠═cda5622b-f4f7-4ec2-a848-ff5eb9c9b66b
+# ╠═b43a3b03-2cb4-4bd7-8476-d5b1480adc0b
 # ╠═9a75b05d-82fd-4a3c-8cb9-5161dfc18949
+# ╠═8ab11beb-930a-43cb-9a52-f19f49819f1b
+# ╠═7a9e09f2-70ca-4180-9c1c-56d74e743098
+# ╠═16f1c036-90c1-4784-b750-3293255e31f7
+# ╠═b301b451-3276-45fa-8777-eb2069b3e580
+# ╠═c58f7788-5d64-45af-b5a1-9b30c24f730c
+# ╠═1eb7de02-ab3c-4c96-82f5-a09c163faa30
+# ╠═2ae69afa-42e5-4c3e-ada0-a71cb288dfb0
 # ╠═05ffe4f9-8cd6-424e-8955-e3ca21c486f3
+# ╠═50b2a4d0-3f0e-49c6-bc8d-b490b2542bb0
 # ╠═2b8af0f4-d71e-4ff6-aad8-fd54463d587c
-# ╠═379e4103-ca2a-4711-9df7-d6cd83afe653
 # ╠═aaefe619-c7bb-4c1e-acfb-1b2f05ef388d
 # ╠═8cb865b4-8928-4210-96d5-6d6a71deb03b
 # ╠═09c89ae6-83e2-4f86-8c3f-b1528235c70a
-# ╠═8efb0ddc-b86e-4682-bb35-6ae6c9cfa20e
 # ╠═9df47c03-18c5-4e22-a6f9-a55ab5e35c39
 # ╠═2fa84583-4ff7-48d0-bd62-cb7380535e91
 # ╟─83302fc6-49ff-4d25-9fd7-0b491b79fc73
@@ -6473,24 +20817,31 @@ version = "17.4.0+2"
 # ╟─faade165-8066-4deb-93a4-2b7daabd57dc
 # ╠═e804f5fc-c817-4851-a14b-fdcca1180773
 # ╟─7f1f2057-24ca-44c0-8496-b6ef68d895bd
+# ╠═4de12ef4-4e40-41da-aede-e72f8206f173
 # ╠═3d935fe6-16d9-4fce-8a2d-33c763801b94
 # ╠═e093dd57-040b-4983-a95f-057097fcefff
+# ╠═e92e232e-9e8c-4b84-aa1b-49a67a079380
 # ╠═6fdc99b1-beea-4c45-98bb-d257501a6878
 # ╟─67d76524-e5b6-48bc-9add-2aefd333876d
 # ╟─2bae314a-e97c-41ef-b1a4-187617d9c88b
 # ╟─a6c2eb9a-32cb-4343-8e40-fa2b27d4d792
-# ╠═20cc401d-1b93-4351-9ae8-27807fcd89eb
+# ╟─57d62f1e-6213-4328-94ac-b4b3126ddd5b
 # ╟─1c43214e-951d-4b66-8db5-4a90d40ab533
 # ╟─b61dfb6f-b2d8-48e1-99b4-345a05274dc5
-# ╟─3db1f32f-372c-44c3-9bde-915ce823de44
+# ╟─4130d798-e202-4280-b876-9ca989a45a58
+# ╟─2c1a68f8-19e7-4224-8c26-0f5704b07389
 # ╟─e610c03c-4bd9-40e1-a019-87c4fce39602
-# ╟─a7bca65e-e932-4bee-aa4a-bd6da2215472
+# ╠═11fba9cf-1094-4deb-8e1a-ddd781314aa9
+# ╠═a7bca65e-e932-4bee-aa4a-bd6da2215472
+# ╠═a00b4f9b-eb74-4fa1-bc70-a97844b59022
+# ╠═cdec4e37-6cfc-40c3-9fcc-e7bcb7cbe6e0
+# ╠═6abd318a-9c0b-457e-aac2-c70a580c66cd
+# ╠═e08de788-8947-4882-ae51-f7cbb0daa83b
+# ╠═58ce6598-0cf0-4450-b50f-afc2da287755
 # ╠═7de01236-ba21-4329-815e-beb4633882db
 # ╠═c6fdb911-5042-4f88-8484-2dbcd553892e
 # ╠═3685266e-6ba9-400b-a590-69f930650124
 # ╠═4d3a8b0a-4116-4cc6-9ef4-bc1a405db8bb
-# ╠═124d67ad-c6fb-4de6-9d5a-6d08081321e8
-# ╠═20646ed4-aef5-40a6-8094-9e085dba3361
 # ╠═a9e89449-74ea-45d1-93eb-48d11903d03c
 # ╠═06138a4e-67a3-47a3-84a5-92013fd404ca
 # ╠═10d1f403-34c8-46ce-8cfc-d289608f465c
@@ -6505,14 +20856,15 @@ version = "17.4.0+2"
 # ╠═0812f3c2-35ab-4e2d-87c0-35a7b44af6d4
 # ╠═d2052e0c-c506-45b5-8deb-76d5e60d300e
 # ╠═9ee34b0a-2e11-403f-839b-4e9991bc0eac
+# ╠═7d4f39fc-0669-4ded-a890-780d3c6b8e70
+# ╠═164fccfc-56c5-4538-acf1-90ec13db38f8
 # ╠═b6b40be8-90e3-4335-93ef-f8d92ef1676d
-# ╠═0413f30f-b75f-44cc-9c6b-1a4313b81c51
 # ╠═0da02107-ad39-4c43-9dfc-2e68736d8063
 # ╠═430ee1a8-8267-4a72-8380-e7460a28e47e
 # ╟─9b1c9eb1-f97d-44f5-9050-9b18ea8814b0
 # ╟─a0ecb0ec-f442-45ca-bc15-9967e82a9905
 # ╠═8a9ed8ec-10b6-43e8-bb9a-e8eba96f3ea0
-# ╠═9a3d52a0-f6a3-43ef-a3f1-b8c37f79baf4
+# ╠═a6eb37ac-09fc-4f24-b987-0f1e200dfebc
 # ╠═36fb4201-8261-4551-ae38-eba073e3046b
 # ╠═b3a7619f-82ac-4a6b-9206-ed1b5cfa0078
 # ╟─12126ca1-b728-4a91-bc53-f0dacd412265
@@ -6526,29 +20878,109 @@ version = "17.4.0+2"
 # ╠═71e35ad3-1c42-4ffd-946b-5eb9e6b72f86
 # ╠═8327c794-200f-400f-8bdd-d043c548522c
 # ╟─a107e7ff-56e8-4f31-b061-a7895ea29965
-# ╠═bd37635d-5f92-4fe4-9245-44a4019fcd54
+# ╟─bd37635d-5f92-4fe4-9245-44a4019fcd54
 # ╟─9f132408-31f3-4ad3-a486-f6a94b276f32
-# ╠═e1782372-cb2b-440c-80f1-27d42f31bf57
+# ╟─e1782372-cb2b-440c-80f1-27d42f31bf57
+# ╠═23bb63d2-4287-40b8-af9b-89cb98185f17
+# ╟─28b733b6-3989-493a-a00d-24c48da6b338
+# ╟─0a4ac51e-ab8f-467f-9281-691023af400a
+# ╟─b9e9f12d-aa40-49d2-9dc2-ac6110d869d7
+# ╟─90c5ee33-b6ae-4cde-b554-cedba77c0e0c
 # ╠═1e4b84d7-6fe9-4b1e-9f14-3a663421cb1f
 # ╠═d4378e47-e231-495c-8e72-de864097421e
 # ╠═6957a643-0240-425b-b167-ae290b696f16
 # ╠═13044009-df94-4dd1-93b2-a774015ab1de
 # ╠═052913b1-1f6f-49b6-bf4d-cefef430fea9
 # ╟─9711392c-33e0-4281-a871-7216dc146de6
-# ╠═d5a9ab96-beb1-4f72-b049-2795ee0c5940
-# ╠═7958fbb7-4aea-4a87-80cf-282475ea59bc
-# ╠═638ceba3-c89d-47fc-98ee-6310c80f12be
+# ╠═b88f9cc7-6232-41b3-92b3-3e920d446a5f
+# ╠═839c4998-ac37-4964-8590-11d4840c83aa
+# ╠═6cb17eea-2ec9-48d5-9900-635687d5300f
+# ╠═5d8c0ce9-275b-4a9e-afd3-4c6028b0600c
+# ╠═4dd064bc-db44-4b18-90ed-5bc67c12774e
 # ╠═3cb9ba3c-1b9c-4a6c-b8f2-cade651df78d
 # ╠═6670e6d3-ff00-4a91-98c2-830c3aed92de
+# ╠═6c514cb4-03d9-4108-aca3-489212bea90e
+# ╠═d5a9ab96-beb1-4f72-b049-2795ee0c5940
 # ╠═a41be793-431d-42f0-885b-7ff89efa0252
 # ╠═460d6485-b13e-4deb-a0bd-53b9ebe0c47f
-# ╠═876a257b-2bec-4562-8a49-e03e81b04b85
 # ╠═5df48271-77d3-4ab5-aba2-bd3cc0b9f078
 # ╟─d68d26f3-112d-4542-aab8-0477369f3a52
 # ╟─f82f878f-0dfb-4d87-94ff-1b5564e30f5c
 # ╟─50a41592-576b-424c-9513-ff1ea4c8ca0f
-# ╠═5724fed9-8f1e-4fad-b631-88fe86354e14
-# ╠═5e42c44e-4fb8-4b50-baeb-da7bafdf83e6
+# ╟─5724fed9-8f1e-4fad-b631-88fe86354e14
+# ╟─f2106242-c6f9-4bb2-85f0-059b3e9db621
+# ╟─a0433105-3429-4b03-9f26-b01af2dc3979
+# ╠═013d1153-d3c0-405c-8797-3419ffeb4d4f
+# ╠═65334860-bd8b-4c08-a30a-c0baf80280ce
+# ╠═0cff6b40-02fa-4916-b710-98ad589b799d
+# ╠═c4946f7f-5d17-4a66-a493-b2a2698dc1d5
+# ╠═ed8472be-d0e2-4e9d-b752-fd64250e1db2
+# ╠═8895b0b9-9fd1-4f5d-8132-564d9fecbf3d
+# ╠═50135114-e4f8-4042-805a-05425318f55e
+# ╠═e1252197-4592-4485-8390-40253c01f6b6
+# ╠═b0b4164d-7299-4e5d-a993-01ffafefa43b
+# ╠═c52535b6-cfbe-4207-8d7d-1787cb58c3ca
+# ╠═43ccabd2-3688-4016-88d7-29a26d46986c
+# ╠═9a8b5ba7-45c0-4190-b047-5e9c9e10c530
+# ╠═e7b49bac-0785-4311-a2e9-fa618bcf5eb7
+# ╠═db05290f-ae09-4321-9979-dda7ddb3bb18
+# ╠═70b62b2d-c833-4b58-9f86-81980d3dd06a
+# ╠═f4631d73-9465-479d-828d-6924d03a6cda
+# ╠═3f73964c-c171-4759-888e-af43e53b4b2e
+# ╠═3424be60-3f82-450e-9293-7b1f58542f7e
+# ╠═66baf9cc-a76c-429d-b143-f46e82134602
+# ╠═3b765ff5-5d48-4525-9e3b-d374815eb4c4
+# ╠═e3a0438a-24cf-498e-bb38-362e678e0992
+# ╠═0cb3c137-99f4-4ec7-95c4-1ec3e1322d3d
+# ╠═af66fab5-3921-4fdf-9820-ca6ad5a21769
+# ╟─773f6fa9-8b07-40ad-9c01-cf1a27ceeca8
+# ╠═2a125dec-d4bb-4214-bec8-db95821a6d45
+# ╟─f1166557-4073-4d82-b4c0-db7189e7b381
+# ╠═9fef413d-773a-432f-a3e0-780ec1431c1c
+# ╠═1919ceb3-31aa-49f0-929d-3faa034e2f63
+# ╠═b28792a8-319a-4b16-9f8d-eec2c4b4be49
+# ╟─5c40b6c3-3638-4c26-9e74-235a6cb90078
+# ╟─aec20c62-092a-4778-a9ed-4a7aacd24d50
+# ╠═1593e79d-8571-4848-9ed4-9e44416dbd49
+# ╠═a03295ca-646b-4548-ac62-c6e7a8b4b54d
+# ╠═c715ce58-caf3-4fe3-b01f-60cc29dff1af
+# ╠═0d712e31-4554-4f12-bd02-4386b5d06607
+# ╟─bb131186-d25c-465a-9c55-46dc2a2f0256
+# ╠═1817dd59-2cbd-4704-88dd-e3ec761c9163
+# ╠═98ea8bac-11a6-4e52-a197-47b190a306a6
+# ╟─3e2e41f9-95b5-4eaa-81a6-3a9669a55c1a
+# ╟─789f5070-dd89-4884-9d7c-6c08843c5711
+# ╟─955df8dd-a52b-4df9-a941-799a9e7d2d27
+# ╠═a7dfa2f2-724a-40c0-94dc-0aeeba6c40ac
+# ╠═510e77ba-ac46-475d-a7e1-a734e31f4bcc
+# ╟─79a43e2d-e34d-4821-b8e3-bbe4aa33cca0
+# ╟─c52a6849-8201-4153-99c0-c46c43622958
+# ╟─17daab93-b3ad-4eea-a032-05e61b2fb690
+# ╠═72ec3834-da5d-4986-84d2-fc5047719aa5
+# ╠═7f60a260-b073-414a-8f4a-ead768ca2b16
+# ╠═711bc605-7b7e-4fc8-9eec-c5afada0c0cd
+# ╠═fa50ef5e-6f9f-42c6-9d04-fc7512c59bd9
+# ╠═365f112b-8754-4cb3-8521-51d87f8820bd
+# ╠═2d8ad341-f825-42a9-b796-07a0184f8a89
+# ╠═b4b39f69-7c0d-438e-98eb-c07863c8b7e8
+# ╠═122e878c-75ad-40ef-9061-004acb7a301a
+# ╠═b7c1aee0-bff2-4440-a386-41f83809ee9f
+# ╠═0a05e6da-1965-4803-b5f9-1816076b7ee3
+# ╠═5503dee5-32c5-4c11-b761-921fab0fb1bb
+# ╠═54e18f37-7dfc-4c81-9893-344331b32dd7
+# ╠═9153e796-3185-48fc-bff6-f07078bdfc14
+# ╠═eabcf79e-67d3-478f-abbc-cd8ba04138e5
+# ╟─3153a447-9f56-42a2-aa19-95e8a230ac22
+# ╠═9101a345-650e-42c6-93d0-515f92f5c72f
+# ╠═eb2afee9-6c33-4e66-99eb-0899dedaa2a6
+# ╠═ff70b9ad-18e5-4b9f-ade4-888de0fbbc5d
+# ╠═66bb9ca5-93b1-4bec-8eb7-5581c44b56cd
+# ╟─5cb34251-a56e-4002-8e25-35932996502a
+# ╟─3e16c985-37e6-49e1-9561-21c79552425c
+# ╠═526d423e-c65a-49fd-b15b-e4598254af93
+# ╟─f22fb00d-37f0-4a83-bf60-048b936bf04d
+# ╠═a79b430a-84d7-4253-bfc5-ffb200b98767
+# ╠═6c532310-1f80-419a-a74b-7814bad6a354
 # ╟─aaf516b5-f982-44c3-bcae-14d46ad72e82
 # ╠═16f8f288-9371-44ae-914d-4ea13fec98f6
 # ╠═2deb31ad-ab39-4f27-885e-79bfccce97e3
@@ -6578,6 +21010,9 @@ version = "17.4.0+2"
 # ╟─64014b10-9974-475a-8625-fef445fe8e4f
 # ╠═e426b806-4435-49b9-824a-04fe34a48e9e
 # ╟─10eb71ed-df57-49b2-ae98-336191346b29
+# ╠═729ef5f5-1538-48dc-b028-2bb112921fb2
+# ╠═8d328017-7f7a-45d0-90bc-77ddd036101f
+# ╠═014696a0-0568-4944-ad2f-1811b726b2ee
 # ╠═b9beca61-7efc-4186-81c2-1ceda103c801
 # ╠═bab1c451-bf1b-495c-9448-0be284063733
 # ╠═ccca515b-17ad-4469-ac57-61c2f3f86e62
