@@ -338,7 +338,7 @@ md"""
 
 Typically, to solve the control problem we require action-value estimates.  Even in the non-tabular case; however, we may have access to the transition distribution of an MDP.  A simple example of this is a deterministic problem in which there may be an uncountable number of states, but the transition dynamics are known exactly.  In this case, one can reconstruct the action values from the state values as follows:
 
-$\hat q(s, a) = \sum_{s^\prime, r}p(s^\prime, r \vert s, a)\left (r + \gamma \hat v(s^\prime) \right ) = \sum_{s^\prime}p(s^\prime \vert s, a) \left[ r(s^\prime, s, a) + \gamma \hat v(s^\prime) \right ]$
+$\hat q(s, a) = \sum_{s^\prime, r}p(s^\prime, r \vert s, a)\left (r + \gamma \hat v(s^\prime) \right ) = r(s, a) + \gamma \sum_{s^\prime}p(s^\prime \vert s, a) \hat v(s^\prime)$
 
 In the case of a deterministic problem there is only one transition state $s^\prime = t(s, a)$ where $t$ is the deterministic mapping function.  Then the formula simplifies to $\hat q(s, a) = r(s, a) + \hat v(t(s, a))$.  We can update the parameters $\mathbf{w}$ for some value function $\hat v(s, \mathbf{w})$ using the techniques in Chapter 9.  Then, to derive the greedy policy, we can use 
 
@@ -346,7 +346,7 @@ $\pi(s) = \text{argmax}_a \left [ r(s, a) + \gamma \sum_{s^\prime}p(s^\prime \ve
 
 From tabular dynamic programming, we have the following update rule for the optimal state value function:
 
-$v_*(s) = \max_a \sum_{s^\prime}p(s^\prime \vert s, a) \left[ r(s^\prime, s, a) + \gamma v_*(s^\prime) \right ]$
+$v_*(s) = \max_a \left [ r(s, a) + \gamma \sum_{s^\prime}p(s^\prime \vert s, a) v_*(s^\prime) \right ]$
 
 If the right side expression uses the approximate value function, then it is available to use as an update target instead of the usual Sarsa one.
 """
