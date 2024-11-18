@@ -8,12 +8,16 @@ using InteractiveUtils
 using PlutoDevMacros, LinearAlgebra, Random, Statistics
 
 # ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
+# ╠═╡ show_logs = false
 PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
 # ╠═╡ skip_as_script = true
 #=╠═╡
-using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+begin 
+	using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+	TableOfContents()
+end
   ╠═╡ =#
 
 # ╔═╡ 19d23ef5-27db-44a8-99fe-a7343a5db2b8
@@ -1281,6 +1285,20 @@ function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{
 	# FCANN.updateEst!(0.999f0, t, θs, βs, θ_avg, β_avg, θ_est, β_est)
 end
 
+# ╔═╡ 3ac65a54-1ff6-441c-8edf-00c49b620389
+import NVIDIALibraries.DeviceArray.CUDAArray
+
+# ╔═╡ dd907b31-24f1-46f6-a2d5-7dd268530c94
+function update_nn_parameters!(θs::Vector{CUDAArray}, βs::Vector{CUDAArray}, layers::Vector{Int64}, ∇θ::Vector{CUDAArray}, ∇β::Vector{CUDAArray}, input::CUDAArray, output::CUDAArray, ∇tanh_z::Vector{CUDAArray}, activations::Vector{CUDAArray}, δs::Vector{CUDAArray}, onesvec::CUDAArray, onesvec_params::Vector{CUDAArray}, normvec_params::Vector{CUDAArray}, α::Float32, scales::Vector{Float32}; λ = 0f0, c = Inf, dropout = 0f0)
+	(batchsize, input_layer_size) = input.size
+	(_, output_layer_size) = output.size
+	FCANN.nnCostFunction(θs, βs, input_layer_size, output_layer_size, layers, batchsize, onesvec, activations, ∇tanh_z, δs, ∇θ, ∇β, input, output, λ, dropout; costFunc = "sqErr", resLayers = 1)
+	FCANN.updateParams!(α, θs, βs, ∇θ, ∇β, scales)
+	if !isinf(c)
+		FCANN.scaleThetas!(θs[1:end-1], ∇θ[1:end-1], onesvec_params, normvec_params, c)
+	end
+end
+
 # ╔═╡ 55f451b2-dcff-4442-a1ea-ac2c53433298
 function update_input!(input::Matrix{Float32}, feature_vector::Vector{Float32}, num::Integer)
 	for i in eachindex(feature_vector)
@@ -1347,6 +1365,78 @@ function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 	return (value_function = v̂, value_args = (feature_vector, input), parameter_update = update_parameters!, update_args = update_args, parameters = (θ, β))
 end
 
+# ╔═╡ 0facd6de-411a-43e0-820d-7d6eceff5b72
+import FCANN.device_allocate
+
+# ╔═╡ 65795424-8e50-4edb-9f6a-7045a9a22b9d
+import FCANN.cuda_allocate
+
+# ╔═╡ 6c752a2b-4d10-4865-aeff-ea717b9d3904
+function fcann_gradient_gpu_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2, dropout = 0f0, λ = 0f0, c = Inf) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
+	s0 = problem.initialize_state()
+	update_feature_vector!(feature_vector, s0)
+	θ, β = FCANN.initializeparams_saxe(length(feature_vector), layers, 1, 1; use_μP = true)
+
+	∇θ = deepcopy(θ)
+	∇β = deepcopy(β)
+	∇tanh_z = FCANN.form_tanh_grads(layers, 1)
+	
+
+	function setup_training(batch_size::Integer)
+		activations = [zeros(Float32, batch_size, l) for l in [layers; 1]]
+		δs = deepcopy(activations)
+		onesvec = zeros(Float32, batch_size)
+		return (activations, δs, onesvec)
+	end
+
+	(activations, δs, onesvec) = setup_training(1)
+	
+
+	input_layer_size = length(feature_vector)
+
+	feature_matrix = reshape(feature_vector, 1, input_layer_size)
+	input = zeros(Float32, 1, input_layer_size)
+	output = zeros(Float32, 1, 1)
+	scales = ones(Float32, length(layers)+1)
+	for i in 2:length(scales)
+		scales[i] /= size(θ[i], 2)
+	end
+
+	d_input = cuda_allocate(input)
+	d_output = cuda_allocate(output)
+	d_θ = device_allocate(θ)
+	d_β = device_allocate(β)
+	d_∇θ = device_allocate(∇θ)
+	d_∇β = device_allocate(∇β)
+	d_∇tanh_z = device_allocate(∇tanh_z)
+	d_activations = device_allocate(activations)
+	d_δs = device_allocate(δs)
+	d_onesvec = cuda_allocate(onesvec)
+	d_onesvec_params = map(a -> cuda_allocate(ones(Float32, a)), [input_layer_size; layers])
+	d_normvec_params = map(a -> cuda_allocate(zeros(Float32, a)), [layers; 1])
+	
+	function update_parameters!(parameters, s::S, g::T, α::T, gradients, state_representation::Vector{Float32}, feature_matrix::Matrix{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, onesvec_params, normvec_params, scales)
+		update_feature_vector!(state_representation, s)
+		feature_matrix .= state_representation
+		FCANN.memcpy!(input, feature_matrix)
+		FCANN.memcpy!(output, reshape([g], 1, 1))
+		update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, onesvec_params, normvec_params, α, scales; c = c, λ = λ, dropout = dropout)
+		calculate_error(g, FCANN.host_allocate(activations[end])[1, 1], s)
+	end
+
+	function v̂(s::S, parameters, state_representation, feature_matrix::Matrix{Float32}, input, activations) 
+		update_feature_vector!(state_representation, s)
+		feature_matrix .= state_representation
+		FCANN.memcpy!(input, feature_matrix)
+		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
+		return FCANN.host_allocate(activations[end])[1, 1]
+	end
+
+	update_args = ((d_∇θ, d_∇β), feature_vector, feature_matrix, d_input, d_output, d_∇tanh_z, d_activations, d_δs, d_onesvec, d_onesvec_params, d_normvec_params, scales)
+	
+	return (value_function = v̂, value_args = (feature_vector, feature_matrix, d_input, d_activations), parameter_update = update_parameters!, update_args = update_args, parameters = (d_θ, d_β))
+end
+
 # ╔═╡ efb65aec-76b2-4159-9b75-8145602b3163
 function run_fcann_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, layers::Vector{Int64}, feature_vector::Vector{T}, update_feature_vector!::Function; setup_kwargs::NamedTuple = NamedTuple(), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
 	setup = fcann_gradient_setup(mdp, layers, feature_vector, update_feature_vector!; setup_kwargs...)
@@ -1372,8 +1462,8 @@ end
 
 # ╔═╡ cfc5964b-3a23-48d9-b320-861fd4a43364
 #=╠═╡
-function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!; random_walk_ve_setup_kwargs...)
+function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; setup_function = fcann_gradient_setup, kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+	setup = setup_function(mrp, layers, [zero(T)], update_random_walk_vector!; random_walk_ve_setup_kwargs...)
 	error_history = gradient_monte_carlo_estimation!(setup.parameters, mrp, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
 	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
 	return (v̂ = v̂, parameters = setup.parameters, error_history = error_history)
@@ -1382,8 +1472,8 @@ end
 
 # ╔═╡ 93a1f51f-1d83-408e-a860-26e6280c65ee
 #=╠═╡
-function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = fcann_gradient_setup(mrp, layers, [zero(T)], update_random_walk_vector!; random_walk_ve_setup_kwargs...)
+function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; setup_function = fcann_gradient_setup, kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+	setup = setup_function(mrp, layers, [zero(T)], update_random_walk_vector!; random_walk_ve_setup_kwargs...)
 	error_history = semi_gradient_td0_estimation!(setup.parameters, mrp, γ, num_episodes, typemax(Int64), setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
 	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
 	return (v̂ = v̂, parameters = setup.parameters, error_history = error_history)
@@ -1393,11 +1483,11 @@ end
 # ╔═╡ fb244ed5-2827-4b39-a5b1-ced0815b000a
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td; nsmooth = 100)
+function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td; setup_function = fcann_gradient_setup, nsmooth = 100)
 	nn_layers = fill(layer_size, num_layers)
 	
-	v̂_mc, params, mc_error = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers; α = α_mc)
-	v̂_td, params, td_error = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers; α = α_td)
+	v̂_mc, params, mc_error = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers; setup_function = setup_function, α = α_mc)
+	v̂_td, params, td_error = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers; setup_function = setup_function, α = α_td)
 	p1 = plot([scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(mc_error, nsmooth)), name = "Monte Carlo"), scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(td_error, nsmooth)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged <br> over Previous $nsmooth Episodes", showlegend = false))
 	p2 = plot([scatter(y = v̂_mc.(Float32.(1:num_states)), name = "Monte Carlo"), scatter(y = v̂_td.(Float32.(1:num_states)), name = "TD(0)"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with $nn_layers Layers", yaxis_title = "Value", xaxis_title = "State"))
 	@htl("""
@@ -2030,16 +2120,18 @@ cross_entropy_loss(y, ŷ) = -y*log(ŷ) - (1-y)*log(1-ŷ)
 plot([scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(0, LinRange(0, 1, 1000)), name = "y is false"), scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(1, LinRange(0, 1, 1000)), name = "y is true")], Layout(yaxis_title = "Cross Entropy Loss", xaxis_title = L"\hat y", title = "Cross Entropy Loss for a Single Output where the Target Value is True or False"))
   ╠═╡ =#
 
+# ╔═╡ ac4abe86-00e1-471e-ad97-b44e728d14b6
+md"""
+## *Batch Version of Approximation Methods*
+"""
+
+# ╔═╡ 31850403-c29c-4f4b-88f7-b36b6f1ddf65
+
+
 # ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
 md"""
 # Dependencies
 """
-
-# ╔═╡ 507bcfda-cd09-4873-94a7-a51fefb3c25d
-# ╠═╡ skip_as_script = true
-#=╠═╡
-TableOfContents()
-  ╠═╡ =#
 
 # ╔═╡ c1488837-602d-4fbf-9d18-fba4a7fc8140
 # ╠═╡ skip_as_script = true
@@ -2658,8 +2750,13 @@ version = "17.4.0+2"
 # ╟─82828e72-5d30-41b6-a1b6-f258c234b034
 # ╠═eca42c3b-fa09-4999-b260-c5de95c2987c
 # ╠═d1edfc31-23de-427a-9a08-51c4e33f3fc7
+# ╠═3ac65a54-1ff6-441c-8edf-00c49b620389
+# ╠═dd907b31-24f1-46f6-a2d5-7dd268530c94
 # ╠═55f451b2-dcff-4442-a1ea-ac2c53433298
 # ╠═ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
+# ╠═0facd6de-411a-43e0-820d-7d6eceff5b72
+# ╠═65795424-8e50-4edb-9f6a-7045a9a22b9d
+# ╠═6c752a2b-4d10-4865-aeff-ea717b9d3904
 # ╠═efb65aec-76b2-4159-9b75-8145602b3163
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
@@ -2668,7 +2765,7 @@ version = "17.4.0+2"
 # ╠═fb244ed5-2827-4b39-a5b1-ced0815b000a
 # ╟─b1c84d59-3598-46a1-bc1a-fd691d14ab09
 # ╟─420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
-# ╟─40d07f16-b9ca-4782-bdd2-de15ec6b21e5
+# ╠═40d07f16-b9ca-4782-bdd2-de15ec6b21e5
 # ╟─b22ef023-4e6a-4114-b3c2-bf91e16e9a43
 # ╟─32c054ee-a7ee-4705-87c3-fb1a4bd956ab
 # ╠═a8d7e5f7-8509-4aa1-b4c6-669339cb173c
@@ -2717,11 +2814,12 @@ version = "17.4.0+2"
 # ╟─b4327edc-0677-4daf-a86d-1bcc908f2337
 # ╟─82b0fb07-3f10-4701-bf4d-e2e0189cee08
 # ╠═1a69bf65-7fa5-4ebd-b8e2-543a8e0dbf4f
+# ╟─ac4abe86-00e1-471e-ad97-b44e728d14b6
+# ╠═31850403-c29c-4f4b-88f7-b36b6f1ddf65
 # ╟─5464338c-904a-4a1b-8d47-6c79da550c71
 # ╠═6da69e64-743f-4ea9-9670-fd023c7ffab7
 # ╠═808fcb4f-f113-4623-9131-c709320130df
 # ╠═db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
-# ╠═507bcfda-cd09-4873-94a7-a51fefb3c25d
 # ╠═c1488837-602d-4fbf-9d18-fba4a7fc8140
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

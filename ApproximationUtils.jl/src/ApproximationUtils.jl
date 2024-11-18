@@ -1,6 +1,6 @@
 module ApproximationUtils
 
-using Reexport, PrecompileTools
+using Reexport 
 
 @reexport using TabularRL, FCANN, NVIDIALibraries, SparseArrays, LinearAlgebra, TailRec, Transducers, Statistics
 
