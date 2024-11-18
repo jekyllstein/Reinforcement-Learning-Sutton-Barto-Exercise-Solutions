@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.0
+# v0.20.3
 
 using Markdown
 using InteractiveUtils
@@ -14,7 +14,10 @@ PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtil
 # ╔═╡ 9fb5dace-a799-4424-bcb3-8542e508dd4b
 # ╠═╡ skip_as_script = true
 #=╠═╡
-using PlutoUI,PlutoPlotly, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+begin
+	using PlutoUI,PlutoPlotly, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+	TableOfContents()
+end
   ╠═╡ =#
 
 # ╔═╡ 318b398a-d8f2-4f39-a45d-fd9023961bf8
@@ -356,58 +359,24 @@ md"""
 ### *Semi-gradient Dynamic Programming Implementation*
 """
 
-# ╔═╡ b0761704-5447-4e64-8270-708d9dccef60
-function semi_gradient_dp!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
-	s = mdp.initialize_state()
-	i_a = rand(eachindex(mdp.actions))
-	ep = 1
-	step = 1
-	epreward = zero(T)
-	episode_rewards = Vector{T}()
-	episode_steps = Vector{Int64}()
-	action_values = zeros(T, length(mdp.actions))
-	policy = zeros(T, length(mdp.actions))
-	decay = one(T)
-	while (ep <= max_episodes) && (step <= max_steps)
-		maxq = typemin(T)
-		#computes q and finds maximizing action value, this is effectively trajectory sampling in the case of approximation where we stay close to the optimal policy
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			v′ = zero(T) 
-			r_avg = zero(T)
-			for i in eachindex(probabilities)
-				v′ += probabilities[i]*(!mdp.isterm(states[i])*estimate_value(states[i], parameters, estimate_args...))
-				r_avg += probabilities[i]*rewards[i]
-			end
-			q = r_avg + γ*v′
-			action_values[i_a] = q
-			if q > maxq
-				maxq = q
-			end
+# ╔═╡ a4c6a5c0-29c5-440c-bf86-20d0f881ee06
+function update_action_values!(action_values::Vector{T}, s::S, v̂::Function, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	maxq = typemin(T)
+	for i_a in eachindex(action_values)
+		(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+		v′ = zero(T) 
+		r_avg = zero(T)
+		for i in eachindex(probabilities)
+			v′ += probabilities[i]*(!mdp.isterm(states[i])*v̂(states[i]))
+			r_avg += probabilities[i]*rewards[i]
 		end
-		
-		learning_rate = nn_momentum ? T(1 - 0.999^step) : one(T)
-		update_parameters!(parameters, s, maxq, α * learning_rate * decay, update_args...)
-
-		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-		i_a = sample_action(action_values)
-		(r, s) = mdp.ptf(s, i_a)
-		epreward += r
-		
-		if mdp.isterm(s)
-			s = mdp.initialize_state()
-			push!(episode_rewards, epreward)
-			push!(episode_steps, step)
-			epreward = zero(T)
-			ep += 1
+		q = r_avg + γ*v′
+		action_values[i_a] = q
+		if q > maxq
+			maxq = q
 		end
-		
-		if step > decay_step
-			decay *= α_decay
-		end
-		step += 1
 	end
-	return episode_rewards, episode_steps
+	return maxq
 end
 
 # ╔═╡ 54b92594-04b8-4a8a-82c2-773b4a24680d
@@ -493,31 +462,6 @@ end
 md"""
 Finally we can create the action-value function and parameter update for the generic linear case.  If a vector of action values is provided as the first argument to the value function, that vector will be updated with all of the action values for a given state.
 """
-
-# ╔═╡ 56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
-function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
-	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	num_actions = length(mdp.actions)
-	parameters = zeros(T, l)
-	episode_rewards, episode_steps = semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	function π_greedy(s)
-		action_values = zeros(T, num_actions)
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T) 
-			for i in eachindex(probabilities)
-				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
-				q += probabilities[i]*(rewards[i] + γ*v̂′)
-			end
-			action_values[i_a] = q
-		end
-		make_greedy_policy!(action_values)
-		i_a = sample_action(action_values)
-	end
-	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
-end
 
 # ╔═╡ 8d096d0d-8fea-421a-aa33-82269d3fe7e2
 md"""
@@ -636,30 +580,6 @@ function run_fcann_semi_gradient_sarsa(mdp::StateMDP, γ::Float32, max_episodes:
 	return (value_function = q̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameters = setup.parameters)
 end
 
-# ╔═╡ 00e7783f-7f17-4944-a085-ea87509cd75a
-function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where T<:Real
-	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
-	l = length(state_representation)
-	num_actions = length(mdp.actions)
-	episode_rewards, episode_steps = semi_gradient_dp!(setup.parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
-	function π_greedy(s)
-		action_values = zeros(T, num_actions)
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T) 
-			for i in eachindex(probabilities)
-				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
-				q += probabilities[i]*(rewards[i] + γ*v̂′)
-			end
-			action_values[i_a] = q
-		end
-		make_greedy_policy!(action_values)
-		i_a = sample_action(action_values)
-	end
-	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
-end
-
 # ╔═╡ a22e5d34-4b8d-479c-985c-d6abd41a6c80
 md"""
 ### Example 10.1: Mountain Car Task
@@ -678,16 +598,22 @@ function initialize_car_state()
 	(x, ẋ)
 end
 
+# ╔═╡ fe7926e8-98cd-4bbc-a5fd-d3523b7c6b8f
+function mountain_car_step(s::Tuple{Float32, Float32}, a::Float32)
+	ẋ′ = clamp(s[2] + 0.001f0*a - 0.0025f0*cos(3*s[1]), -0.07f0, 0.07f0)
+	x′ = clamp(s[1] + ẋ′, -1.2f0, 0.5f0)
+	x′ == -1.2f0 && return (x′, 0f0)
+	return (x′, ẋ′)
+end
+
 # ╔═╡ d577b393-4b40-4c90-9993-4ffbcbd9df6d
 const mountain_car_actions = [-1f0, 0f0, 1f0]
 
 # ╔═╡ b07460f1-0461-4f63-b145-c4e1818a497e
 function mountain_car_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	a = mountain_car_actions[i_a]
-	ẋ′ = clamp(s[2] + 0.001f0*a - 0.0025f0*cos(3*s[1]), -0.07f0, 0.07f0)
-	x′ = clamp(s[1] + ẋ′, -1.2f0, 0.5f0)
-	x′ == -1.2f0 && return (-1f0, (x′, 0f0))
-	return (-1f0, (x′, ẋ′))
+	s′ = mountain_car_step(s, a)
+	return (-1f0, s′)
 end
 
 # ╔═╡ df07524f-b3fe-4a66-98ac-8f80df66bcff
@@ -1060,27 +986,6 @@ md"""
 Since we are only learning the value function, the same tiling setup will have fewer parameters than the action value techniques.  Empirically, more tilings are necessary to learn a state value function that can approach the optimal policy.
 """
 
-# ╔═╡ b0cc6ff8-7296-461c-9db7-e52fa518e2e2
-#=╠═╡
-function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
-	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
-	v = setup.args.feature_vector
-	run_linear_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ d0cf3806-05c6-4a50-94c8-55c9042d51b7
-# ╠═╡ skip_as_script = true
-#=╠═╡
-(v̂_mountain_car, π_greedy_dp, episode_rewards_dp, episode_steps_dp) = mountaincar_dist_test(100, 0.001f0/32, 0.01f0)
-  ╠═╡ =#
-
-# ╔═╡ 7d21c4cd-ab79-4f40-9b8b-f637b3efcab0
-# ╠═╡ skip_as_script = true
-#=╠═╡
-show_mountaincar_trajectory(π_greedy_dp, 1_000, "DP Learned Policy")
-  ╠═╡ =#
-
 # ╔═╡ 31fb07d2-1c34-44ec-b932-a598e78ec8dc
 md"""
 #### Non-linear Neural Network
@@ -1095,31 +1000,6 @@ function update_mountaincar_feature_vector!(v::Vector{Float32}, s::NTuple{2, Flo
 	v[1] = x1
 	v[2] = x2
 end
-
-# ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
-#=╠═╡
-function mountaincar_fcann_dp(max_episodes::Integer, α::Float32, ϵ::Float32; layers = [4, 4], max_steps = typemax(Int64), kwargs...)
-	run_fcann_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, 2), update_mountaincar_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
-# ╠═╡ skip_as_script = true
-#=╠═╡
-mountaincar_fcann_dp_results = mountaincar_fcann_dp(100, 1f-5, 0.1f0; layers = [16, 16, 16], c = 10f0)
-  ╠═╡ =#
-
-# ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
-# ╠═╡ skip_as_script = true
-#=╠═╡
-show_mountaincar_trajectory(mountaincar_fcann_dp_results.π_greedy, 1_000, "DP Learned Policy")
-  ╠═╡ =#
-
-# ╔═╡ 00399548-b21c-43b5-90e2-30656ab1541e
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot(scatter(y = -mountaincar_fcann_dp_results.reward_history), Layout(yaxis_type = "log"))
-  ╠═╡ =#
 
 # ╔═╡ 5db29488-a150-42ee-aedb-380a3a4fd548
 # ╠═╡ skip_as_script = true
@@ -1172,18 +1052,6 @@ function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
 	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)"))
 	[p1 p2]
 end
-  ╠═╡ =#
-
-# ╔═╡ bd1f42e5-94cc-4aef-b82a-9bffd1c951d8
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot_mountaincar_values(v̂_mountain_car, π_greedy_dp)
-  ╠═╡ =#
-
-# ╔═╡ b3658e4d-ee8e-45cd-906a-06dd512a6921
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot_mountaincar_values(mountaincar_fcann_dp_results.value_function, mountaincar_fcann_dp_results.π_greedy; n1 = 100, n2 = 100)
   ╠═╡ =#
 
 # ╔═╡ 7a47a518-dfc7-4310-a0b5-6f0d151c8263
@@ -1312,7 +1180,7 @@ r(\pi) &\doteq \lim_{h \rightarrow \infty} \frac{1}{h}\sum_{t=1}^h \mathbb{E}[R_
 &= \sum_s \mu_\pi(s)\sum_a\pi(a \vert s) \sum_{s^\prime,r} p(s^\prime,r \vert s, a)r
 \end{flalign}$
 
-where the expectations are conditioned on the initial state, $S_0$, and on the subsequent actions, $A_0, A_1, \dots,A_{t-1}$, being taken according to $\pi$. The second and third equations hold if the state-state distribution $\mu_\pi(s) \doteq \lim_{t\rightarrow \infty} \Pr \{S_t = s \mid A_{0:t-1} \sim \pi \}$, exists and is independent of $S_0$, in other words, if the MDP is *ergodic*. In an ergodic MDP, the starting state and any early decision made by the agent can only have a temporary effect; in the long run the expectation of being in a state depends on the policy and the MDP transition probabilities.  Ergodicity is sufficient but not necessary to guarantee the existence of the limit in (10.6).
+where the expectations are conditioned on the initial state, $S_0$, and on the subsequent actions, $A_0, A_1, \dots,A_{t-1}$, being taken according to $\pi$. The second and third equations hold if the steady-state distribution $\mu_\pi(s) \doteq \lim_{t\rightarrow \infty} \Pr \{S_t = s \mid A_{0:t-1} \sim \pi \}$, exists and is independent of $S_0$, in other words, if the MDP is *ergodic*. In an ergodic MDP, the starting state and any early decision made by the agent can only have a temporary effect; in the long run the expectation of being in a state depends on the policy and the MDP transition probabilities.  Ergodicity is sufficient but not necessary to guarantee the existence of the limit in (10.6).
 
 In this setting, we consider all policies that obtain the maximum value of $r(\pi)$ or the *reward rate* to be optimal.  Note that the steady state distribution $\mu_\pi$ is the special distribution under which, if you select actions according to $\pi$, you remain in the same distribution.  That is, for which 
 
@@ -1322,12 +1190,12 @@ In the average-reward setting, returns are defined in terms of differences betwe
 
 $G_t \doteq R_{t+1} - r(\pi) + R_{t+2} - r(\pi) + R_{t+3} - r(\pi) + \cdots \tag{10.9}$
 
-This is known as the *differential* return, and th corresponding value functions are known as *differential* value functions.  Differential value functions are defined in terms of the new return just as conventional value functions were defined in terms of the discounted return; thus we will use the same notation, $v_\pi (s) \doteq \mathbb{E}_\pi[G_t \vert S_t = s]$ and $q_\pi (s, a) \doteq \mathbb{E}_\pi[G_t \vert S_t = s, A_t = a]$ (similarly for $v_*$ and $q_*$), for differential value functions.  Differential value functions also have Bellman equations, just slightly different from those we have seen earlier.  We simply remove all $\gamma$s and replace all rewards by the difference between the reward and the true average reward:
+This is known as the *differential* return, and the corresponding value functions are known as *differential* value functions.  Differential value functions are defined in terms of the new return just as conventional value functions were defined in terms of the discounted return; thus we will use the same notation, $v_\pi (s) \doteq \mathbb{E}_\pi[G_t \vert S_t = s]$ and $q_\pi (s, a) \doteq \mathbb{E}_\pi[G_t \vert S_t = s, A_t = a]$ (similarly for $v_*$ and $q_*$), for differential value functions.  Differential value functions also have Bellman equations, just slightly different from those we have seen earlier.  We simply remove all $\gamma$s and replace all rewards by the difference between the reward and the true average reward:
 
 $\begin{flalign}
 &v_\pi(s) = \sum_a \pi(a\vert s) \sum_{r, s^\prime}p(s^\prime, r \vert s, a) \left [ r - r(\pi) + v_\pi(s^\prime) \right ] \\
 &q_\pi(s, a) = \sum_{r, s^\prime}p(s^\prime, r \vert s, a) \left [ r - r(\pi) + \sum_{a^\prime} \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime) \right ] \\
-&v_* = \max_a \sum_{r, s^\prime}p(s^\prime, r \vert s, a) \left [ r - r(\pi) + v_*(s^\prime) \right ] \\
+&v_* = \max_a \sum_{r, s^\prime}p(s^\prime, r \vert s, a) \left [ r - \max_{\pi}r(\pi) + v_*(s^\prime) \right ] \\
 &q_* = \sum_{r, s^\prime}p(s^\prime, r \vert s, a) \left [ r - \max_{\pi}r(\pi) + \max_a q_\pi(s^\prime, a^\prime) \right ] \\
 \end{flalign}$
 
@@ -1339,7 +1207,7 @@ and
 
 $\delta_t \doteq R_{t+1} - \bar{R}_t+ \hat q (S_{t+1}, A_{t+1}, \mathbf{w}_t) - \hat q(S_t, A_t, \mathbf{w}_t) \tag{10.11}$
 
-where $\bar{R}_t$ is an estimate at time $t$ of the average reward $r(\pi)$.  With these alternate definitions, most of our algorithms and many theoretical results carry through to the average_reward setting without any change.  
+where $\bar{R}_t$ is an estimate at time $t$ of the average reward $r(\pi)$.  With these alternate definitions, most of our algorithms and many theoretical results carry through to the average reward setting without any change.  
 
 For example, an average reward version of semi-gradient Sarsa could be defined just as in (10.2) except with the differential version of the TD error.  That is by
 
@@ -1347,6 +1215,147 @@ $\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \delta_t \nabla \hat q(S_t, A_t, 
 
 with $\delta_t$ given by (10.11).  See a full implementation below.  One limitation of this algorithm is that it does not converge to the differential values but to the differential values plut an arbitrary offset.  Notice that the Bellman equations and TD errors given above are unaffected if all the values are shifted by the same amount.  Thus, the offset may not matter in practice.
 """
+
+# ╔═╡ 5f9a2231-8c4a-4519-adbe-a0dd92838ba4
+md"""
+### Necessary Conditions for Average Reward Setting
+
+- Continuing task (i.e. no terminal state)
+- The average reward exists: $\lim_{h \rightarrow \infty} \frac{1}{h} \sum_{t=1}^h \mathbb{E}[R_t \mid S_0, A_{0:t-1} \sim \pi]$
+  - To be useful, this limit should depend on the policy
+  - If the reward is -1 per step for example, the average reward will always be -1 regardless of the policy
+- The long term limit of expected value of the reward exists: $\lim_{t \rightarrow \infty} \mathbb{E}[R_t \mid S_0, A_{0:t-1} \sim \pi]$
+  - This limit only exists if the expected reward approaches a single value in the limit of infinite time away from some initial state $S_0$
+  - If the limit exists, then in the limit, the sum above will be dominated by this value as more terms are added, wiping out any impact from the early rewards in the sequence
+  - A repeating reward sequence would violate this assumption since the expected value of $R_t$ would be a specific value depending on the time step
+- The steady-state distribution exists and is independent of $S_0$: $\mu_\pi(s) \doteq \lim_{t \rightarrow \infty} \Pr \{ S_t = s \mid A_{0:t-1} \sim \pi \}$
+  - In this case we can express $r(\pi)$ without reference to a starting state and simply use the policy, transition function, and steady-state distribution
+  - The expected value of the reward must also not depend on $S_0$ as well
+  - If either distribution or expected value exist, but depend on the starting state, then we cannot use the Bellman expressions with the average reward
+"""
+
+# ╔═╡ 4154e827-6d0b-4b94-9f14-64baa85739af
+md"""
+### Discounted Setting Connection to Average Reward
+
+Consider an environment with a reset state and a goal state, like a gridworld.  As a continuing problem, this can be formulated with a reward of 0 for every step and some positive reward r at the goal.  If this problem is solved in the average reward setting, then the policy would minimize the expected number of steps to reach the goal from any state including the reset state.  
+
+What if instead it is treated as an episodic problem with a reward of -1 per step and a termination condition at the goal.  In the discounted setting, we can define the value function of a state $s$ and a policy $\pi$ as $v_\pi(s) = -\mathbb{E}_\pi \left [ \sum_{k=0}^{N_s - 1} \gamma^k \right ]$ where $N_s$ is the number of steps until terminationfrom state $s$.  For an arbitrarily policy and environment, there could be some distribution over $N_s$.  In the undiscounted case where $\gamma = 1$, the value at each state is simply: $v_\pi(s) = -\mathbb{E}_\pi [N_s]$ which is also minus the average number of steps until termination.  So regardless of the distribution, maximizing the value is equivalent to minimizing the expected number of steps until termination.  This policy will be equivalent to that found in the average reward setting.
+
+Now consider the discounted case with some $0 \le \gamma \lt 1$.  $v_\pi(s) = -\mathbb{E}_\pi \left [ \sum_{k=0}^{N_s - 1} \gamma^k \right ] = - \mathbb{E}_\pi \left [ \frac{\gamma^{N_s} - 1}{\gamma - 1} \right ] = \frac{1 - \mathbb{E}_\pi [ \gamma ^{N_s}]}{\gamma - 1}$ where now the value depends on the average of $\gamma^{N_s}$ rather than $N_s$.  One notable difference is that in the undiscounted case, larger values of $N_s$ contribute negatively to the value in an unbounded fashion.  In the discounted case, $0 \le \gamma \lt 1, N_s \rightarrow \infty \implies \gamma^{N_s} \rightarrow 0 \implies v_\pi(s) \rightarrow \frac{1}{1-\gamma}$.  In the plot below, we can see this limiting value come into play especially for smaller $\gamma$ so that the negative contribution from very large $N_s$ is capped.  Therefore, it is always beneficial to symetrically add probabilities of finishing in a shorter time and the correspondingly longer time on the other side of it.
+"""
+
+# ╔═╡ e90a591d-0bd0-46a9-8327-f61bfb155a31
+md"""
+In the plot below, the distribution $p(N_s) = \frac{1}{N_s+2d}; N_s - d \le N_s \le N_s + d$ and 0 otherwise.  It is a uniform distribution around the mean value. Note that for a given discount rate and average number of steps, the discounted value will increase with $d$ while the expected value of $N_s$ is unchanged.
+"""
+
+# ╔═╡ 7cb7ca66-3130-4f06-a0dc-a3335ef85fdb
+#=╠═╡
+@bind graphparams2 PlutoUI.combine() do Child
+md"""
+Discount Rate: $(Child(:γ, Slider(0:0.00001:1; default = 0.9, show_value=true)))
+
+Average Steps: $(Child(:N, Slider(1:100; default = 100, show_value=true)))
+
+Half-Width Spread: $(Child(:d, Slider(0:100; default = 50, show_value=true)))
+"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 37db9d03-1978-4842-a016-f416c33ba1d7
+md"""
+For the expected value calculation, each of these values is added with equal probability.  That is why the discounted value favors higher variance because the longer episodes are not counted as much as in the undiscounted case where γ = 1.  The expected discounted value does converge to the undiscounted one as γ approaches 1.  One consequence of favoring higher variance is that a policy could be favored by producing episodes with a longer average number of steps, as long as the variance increases enough.  
+
+Consider the same distribution above where the distribution of $N_s$ is uniform from $N_s - d$ to $N_s + d$.  Below is a derivation of the value function in this case and a graph that uses this value to find how much of an increase in $d$ is required to favor a higher $N$.  Different lines are shown from different discount rates.  In the limit of $\gamma = 1$, there is no value for $d$ that would result in higher values since the lowest average step is always favored.
+"""
+
+# ╔═╡ 81a0a342-f92a-4f5a-a173-fd555188895f
+md"""
+$\begin{flalign}
+\mathbb{E} \left [ \gamma ^ N \right ] &= \sum_N p(N) \gamma^N \\
+&=\frac{1}{2d+1} \sum_{k = N-d}^{N+d} \gamma^k \\
+&= \frac{\gamma^{N-d} + \gamma^{N-d+1} + \cdots + \gamma^{N+d}}{2d+1} \\
+&= \frac{\gamma^{N-d} (1 + \gamma + \gamma^2 + \cdots + \gamma^{2d})}{2d+1} \\
+&= \frac{\gamma^{N-d} (\gamma^{2d+1} - 1)}{(2d+1)(\gamma - 1)} \\
+\end{flalign}$
+
+Therefore:
+
+$\begin{flalign}
+v_\pi(s) &= \frac{1 - \mathbb{E}[\gamma^{N_s}]}{\gamma - 1}\\
+&= \frac{1}{\gamma - 1} - \frac{\gamma^{N-d} (\gamma^{2d+1} - 1)}{(2d+1)(\gamma - 1)^2}
+\end{flalign}$
+"""
+
+# ╔═╡ a92db2a7-3a6c-4328-a2a8-cb74d2e671e9
+#=╠═╡
+@bind graphparams PlutoUI.combine() do Child
+md"""
+Average Steps: $(Child(:N, Slider(1:100; default = 50, show_value=true)))
+
+Half-Width Spread: $(Child(:d, Slider(0:100; default = 0, show_value=true)))
+"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 25159f84-a120-4a20-aab8-010c110571a4
+function uniform_value(γ::Real, d::Integer, N::Integer)
+	(1- γ^(2*d + 1))*(γ^(N-d))/((γ-1)^2 * (2*d + 1)) + inv(γ-1)
+end
+
+# ╔═╡ 5a9bcf45-a04b-4a81-b825-9891021c8a15
+function get_equivalent_values(N::Integer, d::Integer, γ::Real; nmax::Integer = 10)
+	v0 = uniform_value(γ, d, N)
+	δout = []
+	for i in 1:nmax
+		v = uniform_value(γ, d, N+i)
+		δ = 0
+		while v <= v0
+			δ += 1
+			v = uniform_value(γ, d + δ, N+i)
+		end
+		if δ + d > N
+			push!(δout, nothing)
+		else
+			push!(δout, δ)
+		end
+	end
+	return δout
+	# out = zeros(dmax, nmax)
+	# for i in 1:dmax
+	# 	for j in 1:nmax
+	# 		out[i, j] = uniform_value(graphparams.γ, d+i, N + j) > v0
+	# 	end
+	# end
+	# plot(heatmap(x = 1:dmax, y = 1:nmax, z = out), Layout(xaxis_title = "n steps", yaxis_title = "δ Steps"))
+end
+
+# ╔═╡ 44b7a560-d03b-4636-ad24-b30c8965ab8f
+#=╠═╡
+plot([scatter(x = 1:graphparams.N, y = get_equivalent_values(graphparams.N, graphparams.d, γ; nmax = graphparams.N); mode = "markers+lines", name = "γ = $γ") for γ = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.995, 0.996, 0.997, 0.998]], Layout(xaxis_title = "Increase in Average Steps", yaxis_title = "Required Increase in Spread"))
+# plot(scatter(y = get_equivalent_values(graphparams.N, graphparams.d, graphparams.γ); name = "γ = $(graphparams.γ)"))
+  ╠═╡ =#
+
+# ╔═╡ e6bf5b6e-75cd-49b3-bf36-7ed6dee11aaf
+#=╠═╡
+function show_distributions(N::Integer, d::Integer, γ::Real)
+	nvals = N-d:N+d
+	range = 2*d + 1
+	uniform_p = inv(range)
+	yvals = (γ .^ nvals .- 1) ./ (γ- 1)
+	n̄ = sum(uniform_p .* nvals)
+	γn̄ = sum(yvals .* uniform_p)
+	tr1 = bar(x = nvals, y = -nvals, name = "Undiscounted Values")
+	tr2 = bar(x = nvals, y = -yvals, name = "Discounted Values")
+	plot([tr1, tr2], Layout(title = "Expected Value $(-n̄), Expected Discounted Value = $(-γn̄)"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 4a5805f0-0cff-4e30-8305-304340734232
+#=╠═╡
+show_distributions(graphparams2.N, graphparams2.d, graphparams2.γ)
+  ╠═╡ =#
 
 # ╔═╡ 69a06405-57cd-42e5-96b1-5cc77d74aa03
 md"""
@@ -1416,6 +1425,35 @@ function run_fcann_differential_semi_gradient_sarsa(mdp::StateMDP, max_episodes:
 	return (value_function = q̂, reward_history = episode_rewards, step_history = episode_steps, average_step_reward = average_step_reward, parameters = setup.parameters)
 end
 
+# ╔═╡ 063e6f33-8b65-463c-a96f-5411f0ba0326
+md"""
+### *Differential Semi-gradient Dynamic Programming Implementation*
+"""
+
+# ╔═╡ 5e500019-d129-4c3c-91dd-cae93e7ab44f
+function run_nonlinear_differential_semi_gradient_dp(mdp::StateMDP, max_episodes::Integer, max_steps::Integer, state_representation::Vector{Float32}, update_state_representation!::Function, layers::Vector{T}; kwargs...) where T<:Integer
+	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!)
+	num_actions = length(mdp.actions)
+	episode_rewards, episode_steps, average_step_reward = differential_semi_gradient_dp!(setup.parameters, mdp, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
+	
+	action_values = zeros(Float32, num_actions)
+	function π_greedy(s)
+		for i_a in eachindex(action_values)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T) 
+			for i in eachindex(probabilities)
+				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
+				q += probabilities[i]*(rewards[i] + v̂′)
+			end
+			action_values[i_a] = q
+		end
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+	end
+	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, average_step_reward = average_step_reward)
+end
+
 # ╔═╡ 1a7ba296-52ca-4069-85fa-792d08d77b0e
 md"""
 ### Example: Differential Sarsa and Q-learning with Mountain Car Task
@@ -1426,11 +1464,8 @@ In order to apply differential learning to the mountain car task, we need to cha
 # ╔═╡ eb28458f-b222-4f8e-9a5b-8203d3997f7b
 function mountain_car_differential_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	a = mountain_car_actions[i_a]
-	ẋ′ = clamp(s[2] + 0.001f0*a - 0.0025f0*cos(3*s[1]), -0.07f0, 0.07f0)
-	x′ = clamp(s[1] + ẋ′, -1.2f0, 0.5f0)
-	x′ == -1.2f0 && return (0f0, (x′, 0f0))
-	s′ = (x′, ẋ′)
-	r = Float32(x′ == 0.5f0)
+	s′ = mountain_car_step(s, a)
+	r = Float32(s′[1] == 0.5f0)
 	return (r, s′)
 end
 
@@ -1487,6 +1522,23 @@ show_mountaincar_trajectory(π_mountain_car2_fcann, 1_000, "Differential Q-learn
 plot_mountaincar_action_values(q̂_mountain_car2_fcann, 500, 500)
   ╠═╡ =#
 
+# ╔═╡ a6e0c082-7f1f-4352-8c23-c3b64fd74493
+md"""
+#### Differential Dynamic Programming Methods
+"""
+
+# ╔═╡ 7146649a-1052-4ff6-8f44-eb448b849a6a
+function mountain_car_differential_dist_step(s::Tuple{Float32, Float32}, i_a::Int64)
+	(r, s′) = mountain_car_differential_step(s, i_a)
+	return ([r], [s′], [1f0])
+end
+
+# ╔═╡ 6ea7c88e-7808-4557-acfa-6151f21bb88d
+const mountain_car_differential_transition_distribution = StateMDPTransitionDistribution(mountain_car_differential_dist_step, initialize_car_state())
+
+# ╔═╡ c1ab5827-e3e5-4e8b-9322-e4a5fe0314c4
+const mountain_car_differential_dist_mdp = StateMDP(mountain_car_actions, mountain_car_differential_transition_distribution, initialize_car_state, s -> s[1] == 0.5f0)
+
 # ╔═╡ 9df1a18d-137c-4ea5-8d15-05697f7bbf07
 md"""
 > ### *Exercise 10.4* 
@@ -1536,11 +1588,35 @@ md"""
 md"""
 In order to use (10.6): $r(\pi) \doteq \lim_{h \rightarrow \infty} \frac{1}{h} \sum_{t = 1}^h \mathbb{E} [R_t \mid S_0, A_{0:t-1} \sim \pi]$ we need to compute $\mathbb{E} [R_t \mid S_0, A_{0:t-1} \sim \pi]$.  In this case, we are told that regardless of the policy, the reward sequence will be +1, 0, +1, 0, ....  We can therefore replace the expected values in the equation with this sequence since the rewards at each time step are known with 100% probability.
 
-the average reward can be computed as $r(\pi) = \lim_{h \rightarrow \infty} \frac{1}{2h}\sum_{t=1}^h (-1)^{t+1} + 1 = \lim_{h \rightarrow \infty} \frac{h}{2h} + \frac{1}{2h} \sum_{t=1}^h (-1)^{t+1}$
+$R_1 = 1, R_2 = 0, R_3 = 1, \dots, R_t = \frac{(-1)^{t+1} + 1}{2} \implies \mathbb{E}[R_t] = \frac{(-1)^{t+1} + 1}{2}$
 
-The sum left in the expression is $1 - 1 + 1 - 1 \cdots$ which is 1 for even h and 0 for odd h.  Either way, when divided by $2h$ that term goes to 0 leaving only the term $\frac{h}{2h} = \frac{1}{2}$ so $r(\pi) = \frac{1}{2}$
+the average reward can be computed using the definition:
 
-To compute the differential value function for state A and B, consider the alternative definition above using the fact that $r(\pi) = 0.5$.  
+$r(\pi) = \lim_{h \rightarrow \infty} \frac{1}{2h}\sum_{t=1}^h \left [ (-1)^{t+1} + 1 \right ]= \lim_{h \rightarrow \infty} \frac{h}{2h} + \frac{1}{2h} \sum_{t=1}^h (-1)^{t+1} = \frac{1}{2} \left [ 1 + \lim_{h \rightarrow \infty} \frac{1}{h}\sum_{t=1}^h (-1)^{t+1} \right ]$
+
+The remaining sum term is simply $1 - 1 + 1 - 1 \cdots$ which can be expressed as:
+
+$1 \geq X_h = \sum_{t=1}^h (-1)^{t+1} = \frac{(-1)^{h+1} + 1}{2} \geq 0$
+
+Since this expression is bounded, we can also bound the limit:
+
+$\lim_{h \rightarrow \infty} \frac{X_h}{h} \geq \lim_{h \rightarrow \infty} \frac{0}{h} = 0$
+$\lim_{h \rightarrow \infty} \frac{X_h}{h} \leq \lim_{h \rightarrow \infty} \frac{1}{h} = 0$
+
+Since both bounds are 0, the limit must be 0, resulting in the following expression for the average reward:
+
+$r(\pi) = \frac{1}{2}[1 + 0] = \frac{1}{2}$
+
+---
+The differetial value function is defined as: $v_\pi(s) \doteq \mathbb{E}_\pi[G_t \vert S_t = s]$ where $G_t \doteq R_{t+1} - r(\pi) + R_{t+2} - r(\pi) + R_{t+3} - r(\pi) + \cdots$  In this example, we know that $r(\pi) = 0.5$, but the reward sequence is periodic meaning the expected value of the differential return depends on $t$:
+
+$v_\pi (s) \doteq \mathbb{E}_\pi[G_t \vert S_t = s] = \mathbb{E}_\pi \left [ \sum_{h = 1}^{\infty} [R_{t+h} - r(\pi) ]  \mid S_t = s \right ] = \sum_{h = 1}^{\infty} \mathbb{E}_\pi[R_{t+h} \vert S_t = s] - r(\pi)$ 
+
+In particular, the sum does not exist since the values alternate and do not approach a single value.  Thus the differential value function is not well defined.  Therefore, we must consider the alternative definition: 
+
+$v_\pi (s) \doteq \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} \sum_{t=0}^h \gamma^t \left ( \mathbb{E_\pi} [R_{t+1}|S_0=s]-r(\pi)  \right )$ 
+
+This expression is identical to the original definition except for the presence of a discount rate in the sum which ensures the existence of a well defined value.  By taking the limit as $\gamma \rightarrow 1$, the impact of the discount rate can be eliminated after the calculation is done.
 
 For state A, each parenthetical term in the sum will be: $1 - 0.5, 0 - 0.5, 1 - 0.5, 0 - 0.5, \dots = 0.5, -0.5, 0.5, -0.5, \dots$
 
@@ -1559,7 +1635,7 @@ v_\pi (B) &= \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} -0.5 + 0.5\
 \end{flalign}$
 """
 
-# ╔═╡ f1edb500-fbd1-4c03-b033-53860dfa452d
+# ╔═╡ f56743d1-d681-4bcf-b1bb-c4ef78a75180
 md"""
 > ### *Exercise 10.7* 
 > Consider a Markov reward process consisting of a ring of three states A, B, and C, with state transitions going deterministically around the ring.  A reward of +1 is received upon arrival in A and otherwise the reward is 0.  What are the differential values of the three states, using (10.13)
@@ -1571,43 +1647,45 @@ $v_\pi (s) \doteq \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} \sum_{
 The average reward per step is $\frac{1}{3}$ so we can apply the same method used in exercise 10.6 where the elements inside the parentheses of the sum are: $\frac{2}{3}$ for $C \rightarrow A$ and $-\frac{1}{3}$ for the other two.  Starting in state A we transition twice and then on the third arrive in state A leading to the following mean corrected values of $-\frac{1}{3}$, $-\frac{1}{3}$, and $\frac{2}{3}$.  The other states will have these values cyclically permuted leading to the following infinite sums:
 
 For state A:
-$-\frac{1}{3} - \frac{1}{3}\gamma + \frac{2}{3}\gamma^2 - \frac{1}{3}\gamma^3 - \frac{1}{3}\gamma^4 + \cdots$
+$v_A = -\frac{1}{3} - \frac{1}{3}\gamma + \frac{2}{3}\gamma^2 - \frac{1}{3}\gamma^3 - \frac{1}{3}\gamma^4 + \frac{2}{3}\gamma^5 + \cdots = -\frac{1}{3} \times \left [ 1 + \gamma - 2 \gamma^2 + \gamma^3 + \gamma^4 - 2 \gamma^5 + \cdots \right ]$
 
 For state B:
-$-\frac{1}{3} + \frac{2}{3}\gamma - \frac{1}{3}\gamma^2 - \frac{1}{3}\gamma^3 + \frac{2}{3}\gamma^4 + \cdots$
+$v_B = -\frac{1}{3} + \frac{2}{3}\gamma - \frac{1}{3}\gamma^2 - \frac{1}{3}\gamma^3 + \frac{2}{3}\gamma^4 - \frac{1}{3}\gamma^5 + \cdots = -\frac{1}{3} \times \left [ 1 - 2\gamma + \gamma^2 + \gamma^3 - 2\gamma^4 + \gamma^5 + \cdots \right ]$
 
 For state C:
-$\frac{2}{3} - \frac{1}{3}\gamma - \frac{1}{3} \gamma^2 + \frac{2}{3}\gamma^3 + \cdots = 3 \times (2 - \gamma - \gamma^2 + 2\gamma^3 + \cdots)$
+$v_C = \frac{2}{3} - \frac{1}{3}\gamma - \frac{1}{3} \gamma^2 + \frac{2}{3}\gamma^3 - \frac{1}{3}\gamma^4 -\frac{1}{3}\gamma^5 + \cdots = -\frac{1}{3} \times \left [ -2 + \gamma + \gamma^2 - 2\gamma^3 + \gamma^4 + \gamma^5 \cdots \right ]$
 
-Comparing these sequences we have:
+"""
 
-$\gamma \times v(A) = v(C) - \frac{2}{3} \implies v(A) = \frac{v(C) - \frac{2}{3}}{\gamma}$
-$\gamma \times v(B) = v(A) + \frac{1}{3} \implies v(A) = \gamma \times v(B) - \frac{1}{3}$
-
-so
-
-$\frac{v(C) - \frac{2}{3}}{\gamma} = \gamma \times v(B) - \frac{1}{3} \implies v(C) = \gamma \left ( \gamma \times v(B) - \frac{1}{3} \right ) + \frac{2}{3}$
-
-also 
-
-$\gamma \times v(C) = v(B) + \frac{1}{3} \implies v(C) = \frac{v(B) + \frac{1}{3}}{\gamma}$
-
-Equation the two sides for $v(C)$ that only contain $v(B)$ terms we have:
-
-$\frac{v(B) + \frac{1}{3}}{\gamma} = \gamma \left ( \gamma \times v(B) - \frac{1}{3} \right ) + \frac{2}{3}$
-
-$v(B) = \gamma \left ( \gamma \left ( \gamma \times v(B) - \frac{1}{3} \right ) + \frac{2}{3} \right ) - \frac{1}{3} = \gamma^3 v(B) - \gamma^2 \frac{1}{3} + \gamma\frac{2}{3} - \frac{1}{3}$
-
-$v(B) \left ( 1 - \gamma^3 \right ) = - \gamma^2 \frac{1}{3} + \gamma\frac{2}{3} - \frac{1}{3} \implies v(B) = \frac{- \gamma^2 \frac{1}{3} + \gamma\frac{2}{3} - \frac{1}{3}}{1 - \gamma^3}$
-
-$v(B) = -\frac{1}{3} \frac{\gamma^2 - 2\gamma + 1}{1 - \gamma^3} = -\frac{1}{3} \frac{(\gamma - 1)^2}{-(\gamma - 1)(\gamma^2 + \gamma + 1)} = \frac{1}{3} \frac{\gamma - 1}{\gamma^2 + \gamma + 1}$
-
-Therefore, 
+# ╔═╡ b242d3b2-396c-4cb6-8c9c-38d16dc18636
+md"""
+Comparing the above expressions we have:
 
 $\begin{flalign}
-\lim_{\gamma \rightarrow 1} v(B) &= \frac{1}{3} \frac{1 - 1}{3} = 0 \\
-\lim_{\gamma \rightarrow 1} v(A) &= \gamma \times 0 - \frac{1}{3} = -\frac{1}{3} \\
-$\lim_{\gamma \rightarrow 1} v(C) &=  \frac{0 + \frac{1}{3}}{\gamma} = \frac{1}{3}
+v_A + v_B + v_C &= 0 \tag{1} \\
+\gamma v_A &= v_C - \frac{2}{3} \tag{2}\\
+\gamma v_B &= v_A + \frac{1}{3} \tag{3}\\
+\end{flalign}$
+
+Keep in mind we only care about the case where $\gamma = 1$, so we can enforce that now and see if the values exist.  Replacing terms to isolate $v_A$ yields: 
+
+$\begin{flalign}
+v_A &= -v_A - v_B - \frac{2}{3} \tag{by (1) and (2)}\\
+2v_A &= - v_B - \frac{2}{3} \\
+2v_A &= -v_A - \frac{1}{3} - \frac{2}{3} \tag{by (3)} \\
+3v_A &= -1 \\
+v_A &= -\frac{1}{3} \\
+\end{flalign}$
+"""
+
+# ╔═╡ a28f57c1-e48c-4f4f-8795-bdd195b26135
+md"""
+With the value for state A known, the others will follow from (1), (2), and (3).
+
+$\begin{flalign}
+v_A &= -\frac{1}{3} \\
+v_B &= v_A + \frac{1}{3} = -\frac{1}{3} + \frac{1}{3} = 0 \\
+v_C &= -v_A - v_B = \frac{1}{3} \\
 \end{flalign}$
 """
 
@@ -1626,42 +1704,10 @@ This equation requires us to have value estimates for each state which we can as
 
 """
 
-# ╔═╡ a9b74949-9392-4048-bcb6-5fd48c1d9b98
+# ╔═╡ 5c09f453-7b10-4a38-bb51-87bcc9f54247
 md"""
-### Example 10.2: An Access-Control Queuing Task
+### *Action Value Implementation of State Aggregation*
 """
-
-# ╔═╡ fbf1c64f-1979-4384-a8c6-dc7875174d1f
-begin
-	abstract type AccessControlAction end
-	struct Accept <: AccessControlAction end
-	struct Reject <: AccessControlAction end
-end
-
-# ╔═╡ e7372e2b-a2db-4a93-9efc-f75aa74c197b
-struct AccessControlState
-	num_free_servers::Int64
-	top_priority::Float32
-end
-
-# ╔═╡ 014339eb-5b23-4ac5-a551-8eeb2238366f
-begin 
-	function access_control_step(s::AccessControlState, ::Reject, num_servers::Integer, priority_payments::Vector{Float32})
-		occupied_servers = num_servers - s.num_free_servers
-		freed_servers = sum(_ -> Float32(rand() < 0.06), 1:occupied_servers; init = 0f0)
-		new_occupied_servers = occupied_servers - freed_servers
-		new_free_servers = num_servers - new_occupied_servers
-		new_priority = rand(priority_payments)
-		(0f0, AccessControlState(new_free_servers, new_priority))
-	end
-
-	function access_control_step(s::AccessControlState, ::Accept, num_servers::Integer, priority_payments::Vector{Float32})
-		occupied_servers = num_servers - s.num_free_servers
-		(r_reject, s′) = access_control_step(s, Reject(), num_servers, priority_payments)
-		s.num_free_servers == 0 && return (r_reject, s′)
-		(s.top_priority, AccessControlState(s′.num_free_servers - 1, s′.top_priority))
-	end
-end
 
 # ╔═╡ 96548352-cd4d-4448-8312-ed10057f4359
 begin
@@ -1813,17 +1859,17 @@ end
 # ╔═╡ 49e43d51-05d6-415b-a685-76e50904c5bc
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function mountaincar_differential_test(max_episodes::Integer, α::Float32, β::Float32, ϵ::Float32; num_tiles = 12, num_tilings = 8, kwargs...)
+function mountaincar_differential_test(num_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_tiles = 12, num_tilings = 8, kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
 	v = setup.args.feature_vector
-	run_linear_differential_semi_gradient_sarsa(mountain_car_differential_mdp, max_episodes, typemax(Int64), zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, β = β, ϵ = ϵ, kwargs...)
+	run_linear_differential_semi_gradient_sarsa(mountain_car_differential_mdp, 1_000, num_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, β = β, ϵ = ϵ, kwargs...)
 end
   ╠═╡ =#
 
 # ╔═╡ db189316-e880-4cc8-9070-ccfe2b4fc545
 # ╠═╡ skip_as_script = true
 #=╠═╡
-(q̂_mountain_car2, episode_rewards2, episode_steps2, average_step_reward) = mountaincar_differential_test(100, 0.0008f0/8, 0.00001f0, 0.33f0; compute_value = compute_q_learning_value)
+(q̂_mountain_car2, episode_rewards2, episode_steps2, average_step_reward) = mountaincar_differential_test(1_000_000, 2f-3, 1f-4, 0.05f0; compute_value = compute_q_learning_value)
   ╠═╡ =#
 
 # ╔═╡ 7bc49107-9de5-4985-8750-979f36b3aa81
@@ -1841,16 +1887,10 @@ show_mountaincar_trajectory(π_mountain_car2, 1_000, "Differential Q-learning Le
 plot_mountaincar_action_values(q̂_mountain_car2, 500, 500)
   ╠═╡ =#
 
-# ╔═╡ 4775126e-4374-49be-b25f-4597401f3642
+# ╔═╡ 53c5558b-e713-4c72-bdf8-e162c3892e6f
 #=╠═╡
-plot([scatter(y = view(average_step_reward, episode_steps2[2:end]), name = "Average Steps Reward"), scatter(y = (episode_steps2[2:end] .- episode_steps2[1:end-1])[:], name = "Steps Per Episode", yaxis = "y2")], Layout(yaxis2 = attr(overlaying = "y", side = "right")))
+plot(average_step_reward)
   ╠═╡ =#
-
-# ╔═╡ 4271151d-d5a6-4a29-96c3-f2102b142b95
-begin
-	get_action_value(i_s::Integer, i_a::Integer, parameters::Vector{Vector{T}}) where T<:Real = parameters[i_a][i_s]
-	get_action_value(i_s::Integer, i_a::Integer, parameters::Matrix{T}) where T<:Real = parameters[i_s, i_a]
-end
 
 # ╔═╡ 5534526a-d790-4379-98b0-8e4ee981fd9f
 begin
@@ -1880,6 +1920,260 @@ begin
 	end
 end
 
+# ╔═╡ b0761704-5447-4e64-8270-708d9dccef60
+function semi_gradient_dp!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	s = mdp.initialize_state()
+	i_a = rand(eachindex(mdp.actions))
+	ep = 1
+	step = 1
+	epreward = zero(T)
+	episode_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	action_values = zeros(T, length(mdp.actions))
+	policy = zeros(T, length(mdp.actions))
+	decay = one(T)
+	while (ep <= max_episodes) && (step <= max_steps)
+		#computes q and finds maximizing action value, this is effectively trajectory sampling in the case of approximation where we stay close to the optimal policy
+		maxq = update_action_values!(action_values, s, s -> estimate_value(s, parameters, estimate_args...), mdp, γ)
+		
+		learning_rate = nn_momentum ? T(1 - 0.999^step) : one(T)
+		update_parameters!(parameters, s, maxq, α * learning_rate * decay, update_args...)
+
+		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+		i_a = sample_action(action_values)
+		(r, s) = mdp.ptf(s, i_a)
+		epreward += r
+		
+		if mdp.isterm(s)
+			s = mdp.initialize_state()
+			push!(episode_rewards, epreward)
+			push!(episode_steps, step)
+			epreward = zero(T)
+			ep += 1
+		end
+		
+		if step > decay_step
+			decay *= α_decay
+		end
+		step += 1
+	end
+	return episode_rewards, episode_steps
+end
+
+# ╔═╡ 56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
+function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
+	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
+	l = length(state_representation)
+	num_actions = length(mdp.actions)
+	parameters = zeros(T, l)
+	episode_rewards, episode_steps = semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
+	function π_greedy(s)
+		action_values = zeros(T, num_actions)
+		for i_a in eachindex(action_values)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T) 
+			for i in eachindex(probabilities)
+				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
+				q += probabilities[i]*(rewards[i] + γ*v̂′)
+			end
+			action_values[i_a] = q
+		end
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+	end
+	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
+end
+
+# ╔═╡ b0cc6ff8-7296-461c-9db7-e52fa518e2e2
+#=╠═╡
+function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
+	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	v = setup.args.feature_vector
+	run_linear_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ d0cf3806-05c6-4a50-94c8-55c9042d51b7
+# ╠═╡ skip_as_script = true
+#=╠═╡
+(v̂_mountain_car, π_greedy_dp, episode_rewards_dp, episode_steps_dp) = mountaincar_dist_test(100, 0.001f0/32, 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ bd1f42e5-94cc-4aef-b82a-9bffd1c951d8
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot_mountaincar_values(v̂_mountain_car, π_greedy_dp)
+  ╠═╡ =#
+
+# ╔═╡ 7d21c4cd-ab79-4f40-9b8b-f637b3efcab0
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mountaincar_trajectory(π_greedy_dp, 1_000, "DP Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ 00e7783f-7f17-4944-a085-ea87509cd75a
+function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where T<:Real
+	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
+	l = length(state_representation)
+	num_actions = length(mdp.actions)
+	episode_rewards, episode_steps = semi_gradient_dp!(setup.parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
+	function π_greedy(s)
+		action_values = zeros(T, num_actions)
+		for i_a in eachindex(action_values)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T) 
+			for i in eachindex(probabilities)
+				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
+				q += probabilities[i]*(rewards[i] + γ*v̂′)
+			end
+			action_values[i_a] = q
+		end
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+	end
+	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
+end
+
+# ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
+#=╠═╡
+function mountaincar_fcann_dp(max_episodes::Integer, α::Float32, ϵ::Float32; layers = [4, 4], max_steps = typemax(Int64), kwargs...)
+	run_fcann_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, 2), update_mountaincar_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
+# ╠═╡ skip_as_script = true
+#=╠═╡
+mountaincar_fcann_dp_results = mountaincar_fcann_dp(100, 1f-5, 0.1f0; layers = [16, 16, 16], c = 10f0)
+  ╠═╡ =#
+
+# ╔═╡ b3658e4d-ee8e-45cd-906a-06dd512a6921
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot_mountaincar_values(mountaincar_fcann_dp_results.value_function, mountaincar_fcann_dp_results.π_greedy; n1 = 100, n2 = 100)
+  ╠═╡ =#
+
+# ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mountaincar_trajectory(mountaincar_fcann_dp_results.π_greedy, 1_000, "DP Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ 00399548-b21c-43b5-90e2-30656ab1541e
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot(scatter(y = -mountaincar_fcann_dp_results.reward_history), Layout(yaxis_type = "log"))
+  ╠═╡ =#
+
+# ╔═╡ 12fa7b75-d13f-4a16-8562-1142002f3f3f
+function semi_gradient_differential_dp!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, β = one(T)/100, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	s = mdp.initialize_state()
+	i_a = rand(eachindex(mdp.actions))
+	ep = 1
+	step = 1
+	epreward = zero(T)
+	episode_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	average_step_reward = Vector{T}()
+	action_values = zeros(T, length(mdp.actions))
+	policy = zeros(T, length(mdp.actions))
+	decay = one(T)
+	R̄ = zero(T)
+	ō = zero(T)
+	while (ep <= max_episodes) && (step <= max_steps)
+		v = estimate_value(s, parameters, estimate_args...)
+		#computes q and finds maximizing action value, this is effectively trajectory sampling in the case of approximation where we stay close to the optimal policy
+		maxq = update_action_values!(action_values, s, s -> estimate_value(s, parameters, estimate_args...), mdp, one(T))
+		
+		learning_rate = nn_momentum ? T(1 - 0.999^step) : one(T)
+		update_parameters!(parameters, s, maxq-R̄, α * learning_rate * decay, update_args...)
+
+		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+		i_a = sample_action(action_values)
+		(r, s) = mdp.ptf(s, i_a)
+		epreward += r
+		
+		if mdp.isterm(s)
+			s = mdp.initialize_state()
+			push!(episode_rewards, epreward)
+			push!(episode_steps, step)
+			epreward = zero(T)
+			ep += 1
+		end
+		
+		if step > decay_step
+			decay *= α_decay
+		end
+		ō += β * (one(T) - ō)
+		R̄ += (β/ō)*(maxq - R̄ - v)
+		push!(average_step_reward, R̄)
+		step += 1
+	end
+	return episode_rewards, episode_steps, average_step_reward
+end
+
+# ╔═╡ 4ecb2297-9113-464c-a1b2-10b7bf0ac691
+function run_linear_differential_semi_gradient_dp(mdp::StateMDP, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
+	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
+	l = length(state_representation)
+	num_actions = length(mdp.actions)
+	parameters = zeros(T, l)
+	episode_rewards, episode_steps, average_step_reward = semi_gradient_differential_dp!(parameters, mdp, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
+	action_values = zeros(T, num_actions)
+	function π_greedy(s)
+		for i_a in eachindex(action_values)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T) 
+			for i in eachindex(probabilities)
+				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
+				q += probabilities[i]*(rewards[i] + v̂′)
+			end
+			action_values[i_a] = q
+		end
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+	end
+	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, average_step_reward = average_step_reward)
+end
+
+# ╔═╡ 501b7284-6e04-4a15-b8e4-2601156b0345
+#=╠═╡
+function mountaincar_differential_dp_test(num_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 16, kwargs...)
+	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	v = setup.args.feature_vector
+	run_linear_differential_semi_gradient_dp(mountain_car_differential_dist_mdp, 1_000, num_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, β = β, ϵ = ϵ, kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 2441b61e-5954-41e2-8ee4-38b16ed04cef
+#=╠═╡
+const differential_linear_dp_mountaincar = mountaincar_differential_dp_test(1_000_000, 2f-5, 1f-4, 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ 6f4f8b64-0c17-446e-bfb6-0540871ad9e0
+#=╠═╡
+plot(differential_linear_dp_mountaincar.average_step_reward)
+  ╠═╡ =#
+
+# ╔═╡ 1a56e4dd-15dd-47b3-afd8-1dd7f5b690ac
+#=╠═╡
+show_mountaincar_trajectory(differential_linear_dp_mountaincar.π_greedy, 1_000, "Differential Linear DP Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ c94da551-06b2-4e2b-bf39-ceb5cb5c390c
+#=╠═╡
+plot_mountaincar_values(differential_linear_dp_mountaincar.value_function, differential_linear_dp_mountaincar.π_greedy)
+  ╠═╡ =#
+
+# ╔═╡ 4271151d-d5a6-4a29-96c3-f2102b142b95
+begin
+	get_action_value(i_s::Integer, i_a::Integer, parameters::Vector{Vector{T}}) where T<:Real = parameters[i_a][i_s]
+	get_action_value(i_s::Integer, i_a::Integer, parameters::Matrix{T}) where T<:Real = parameters[i_s, i_a]
+end
+
 # ╔═╡ f68952bd-4c0b-4331-a09c-5b118c8fa5a9
 function state_aggregation_action_gradient_setup(assign_state_group::Function)
 	function update_params!(parameters, s, i_a, g::T, α::T) where {T<:Real}
@@ -1892,6 +2186,48 @@ function state_aggregation_action_gradient_setup(assign_state_group::Function)
 		
 	return (value_function = q̂, value_args = (), parameter_update = update_params!, update_args = ())
 end
+
+# ╔═╡ a9b74949-9392-4048-bcb6-5fd48c1d9b98
+md"""
+### Example 10.2: An Access-Control Queuing Task
+"""
+
+# ╔═╡ fbf1c64f-1979-4384-a8c6-dc7875174d1f
+begin
+	abstract type AccessControlAction end
+	struct Accept <: AccessControlAction end
+	struct Reject <: AccessControlAction end
+end
+
+# ╔═╡ e7372e2b-a2db-4a93-9efc-f75aa74c197b
+struct AccessControlState
+	num_free_servers::Int64
+	top_priority::Float32
+end
+
+# ╔═╡ 014339eb-5b23-4ac5-a551-8eeb2238366f
+begin 
+	function access_control_step(s::AccessControlState, ::Reject, num_servers::Integer, priority_payments::Vector{Float32})
+		occupied_servers = num_servers - s.num_free_servers
+		freed_servers = sum(_ -> Float32(rand() < 0.06), 1:occupied_servers; init = 0f0)
+		new_occupied_servers = occupied_servers - freed_servers
+		new_free_servers = num_servers - new_occupied_servers
+		new_priority = rand(priority_payments)
+		(0f0, AccessControlState(new_free_servers, new_priority))
+	end
+
+	function access_control_step(s::AccessControlState, ::Accept, num_servers::Integer, priority_payments::Vector{Float32})
+		occupied_servers = num_servers - s.num_free_servers
+		(r_reject, s′) = access_control_step(s, Reject(), num_servers, priority_payments)
+		s.num_free_servers == 0 && return (r_reject, s′)
+		(s.top_priority, AccessControlState(s′.num_free_servers - 1, s′.top_priority))
+	end
+end
+
+# ╔═╡ 78251726-a5ec-4fa3-adcb-09ff347ff54a
+md"""
+Approximation is not really needed here since we have a small number of states, but we can always use state aggregation where each state is assigned a unique group.  Here I use a matrix style indexing for the states where the number of free servers and the priority index are used and then converted into a linear index.
+"""
 
 # ╔═╡ 62839b2a-398a-4445-87d1-b15ff2acc1d1
 function create_access_control_task(num_servers::Integer, priority_payments::Vector{Float32})
@@ -1918,10 +2254,17 @@ function run_access_control_differential_sarsa(max_steps::Int64; num_servers = 1
 	(value_function = v̂, mdp = mdp, parameters = parameters, steprewards = steprewards)
 end
 
+# ╔═╡ c914fc12-d650-400b-8aff-e2a55bb2d5cf
+function sample_vector(v::Vector; npoints = min(length(v), 1000))
+	l = length(v)
+	inds = ceil.(Int64, LinRange(1, l, npoints))
+	(inds, v[inds])
+end
+
 # ╔═╡ 546a775e-d3c9-4693-9f64-d4c47a84fb9f
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function figure_10_5(;numsteps = 2_000_000, α = 0.01f0, β = 0.01f0, ϵ = 0.1f0)
+function figure_10_5(;numsteps = 2_000_000, α = 0.006f0, β = 0.001f0, ϵ = 0.1f0)
 	access_control_output = run_access_control_differential_sarsa(numsteps; β = β, α = α, ϵ = ϵ)
 	policy_output = BitArray(undef, (4, 10))
 	priorities = [8, 4, 2, 1]
@@ -1940,12 +2283,16 @@ function figure_10_5(;numsteps = 2_000_000, α = 0.01f0, β = 0.01f0, ϵ = 0.1f0
 	value_traces = [scatter(x = 0:10, y = value_function_outputs[i], name = "priority $(priorities[i])") for i in 1:4]
 	p1 = plot(policy_trace, Layout(yaxis_tickvals = 1:4, yaxis_ticktext = priorities, xaxis_ticktext = 1:10, xaxis_tickvals = 1:10, xaxis_title = "Number of free servers", yaxis_title = "Priority", title = "Policy (black=reject, white=accept)"))
 	p2 = plot(value_traces, Layout(xaxis_title = "Number of free servers", yaxis_title = "Differential value of best action", title = "Value Function"))
-
+	(rinds, vinds) = sample_vector(access_control_output.steprewards)
+	p3 = plot(scatter(x = rinds, y = vinds), Layout(xaxis_title = "Step", yaxis_title = "Average Reward Estimate"))
+	
 	md"""
 	Figure 10.5
 
 	The policy and value function found by differential semi-gradient one-step Sarsa on the access-control queuing task after 2 million steps.  The value learned for $\bar R$ was about $(access_control_output.steprewards[end-10000:end] |> mean |> Float64 |> x -> round(x, sigdigits = 3))
+	
 	$([p1 p2])
+	$p3
 	"""
 end
   ╠═╡ =#
@@ -1953,6 +2300,222 @@ end
 # ╔═╡ 41c626c7-908d-4ff6-9730-4ad0b8c3cc25
 #=╠═╡
 figure_10_5()
+  ╠═╡ =#
+
+# ╔═╡ 708164fd-93ea-4720-ad6d-22e1c297c22a
+md"""
+#### Distributional Transition for Access Control Task
+
+Even though the problem is stochastic, we can calculate all of the probabilities for a step transition.  The main challenge is using the 6% probability that an occupied server is freed on each step to compute the probabilities of transition states.
+"""
+
+# ╔═╡ c4ba34b5-e657-4b75-b853-0a2df081e34b
+begin
+	function access_control_step_distribution(s::AccessControlState, ::Reject, num_servers::Integer, priority_payments::Vector{Float32})
+		occupied_servers = num_servers - s.num_free_servers
+		rewards = Vector{Float32}()
+		states = Vector{AccessControlState}()
+		probabilities = Vector{Float32}()
+		f = factorial(occupied_servers)
+		for freed_servers in 0:occupied_servers
+			new_occupied_servers = occupied_servers - freed_servers
+			c = f / (factorial(new_occupied_servers) * factorial(freed_servers))
+			pfree = c*(0.06f0^freed_servers) * (0.94f0^new_occupied_servers)
+			for payment in priority_payments
+				p = pfree/length(priority_payments)
+				s′ = AccessControlState(num_servers - new_occupied_servers, payment)
+				push!(rewards, 0f0)
+				push!(states, s′)
+				push!(probabilities, p)
+			end
+		end
+		return (rewards, states, probabilities)
+	end
+
+	function access_control_step_distribution(s::AccessControlState, ::Accept, num_servers::Integer, priority_payments::Vector{Float32})
+		(rewards, states, probabilities) = access_control_step_distribution(s, Reject(), num_servers, priority_payments)
+		s.num_free_servers == 0 && return (rewards, states, probabilities)
+		occupied_servers = num_servers - s.num_free_servers
+		
+		([s.top_priority for _ in rewards], [AccessControlState(s′.num_free_servers - 1, s′.top_priority) for s′ in states], probabilities)
+	end
+end
+
+# ╔═╡ f9ad39d4-d2b6-44f3-a444-bcabd926a743
+#=╠═╡
+md"""
+##### Access Control Step Transition Probabilities
+Number of Free Servers: $(@bind num_free_servers Slider(0:10; show_value=true))
+"""
+  ╠═╡ =#
+
+# ╔═╡ 84942647-8826-4864-b7d4-c31f9d78fd48
+#=╠═╡
+function plot_access_control_transition(free_servers::Int64)
+	s = AccessControlState(free_servers, 1f0)
+	(rewards, states, probabilities) = access_control_step_distribution(s, Accept(), 10, [1f0])
+	μaccept = zeros(Float32, 11)
+	for i in eachindex(states)
+		s′ = states[i]
+		μaccept[s′.num_free_servers + 1] += probabilities[i]
+	end
+	μaccept = bar(x = 0:10, y = μaccept, name = "accept")
+
+	(rewards, states, probabilities) = access_control_step_distribution(s, Reject(), 10, [1f0])
+	μreject = zeros(Float32, 11)
+	for i in eachindex(states)
+		s′ = states[i]
+		μreject[s′.num_free_servers + 1] += probabilities[i]
+	end
+	μreject = bar(x = 0:10, y = μreject, name = "reject")
+	plot([μaccept, μreject], Layout(xaxis_title = "Number of Free Servers", yaxis_title = "Probability"))
+end
+  ╠═╡ =#
+
+# ╔═╡ dbde6c7c-a0ff-41bc-9a26-ffd38561a5ef
+#=╠═╡
+plot_access_control_transition(num_free_servers)
+  ╠═╡ =#
+
+# ╔═╡ 54700e88-2c70-4b3e-bc93-6960dc70efcb
+function create_access_control_tabular_task(num_servers::Integer, priority_payments::Vector{Float32})
+	actions = [Accept(), Reject()]
+	states =  [AccessControlState(n, p) for n in 0:num_servers for p in priority_payments]
+	stateindex = makelookup(states)
+	state_transition_map = Matrix{SparseVector{Float32, Int64}}(undef, length(actions), length(states))
+	reward_transition_map = Matrix{Vector{Float32}}(undef, length(actions), length(states))
+	for i_s in eachindex(states)
+		for i_a in eachindex(actions)
+			(rewards, states′, probabilities) = access_control_step_distribution(states[i_s], actions[i_a], num_servers, priority_payments)
+			v = sparse(zeros(Float32, length(states)))
+			for i in eachindex(states′)
+				s′ = states′[i]
+				i_s′ = stateindex[s′]
+				v[i_s′] = probabilities[i]
+			end
+			state_transition_map[i_a, i_s] = copy(v)
+			reward_transition_map[i_a, i_s] = copy(rewards)
+		end
+	end
+	
+	initialize_state_index() = stateindex[AccessControlState(num_servers, rand(priority_payments))]
+	ptf = TabularTransitionDistribution(state_transition_map, reward_transition_map)
+	TabularMDP(states, actions, ptf, initialize_state_index)
+end
+
+# ╔═╡ 28f9d40a-4f4f-4bbf-ac36-4964afed7ab4
+const tabular_access_control_task = create_access_control_tabular_task(10, [1f0, 2f0, 4f0, 8f0])
+
+# ╔═╡ 32b3c5b4-cdb8-43be-a398-6e158254c4a7
+#=╠═╡
+md"""
+##### Access Control Task with Discounting
+
+Select Discount Rate: $(@bind γ_10_5 NumberField(0f0:0.01f0:1f0; default = 0.9))
+"""
+  ╠═╡ =#
+
+# ╔═╡ 3985641e-2f07-4029-8047-51579904cd53
+md"""
+As the discount rate approaches 1, this solution should converge to the average reward solution shown below.  Numerically this is challenging because the values themselves diverge so there might not be enough precision to arrive at an answer.  If the priority payments are considered money, this solution is more desireable if the value of γ actually reflects some real time value of the money like an interest rate.
+"""
+
+# ╔═╡ 350e057e-154f-4d0b-91fb-ffde9cc9059f
+#=╠═╡
+function figure_10_5_tabular_discounted(γ::Float32)
+	access_control_output = value_iteration_v(tabular_access_control_task, γ)
+	policy_output = zeros(Float32, 4, 10)
+	priorities = [8, 4, 2, 1]
+	actions = [true, false]
+	value_function_outputs = [zeros(Float32, 11) for _ in 1:4]
+	for num_free_servers in 0:10
+		for priority in 1:4
+			s = AccessControlState(num_free_servers, Float32(priorities[priority]))
+			i_s = tabular_access_control_task.state_index[s]
+			v = access_control_output.final_value[i_s]
+			i_a = 1f0 - access_control_output.optimal_policy[2, i_s]
+			value_function_outputs[priority][num_free_servers+1] = v
+			if num_free_servers > 0
+				policy_output[priority, num_free_servers] = i_a
+			end
+		end
+	end
+	policy_trace = heatmap(x = 1:10, y = 1:4, z = Float32.(policy_output), colorscale="Greys", showscale = false)
+	value_traces = [scatter(x = 0:10, y = value_function_outputs[i], name = "priority $(priorities[i])") for i in 1:4]
+	p1 = plot(policy_trace, Layout(yaxis_tickvals = 1:4, yaxis_ticktext = priorities, xaxis_ticktext = 1:10, xaxis_tickvals = 1:10, xaxis_title = "Number of free servers", yaxis_title = "Priority", title = "Policy (black=reject, white=accept)"))
+	p2 = plot(value_traces, Layout(xaxis_title = "Number of free servers", yaxis_title = "Discounted value of best action", title = "Value Function"))
+
+	md"""
+	Figure 10.5 Discounted Tabular
+
+	The policy and value function found by value iteration on the access-control queuing task.
+	$([p1 p2])
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 5a73ef20-dfdb-4d75-8790-805d6da27462
+#=╠═╡
+figure_10_5_tabular_discounted(γ_10_5)
+  ╠═╡ =#
+
+# ╔═╡ f009970f-bf6c-46dd-a534-a960582ce51b
+md"""
+##### Average Reward Solution to Access Control Task Solved with Policy Iteration
+"""
+
+# ╔═╡ f1f6f750-8c49-4435-82a1-e13a280b3738
+#=╠═╡
+function figure_10_5_tabular_average_reward()
+	access_control_output = TabularRL.differential_policy_iteration_v(tabular_access_control_task; θ = 0.00001f0)
+	policy_output = zeros(Float32, 4, 10)
+	μs = zeros(Float32, 4, 11)
+	priorities = [8, 4, 2, 1]
+	actions = [true, false]
+	value_function_outputs = [zeros(Float32, 11) for _ in 1:4]
+	(minv, maxv) = extrema(access_control_output.value_functions[end])
+	meanv = (minv + maxv)/2
+	for num_free_servers in 0:10
+		for priority in 1:4
+			s = AccessControlState(num_free_servers, Float32(priorities[priority]))
+			i_s = tabular_access_control_task.state_index[s]
+			v = access_control_output.value_functions[end][i_s] .- meanv
+			i_a = 1f0 - access_control_output.policies[end][2, i_s]
+			value_function_outputs[priority][num_free_servers+1] = v
+			μs[priority, num_free_servers+1] = access_control_output.steady_state_distribution.steady_state_distribution[i_s]
+			if num_free_servers > 0
+				policy_output[priority, num_free_servers] = i_a
+			end
+		end
+	end
+	policy_trace = heatmap(x = 1:10, y = 1:4, z = Float32.(policy_output), name = "optimal policy action", colorscale="Greys", showscale = false)
+	value_traces = [scatter(x = 0:10, y = value_function_outputs[i], name = "priority $(priorities[i])") for i in 1:4]
+	μs = heatmap(x = 1:10, y = 1:4, z = μs, colorscale="Greys", name = "steady state probability", showscale = false)
+	p1 = plot(policy_trace, Layout(yaxis_tickvals = 1:4, yaxis_ticktext = priorities, xaxis_ticktext = 1:10, xaxis_tickvals = 1:10, xaxis_title = "Number of free servers", yaxis_title = "Priority", title = "Policy (black=reject, white=accept)"))
+	p2 = plot(value_traces, Layout(xaxis_title = "Number of free servers", yaxis_title = "Differential value of best action", title = "Value Function"))
+	p3 = plot(μs, Layout(yaxis_tickvals = 1:4, yaxis_ticktext = priorities, xaxis_ticktext = 1:10, xaxis_tickvals = 1:11, xaxis_title = "Number of free servers", yaxis_title = "Priority", title = "Steady State Distribution"))
+	p4 = plot(bar(y = access_control_output.average_rewards, showlegend = false), Layout(xaxis_title = "Policy Iteration", yaxis_title = "Average Reward"))
+
+	@htl("""
+	$(md"""
+	Figure 10.5 Tabular Policy Iteration for Average Reward
+
+	The policy and value function found by policy iteration on the access-control queuing task.
+	""")
+
+	<div style = "display: flex; flex-wrap: wrap;">
+	<div style = "width: 50%">$p1</div>
+	<div style = "width: 50%">$p2</div>
+	<div style = "width: 50%">$p3</div>
+	<div style = "width: 50%">$p4</div>
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 64096af2-3cbe-4f6b-944d-6f4bdc2cd535
+#=╠═╡
+figure_10_5_tabular_average_reward()
   ╠═╡ =#
 
 # ╔═╡ 662759be-282c-460b-adc3-8595475b53c2
@@ -1964,6 +2527,40 @@ In a special case of indistinguishable states, we can only use the actions and r
 We can use discounting in approximate solution methods regardless but then $\gamma$ changes from a problem parameter to a solution method parameter.  Unfortunately, discounting algorithms with function approximation do not optimize discounted value over the on-policy distribution, and thus are not guaranteed to optimze average reward.
 
 The root cause of the problem applying discounting with function approximation is that we have lost the policy improvement theorem which states that a policy $\pi^\prime$ is better than policy $\pi$ if $v_{\pi^\prime}(s) \geq v_\pi(s) \forall s\in \mathcal{S}$.  Under this theorem we could take a deterministic policy, choose a specific state, and find a new action at that state with a higher expected reward than the current policy.  If the policy is an approximation function that uses states represented by feature vectors, then adjusting the parameters can in general affect the actions at many states including ones that have not been encountered yet.  In fact, with approximate solution methods we cannot guarantee  policy improvement in any setting.  Later we will introduce a theoretical guarantee called the "policy-gradient theorem" but for an alternative class of algorithms based on parametrized policies.
+"""
+
+# ╔═╡ b727e6e7-e019-4697-85a6-c2cf839ef34a
+md"""
+The objective that uses discounting here is $J(\pi) = \sum_s \mu_\pi (s) v_\pi^\gamma(s)$ rather than the original goal of getting the maximum state values for every state.  So this derivation is really only suited to the approximation setting and the altered objective.  If we are in the tabular objective, then we have access to the policy improvmeent theorem and can guarantee a maximum value for every state, although none of those values may correspond to the average reward.  We can see the example below that favoring this objective leads to a worse value function and policy which is not optimal given that discount rate.  The only reason we consider it here is because in the case of approximation we are forced into using this objective.  If we use an approximation method instead which does separate each state, then updates to one state will not affect the others and the optimal policy will be found anyway.  The sampling according to the steady state distribution only affects the optimization result when multiple states are affected by a single update.
+"""
+
+# ╔═╡ 68e3ef82-0706-449c-b00a-dc69e6c7b717
+md"""
+In the discounted setting, we can think about optimizing $D(\pi) = \sum_s v_\pi(s)$ where $v_*$ has the highest possible value of $D$ since we know the state values are highest everywhere.  Since all states are weighted equally, the result is different from optimizing $J$ and in general will depend on the discount rate.  But what if $\gamma \rightarrow 1$, can we say anything about $D(\pi)$?
+
+Returning to the definition of $v_\pi(s) = \mathbb{E}_\pi \left [ \sum_{k=1}^\infty R_k \gamma^{k-1} \mid S_0 = s \right ]$
+
+Let's say that $\lim_{t \rightarrow \infty} \mathbb{E}_\pi [R_t]$ exists and is independent of $S_0$ (those are the criteria for the average reward setting).  Then we can split this into a finite sum and an infinite sum where 
+
+$v_\pi(s) \approx \sum_{k=1}^N \mathbb{E}_\pi[ R_k \gamma^{k-1} \mid S_0 = s] + \sum_{k = N+1}^\infty r(\pi) \gamma^{k-1}$
+
+and that in the limit as $N \rightarrow \infty$ this becomes exact.  Now there is some $r_{max} \geq R_t \forall t < N$, so the first part of the sum can be bounded by $\sum_{k = 1}^N r_{max} \gamma^{k-1} = r_{max}\frac{\gamma^N - 1}{\gamma - 1}$ and in the limit of $\gamma \rightarrow 1$ this approaches $r_{max}N$.
+
+$S1 \le r_{max}\frac{1 - \gamma^N}{1 - \gamma}$
+
+$S2 = r(\pi) \frac{\gamma ^N}{1 - \gamma}$
+
+$\frac{S2}{S1} \ge \frac{r(\pi) \gamma^N}{r_{max} (1 - \gamma^N)}$
+
+Let $\gamma = 1 - \epsilon$ where $\epsilon \ll 1$  Then $\gamma^N = (1 - \epsilon)^N = 1 - N \epsilon + O(\epsilon^2)$ so we can rewrite the expression above as
+
+$\frac{S2}{S1} \ge \frac{r(\pi)(1 - N\epsilon)}{r_{max} (1 - 1 + N\epsilon)} = \frac{r(\pi)}{r_\max}\frac{(1 - N\epsilon)}{N\epsilon} = \frac{r(\pi)}{r_\max}\left ( \frac{1}{N \epsilon} - 1 \right )$
+
+So let's say that I demand that $\frac{S_2}{S_1} \gt D \gg 1 \implies \frac{r(\pi)}{r_\max} \left (\frac{1}{N\epsilon} - 1 \right ) \gt D \implies \frac{1}{N\epsilon} \gt \frac{D r_\max + r(\pi)}{r(\pi)} \implies \epsilon \lt \frac{r(\pi)N}{Dr_\max + r(\pi)} = \frac{N}{D \frac{r_\max}{r_\pi} + 1} \lt \frac{N}{D + 1}$  So for any N, I can always select $D \gg N \implies \epsilon \ll 1 \implies \frac{S2}{S1} \gg 1 \implies v_\pi \approx S2 \approx r(\pi) \frac{1 - N\epsilon}{\epsilon}$
+
+$\frac{v_\pi - \hat v_\pi}{v_\pi} = 1 - \frac{\hat v_\pi}{v_\pi}$
+
+The second sum is equal to $\frac{r(\pi) \gamma^N}{1-\gamma}$ which approaches infinite value as the discount rate approaches 1.  So for any finite N, there exists a $\gamma \lt 1$ for which the second sum is arbitrarily larger than the first which means that in the limit $v_\pi(s) \approx \frac{r(\pi) \gamma^N}{1-\gamma}$ which is also approximately equal to $J(\pi)$ in the limit of $\gamma \rightarrow 1$.  Thus optimizing the discounted value is equivalent to optimizing $r(\pi)$ in this limit.
 """
 
 # ╔═╡ 0e66a941-1ec1-4d3b-b064-e5f25cc93baf
@@ -2095,6 +2692,40 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 	return step_history, reward_history
 end
 
+# ╔═╡ 164c68ef-01b8-43be-bc75-919dd99a6e03
+function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, value_function::Function, value_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T)/10, suppress_warning = false, epkwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	action_values = zeros(T, length(mdp.actions))
+	v̂(s) = value_function(s, parameters, value_args...)
+	function π_greedy(s)
+		update_action_values!(action_values, s, v̂, mdp, γ)
+		make_greedy_policy!(action_values)
+		sample_action(action_values)
+	end
+	
+	function π_ϵ_greedy(s)
+		rand() < ϵ && return rand(eachindex(mdp.actions))
+		π_greedy(s)
+	end
+	
+	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; epkwargs...)
+	gradient_monte_carlo_episode_update!(parameters, update_parameters!, states, rewards, γ, α, update_args...)
+	if !suppress_warning && !mdp.isterm(sterm) 
+		@info "Warning: Episode 1 did not conclude in $nsteps steps"
+	end
+	step_history = [nsteps]
+	reward_history = [sum(rewards)]
+	for ep in 2:num_episodes
+		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π_ϵ_greedy, epkwargs...)
+		gradient_monte_carlo_episode_update!(parameters, update_parameters!, view(states, 1:nsteps), view(rewards, 1:nsteps), γ, α, update_args...)
+		if !suppress_warning && !mdp.isterm(sterm) 
+			@info "Warning: Episode $ep did not conclude in $nsteps steps"
+		end
+		push!(step_history, nsteps)
+		push!(reward_history, sum(rewards[i] for i in 1:nsteps))
+	end
+	return step_history, reward_history, π_ϵ_greedy, π_greedy, v̂
+end
+
 # ╔═╡ c85033e1-3ee6-42ad-9ef0-144ce6238ce4
 #=╠═╡
 function smooth_error(error_history, n)
@@ -2130,6 +2761,14 @@ function run_linear_gradient_monte_carlo_control(mdp::StateMDP, γ::T, num_episo
 	π_greedy(s) = setup.value_function(action_values, s, parameters, setup.value_args...)[2]
 	π_ϵ_greedy(s, ϵ) = rand() < ϵ ? rand(eachindex(mdp.actions)) : setup.value_function(action_values, s, parameters, setup.value_args...)[2]
 	return (value_function = q̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
+end
+
+# ╔═╡ 2e1b698a-4c84-4bd7-9b08-79fb275bcb58
+function run_linear_gradient_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!)
+	parameters = zeros(T, length(state_representation))
+	step_history, reward_history, π_ϵ_greedy, π_greedy, v̂ = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, setup...; kwargs...)
+	return (value_function = v̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
 end
 
 # ╔═╡ 0714a1cf-9288-4f1e-ba72-d82608704d69
@@ -2168,16 +2807,17 @@ function run_fcann_gradient_monte_carlo_control(mdp::StateMDP, γ::T, num_episod
 	return (value_function = q̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
 end
 
+# ╔═╡ 9b3035f6-fe59-4748-a1cd-3c2ce61c6608
+function run_fcann_gradient_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
+	step_history, reward_history, π_ϵ_greedy, π_greedy, v̂ = gradient_monte_carlo_control!(setup.parameters, mdp, γ, num_episodes, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	return (value_function = v̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
+end
+
 # ╔═╡ 6cea9e69-bf8c-4079-9884-663a728d7b08
 md"""
 # Dependencies
 """
-
-# ╔═╡ f5e32900-6eb6-4b61-916d-893c0bcaf214
-# ╠═╡ skip_as_script = true
-#=╠═╡
-TableOfContents()
-  ╠═╡ =#
 
 # ╔═╡ ed1bd92c-8cc7-457f-9692-a10a9487c953
 # ╠═╡ skip_as_script = true
@@ -2896,6 +3536,7 @@ version = "17.4.0+2"
 # ╠═8b7e1031-9864-439c-86eb-11aa08f53b90
 # ╟─05e2fff5-4871-4468-a00e-9c1b7ba0ffc6
 # ╟─57a6510f-bd42-4d1d-a550-d1442f79569f
+# ╠═a4c6a5c0-29c5-440c-bf86-20d0f881ee06
 # ╠═b0761704-5447-4e64-8270-708d9dccef60
 # ╟─54b92594-04b8-4a8a-82c2-773b4a24680d
 # ╟─278a26ac-c48f-4e18-93bb-706a4634c8c0
@@ -2916,6 +3557,7 @@ version = "17.4.0+2"
 # ╟─a22e5d34-4b8d-479c-985c-d6abd41a6c80
 # ╟─b990ba67-42c8-4ab9-943d-085392204fdd
 # ╠═cafb20b4-a2bd-46a9-9660-b0ace84d6e4c
+# ╠═fe7926e8-98cd-4bbc-a5fd-d3523b7c6b8f
 # ╠═b07460f1-0461-4f63-b145-c4e1818a497e
 # ╠═df07524f-b3fe-4a66-98ac-8f80df66bcff
 # ╠═d577b393-4b40-4c90-9993-4ffbcbd9df6d
@@ -3009,12 +3651,28 @@ version = "17.4.0+2"
 # ╟─09088eee-4cb3-40ac-b127-658ce1332fba
 # ╟─d6ad1ff1-8fbf-4799-8b1b-ae1e3ce88c5b
 # ╟─b8c031ca-7995-4501-a1e3-df3f34e5f0da
+# ╟─5f9a2231-8c4a-4519-adbe-a0dd92838ba4
+# ╟─4154e827-6d0b-4b94-9f14-64baa85739af
+# ╟─e90a591d-0bd0-46a9-8327-f61bfb155a31
+# ╟─7cb7ca66-3130-4f06-a0dc-a3335ef85fdb
+# ╟─4a5805f0-0cff-4e30-8305-304340734232
+# ╟─37db9d03-1978-4842-a016-f416c33ba1d7
+# ╟─81a0a342-f92a-4f5a-a173-fd555188895f
+# ╟─a92db2a7-3a6c-4328-a2a8-cb74d2e671e9
+# ╟─44b7a560-d03b-4636-ad24-b30c8965ab8f
+# ╠═5a9bcf45-a04b-4a81-b825-9891021c8a15
+# ╠═25159f84-a120-4a20-aab8-010c110571a4
+# ╠═e6bf5b6e-75cd-49b3-bf36-7ed6dee11aaf
 # ╟─69a06405-57cd-42e5-96b1-5cc77d74aa03
 # ╠═a9fdb1fd-3f62-4e1c-9157-c4eee6215261
 # ╠═565c53ee-7ad5-44e2-bce5-4ff1f5f162c0
 # ╠═c9759bd9-ec9b-47a1-9080-a7fc332be565
 # ╠═065b2626-01f1-443f-8be4-3036003a2772
 # ╠═b5d2776f-4b93-4eaa-8873-c1c4e610e6b0
+# ╟─063e6f33-8b65-463c-a96f-5411f0ba0326
+# ╠═12fa7b75-d13f-4a16-8562-1142002f3f3f
+# ╠═4ecb2297-9113-464c-a1b2-10b7bf0ac691
+# ╠═5e500019-d129-4c3c-91dd-cae93e7ab44f
 # ╟─1a7ba296-52ca-4069-85fa-792d08d77b0e
 # ╠═eb28458f-b222-4f8e-9a5b-8203d3997f7b
 # ╠═e5ad765a-341f-4f11-9ae8-37d81cb349d2
@@ -3024,32 +3682,62 @@ version = "17.4.0+2"
 # ╠═7bc49107-9de5-4985-8750-979f36b3aa81
 # ╠═ab4cb3db-3a2d-4145-826b-b1001114eeff
 # ╠═0e3e506d-1959-47fd-8da9-b3dfd294be67
-# ╠═4775126e-4374-49be-b25f-4597401f3642
+# ╠═53c5558b-e713-4c72-bdf8-e162c3892e6f
 # ╠═b094bf9f-bb97-4f23-acdc-f39411a07fb9
 # ╠═d3ba78fa-f032-4bb9-9359-ef3bcff2252d
 # ╠═ae5c5377-8b44-4c82-a63c-d2cb8a0d6667
 # ╠═425fe768-c7bb-4d3e-87e6-47fa052ba612
 # ╠═b191d3f9-cf25-4fb4-8f5a-8da86e96e125
 # ╠═c44dd6c6-8213-49fb-8d33-ba8f2c766b2e
+# ╟─a6e0c082-7f1f-4352-8c23-c3b64fd74493
+# ╠═7146649a-1052-4ff6-8f44-eb448b849a6a
+# ╠═6ea7c88e-7808-4557-acfa-6151f21bb88d
+# ╠═c1ab5827-e3e5-4e8b-9322-e4a5fe0314c4
+# ╠═501b7284-6e04-4a15-b8e4-2601156b0345
+# ╠═2441b61e-5954-41e2-8ee4-38b16ed04cef
+# ╠═6f4f8b64-0c17-446e-bfb6-0540871ad9e0
+# ╠═1a56e4dd-15dd-47b3-afd8-1dd7f5b690ac
+# ╠═c94da551-06b2-4e2b-bf39-ceb5cb5c390c
 # ╟─9df1a18d-137c-4ea5-8d15-05697f7bbf07
 # ╟─0c7f5742-6c51-4c6a-b67f-217163935ba5
 # ╟─a6c5ec28-b2d5-4893-a118-95c1318d1f7f
 # ╟─44d43dbf-fe32-438e-b89d-c677bbc35893
-# ╟─f1edb500-fbd1-4c03-b033-53860dfa452d
+# ╟─f56743d1-d681-4bcf-b1bb-c4ef78a75180
+# ╟─b242d3b2-396c-4cb6-8c9c-38d16dc18636
+# ╟─a28f57c1-e48c-4f4f-8795-bdd195b26135
 # ╟─2d7679ad-a9b3-448b-a4bc-7e5b9bce6adb
+# ╟─5c09f453-7b10-4a38-bb51-87bcc9f54247
+# ╠═96548352-cd4d-4448-8312-ed10057f4359
+# ╠═5534526a-d790-4379-98b0-8e4ee981fd9f
+# ╠═4271151d-d5a6-4a29-96c3-f2102b142b95
+# ╠═f68952bd-4c0b-4331-a09c-5b118c8fa5a9
 # ╟─a9b74949-9392-4048-bcb6-5fd48c1d9b98
 # ╠═fbf1c64f-1979-4384-a8c6-dc7875174d1f
 # ╠═e7372e2b-a2db-4a93-9efc-f75aa74c197b
 # ╠═014339eb-5b23-4ac5-a551-8eeb2238366f
+# ╟─78251726-a5ec-4fa3-adcb-09ff347ff54a
 # ╠═62839b2a-398a-4445-87d1-b15ff2acc1d1
-# ╠═96548352-cd4d-4448-8312-ed10057f4359
-# ╠═4271151d-d5a6-4a29-96c3-f2102b142b95
-# ╠═5534526a-d790-4379-98b0-8e4ee981fd9f
-# ╠═f68952bd-4c0b-4331-a09c-5b118c8fa5a9
 # ╠═b4af8d87-a6e5-4e09-92b4-b07757f58f7f
-# ╠═41c626c7-908d-4ff6-9730-4ad0b8c3cc25
 # ╠═546a775e-d3c9-4693-9f64-d4c47a84fb9f
+# ╠═41c626c7-908d-4ff6-9730-4ad0b8c3cc25
+# ╠═c914fc12-d650-400b-8aff-e2a55bb2d5cf
+# ╟─708164fd-93ea-4720-ad6d-22e1c297c22a
+# ╠═c4ba34b5-e657-4b75-b853-0a2df081e34b
+# ╟─f9ad39d4-d2b6-44f3-a444-bcabd926a743
+# ╟─dbde6c7c-a0ff-41bc-9a26-ffd38561a5ef
+# ╠═84942647-8826-4864-b7d4-c31f9d78fd48
+# ╠═54700e88-2c70-4b3e-bc93-6960dc70efcb
+# ╠═28f9d40a-4f4f-4bbf-ac36-4964afed7ab4
+# ╟─32b3c5b4-cdb8-43be-a398-6e158254c4a7
+# ╟─5a73ef20-dfdb-4d75-8790-805d6da27462
+# ╟─3985641e-2f07-4029-8047-51579904cd53
+# ╠═350e057e-154f-4d0b-91fb-ffde9cc9059f
+# ╟─f009970f-bf6c-46dd-a534-a960582ce51b
+# ╠═64096af2-3cbe-4f6b-944d-6f4bdc2cd535
+# ╠═f1f6f750-8c49-4435-82a1-e13a280b3738
 # ╟─662759be-282c-460b-adc3-8595475b53c2
+# ╟─b727e6e7-e019-4697-85a6-c2cf839ef34a
+# ╟─68e3ef82-0706-449c-b00a-dc69e6c7b717
 # ╟─0e66a941-1ec1-4d3b-b064-e5f25cc93baf
 # ╟─c316c5d3-f484-4e8e-bd56-be1e236d96bc
 # ╟─bc220d14-97fd-486d-9880-6908135fe036
@@ -3059,19 +3747,21 @@ version = "17.4.0+2"
 # ╠═953907cd-9926-4478-99b3-da7068118c22
 # ╠═13e477f0-dc15-46cb-9691-c04a1b4c83c8
 # ╠═06834750-cc3a-468a-b0c2-81349c288a33
+# ╠═164c68ef-01b8-43be-bc75-919dd99a6e03
 # ╠═0714a1cf-9288-4f1e-ba72-d82608704d69
 # ╠═c85033e1-3ee6-42ad-9ef0-144ce6238ce4
 # ╠═b76551e0-c027-4682-b5ae-bba7ea2b987a
 # ╠═954848db-6dcc-4666-90f8-b5a900203242
 # ╠═b55d50a4-b039-4240-b434-42f7b724d24d
 # ╠═17d11fea-883b-4ddb-bec2-c4ad491b39dd
+# ╠═2e1b698a-4c84-4bd7-9b08-79fb275bcb58
 # ╠═c75dc51c-cbff-48b1-b0fd-108828929b51
+# ╠═9b3035f6-fe59-4748-a1cd-3c2ce61c6608
 # ╟─6cea9e69-bf8c-4079-9884-663a728d7b08
 # ╠═69fb26ed-763e-44ad-9b70-193e5a1a09b9
 # ╠═3f7484b3-272d-410d-92b1-ca13e5d7a8b7
 # ╠═318b398a-d8f2-4f39-a45d-fd9023961bf8
 # ╠═9fb5dace-a799-4424-bcb3-8542e508dd4b
-# ╠═f5e32900-6eb6-4b61-916d-893c0bcaf214
 # ╠═ed1bd92c-8cc7-457f-9692-a10a9487c953
 # ╠═dd472c0f-7b43-4abe-ada9-9dc8004a18cb
 # ╟─00000000-0000-0000-0000-000000000001
