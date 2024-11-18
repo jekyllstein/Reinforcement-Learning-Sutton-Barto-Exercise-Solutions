@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.46
+# v0.20.3
 
 using Markdown
 using InteractiveUtils
@@ -15,11 +15,14 @@ PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")
 end
 
 # ╔═╡ 9b35e3ae-95c4-4fe6-a84e-df4e22ab85e2
+# ╠═╡ skip_as_script = true
+#=╠═╡
 begin
 	using StatsBase, PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
 	
 	TableOfContents()
 end
+  ╠═╡ =#
 
 # ╔═╡ 46076214-2d52-4289-98e6-8b74c337f7d7
 md"""
@@ -123,6 +126,7 @@ bairdbehavior(s::Int64) = [6/7, 1/7]
 bairdπ(s::Int64) = [0.0, 1.0]
 
 # ╔═╡ 2feb4657-3377-434f-bf8a-400cfcfe9fef
+#=╠═╡
 #run the baird example with a given policy for a set number of steps and keep track of visit statistics
 @tailrec function runbaird(s0::Int64, π, nsteps::Int64, counts::Vector{Int64})
 	counts[s0] += 1
@@ -131,11 +135,14 @@ bairdπ(s::Int64) = [0.0, 1.0]
 	(s, r) = bairdtransition(s0, a)
 	runbaird(s, π, nsteps-1, counts)
 end
+  ╠═╡ =#
 
 # ╔═╡ 3238aaa1-92aa-4d80-af22-4e237be9f0fc
+#=╠═╡
 function startbaird(π, nsteps)
 	runbaird(1, π, nsteps, zeros(Int64, 7))
 end
+  ╠═╡ =#
 
 # ╔═╡ 1e010e8e-2dde-4228-b914-fdc120fa91ca
 md"""
@@ -143,11 +150,15 @@ md"""
 """
 
 # ╔═╡ 4b7b7bb6-8484-42ac-983f-ec33dbf2c73e
+#=╠═╡
 #confirm that the distribution of visited states is uniform for the behavior policy
 plot(bar(x = 1:7, y = startbaird(bairdbehavior, 1000000)), Layout(title = "Baird Behavior Policy State Distribution"))
+  ╠═╡ =#
 
 # ╔═╡ 1074eb62-a5ee-43cb-a1a6-fe2bbc196f72
+#=╠═╡
 plot(bar(x = 1:7, y =startbaird(bairdπ, 1000000)), Layout(title = "Baird Target Policy State Distribution"))
+  ╠═╡ =#
 
 # ╔═╡ cad27ba6-aa01-41e2-902b-ff411037cf0f
 md"""
@@ -186,6 +197,7 @@ struct Episodic_Full_Finite_MDP{S} <: MDP_Environment
 end
 
 # ╔═╡ 8efa076f-d14d-44ab-bc03-e7ff964bc3b3
+#=╠═╡
 #On Policy Episodic Semi-gradient TD0 Value Estimation
 #update weight vector that act as parameters for a value function estimate and its gradient.  Weight updates will occur to optimize value function according to the policy π.  The function will modify the initially provided weight vector but also keep track of the weight vector history for the purpose of tracking progress of the value function over time
 function semi_gradient_TD0_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; α = 0.01, maxeplength = Inf)	
@@ -205,8 +217,10 @@ function semi_gradient_TD0_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, 
 	step!(s0, maxsteps)
 	return w_history
 end
+  ╠═╡ =#
 
 # ╔═╡ 0b146651-a99f-489b-92f5-b5bd74d275fe
+#=╠═╡
 #On Policy Continuing Semi-gradient TD0 Value Estimation
 #update weight vector that act as parameters for a value function estimate and its gradient.  Weight updates will occur to optimize value function according to the policy π.  The function will modify the initially provided weight vector but also keep track of the weight vector history for the purpose of tracking progress of the value function over time
 function semi_gradient_TD0_v̂!(π::Function, mdp::Continuing_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; alpha = 0.01, β = 0.01, r̄ = 0.0)
@@ -225,8 +239,10 @@ function semi_gradient_TD0_v̂!(π::Function, mdp::Continuing_MDP, v̂::Function
 	r̄ = step!(s0, maxsteps, r̄)
 	return w_history, r̄
 end
+  ╠═╡ =#
 
 # ╔═╡ 1853cb36-a97d-4922-92c2-02261843c761
+#=╠═╡
 #Off Policy Episodic Semi-gradient TD0 Value Estimation
 #update weight vector that act as parameters for a value function estimate and its gradient.  Weight updates will occur to optimize value function according to the target policy π with samples drawn from the behavior policy b.  The function will modify the initially provided weight vector but also keep track of the weight vector history for the purpose of tracking progress of the value function over time
 function semi_gradient_TD0_v̂!(π::Function, b::Function, mdp::Episodic_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; α = 0.01)	
@@ -246,8 +262,10 @@ function semi_gradient_TD0_v̂!(π::Function, b::Function, mdp::Episodic_MDP, v�
 	step!(s0, maxsteps)
 	return w_history
 end
+  ╠═╡ =#
 
 # ╔═╡ d1cedda0-1ebf-42a6-b2f8-7df665252c08
+#=╠═╡
 #On Policy Episodic Semi-gradient DP Value Estimation
 #update weight vector that act as parameters for a value function estimate and its gradient.  Weight updates will occur to optimize value function according to the target policy π.  The function will modify the initially provided weight vector but also keep track of the weight vector history for the purpose of tracking progress of the value function over time
 function semi_gradient_DP_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; α = 0.01)	
@@ -275,8 +293,10 @@ function semi_gradient_DP_v̂!(π::Function, mdp::Episodic_MDP, v̂::Function, �
 	step!(maxsteps)
 	return w_history
 end
+  ╠═╡ =#
 
 # ╔═╡ c3ad2cdc-6e85-48a7-a746-c7599f80a126
+#=╠═╡
 #On Policy Episodic Semi-gradient DP Value Estimation
 #update weight vector that act as parameters for a value function estimate and its gradient.  Weight updates will occur to optimize value function according to the target policy π.  The function will modify the initially provided weight vector but also keep track of the weight vector history for the purpose of tracking progress of the value function over time
 function semi_gradient_DP_v̂!(π::Function, mdp::Episodic_Full_Finite_MDP, v̂::Function, ∇v̂::Function, w::Vector, maxsteps::Int64; α = 0.01, μ = Dict(s => 1.0 /length(mdp.states) for s in mdp.states))	
@@ -304,8 +324,10 @@ function semi_gradient_DP_v̂!(π::Function, mdp::Episodic_Full_Finite_MDP, v̂:
 	step!(maxsteps)
 	return w_history
 end
+  ╠═╡ =#
 
 # ╔═╡ ad6c8986-8fb0-4682-ade8-ebb76b4c829a
+#=╠═╡
 function figure11_2(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 1.], γ = 0.99)
 	epmax = 1000
 	
@@ -357,12 +379,15 @@ function figure11_2(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 1.]
 	Note that if we correct the dynamic programming method for the on policy distribution we recover the convergence properties of on policy TD.  However because of the target policy repeatedly visiting state 7, only the parameters for that state have a chance of being updated.  So we can expect an accurate value estimate for state 7 based on updates to weights 7 and 8 but not for the other states since weights 1 through 6 won't be affected by updates
 	"""
 end
+  ╠═╡ =#
 
 # ╔═╡ fcef571c-9656-42e4-9a85-e13c3ed51edb
+#=╠═╡
 md"""
 ### Figure 11.2
 $(figure11_2())
 """
+  ╠═╡ =#
 
 # ╔═╡ 6965a4d3-5422-4a3e-8eba-fa101cb1b16d
 md"""
@@ -370,6 +395,7 @@ md"""
 """
 
 # ╔═╡ a9264500-167f-4883-8514-d3fb962ef143
+#=╠═╡
 md"""
 The following weight updates are calculated to minimize the average estimation error for each transition weighted by the probability of experiencing that transition. (Note that vs equation (9.1) this is missing the on policy distribution over states).
 $\begin{flalign}
@@ -420,6 +446,7 @@ $\begin{flalign}
 Since ϵ is always between 0 and 1 this condition will always hold.  This can be verified with a plot of the factor γ must exceed for divergence which ends up being greater than 1.
 $(plot(scatter(x = collect(0.0:0.01:1.0), y = [0.5 * (5x + 4) / (x + 2 - 2x^2) for x in 0.0:0.01:1.0]), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold")))
 """
+  ╠═╡ =#
 
 # ╔═╡ 3dade251-ddf7-463e-8d55-1c37e6d8ac9a
 md"""
@@ -458,6 +485,7 @@ This is the same stability condition we had before with the explicit minimizatio
 """
 
 # ╔═╡ 3280e9dc-e0e4-4a18-88a5-0a4ac188e71c
+#=╠═╡
 function tsitsiklis_counterexample(ϵ, γ, w_0; maxsteps = 1000, α = 0.01)
 	thresh = 5 / (6 - 4*ϵ)
 	if γ > thresh
@@ -529,21 +557,32 @@ function tsitsiklis_counterexample(ϵ, γ, w_0; maxsteps = 1000, α = 0.01)
 	plot([p1 p2; p3])
 	# w_history_onpolicy
 end
+  ╠═╡ =#
 
 # ╔═╡ 5960d4a9-5493-41d8-a98f-e9d91e34fa79
+#=╠═╡
 tsitsiklis_counterexample(0.001, 0.9, [0.])
+  ╠═╡ =#
 
 # ╔═╡ 14fe90c3-50a7-4098-8626-b2d2a4b617ca
+#=╠═╡
 tsitsiklis_counterexample(0.01, 0.5, [1.])
+  ╠═╡ =#
 
 # ╔═╡ e2751f9f-1554-4cb2-934e-0e032ad9a244
+#=╠═╡
 tsitsiklis_counterexample(0.01, 0.83, [1.])
+  ╠═╡ =#
 
 # ╔═╡ e28a8728-bf1d-4a94-89f3-24d15d81425a
+#=╠═╡
 tsitsiklis_counterexample(0.01, 0.839, [1.])
+  ╠═╡ =#
 
 # ╔═╡ fab9d8f8-8dbc-450e-8a40-7b83b5a236d0
+#=╠═╡
 tsitsiklis_counterexample(0.01, 0.99, [1.], maxsteps = 1000)
+  ╠═╡ =#
 
 # ╔═╡ 4965afd6-b7b9-4fa9-ad1c-9744d5b9727d
 md"""
@@ -617,6 +656,7 @@ function semi_gradient_qlearning(mdp::Episodic_MDP, q̂::Function, ∇q̂::Funct
 end
 
 # ╔═╡ c537aeb0-963c-4cf9-88fd-cf94859b1964
+#=╠═╡
 function exercise_11_3(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 1., 1., 10.], maxsteps = 1000, γ = 0.99, ϵ = 0.01, α = 0.01)
 	
 	statefeatures = [
@@ -668,9 +708,12 @@ function exercise_11_3(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 
 	$(plot(h2, Layout(xaxis_title = "Action", yaxis_title="State", title = "Optimal Policy Action/Value Estimates Q-Learning")))
 	"""
 end
+  ╠═╡ =#
 
 # ╔═╡ 1b68a25e-9f12-4894-a3a7-3fdd6df34316
+#=╠═╡
 exercise_11_3(maxsteps = 100_000, ϵ = 0.1, α = 0.01)
+  ╠═╡ =#
 
 # ╔═╡ 6a654e0e-2809-4e46-989f-815de38c8bf6
 md"""
@@ -692,9 +735,83 @@ Important for data efficiency.  If we cannot use any bootstrapping we may need t
 Often we could use Sarsa instead of Q-learning to remedy this, so avoiding off-policy training might be the best way to guarantee stability for now.  However there will be cases in the future where off-policy training might be necessary such as estimating multiple policies at once.
 """
 
-# ╔═╡ e4f1211b-d880-4a24-8a76-bb5018199791
+# ╔═╡ c79e0f4d-6858-4f9c-960c-08f3c247566d
 md"""
 ## 11.4 Linear Value-function Geometry
+"""
+
+# ╔═╡ 3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
+md"""
+The 3D space contains vectors that represent all value function of 3 states: $\{s1, s2, s3\}$ where $\overline{v} = [v1, v2, v3]$.  Let's say we approximate these value functions with a parameter vector $\mathbf{w} = \{w1, w2\}$ such that $\hat v(s) = \mathbf{w} \cdot \mathbf{x}(s)$ where $\mathbf{x}(s)$ is the feature vector representation of a given state.  There are three states so three feature vectors that must be defined: $\mathbf{x}_1, \mathbf{x}_2, \mathbf{x}_3$.  Each feature vector has two components, one for each parameter, so three of them cannot be linearly independent.  All value function approximations $\hat v(s)$ lie in a plane within the 3D space expressing the constraints placed between the 3 state values.  For example let's say the feature vectors are $\{0, 1 \}, \left \{\frac{\sqrt{3}}{2}, -\frac{1}{2}\right \},  \left \{-\frac{\sqrt{3}}{2}, -\frac{1}{2}\right \}$.  Then the values function approximation would be $\hat v = \left \{ w2, \frac{w1 \sqrt{3} - w2}{2}, -\frac{w1 \sqrt{3} + w2}{2} \right \}$
+
+Another option is let's say to simplify the problem, we just group two of the states together so the feature vector is the same for two of the states.  In this scenario we could have $\hat v = \left \{ x1_1 w1 + x1_2 w2, x2_1 w1 + x2_2 w2, x3_1 w1 + x3_2 w2 \right \}$
+"""
+
+# ╔═╡ 6e6b9d64-2d90-40a4-abde-2fd0d6ab7d7a
+#=╠═╡
+plot([scatter(x = [0, 0], y = [0, 1], name = "x1"), scatter(x = [0, sqrt(3)/2], y = [0, -0.5], name = "x2"), scatter(x = [0, -sqrt(3)/2], y = [0, -0.5], name = "x3")], Layout(xaxis_range = [-1, 1], yaxis_range = [-1, 1], width = 500, height = 500, legend_orientation = "r", margin = attr(t = 60, l = 60, r = 0, b = 60)))
+  ╠═╡ =#
+
+# ╔═╡ d577b03d-bc68-4b32-9c6d-d92e0c4d7c99
+#=╠═╡
+@bind feature_angles PlutoUI.combine() do Child
+	md"""
+	 $$\theta_2$$ : $(Child(:θ2, Slider(0:360, default = 90, show_value=true))) °
+
+	 $$\theta_3$$ : $(Child(:θ3, Slider(0:360, show_value=true))) °
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 5047d396-af48-49fa-bf68-702fbe42c18e
+#=╠═╡
+const feature_vectors = [[cos(2*π*θ / 360), sin(2*π*θ/360)] for θ in feature_angles]
+  ╠═╡ =#
+
+# ╔═╡ c4916313-d4f0-443c-a81e-05d2b765acf0
+#=╠═╡
+plot([scatter(x = [0, feature_vectors[i][1]], y = [0, feature_vectors[i][2]], name = "x$i") for i in 1:2], Layout(xaxis_range = [-1, 1], yaxis_range = [-1, 1], width = 500, height = 500, legend_orientation = "r", margin = attr(t = 60, l = 60, r = 0, b = 60)))
+  ╠═╡ =#
+
+# ╔═╡ 9bc2895e-ab70-49f2-be7c-61f19054cf50
+#=╠═╡
+@bind weight_select PlutoUI.combine() do Child
+	md"""
+	w1 : $(Child(Slider(-1:0.1:1, show_value=true)))
+
+	w2 : $(Child(Slider(-1:0.1:1, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ aeca907a-ee07-4045-b98f-0c67b1734008
+#=╠═╡
+function plot_value_approximation(x1, x2, x3; n = 100, w = [1, 1])
+	v(w) = (x = dot(x1, w), y = dot(x2, w), z = dot(x3, w))
+	xs = []
+	ys = []
+	zs = []
+	for w1 in LinRange(-1, 1, n)
+		for w2 in LinRange(-1, 1, n)
+			push!(xs, dot(x1, [w1, w2]))
+			push!(ys, dot(x2, [w1, w2]))
+			push!(zs, dot(x3, [w1, w2]))
+		end
+	end
+	tr = scatter3d(x = xs, y = ys, z = zs, mode = "markers", marker_size = 1)
+	v̂ = v(w)
+	vtr = scatter3d(x = [0, v̂.x], y = [0, v̂.y], z = [0, v̂.z], name = "v̂($w)", mode = "lines+markers")
+	plot([tr, vtr], Layout(scene = attr(xaxis_range = [-1, 1], yaxis_range = [-1, 1], zaxis_range = [-1, 1])))
+end
+  ╠═╡ =#
+
+# ╔═╡ a780e90c-c6d1-44c8-9b55-d52cf4c20db4
+#=╠═╡
+plot_value_approximation([1, 0], feature_vectors[1], feature_vectors[2]; w = [weight_select[1], weight_select[2]])
+  ╠═╡ =#
+
+# ╔═╡ df8ffae5-73e4-4691-8e60-4fe6beb80113
+md"""
 ## 11.5 Gradient Descent in the Bellman Error
 ## 11.6 The Bellman Error is Not Learnable
 """
@@ -732,6 +849,8 @@ md"""
 """
 
 # ╔═╡ edd27759-c2c5-4b5a-92b2-590f8673461a
+# ╠═╡ skip_as_script = true
+#=╠═╡
 html"""
 	<style>
 		main {
@@ -743,6 +862,7 @@ html"""
 		}
 	</style>
 	"""
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -771,9 +891,9 @@ StatsBase = "~0.34.3"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.5"
+julia_version = "1.11.1"
 manifest_format = "2.0"
-project_hash = "bae601692c90be741d826e3b2da651b6634caf1e"
+project_hash = "1b76900c2f64e07dd9b1fd3545e99f9af4f97a58"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -788,13 +908,15 @@ version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
-version = "1.1.1"
+version = "1.1.2"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+version = "1.11.0"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+version = "1.11.0"
 
 [[deps.BaseDirs]]
 git-tree-sha1 = "cb25e4b105cc927052c2314f8291854ea59bf70a"
@@ -815,9 +937,9 @@ version = "1.3.6"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
-git-tree-sha1 = "b5278586822443594ff615963b0c09755771b3e0"
+git-tree-sha1 = "13951eb68769ad1cd460cdb2e64e5e95f1bf123d"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
-version = "3.26.0"
+version = "3.27.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
@@ -872,6 +994,7 @@ version = "0.18.20"
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+version = "1.11.0"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
@@ -892,12 +1015,13 @@ version = "1.6.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "82d8afa92ecf4b52d78d869f038ebfb881267322"
+git-tree-sha1 = "62ca0547a14c57e98154423419d8a342dca75ca9"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.16.3"
+version = "1.16.4"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -937,6 +1061,7 @@ version = "1.0.0"
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+version = "1.11.0"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
@@ -951,9 +1076,9 @@ version = "0.21.4"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "4b415b6cccb9ab61fec78a621572c82ac7fa5776"
+git-tree-sha1 = "2984284a8abcfcc4784d95a9e2ea4e352dd8ede7"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.9.35"
+version = "0.9.36"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
@@ -974,16 +1099,17 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.4.0+0"
+version = "8.6.0+0"
 
 [[deps.LibGit2]]
 deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+version = "1.11.0"
 
 [[deps.LibGit2_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.6.4+0"
+version = "1.7.2+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
@@ -992,10 +1118,12 @@ version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+version = "1.11.0"
 
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+version = "1.11.0"
 
 [[deps.LogExpFunctions]]
 deps = ["DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
@@ -1015,6 +1143,7 @@ version = "0.3.28"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
@@ -1030,11 +1159,12 @@ version = "0.5.13"
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+version = "1.11.0"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+1"
+version = "2.28.6+0"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -1044,10 +1174,11 @@ version = "1.2.0"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2023.1.10"
+version = "2023.12.12"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1056,7 +1187,7 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+4"
+version = "0.3.27+1"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
@@ -1076,9 +1207,13 @@ uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.8.1"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.10.0"
+version = "1.11.0"
+weakdeps = ["REPL"]
+
+    [deps.Pkg.extensions]
+    REPLExt = "REPL"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -1133,10 +1268,11 @@ version = "1.4.3"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+version = "1.11.0"
 
 [[deps.Profile]]
-deps = ["Printf"]
 uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+version = "1.11.0"
 
 [[deps.ProfileCanvas]]
 deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
@@ -1145,12 +1281,14 @@ uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 version = "0.1.0"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
+deps = ["InteractiveUtils", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+version = "1.11.0"
 
 [[deps.Random]]
 deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
@@ -1169,9 +1307,11 @@ version = "0.7.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+version = "1.11.0"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
+version = "1.11.0"
 
 [[deps.SortingAlgorithms]]
 deps = ["DataStructures"]
@@ -1182,12 +1322,17 @@ version = "1.2.1"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.10.0"
+version = "1.11.0"
 
 [[deps.Statistics]]
-deps = ["LinearAlgebra", "SparseArrays"]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.10.0"
+version = "1.11.1"
+weakdeps = ["SparseArrays"]
+
+    [deps.Statistics.extensions]
+    SparseArraysExt = ["SparseArrays"]
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
@@ -1201,10 +1346,14 @@ git-tree-sha1 = "5cf7606d6cef84b543b483848d4ae08ad9832b21"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.34.3"
 
+[[deps.StyledStrings]]
+uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+version = "1.11.0"
+
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.1+1"
+version = "7.7.0+0"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -1225,6 +1374,7 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+version = "1.11.0"
 
 [[deps.Tricks]]
 git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
@@ -1239,6 +1389,7 @@ version = "1.5.1"
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
@@ -1247,6 +1398,7 @@ version = "1.0.2"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+version = "1.11.0"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
@@ -1261,7 +1413,7 @@ version = "5.11.0+0"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.52.0+1"
+version = "1.59.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1314,7 +1466,16 @@ version = "17.4.0+2"
 # ╠═1b68a25e-9f12-4894-a3a7-3fdd6df34316
 # ╟─6a654e0e-2809-4e46-989f-815de38c8bf6
 # ╟─b62b78f5-4721-4fb6-b056-cc4dae9eae9f
-# ╟─e4f1211b-d880-4a24-8a76-bb5018199791
+# ╟─c79e0f4d-6858-4f9c-960c-08f3c247566d
+# ╠═3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
+# ╠═6e6b9d64-2d90-40a4-abde-2fd0d6ab7d7a
+# ╟─d577b03d-bc68-4b32-9c6d-d92e0c4d7c99
+# ╠═c4916313-d4f0-443c-a81e-05d2b765acf0
+# ╠═5047d396-af48-49fa-bf68-702fbe42c18e
+# ╠═9bc2895e-ab70-49f2-be7c-61f19054cf50
+# ╠═a780e90c-c6d1-44c8-9b55-d52cf4c20db4
+# ╠═aeca907a-ee07-4045-b98f-0c67b1734008
+# ╟─df8ffae5-73e4-4691-8e60-4fe6beb80113
 # ╟─e49849c5-d9b1-426b-b471-3acd32dcf07d
 # ╟─45e8699f-18ca-47a6-97eb-f855950b326d
 # ╠═31333ae3-615e-4587-80cf-d2716669af9e
