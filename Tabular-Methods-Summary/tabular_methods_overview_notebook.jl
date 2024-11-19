@@ -1422,7 +1422,7 @@ end;
 const episodic_gridworld = begin
 	# episodic_gridworld_length = 3 + 2*episodic_policy_iteration_params.goal1distanceratio
 	# make_stochastic_gridworld(;xmax = episodic_gridworld_length, ymax = 3, start = GridworldState(3, 2), sterm = GridworldState(episodic_gridworld_length, 2), wind = ones(Int64, episodic_gridworld_length) .* episodic_policy_iteration_params.usewind, goal2 = GridworldState(1, 2), continuing = false, usegoal2=true, goal2reward = -1f0, termreward = -1f0, stepreward = -1f0)
-	make_stochastic_gridworld(;usegoal2=false, termreward = -1f0, stepreward = -1f0, wind = wind_values)
+	make_stochastic_gridworld(;usegoal2=false, termreward = -1f0, stepreward = -1f0, wind = wind_values .* episodic_policy_iteration_params.usewind)
 end
   ╠═╡ =#
 
@@ -2793,7 +2793,7 @@ end
 
 # ╔═╡ 077f6514-614d-4208-8b31-e8f5afb6be61
 begin
-	function bellman_differential_update_sweep!(value_ests::Array{T, N}, value_ests2::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, 2, ST, RT}, sweep) where {T <: Real, ST, RT, N}
+	function bellman_differential_update_sweep!(value_ests::Array{T, N}, value_ests2::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, 2, ST, RT}, sweep, i_s_ref::Integer) where {T <: Real, ST, RT, N}
 		delt = zero(T)
 		num_updates = 0
 		vref = zero(T)
@@ -2801,7 +2801,7 @@ begin
 			bellman_differential_policy_update!(value_ests2, value_ests, π, args..., ptf)
 			num_updates += 1	
 		end
-		vref = value_ests2[1]
+		vref = value_ests2[i_s_ref]
 		value_ests2 .-= vref
 		delt = maximum(calc_pct_change.(value_ests, value_ests2))
 		value_ests .= value_ests2
@@ -2828,7 +2828,7 @@ begin
 end
 
 # ╔═╡ 83fd09fd-69ab-479a-a475-1e9b9d3bef08
-function differential_policy_evaluation!(value_estimate::Array{T, N}, value_estimate2::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, ST, RT}; max_updates = typemax(Int64), max_sweeps = 100, θ = eps(zero(T)), sweep = make_uniform_sweep(value_estimate)) where {T<:Real, ST, RT, N}
+function differential_policy_evaluation!(value_estimate::Array{T, N}, value_estimate2::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, ST, RT}; max_updates = typemax(Int64), max_sweeps = 100, θ = eps(zero(T)), sweep = make_uniform_sweep(value_estimate), i_s_ref = 1) where {T<:Real, ST, RT, N}
 	delt = typemax(T)
 	total_updates = 0
 	iter = 1
@@ -2839,7 +2839,7 @@ function differential_policy_evaluation!(value_estimate::Array{T, N}, value_esti
 	# r = calculate_average_reward(ptf, steady_state.steady_state_distribution, π)
 	vref = zero(T)
 	while (delt > θ) && (total_updates <= max_updates) && (iter <= max_sweeps)
-		delt, vref, num_updates = bellman_differential_update_sweep!(value_estimate, value_estimate2, π, ptf, sweep)
+		delt, vref, num_updates = bellman_differential_update_sweep!(value_estimate, value_estimate2, π, ptf, sweep, i_s_ref)
 		total_updates += num_updates
 		iter += 1
 	end
@@ -3652,7 +3652,10 @@ begin
 
 	differential_policy_iteration(ptf::TabularTransitionDistribution, value_initializer::Function; kwargs...) = differential_policy_iteration!(value_initializer(ptf), ptf; kwargs...)
 
-	differential_policy_iteration(mdp::TabularMDP, value_initializer; kwargs...) = differential_policy_iteration(mdp.ptf, value_initializer; kwargs...)
+	function differential_policy_iteration(mdp::TabularMDP, value_initializer; kwargs...) 
+		i_s_ref = any(mdp.terminal_states) ? findfirst(mdp.terminal_states) : 1
+		differential_policy_iteration(mdp.ptf, value_initializer; i_s_ref = i_s_ref, kwargs...)
+	end
 end
 
 # ╔═╡ bb7e654d-7859-4cd8-9a98-470e549de73b
@@ -3660,7 +3663,7 @@ differential_policy_iteration_v(problem; kwargs...) = differential_policy_iterat
 
 # ╔═╡ 67e75384-48d4-434a-adde-6e77c9c69e61
 #=╠═╡
-const differential_policy_iteration_results2 = differential_policy_iteration_v(new_gridworld; max_iterations = 1000, max_sweeps = 10)
+const differential_policy_iteration_results2 = differential_policy_iteration_v(new_gridworld; max_iterations = 1000, max_sweeps = 100)
   ╠═╡ =#
 
 # ╔═╡ d4953eed-f756-4711-959f-6118d8f412b5
@@ -4497,6 +4500,7 @@ end
 
 # ╔═╡ e710bd79-e13d-4414-86c9-2c84b90b19c4
 function compute_bonus_value(v_max::T, min_value::T, max_value::T, k::T, c::T) where {T<:Real}
+	v_max >= max_value && return v_max
 	value_range = max_value - min_value
 	scaled_v_max = (v_max - min_value) / value_range
 	scaled_θ = if k == 1
@@ -4542,6 +4546,8 @@ function compute_state_action_bonus_value(step::Function, isterm::Function, tree
 			v_min′ = tree[s′].value_visits[1]
 			v_max′ = tree[s′].value_visits[2]
 			k = tree[s′].value_visits[3]
+			v_max′ > max_value′ && @warn "In state $(s′) the maximum observed value $(v_max′) is larger than the expected maximum value $(max_value′)"
+			max_value′ < min_value′ && error("In state $(s′) the expected maximum value $(max_value′) is smaller than the expected minimum value $(min_value′)")
 			bonus_value += p*γ*compute_bonus_value(v_max′, min_value′, max_value′, k, c)
 			q_min += p*γ*v_min′
 			q_max += p*γ*v_max′
@@ -4622,8 +4628,10 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 			while (i_a_select == 0) && (i < length(include_indices))
 				i_a = include_indices[i]
 				state_action_output = compute_state_action_bonus_value((s, i_a) -> mdp.ptf.step(s, i_a; step_kwargs...), mdp.isterm, tree, s, i_a, γ, c)
-				if isinf(state_action_output.q_max) || (state_action_output.bonus_value > state_action_output.q_max)
+				if isinf(state_action_output.q_max) || (state_action_output.q_max < state_action_output.max_value)
 					i_a_select == i_a
+				else
+					push!(tree[s].visited_actions, i_a)
 				end
 				i += 1
 			end
@@ -4642,6 +4650,7 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 
 	max_improvement = zero(T)
 	nonterm = 0
+	psum = zero(T)
 	for i in eachindex(sample_probabilities)
 		s′ = transition_states[i]
 		possible_improvement = if mdp.isterm(s′)
@@ -4657,11 +4666,13 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 			max_improvement = possible_improvement
 		end
 		sample_probabilities[i] *= possible_improvement
+		psum += sample_probabilities[i]
 	end
 
 	#note that this should never happen unless all of the transition states are terminal since if an action who's only transitions are already maxed out, it should have already not been selected above
 	iszero(max_improvement) && (nonterm > 0) && error("action $(i_a) = $(mdp.actions[i_a]) was selected in state $s but every transition state already has maximum value")
-	
+
+	sample_probabilities ./= psum
 	sample_index = sample_action(sample_probabilities) 
 	
 	(q_min, q_max) = eachindex(rewards) |> Map() do i
