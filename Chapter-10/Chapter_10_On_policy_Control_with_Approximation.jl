@@ -591,39 +591,55 @@ md"""
 """
 
 # ╔═╡ cafb20b4-a2bd-46a9-9660-b0ace84d6e4c
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function initialize_car_state()
 	a = rand(Float32) * 0.2f0
 	x = a - 0.6f0
 	ẋ = 0f0
 	(x, ẋ)
 end
+  ╠═╡ =#
 
 # ╔═╡ fe7926e8-98cd-4bbc-a5fd-d3523b7c6b8f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function mountain_car_step(s::Tuple{Float32, Float32}, a::Float32)
 	ẋ′ = clamp(s[2] + 0.001f0*a - 0.0025f0*cos(3*s[1]), -0.07f0, 0.07f0)
 	x′ = clamp(s[1] + ẋ′, -1.2f0, 0.5f0)
 	x′ == -1.2f0 && return (x′, 0f0)
 	return (x′, ẋ′)
 end
+  ╠═╡ =#
 
 # ╔═╡ d577b393-4b40-4c90-9993-4ffbcbd9df6d
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountain_car_actions = [-1f0, 0f0, 1f0]
+  ╠═╡ =#
 
 # ╔═╡ b07460f1-0461-4f63-b145-c4e1818a497e
+#=╠═╡
 function mountain_car_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	a = mountain_car_actions[i_a]
 	s′ = mountain_car_step(s, a)
 	return (-1f0, s′)
 end
+  ╠═╡ =#
 
 # ╔═╡ df07524f-b3fe-4a66-98ac-8f80df66bcff
+#=╠═╡
 function mountain_car_dist_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	(r, s′) = mountain_car_step(s, i_a)
 	([r], [s′], [1f0])
 end
+  ╠═╡ =#
 
 # ╔═╡ 28e0d632-0df3-4a5b-85c4-571c845ff827
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountain_car_action_names = ["Decelerate", "Nothing", "Accelerate"]
+  ╠═╡ =#
 
 # ╔═╡ 8befede5-378a-447a-96bd-edcd9d2ce98b
 md"""
@@ -631,10 +647,14 @@ We can use these to create a sampling transition function, although it will be d
 """
 
 # ╔═╡ ac80958a-73ec-4342-b553-b33df6612a50
+#=╠═╡
 const mountain_car_transition = StateMDPTransitionSampler(mountain_car_step, initialize_car_state())
+  ╠═╡ =#
 
 # ╔═╡ f9abf433-8ce3-4520-9b47-f17f8f07b4cb
+#=╠═╡
 const mountain_car_transition_distribution = StateMDPTransitionDistribution(mountain_car_dist_step, initialize_car_state())
+  ╠═╡ =#
 
 # ╔═╡ 1e9c537a-a731-4b81-8f6a-cb658b52c5be
 # ╠═╡ skip_as_script = true
@@ -723,6 +743,7 @@ If we discretize the positions and velocities then we can transform this into a 
 """
 
 # ╔═╡ 12f5065b-5bed-4d03-a0f0-72a942492394
+#=╠═╡
 function make_tabular_mountaincar(N, M)
 	x_range = (-1.2f0, 0.5f0)
 	v_range = (-0.07f0, 0.07f0)
@@ -758,6 +779,7 @@ function make_tabular_mountaincar(N, M)
 	ptf = TabularDeterministicTransition(state_transition_map, reward_transition_map)
 	(mdp = TabularMDP(states, mountain_car_actions, ptf, init_state_index), assign_state_index = bucket_state)
 end
+  ╠═╡ =#
 
 # ╔═╡ 39c63495-36c3-4e62-b8fb-36865f2c6243
 md"""
@@ -1462,12 +1484,14 @@ In order to apply differential learning to the mountain car task, we need to cha
 """
 
 # ╔═╡ eb28458f-b222-4f8e-9a5b-8203d3997f7b
+#=╠═╡
 function mountain_car_differential_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	a = mountain_car_actions[i_a]
 	s′ = mountain_car_step(s, a)
 	r = Float32(s′[1] == 0.5f0)
 	return (r, s′)
 end
+  ╠═╡ =#
 
 # ╔═╡ e5ad765a-341f-4f11-9ae8-37d81cb349d2
 # ╠═╡ skip_as_script = true
@@ -1528,16 +1552,22 @@ md"""
 """
 
 # ╔═╡ 7146649a-1052-4ff6-8f44-eb448b849a6a
+#=╠═╡
 function mountain_car_differential_dist_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	(r, s′) = mountain_car_differential_step(s, i_a)
 	return ([r], [s′], [1f0])
 end
+  ╠═╡ =#
 
 # ╔═╡ 6ea7c88e-7808-4557-acfa-6151f21bb88d
+#=╠═╡
 const mountain_car_differential_transition_distribution = StateMDPTransitionDistribution(mountain_car_differential_dist_step, initialize_car_state())
+  ╠═╡ =#
 
 # ╔═╡ c1ab5827-e3e5-4e8b-9322-e4a5fe0314c4
+#=╠═╡
 const mountain_car_differential_dist_mdp = StateMDP(mountain_car_actions, mountain_car_differential_transition_distribution, initialize_car_state, s -> s[1] == 0.5f0)
+  ╠═╡ =#
 
 # ╔═╡ 9df1a18d-137c-4ea5-8d15-05697f7bbf07
 md"""
@@ -2243,6 +2273,8 @@ function create_access_control_task(num_servers::Integer, priority_payments::Vec
 end
 
 # ╔═╡ b4af8d87-a6e5-4e09-92b4-b07757f58f7f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function run_access_control_differential_sarsa(max_steps::Int64; num_servers = 10, priority_payments = [1f0, 2f0, 4f0, 8f0], kwargs...)
 	(mdp, gradient_setup, num_groups) = create_access_control_task(num_servers, priority_payments)
 	parameters = [zeros(Float32, num_groups) for _ in eachindex(mdp.actions)]
@@ -2253,6 +2285,7 @@ function run_access_control_differential_sarsa(max_steps::Int64; num_servers = 1
 
 	(value_function = v̂, mdp = mdp, parameters = parameters, steprewards = steprewards)
 end
+  ╠═╡ =#
 
 # ╔═╡ c914fc12-d650-400b-8aff-e2a55bb2d5cf
 function sample_vector(v::Vector; npoints = min(length(v), 1000))
@@ -2404,7 +2437,10 @@ function create_access_control_tabular_task(num_servers::Integer, priority_payme
 end
 
 # ╔═╡ 28f9d40a-4f4f-4bbf-ac36-4964afed7ab4
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const tabular_access_control_task = create_access_control_tabular_task(10, [1f0, 2f0, 4f0, 8f0])
+  ╠═╡ =#
 
 # ╔═╡ 32b3c5b4-cdb8-43be-a398-6e158254c4a7
 #=╠═╡
