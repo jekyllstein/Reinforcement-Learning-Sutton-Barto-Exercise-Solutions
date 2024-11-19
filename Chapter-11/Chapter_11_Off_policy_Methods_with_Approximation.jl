@@ -40,19 +40,19 @@ md"""
 > Convert the equation of *n*-step off-policy TD (7.9) to the semi-gradient form.  Give accompanying definitions of the return for both the episodic and continuing cases.
 
 $\begin{flalign}
-V_{t+n}(S_t) \dot = V_{t+n-1}(S_t)+\alpha\rho_{t:t+n-1}[G_{t:t+n}-V_{t+n-1}(S_t)], \hspace{1cm}  0 \leq t < T \tag{7.9}
+V_{t+n}(S_t) \doteq V_{t+n-1}(S_t)+\alpha\rho_{t:t+n-1}[G_{t:t+n}-V_{t+n-1}(S_t)], \hspace{1cm}  0 \leq t < T \tag{7.9}
 \end{flalign}$
 where $\rho_{t:t+n-1}$, called the *importance sampling ratio*, is the relative probability under the two policies of taking the *n* actions from $A_t$ to $A_{t+n-1}$
 
-$\rho_{t:h} \dot = \prod_{k=t}^{\min(h, T-1)}\frac{\pi(A_k | S_k)}{b(A_k|S_k)} \tag{7.10}$
+$\rho_{t:h} \doteq \prod_{k=t}^{\min(h, T-1)}\frac{\pi(A_k | S_k)}{b(A_k|S_k)} \tag{7.10}$
 
 To convert this to a semi-gradient method we need to provide update equations for the weight vector that defines the value function approximation.
 
 $\begin{flalign}
-\mathbf{w}_{t+n} &\dot = \mathbf{w}_{t+n-1} + \alpha \rho_{t} \cdots \rho_{t+n-1} 
+\mathbf{w}_{t+n} &\doteq \mathbf{w}_{t+n-1} + \alpha \rho_{t} \cdots \rho_{t+n-1} 
 [G_{t:t+n} - \hat v(S_{t}, \mathbf{w}_{t+n-1})]\nabla \hat v (S_t, \mathbf{w}_{t+n-1})\\
-G_{t:t+n} &\dot = R_{t+1} + \cdots + \gamma^{n-1} R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1})	\tag{episodic}\\ 
-G_{t:t+n} &\dot = R_{t+1} - \bar R_t + \cdots + R_{t+n} - \bar R_{t+n-1} + \hat v(S_{t+n}, \mathbf{w}_{t+n-1})\tag{continuing}
+G_{t:t+n} &\doteq R_{t+1} + \cdots + \gamma^{n-1} R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1})	\tag{episodic}\\ 
+G_{t:t+n} &\doteq R_{t+1} - \bar R_t + \cdots + R_{t+n} - \bar R_{t+n-1} + \hat v(S_{t+n}, \mathbf{w}_{t+n-1})\tag{continuing}
 \end{flalign}$
 
 The tablular value at a particular time step is replaced with the weight parameter at that time step with the gradient also being added next to the error term.
@@ -64,19 +64,19 @@ md"""
 > Convert the equations of $n\text{-step} \; Q(\sigma)$ (7.11 and 7.17) to semi-gradient form.  Give definitions that cover both the episodic and continuing cases.
 
 $\begin{flalign}
-Q_{t+n} & \dot = Q_{t+n-1}(S_t, A_t) + \alpha \rho_{t+1:t+n}[G_{t:t+n} - Q_{t+n-1}(S_t, A_t)] \tag{7.11}\\
-G_{t:h} & \dot = R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - Q_{h-1}(S_{t+1}, A_{t+1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}) \tag{7.17}\\
-\bar V_t(s) & \dot = \sum_a \pi(a|s)Q_t(s, a)
+Q_{t+n} & \doteq Q_{t+n-1}(S_t, A_t) + \alpha \rho_{t+1:t+n}[G_{t:t+n} - Q_{t+n-1}(S_t, A_t)] \tag{7.11}\\
+G_{t:h} & \doteq R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - Q_{h-1}(S_{t+1}, A_{t+1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}) \tag{7.17}\\
+\bar V_t(s) & \doteq \sum_a \pi(a|s)Q_t(s, a)
 \end{flalign}$
 
 To convert this to a semi-gradient method we need to provide update equations for the weight vector that defines the value function approximation.
 
 $\begin{flalign}
-\mathbf{w}_{t+n} &\dot = \mathbf{w}_{t+n-1} + \alpha \rho_{t+1} \cdots \rho_{t+n} 
+\mathbf{w}_{t+n} &\doteq \mathbf{w}_{t+n-1} + \alpha \rho_{t+1} \cdots \rho_{t+n} 
 [G_{t:t+n} - \hat q(S_{t}, A_t, \mathbf{w}_{t+n-1})]\nabla \hat q (S_t, A_t, \mathbf{w}_{t+n-1})\\
-G_{t:h} &\dot = R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - \hat q(S_{t+1}, A_{t+1}, \mathbf{w}_{h-1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}), \text{\; for } t < h \leq T	\tag{episodic}\\ 
-G_{t:h} &\dot = R_{t+1} - \bar R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - \hat q(S_{t+1}, A_{t+1}, \mathbf{w}_{h-1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}), \text{\; for } t < h \leq T \tag{continuing}\\
-\bar V_t(s) & \dot = \sum_a \pi(a|s)\hat q(s, a, \mathbf{w}_t)
+G_{t:h} &\doteq R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - \hat q(S_{t+1}, A_{t+1}, \mathbf{w}_{h-1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}), \text{\; for } t < h \leq T	\tag{episodic}\\ 
+G_{t:h} &\doteq R_{t+1} - \bar R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - \hat q(S_{t+1}, A_{t+1}, \mathbf{w}_{h-1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}), \text{\; for } t < h \leq T \tag{continuing}\\
+\bar V_t(s) & \doteq \sum_a \pi(a|s)\hat q(s, a, \mathbf{w}_t)
 \end{flalign}$
 
 """
