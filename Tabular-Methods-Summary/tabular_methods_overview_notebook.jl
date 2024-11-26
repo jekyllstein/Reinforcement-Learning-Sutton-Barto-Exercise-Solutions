@@ -549,6 +549,8 @@ begin
 	TabularMRP(states::Vector{S}, ptf::P, initialize_state_index; kwargs...) where {T<:Real, S, P<:TabularTransitionDistribution{T, 1}} = TabularMRP(states, ptf, initialize_state_index, find_terminal_states(ptf); kwargs...)
 
 	TabularMRP(states::Vector{S}, ptf::P; kwargs...) where {T<:Real, S, P<:TabularTransitionDistribution{T, 1}} = TabularMRP(states, ptf, () -> rand(eachindex(states)); kwargs...)
+
+	TabularMDP(states, actions, args...; kwargs...) = TabularMDP(Vector(states), Vector(actions), args...; kwargs...)
 end
 
 # ╔═╡ 3165f2d7-38a2-4852-98aa-afa4cabfb2ed
@@ -3276,6 +3278,9 @@ begin
 		StateMDP(Vector(actions), ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
 
+	StateMDP(actions::AbstractVector{A}, ptf::AbstractStateTransition{T, 2, S, F}, initialize_state::StateInit; kwargs...) where {T<:Real, S, A, F<:Function, StateInit<:Function} = StateMDP(actions, ptf, initialize_state, s -> false; kwargs...)
+
+
 	#convert a tabular mdp into a non-tabular one
 	function StateMDP(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P, F<:Function}
 		termstates = mdp.states[mdp.terminal_states]
@@ -4498,9 +4503,16 @@ function compute_state_action_value(step::Function, isterm::Function, tree::Dict
 	return q_max
 end
 
+# ╔═╡ c57a57c9-abcc-4096-bf7a-bb22b51c5e9f
+function check_max(q::T, v_max::T) where T<:Real
+	q > v_max && return true
+	isapprox(q, v_max) && return true
+end
+
 # ╔═╡ e710bd79-e13d-4414-86c9-2c84b90b19c4
 function compute_bonus_value(v_max::T, min_value::T, max_value::T, k::T, c::T) where {T<:Real}
-	v_max >= max_value && return v_max
+	check_max(v_max, max_value) && return v_max
+	isapprox(min_value, max_value) && return max_value
 	value_range = max_value - min_value
 	scaled_v_max = (v_max - min_value) / value_range
 	scaled_θ = if k == 1
@@ -4546,7 +4558,8 @@ function compute_state_action_bonus_value(step::Function, isterm::Function, tree
 			v_min′ = tree[s′].value_visits[1]
 			v_max′ = tree[s′].value_visits[2]
 			k = tree[s′].value_visits[3]
-			v_max′ > max_value′ && @warn "In state $(s′) the maximum observed value $(v_max′) is larger than the expected maximum value $(max_value′)"
+			v_max′ > max_value′ && !isapprox(v_max′, max_value′) && @warn "In state $(s′) the maximum observed value $(v_max′) is larger than the expected maximum value $(max_value′)"
+			v_max′ < min_value′ && !isapprox(v_max′, min_value′) && @warn "In state $(s′) the maximum observed value $(v_max′) is smaller than the expected minimum value $(min_value′)"
 			max_value′ < min_value′ && error("In state $(s′) the expected maximum value $(max_value′) is smaller than the expected minimum value $(min_value′)")
 			bonus_value += p*γ*compute_bonus_value(v_max′, min_value′, max_value′, k, c)
 			q_min += p*γ*v_min′
@@ -4586,7 +4599,7 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 	max_value = visited ? tree[s].max_value : compute_max_value(s)
 	min_value = visited ? tree[s].min_value : compute_min_value(s)
 
-	visited && tree[s].value_visits[2] >= max_value && return (tree[s].value_visits[1], tree[s].value_visits[2])
+	visited && check_max(tree[s].value_visits[2], max_value) && return (tree[s].value_visits[1], tree[s].value_visits[2])
 
 	#fill in prior action selection probabilities from policy
 	i_a_greedy = π_dist!(prior, s)
@@ -4614,21 +4627,21 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 		for i_a in include_indices
 			state_action_output = compute_state_action_bonus_value((s, i_a) -> mdp.ptf.step(s, i_a; step_kwargs...), mdp.isterm, tree, s, i_a, γ, c)
 			v_bonus = state_action_output.bonus_value
-			ismax = !isinf(state_action_output.q_max) && (state_action_output.q_max >= state_action_output.max_value) #in the case of infinite values, don't consider that state maximized, that just means there are unvisited transition states
+			ismax = !isinf(state_action_output.q_max) && check_max(state_action_output.q_max, state_action_output.max_value) #in the case of infinite values, don't consider that state maximized, that just means there are unvisited transition states
 			ismax && push!(tree[s].visited_actions, i_a) #handles case of every transition state being terminal in which case the action won't actually be selected but should be considered later
-			newmax = (v_bonus > v_max) && !ismax
+			newmax = (v_bonus > v_max) && !ismax && (state_action_output.max_value > tree[s].value_visits[2]) #only explore an action more if its max value is larger than the best observed value so far 
 			i_a_select = newmax*i_a + !newmax*i_a_select
 			v_max = newmax*v_bonus + !newmax*v_max
 		end
 
 		#if all of the sampled indices are at max value then select a new one
 		if i_a_select == 0
-			include_indices = partialsortperm(prior, topk+1:length(prior); rev=true)
+			include_indices = filter(i -> !isinf(prior[i]), partialsortperm(prior, topk+1:length(prior); rev=true))
 			i = 1
 			while (i_a_select == 0) && (i < length(include_indices))
 				i_a = include_indices[i]
 				state_action_output = compute_state_action_bonus_value((s, i_a) -> mdp.ptf.step(s, i_a; step_kwargs...), mdp.isterm, tree, s, i_a, γ, c)
-				if isinf(state_action_output.q_max) || (state_action_output.q_max < state_action_output.max_value)
+				if isinf(state_action_output.q_max) || ((state_action_output.q_max < state_action_output.max_value) && (state_action_output.max_value > tree[s].value_visits[2]))
 					i_a_select == i_a
 				else
 					push!(tree[s].visited_actions, i_a)
@@ -4656,8 +4669,12 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 		possible_improvement = if mdp.isterm(s′)
 			zero(T)
 		elseif haskey(tree, s′)
-			max(tree[s′].max_value - tree[s′].value_visits[2], zero(T))
-			nonterm += 1
+			if check_max(tree[s′].value_visits[2], tree[s′].max_value)
+				zero(T)
+			else
+				tree[s′].max_value - tree[s′].value_visits[2]
+				nonterm += 1
+			end
 		else
 			T(Inf)
 			nonterm += 1
@@ -6815,6 +6832,7 @@ version = "17.4.0+2"
 # ╠═9fe0b3d2-be8a-4832-a51f-5347d6cca5bc
 # ╠═f5e0b84b-32c1-4821-9c06-7d977c5d01ff
 # ╠═41212420-1880-45d0-a368-0efa9d12d3cf
+# ╠═c57a57c9-abcc-4096-bf7a-bb22b51c5e9f
 # ╠═abfad596-a9ec-4cfb-8aa0-1cbad39e3a95
 # ╠═e710bd79-e13d-4414-86c9-2c84b90b19c4
 # ╠═33469374-f97a-4c93-a726-89477bc08472
