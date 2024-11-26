@@ -21,17 +21,46 @@ begin
 end
   ╠═╡ =#
 
-# ╔═╡ ba4b1307-1f3e-4304-8d56-c85310265e4b
-include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
+# ╔═╡ c8bae838-0549-48e3-b858-0c071334c0b7
+begin
+	include(joinpath(@__DIR__, "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
+	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
+end
 
 # ╔═╡ 46076214-2d52-4289-98e6-8b74c337f7d7
 md"""
 # Chapter 11: Off-policy Methods with Approximation
+
+As we saw earlier with value function approximation, the on-policy distribution affects the results.  When we do off-policy learning, it is important to alter the sampled values so they reflect the desired distribution.  Previously we only used the importance sampling ratio to alter the values since we updated all values an arbitrarily large number of times.  Now we may need to consider also doing a transformation on the sampled states as well as the values.  However, we will also consider approaches that use true gradients with bootstrapping so we consider the effect of the parameters on the transition state value.
 """
 
 # ╔═╡ a23b5ab9-8963-426d-9672-cf99a71d8884
 md"""
 ## 11.1 Semi-gradient Methods
+
+The importance sampling ratio weights samples from one distribution so sample statistics can match the target distribution.
+
+$\rho_t \doteq \rho_{t:t} = \frac{\pi(A_t \vert S_t)}{b(A_t \vert S_t)} \tag{11.1}$
+
+We can use the importance sampling ratio in the semi-gradient weight updates from before to try to implement an off-policy parameter update:
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \rho_t \delta_t \nabla \hat v(S_t \vert \mathbf{w}_t) \tag{11.2}$
+
+where $\delta_t$ is the error term depending on the target value such as the TD(0) discounted reward: 
+
+$\delta_t \doteq R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \tag{11.3}$
+
+or the average reward for a continuing task: 
+
+$\delta_t \doteq R_{t+1} - \bar R_t + \hat v(S_{t+1}, \mathbf{w}_t) - \hat v (S_t, \mathbf{w}_t) \tag{11.4}$
+
+For action-values and expected updates, we do not need to use the importance sampling ratio (as we don't in Q-learning) since the bootstrap update does not depend on the actual action taken.  However, in the tabular case each state estimation was independent so this method converged even in the off policy case.  In the case of function approximation, the target value is actually the value-error which depends on the on-policy distribution.  So if the samples appear according to the off-policy distriution this method may still not converge to the correct values as we will see in some later examples.
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \delta_t \nabla \hat q(S_t, A_t, \mathbf{w}_t) \tag{11.5}$
+
+$\delta_t \doteq R_{t+1} + \gamma \sum_a \pi(a \vert S_{t + 1})\hat q(S_{t+1}, a, \mathbf{w}_t) - \hat q (S_t, A_t, \mathbf{w}_t) \tag{discounted expected sarsa}$
+
+$\delta_t \doteq R_{t+1} - \bar R_t +  \sum_a \pi(a \vert S_{t + 1})\hat q(S_{t+1}, a, \mathbf{w}_t) - \hat q (S_t, A_t, \mathbf{w}_t) \tag{average reward expected sarsa}$
 """
 
 # ╔═╡ 434045f4-865e-4993-913e-938b6cdf7a3f
@@ -52,7 +81,7 @@ $\begin{flalign}
 \mathbf{w}_{t+n} &\doteq \mathbf{w}_{t+n-1} + \alpha \rho_{t} \cdots \rho_{t+n-1} 
 [G_{t:t+n} - \hat v(S_{t}, \mathbf{w}_{t+n-1})]\nabla \hat v (S_t, \mathbf{w}_{t+n-1})\\
 G_{t:t+n} &\doteq R_{t+1} + \cdots + \gamma^{n-1} R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1})	\tag{episodic}\\ 
-G_{t:t+n} &\doteq R_{t+1} - \bar R_t + \cdots + R_{t+n} - \bar R_{t+n-1} + \hat v(S_{t+n}, \mathbf{w}_{t+n-1})\tag{continuing}
+G_{t:t+n} &\doteq \sum_{k = 1}^{n-1} R_{t+k} - (n-1)\bar R_t + \hat v(S_{t+n}, \mathbf{w}_{t+n-1})\tag{continuing}
 \end{flalign}$
 
 The tablular value at a particular time step is replaced with the weight parameter at that time step with the gradient also being added next to the error term.
@@ -74,16 +103,112 @@ To convert this to a semi-gradient method we need to provide update equations fo
 $\begin{flalign}
 \mathbf{w}_{t+n} &\doteq \mathbf{w}_{t+n-1} + \alpha \rho_{t+1} \cdots \rho_{t+n} 
 [G_{t:t+n} - \hat q(S_{t}, A_t, \mathbf{w}_{t+n-1})]\nabla \hat q (S_t, A_t, \mathbf{w}_{t+n-1})\\
-G_{t:h} &\doteq R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - \hat q(S_{t+1}, A_{t+1}, \mathbf{w}_{h-1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}), \text{\; for } t < h \leq T	\tag{episodic}\\ 
+G_{t:h} &\doteq R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - \hat q(S_{t+1}, A_{t+1}, \mathbf{w}_{h-1}) \right )\\ & + \gamma \overline{V}_{h-1}(S_{t+1}), \text{\; for } t < h \leq T	\tag{episodic}\\ 
 G_{t:h} &\doteq R_{t+1} - \bar R_{t+1} + \gamma \left ( \sigma_{t+1}\rho_{t+1} + (1 - \sigma_{t+1} \pi(A_{t+1}|S_{t+1}) \right ) \left ( G_{t+1:h} - \hat q(S_{t+1}, A_{t+1}, \mathbf{w}_{h-1}) \right )\\ & + \gamma \bar V_{h-1}(S_{t+1}), \text{\; for } t < h \leq T \tag{continuing}\\
-\bar V_t(s) & \doteq \sum_a \pi(a|s)\hat q(s, a, \mathbf{w}_t)
+\overline{V}_t(s) & \doteq \sum_a \pi(a|s)\hat q(s, a, \mathbf{w}_t)
 \end{flalign}$
 
 """
 
+# ╔═╡ 676ea0b7-b27c-4c62-88fd-8d892b57c6b2
+md"""
+### *Semi-gradient Dynamic Programming Policy Evaluation*
+
+This version of semi-gradient DP uses a function `π!` which can update the probability distribution over actions for a given policy and state.  Policy evaluation is done through trajectory sampling where the policy is used to generate the distribution of states which are updated.  All of the potential transition states are used in the bootstrap update, so enough samples need to be collected in order to visit those states.
+"""
+
+# ╔═╡ e27231d2-0970-4875-b861-795788d5a2f1
+#add implementation of dynamic programming style policy evaluation.  follow the pattern from chapter 10 about this technique for the optimal policy, need to do trajectory sampling though but must keep adding states to the queue that are reachable from each transition as it branches
+
+# ╔═╡ 255bb3cc-5a26-4817-b515-3b760c351f2e
+function semi_gradient_dp!(parameters::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π!::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), save_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, Q}
+	s = mdp.initialize_state()
+	i_a = rand(eachindex(mdp.actions))
+	ep = 1
+	step = 1
+	epreward = zero(T)
+	episode_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	action_values = zeros(T, length(mdp.actions))
+	π_dist = zeros(T, length(mdp.actions))
+	decay = one(T)
+
+	parameter_history = Vector{Q}()
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		#computes all of the action values for a particular MDP and an existing value estimation
+		update_action_values!(action_values, s, s -> estimate_value(s, parameters, estimate_args...), mdp, γ)
+		#updates the policy distribution with the current state
+		π!(π_dist, s)
+
+		#compute the expected value target according to the distribution of transition states 
+		v_target = dot(π_dist, action_values)
+		
+		learning_rate = nn_momentum ? T(1 - 0.999^step) : one(T)
+		update_parameters!(parameters, s, v_target, α * learning_rate * decay, update_args...)
+
+		if save_history
+			push!(parameter_history, copy(parameters))
+		end
+
+		i_a = sample_action(π_dist)
+		(r, s) = mdp.ptf(s, i_a)
+		epreward += r
+		
+		if mdp.isterm(s)
+			s = mdp.initialize_state()
+			push!(episode_rewards, epreward)
+			push!(episode_steps, step)
+			epreward = zero(T)
+			ep += 1
+		end
+		
+		if step > decay_step
+			decay *= α_decay
+		end
+		step += 1
+	end
+
+	episode_rewards, episode_steps, parameter_history
+end
+
+# ╔═╡ bea94375-277b-4f38-ad9d-4fa7fc646364
+function run_linear_semi_gradient_dp(mdp::StateMDP, π!::Function, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), parameters = zeros(T, length(state_representation)), kwargs...) where T<:Real
+	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
+	l = length(state_representation)
+	num_actions = length(mdp.actions)
+	episode_rewards, episode_steps, parameter_history = semi_gradient_dp!(parameters, mdp, π!, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
+	function π_greedy(s)
+		action_values = zeros(T, num_actions)
+		for i_a in eachindex(action_values)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T) 
+			for i in eachindex(probabilities)
+				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
+				q += probabilities[i]*(rewards[i] + γ*v̂′)
+			end
+			action_values[i_a] = q
+		end
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+	end
+	base_return = (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
+	isempty(parameter_history) && return base_return
+	return (;base_return..., parameter_history = parameter_history)
+end
+
 # ╔═╡ e6e606c4-39d7-4b87-bd1a-b5799281f033
 md"""
 ## 11.2 Examples of Off-policy Divergence
+
+With approximation, state values affect eachother which necessitated the value error objective $\overline{\text{VE}} = \sum_{s} \mu_\pi(s) \left ( \hat v_\pi(s) - v_\pi(s) \right )^2$.  Since we do not know $v_\pi$, it must be approximated somehow and the only method that generates unbiased samples is the Monte Carlo return $G_t$ since $\mathbb{E}_\pi[G_t \mid S_t = s] = v_\pi(s)$.  In continuing tasks, however, this objective is not available, so we must rely on bootstrapping in which some number of rewards are observed, but then the approximation function itself is used to complete the target value.  In Chapter 9, we saw that if we use the semi-gradient parameter update with this objective, it converges to the TD fixed point which may not equal the point of minimum value error.  As we will see later, at the TD fixed point, the projected Bellman error is 0.  All of this convergence, however, depended upon the semi-gradient updates actually using the value error objective which uses $\mu_\pi$.  If we instead try to do the same updates but sample the states differently, then the convergence guarantees from before do not apply.
+
+Since the root of the problem with function approximation is the connection between state values, we can illustrate some pathological cases by forcing a relationship between state values that causes problems.  Consider a portion of an MDP with a single parameter $\mathbf{w}$ and two states whose approximations are $w$ and $2w$.  Furthermore, consider that from the first state, there is only one transition deterministically into the second state with a reward of 0.  If we try to estimate the state values with sampling the TD(0) error, then the target value will be $R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) = 0 + \gamma2w_t = \gamma2w_t$ and the error term $\delta_t = \gamma2w_t - w_t = w_t(2\gamma - 1)$.  So the paramter update will be:
+
+$w_{t+1} = w_t + \alpha \rho_t \delta_t \nabla \hat v(S_t, w_t) = w_t + \alpha w_t (2\gamma - 1) w_t = w_t(1 + \alpha(2\gamma - 1))$
+
+So the parameter update involves multiplying the value by some number: $w_{t+1} = cw_t$ and if $c>1$ for all updates then this process is unstable and the parameter will grow in magnitude indefinitely.  In this case $c = 1 + \alpha (2\gamma - 1)$ so the process is unstable when $\alpha(2\gamma - 1) \gt 0$ where $0 \leq \gamma \lt 1$.  Since $\alpha > 0$ the only condition that matters is $2\gamma - 1 \gt 0 \implies \gamma \gt 0.5$.  This assumes that $w$ will never be updated from a transition out of state 2 since that transition could occur with 0 probability under the target policy so the importance sampling ratio would be 0.  Later on we will construct an example where this exact scenario happens.  While divergence may only occur in the off-policy case, this can still result in different value estimates depending on which objective is used.
 """
 
 # ╔═╡ 8d463e53-12ee-441c-bd14-e8b377fcdced
@@ -94,6 +219,99 @@ md"""
 # ╔═╡ 29364905-2458-426a-999c-210cd3c60263
 md"""
 #### Baird Setup Functions
+"""
+
+# ╔═╡ 7b913193-0bcc-43b3-b9b2-908a9c29524e
+function make_baird_ptf(n::Integer)
+	state_transition_map = Matrix{SparseVector{Float32, Int64}}(undef, 2, n)
+	reward_transition_map = Matrix{Vector{Float32}}(undef, 2, n)
+	for i_s in 1:n
+		state_transition_map[1, i_s] = sparse([fill(1f0/(n-1), n-1); 0f0])
+		reward_transition_map[1, i_s] = zeros(Float32, n-1)
+		state_transition_map[2, i_s] = sparse(vcat(zeros(Float32, n-1), 1f0))
+		reward_transition_map[2, i_s] = [0f0]
+	end
+
+	function step(s, i_a)
+		rewards = reward_transition_map[i_a, s]
+		states = state_transition_map[i_a, s].nzind
+		probabilities = state_transition_map[i_a, s].nzval
+		(rewards, states, probabilities)
+	end
+
+	ptf1 = StateMDPTransitionDistribution(step, 1)
+	ptf2 = TabularStochasticTransition(state_transition_map, reward_transition_map)
+	return (tabular_ptf = ptf2, state_ptf = ptf1)
+end
+
+# ╔═╡ 8128c9a6-6b6e-4325-8476-37d55a2678e5
+const baird_ptfs = make_baird_ptf(7)
+
+# ╔═╡ 0d5412d3-24ec-4fd8-856e-04372f189ab1
+const baird_states = collect(1:7)
+
+# ╔═╡ 3f7c0436-4bf5-4631-9e3f-75f7b1236287
+const baird_actions = [1, 2]
+
+# ╔═╡ 3e2afc15-0e7b-4a5d-8e38-91e70cfa87e5
+const baird_tabular_mdp = TabularMDP(baird_states, baird_actions, baird_ptfs.tabular_ptf)
+
+# ╔═╡ f847211d-caeb-498e-a5fd-7267672e5eed
+const baird_state_mdp = StateMDP(baird_actions, baird_ptfs.state_ptf, () -> rand(1:7), s -> false)
+
+# ╔═╡ e7abb675-6697-4f23-a8b7-01eb2231f6d1
+function baird_update_state_vector!(x::Vector{Float32}, s::Integer)
+	x .= 0f0
+	if s < 7
+		x[end] = 1f0
+		x[s] = 2f0
+	else
+		x[s] = 1f0
+		x[end] = 2f0
+	end
+end
+
+# ╔═╡ ddda80bc-fd6b-4110-83b3-aaf995ce8a71
+function π_baird!(x::Vector{Float32}, s)
+	x[1] = 0f0
+	x[2] = 1f0
+end
+
+# ╔═╡ 05a77bfa-2573-4b31-b108-ad4351902d11
+function b_baird!(x::Vector{Float32}, s)
+	x[1] = 6f0/7f0
+	x[2] = inv(7f0)
+end
+
+# ╔═╡ aca67da3-b936-4233-88ea-77987e31b90c
+#=╠═╡
+@bind on_policy_baird_params PlutoUI.combine() do Child
+	md"""
+	Select policy: $(Child(:π, Select([π_baird!, b_baird!])))
+	
+	Select initial value: $(Child(:w, Slider(-10:.1f0:10; show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ c15bedae-1231-4421-8abe-ab2fa3cb34ec
+#=╠═╡
+const baird_dp_result = run_linear_semi_gradient_dp(baird_state_mdp, on_policy_baird_params.π, 0.99f0, 100, 10000, zeros(Float32, 8), baird_update_state_vector!, save_history = true, parameters = on_policy_baird_params.w .* ones(Float32, 8))
+  ╠═╡ =#
+
+# ╔═╡ ac53f74b-3909-44b7-acf2-d2dd5f2e57cc
+#=╠═╡
+plot([scatter(y = [x[i] for x in baird_dp_result.parameter_history], name = "weight $i") for i in 1:8])
+  ╠═╡ =#
+
+# ╔═╡ 21174c39-7b4d-48ce-80b1-a2c72be9239a
+#=╠═╡
+plot([scatter(y = [x[7] + 2*x[8] for x in baird_dp_result.parameter_history], name = "State value 7"), scatter(y = [2*x[1] + x[8] for x in baird_dp_result.parameter_history], name = "State value 1")])
+  ╠═╡ =#
+
+# ╔═╡ 3c2bb063-db4f-4680-bf4a-2f3ac10a174d
+md"""
+Note that for the target policy, all of the time is spent in state 7, so that is the only value that is properly updated.  For the behavior policy, although the weights do not go to zero, they do find a stable solution setting all of the state values to 0.  Since this algorithm uses trajectory sampling, it is an on-policy method.  If instead we swept through the state space then we see the instability.
 """
 
 # ╔═╡ c044414e-77d5-4a54-865e-dca4a879cd30
@@ -394,9 +612,10 @@ md"""
 ### Example 11.1: Tsitsiklis and Van Roy's Counterexample
 """
 
-# ╔═╡ a9264500-167f-4883-8514-d3fb962ef143
-#=╠═╡
+# ╔═╡ 17307c42-3175-4cfc-b9b7-e5d21e02d64a
 md"""
+#### Ignoring the on-policy distribution
+
 The following weight updates are calculated to minimize the average estimation error for each transition weighted by the probability of experiencing that transition. (Note that vs equation (9.1) this is missing the on policy distribution over states).
 $\begin{flalign}
 w_{k+1} &= \text{argmin}_{w \in \mathbb{R}} \enspace \sum_{s \in \mathcal{S}} \left ( \hat v(s, w) - \mathbb{E}_\pi[R_{t+1} + \gamma \hat v(S_{t+1}, w_k) | S_t = s] \right )^2\\ 
@@ -408,43 +627,92 @@ w_{k+1} &= \text{argmin}_{w \in \mathbb{R}} \enspace \sum_{s \in \mathcal{S}} \l
 w &= \gamma w_k \frac{4(3 - 2\epsilon)}{10} = \gamma w_k \frac{6 - 4\epsilon}{5}
 \end{flalign}$
 
-What if $\gamma > \frac{5}{6-4\epsilon}$?  In this case the factor multiplying $w_k$ on each update is greater than 1, thus the weight will diverge under any condition except where the initial value is 0.
+What if $$\gamma > \frac{5}{6-4\epsilon}$$?  In this case the factor multiplying $w_k$ on each update is greater than 1, thus the weight will diverge under any condition except where the initial value is 0.
 
-In the first equation we didn't correctly account for the on policy distribution over states.  To calculate this we need to first get the expected value of state visits.  For simplicity assume that episodes always begin in state 1:
+
+
+
+We are still safe if the threshold exceeds 1 since for this problem $$\gamma \le 1$$ and we know that $0 \lt \epsilon \lt 1$ so we will never see divergence when $$5 \gt 6 - 4\epsilon \implies 4\epsilon \gt 6 - 5 \implies \epsilon \gt \frac{1}{4}$$
+
+Indeed, in the plot below, when $\epsilon \ge \frac{1}{4}$ the $\gamma$ threshold is greater than 1 and we are guaranteed convergence.  Note that the larger the value of $\epsilon$ the closer the expected state visit counts get to each other so we approach the on policy case again.
+"""
+
+# ╔═╡ 5705a385-253f-4805-9879-0e0ceeb18001
+#derive what the TD fixed point of this is compared to teh minimum value error parameter if they differ.
+
+# ╔═╡ e39098da-a3df-47a0-867d-ccaf1a5a54f3
+#=╠═╡
+
+plot(scatter(x = 0:0.01:1, y = 5 ./(6 .- 4 .* (0:0.01:1))), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold", title = "γ above the blue line results in diverging weights for a given ϵ"))
+  ╠═╡ =#
+
+# ╔═╡ bd2abdf1-725a-491d-b6f3-5a15ae51762c
+md"""
+#### Considering the On-policy Distribution
+
+In the first equation we didn't correctly account for the on policy distribution over states.  To calculate this we need to first get the expected value of state visits.  For simplicity assume that episodes always begin in state 1.  The number of visits to state 1 will always be 1 since there is only one transition that leaves the state permanently.  The expected number of visits to state 2 is:
+
+$\begin{flalign}
+\mathbb{E}[\eta(2)] &= \sum_{n = 1}^\infty n \Pr \{ \eta(2) = n \} \\
+&= 1\epsilon + 2\epsilon(1-\epsilon) + 3\epsilon(1-\epsilon)^2 + 4\epsilon(1-\epsilon)^3 + \cdots \\
+&=\epsilon\sum_{n=1}^\infty (1-\epsilon)^{n-1}n = \epsilon \frac{1}{\epsilon^2} = \frac{1}{\epsilon}
+\end{flalign}$
+
+If $\epsilon = 1$ then we only spend 1 visit in state 2 and as $\epsilon \rightarrow 0$ the system spends increasingly more time in state 2.  To get the on-policy distribution we must normalize these visit counts to get the probabilities
 
 $\begin{flalign}
 \eta(1) &= 1\\
-\eta(2) &= 2 + \frac{1 - \epsilon}{\epsilon} = \frac{1+\epsilon}{\epsilon}\\
-\sum_{s}\eta(s) &= 1 + \frac{1+\epsilon}{\epsilon} = \frac{1+2\epsilon}{\epsilon}\\
-\mu(1) &= \frac{\epsilon}{1+2\epsilon}\\
-\mu(2) &= \frac{1+\epsilon}{\epsilon} \frac{\epsilon}{1+2\epsilon} = \frac{1+\epsilon}{1+2\epsilon}
+\eta(2) &= \frac{1}{\epsilon}\\
+\sum_{s}\eta(s) &= 1 + \frac{1}{\epsilon} = \frac{1+\epsilon}{\epsilon}\\
+\mu(1) &= \frac{\epsilon}{1+\epsilon}\\
+\mu(2) &= \frac{1}{\epsilon}\frac{\epsilon}{1+\epsilon} = \frac{1}{1+\epsilon}
 \end{flalign}$
+"""
 
+# ╔═╡ 256efb33-1b85-4fbb-be51-e43384fd149c
+md"""
+Note that as $\epsilon \rightarrow 1$, the on policy distribution approaches the case of equal visit time.  That explains why the convergence is no longer unstable if $\epsilon$ is larger than a certain value which is $\frac{1}{4}$ in this case.
+"""
+
+# ╔═╡ c63b1e1c-db89-4d47-af39-e353dda0e50b
+#=╠═╡
+function plot_μ_11_1()
+	μ1(ϵ) = ϵ / (1 + ϵ)
+	μ2(ϵ) = 1 / (1 + ϵ)
+	ϵs = 0:0.01:1
+	tr1 = scatter(x = ϵs, y = μ1.(ϵs), name = "State 1")
+	tr2 = scatter(x = ϵs, y = μ2.(ϵs), name = "State 2")
+	plot([tr1, tr2], Layout(xaxis_title = "ϵ", yaxis_title = "Probability", title = "On-policy Distribution"))
+end;
+  ╠═╡ =#
+
+# ╔═╡ 40a966dd-d8c1-486e-bed7-5a0094778f31
+#=╠═╡
+plot_μ_11_1()
+  ╠═╡ =#
+
+# ╔═╡ f82090ed-8b6b-4b2e-89c9-26cc0ef4b30a
+#=╠═╡
+md"""
 Returning to the previous expression but including the on-policy distribution results in:
 
 $\begin{flalign}
 w_{k+1} &= \text{argmin}_{w \in \mathbb{R}} \enspace \sum_{s \in \mathcal{S}} \mu(s) \left ( \hat v(s, w) - \mathbb{E}_\pi[R_{t+1} + \gamma \hat v(S_{t+1}, w_k) | S_t = s] \right )^2\\ 
-&= \text{argmin}_{w \in \mathbb{R}} \enspace \frac{\epsilon}{1+2\epsilon} (w - \gamma2w_k)^2 + \frac{1+\epsilon}{1+2\epsilon} (2w - (1-\epsilon)\gamma2w_k)^2\\
+&= \text{argmin}_{w \in \mathbb{R}} \enspace \frac{\epsilon}{1+\epsilon} (w - \gamma2w_k)^2 + \frac{1}{1+\epsilon} (2w - (1-\epsilon)\gamma2w_k)^2\\
 \therefore\\
-\frac{\partial{w_{k+1}}}{\partial w} &= \frac{\epsilon}{1+2\epsilon} 2(w - \gamma2w_k) + \frac{1+\epsilon}{1+2\epsilon} 4(2w - (1-\epsilon)\gamma2w_k)\\
+\frac{\partial{w_{k+1}}}{\partial w} &= \frac{2}{1+\epsilon} \left [ \epsilon (w - \gamma2w_k) + 4(w - (1-\epsilon)\gamma w_k) \right ]\\
+&=\frac{2}{1+\epsilon} \left [ w(\epsilon + 4) - 2\gamma w_k ( \epsilon + 2(1-\epsilon) \right ]\\
+&=\frac{2}{1+\epsilon} \left [ w(\epsilon + 4) - 2\gamma w_k ( 2 - \epsilon ) \right ]\\
 &\text{setting this equal to 0 and solving for w yields}\\
-w &= 2 \gamma w_k \frac{\epsilon + 2 - 2\epsilon ^2}{5 \epsilon + 4}\\
+w &= 2 \gamma w_k \frac{2 - \epsilon}{\epsilon + 4}\\
 &\text{therefore weight updates will diverge when}\\
-\gamma &> 0.5 \frac{5 \epsilon + 4}{\epsilon + 2 - 2\epsilon ^2}\\
+1 &\lt 2 \gamma \frac{2 - \epsilon}{\epsilon + 4} \\
+\gamma &> \frac{1}{2} \frac{\epsilon + 4}{2 - \epsilon}\\
 \end{flalign}$
 
-Since γ never exceeds 1, this condition will never diverge for values of ϵ that result in a threshold that is greater than 1.  Under which conditions then will we always converge?
+Since $0 \le \epsilon \le 1$ we know that $\epsilon + 4 \ge 4$ and $1 \le 2 - \epsilon \le 2$ so the fraction is greater than $\frac{4}{2} = 2$.  Therefore, this expression states that $\gamma \gt 1$ is the divergence condition which is never true.
 
-$\begin{flalign}
-\frac{5 \epsilon + 4}{\epsilon + 2 - 2\epsilon ^2} &> 2\\
-5 \epsilon + 4 &> 2\epsilon + 4 - 4\epsilon ^2\\
-0 &> -3\epsilon - 4\epsilon^2\\
-4\epsilon &> -3\\
-\epsilon &> \frac{-3}{4}\\
-\end{flalign}$
-
-Since ϵ is always between 0 and 1 this condition will always hold.  This can be verified with a plot of the factor γ must exceed for divergence which ends up being greater than 1.
-$(plot(scatter(x = collect(0.0:0.01:1.0), y = [0.5 * (5x + 4) / (x + 2 - 2x^2) for x in 0.0:0.01:1.0]), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold")))
+$(plot(scatter(x = collect(0.0:0.01:1.0), y = [0.5 * (x + 4) / (2 - x) for x in 0.0:0.01:1.0]), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold")))
 """
   ╠═╡ =#
 
@@ -712,8 +980,11 @@ end
 
 # ╔═╡ 1b68a25e-9f12-4894-a3a7-3fdd6df34316
 #=╠═╡
-exercise_11_3(maxsteps = 100_000, ϵ = 0.1, α = 0.01)
+exercise_11_3(maxsteps = 30_000, ϵ = 0.05, α = 0.01)
   ╠═╡ =#
+
+# ╔═╡ 1db46615-4b43-4434-ad73-c03246f28593
+#if you always follow the behavior policy wiht Q-learning it should diverge just like the case of off-policy DP
 
 # ╔═╡ 6a654e0e-2809-4e46-989f-815de38c8bf6
 md"""
@@ -738,6 +1009,276 @@ Often we could use Sarsa instead of Q-learning to remedy this, so avoiding off-p
 # ╔═╡ c79e0f4d-6858-4f9c-960c-08f3c247566d
 md"""
 ## 11.4 Linear Value-function Geometry
+"""
+
+# ╔═╡ 3bd92abe-cb9d-4e71-af82-096e6fce17a5
+md"""
+Consider a MRP with just two states each of which have two equally probable transitions.  The first state can transition into itself or to the second state, both with zero reward.  The second state can transition to itself or to the first state, both with a reward of 2.  We can define the MDP as a tabular problem as follows:
+"""
+
+# ╔═╡ 2dff23c5-0641-4377-8d7a-a4e2d3459b2f
+const mrp_tabular_transition = TabularStochasticTransition([sparse([0.5f0, 0.5f0]), sparse([0.5f0, 0.5f0])], [[0f0, 0f0], [2f0, 2f0]])
+
+# ╔═╡ f2bc7752-d263-4f11-afec-40f82d5188ec
+function mrp_step(s::Integer)
+	if s == 1
+		([0f0, 0f0], [1, 2], [0.5f0, 0.5f0])
+	else
+		([2f0, 2f0], [1, 2], [0.5f0, 0.5f0])
+	end
+end
+
+# ╔═╡ ee4ba290-9a25-44ba-abe0-44f4e39a1099
+const mrp_state_transition = StateMRPTransitionDistribution(mrp_step, 1)
+
+# ╔═╡ 672c91f9-6df1-4834-a2ae-ead92d245cda
+const mrp_tabular_example = TabularMRP([1, 2], mrp_tabular_transition, () -> 1)
+
+# ╔═╡ e91cf338-fc0b-4d05-828d-6302c6acc924
+const mrp_state_example = StateMRP(mrp_state_transition, () -> 1, s -> false)
+
+# ╔═╡ b3a62cf0-f1f2-42f3-978c-14a09b20eb75
+md"""
+The values of this MRP can be solved exactly with the Bellman equation given a discount rate $\gamma$: $v(s) = \mathbb{E}[R_t + \gamma v(S_{t+1}) \mid S_t = s]$
+
+$\begin{flalign}
+v_1 &= \frac{1}{2} [(0 + \gamma v_2) + (0 + \gamma v_1)] = \frac{\gamma}{2}(v_1 + v_2) \\
+v_2 &= \frac{1}{2} [(2 + \gamma v_1) + (2 + \gamma v_2)] \\
+&= 2 + \frac{\gamma}{2}(v_1 + v_2) \\ 
+&= 2 + v_1 \\
+&\therefore \\
+v_1 &= \frac{\gamma}{2}(v_1 + 2 + v_1) \\
+&= \gamma(1 + v_1) \\
+&\therefore \\
+\gamma &= v_1(1 - \gamma) \implies v_1 = \frac{\gamma}{1 - \gamma}, v_2 = 2 + \frac{\gamma}{1 - \gamma} = \frac{2-\gamma}{1-\gamma} 
+\end{flalign}$
+"""
+
+# ╔═╡ 677532a9-82a7-439b-b05a-013c92dd2f60
+md"""
+Select discount rate for MRP evaluation
+"""
+
+# ╔═╡ 5a083034-5075-46fe-a988-4dab0011c9a4
+#=╠═╡
+@bind γ_mrp Slider(0:0.01f0:1; default = 0.5f0, show_value = true)
+  ╠═╡ =#
+
+# ╔═╡ 3560cece-1420-41e5-8590-54041d210996
+#=╠═╡
+function plot_mrp_values(γ, dp_values)
+	γs = 0:0.01:1
+	v1(γ) = γ / (1 - γ)
+	v2(γ) = 2 + v1(γ)
+	tr1 = scatter(x = γs, y = v1.(γs), name = "State 1 True Value")
+	tr2 = scatter(x = γs, y = v2.(γs), name = "State 2 True Value")
+	tr3 = scatter(x = [γ], y = [dp_values[1]], name = "State 1 DP Value")
+	tr4 = scatter(x = [γ], y = [dp_values[2]], name = "State 2 DP Value")
+	plot([tr1, tr2, tr3, tr4], Layout(xaxis_title = "Discount Rate", yaxis_title = "Value", yaxis_range = [-1, 40], xaxis_range = [0, 1]))
+end
+  ╠═╡ =#
+
+# ╔═╡ bfc7e5e3-2f2a-49f8-b1e8-c86e6d16b160
+#=╠═╡
+const mrp_dp_values = mrp_evaluation(mrp_tabular_example, γ_mrp)
+  ╠═╡ =#
+
+# ╔═╡ 94adc5c2-9ade-4b66-8814-705c2cc23534
+#=╠═╡
+plot_mrp_values(γ_mrp, mrp_dp_values.value_function)
+  ╠═╡ =#
+
+# ╔═╡ 88a415dd-0fe8-493e-9446-75b909b3f68c
+md"""
+The steady-state distribution for this MRP is also equal for both states, so each state value error should be weighted equally.  Consider now an approximate solution using only a single parameter $w$.  In general, the approximation function will depend on the feature vectors for each state but in this case that reduces to a single value.  Consider an approximation function of the following form:
+
+$\begin{flalign}
+\hat v_1 &= w \\
+\hat v_2 &= cw \\
+\end{flalign}$
+
+where $c$ is some constant.  Depending on the value of $c$ and $w$, there is an infinite family of approximation functions we can visualize in the 2D plane.
+"""
+
+# ╔═╡ c401d8fc-704b-42e7-bbb2-0322329341fe
+#=╠═╡
+@bind mrp_value_params PlutoUI.combine() do Child
+	md"""
+	Discount Rate: $(Child(:γ, Slider(0:0.01:1, default = 0.5)))
+	
+	Linear Constant: $(Child(:c, Slider(0:0.1:10, default = 1, show_value=true)))
+
+	Evaluation Weight: $(Child(:w, Slider(0:0.1:10, default = 5, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 8a8f8290-e71d-415e-b36f-bf509163a6a6
+md"""
+Consider the value error under this approximation:
+
+$\begin{flalign}
+\overline{\text{VE}} &= \frac{1}{2} \left [ (\hat v_1 - v_1)^2  + (\hat v_2 - v_2)^2\right ] \\
+&= \frac{1}{2}\left [\left ( w - \frac{\gamma}{1 - \gamma} \right )^2 + \left (cw - \frac{2-\gamma}{1-\gamma} \right )^2 \right ] \\
+\end{flalign}$
+
+Our goal is to find the value of $w$ that minimizes the value error and we can use gradient updates to do this with the derivative:
+
+$\frac{\partial \overline{\text{VE}}}{\partial w} = w - \frac{\gamma}{1 - \gamma} + c^2w - c\frac{2-\gamma}{1-\gamma}$
+
+Setting this equal to 0 implies:
+
+$\begin{flalign}
+w(1 + c^2) &= \frac{\gamma + 2c - c \gamma}{1 - \gamma} \\
+&\therefore \\
+w &= \frac{\gamma + 2c - c \gamma}{(1 - \gamma)(1 + c^2)} \\
+&= \frac{\gamma(1 - c) + 2c}{(1 - \gamma)(1 + c^2)} \\
+&= \frac{\gamma(1 - c)}{(1 - \gamma)(1 + c)(1 - c)} + \frac{2c}{(1 - \gamma)(1 + c^2)} \\
+&= \frac{\gamma}{(1 - \gamma)(1 + c)} + \frac{2c}{(1 - \gamma)(1 + c)(1-c)} \\
+&= \frac{1}{(1-\gamma)(1 + c)} \left [ \gamma + \frac{2c}{1-c} \right ] \\
+\end{flalign}$
+
+"""
+
+# ╔═╡ ac92068b-5fc7-456c-9ab1-f7a6acbe0089
+mrp_ve_min(γ, c) = (γ + 2*c - c*γ) / ((1 - γ)*(1 + c^2))
+
+# ╔═╡ d5b1580a-154d-43e7-9eb3-86ac2504e6b1
+mrp_bellman_operator(w, γ, c) = (γ*w*(1+c)/2, 2 + γ*w*(1+c)/2)
+
+# ╔═╡ 95d37731-401e-456f-97a3-1e965cbe8b9e
+mrp_be_vector(w, w_k, γ, c) = (w - (1+c)*γ*w_k / 2, (c*w - 2 - (1+c)*γ*w_k/2))
+
+# ╔═╡ a9e39487-19d7-49ad-8536-29f79f3a80d8
+mrp_be(w, γ, c) = ((w - (1+c)*γ*w/2)^2 + (c*w - 2 - γ*w*(1+c)/2)^2)/2
+
+# ╔═╡ 3b4be6a5-e4bc-4a48-91ad-99705700b81f
+md"""
+We can perform the same calculation for the Bellman Error:
+
+$\begin{flalign}
+\overline{\text{BE}} &= \frac{1}{2} \left [ \left (w - \frac{\gamma w}{2} (1 + c) \right )^2 + \left (cw - 2 - \frac{\gamma w}{2}(1 + c) \right )^2 \right ]
+\end{flalign}$
+
+$\begin{flalign}
+\frac{\partial{\overline{\text{BE}}}}{\partial w} &= \left [ \left (w - \frac{\gamma w(1+c)}{2} \right ) \left (1 - \frac{\gamma(1+c)}{2} \right) + \left (cw - 2 - \frac{\gamma w(1+c)}{2} \right ) \left ( c - \frac{\gamma(1+c)}{2} \right ) \right ] \\
+&= \left [\frac{w(2 - \gamma(1 + c))}{2} \frac{2 - \gamma(1+c)}{2} + \frac{2cw - 4  - \gamma w (1+c)}{2} \frac{2c - \gamma(1+c)}{2}\right ] \\
+&= \frac{1}{2} \left [w(2 - \gamma(1 + c))^2 + (2cw - 4  - \gamma w (1+c))(2c - \gamma(1+c)) \right ] \\
+&= \frac{1}{2} \left [w((2 - \gamma(1 + c))^2 + (2c - \gamma(1+c))^2) - 4(2c - \gamma(1+c)) \right ] \\
+\end{flalign}$
+
+Setting this equal to 0 and solving for $w$ yields:
+
+$\begin{flalign}
+w &= \frac{4(2c - \gamma(1+c))}{(2 - \gamma(1 + c))^2 + (2c - \gamma(1+c))^2} \\
+&= \frac{4(2c - \gamma(1+c))}{4 - 4\gamma(1+c) + \gamma^2 (1+c)^2 + 4c^2 - 4c\gamma(1+c) + \gamma^2 (1+c)^2} \\
+&= \frac{4(2c - \gamma(1+c))}{4 - 4\gamma(1+c)(1 + c) + 2\gamma^2 (1+c)^2 + 4c^2} \\
+&= \frac{4(2c - \gamma(1+c))}{4 + 2\gamma(1+c)^2 (\gamma - 2) + 4c^2} \\
+&= \frac{2(2c - \gamma(1+c))}{2 + \gamma(1+c)^2 (\gamma - 2) + 2c^2} \\
+\end{flalign}$
+
+"""
+
+# ╔═╡ f715250f-291b-4fae-a40e-149f88a01bfe
+min_be(γ, c) = 2*(2*c - γ*(1+c)) / (2 + γ*(γ - 2)*(1+c)^2 + 2*c^2)
+
+# ╔═╡ bcace027-418c-4d2e-beb2-cb40a5f16c22
+#=╠═╡
+plot(min_be.(0.5, 0:0.01:2))
+  ╠═╡ =#
+
+# ╔═╡ 39ac140a-5e2b-41fe-93e1-3612b6dd0604
+md"""
+In this 2D geometry with a fixed $c$, we can calculate the point on the line defining the space of possible $\hat v$ functions that is closest to any true value function vector defined by $\mathbf{v} = (v_1, v_2)$.  The squared distance from this vector to the line of possible approximation functions is $((v_1 - w)^2 + (v_2 - cw)^2)$.  The $w$ that minimizes this distance can be found by the usual process of setting the derivative with respect to $w$ to 0:
+
+$-2(v_1 - w) - 2c(v_2 - cw) = 0 \implies 2w + 2c^2 w - 2 v_1 - 2cv_2 = 0 \implies w(1 + c^2) = v_1 + c v_2 \implies w = \frac{v_1 + cv_2}{1+c^2}$
+
+So for any value function in the space, we can find the value $w$ that minimizes the distance to the approximation line with this formula.
+"""
+
+# ╔═╡ 5c5331ae-675a-4e07-a14f-fed84250829e
+mrp_wmin(v1, v2, c) = (v1 + c*v2) / (1 + c^2)
+
+# ╔═╡ 99f42969-f9a0-4c02-8eaf-2ae395d55147
+md"""
+Given two points on the approximation line defined by $w_1$ and $w_2$, the squared distance between them is just:
+
+$(w_1 - w_2)^2 + (c w_1 - c w_2)^2 = (w_1 - w_2)^2 (1 + c)$
+
+Using this formula we can also write down explicitely the projected Bellman Error:
+
+$\begin{flalign}
+B_\pi \hat v &= \left (\frac{\gamma w (1 + c)}{2}, \frac{4 + \gamma w (1+c)}{2} \right ) \\
+w_{\text{min}} &= \frac{\gamma w (1+c) + c(4 + \gamma w (1+c))}{2(1+c^2)} \\
+\vert \text{PBE} \vert &= \left ( w - \frac{\gamma w (1+c) + c(4 + \gamma w (1+c))}{2(1+c^2)} \right )^2 (1+c) \\
+&= \left ( \frac{2w(1+c^2) - \gamma w (1+c) - c(4 + \gamma w (1+c))}{2(1+c^2)} \right )^2 (1+c) \\
+&= \left ( 2w(1+c^2) - \gamma w (1+c) - c(4 + \gamma w (1+c)) \right )^2 \frac{(1+c)}{4(1+c^2)^2} \\
+&= \left ( w(2(1+c^2) - \gamma (1+c) - c\gamma(1+c)) -4c \right )^2 \frac{(1+c)}{4(1+c^2)^2} \\
+&\therefore \\
+\frac{\partial \vert \text{PBE} \vert }{\partial w} &= \left ( w(2(1+c^2) - \gamma (1+c) - c\gamma(1+c)) -4c \right ) \frac{(1+c)(2(1+c^2) - \gamma (1+c) - c\gamma(1+c))}{2(1+c^2)^2} \\
+\end{flalign}$
+
+Setting this equal to 0 implies the $w$ which minimies the projected Bellman Error is:
+
+$\begin{flalign}
+w_{\text{min}} = \frac{4c}{2(1+c^2) - \gamma (1+c)^2}
+\end{flalign}$
+"""
+
+# ╔═╡ f6141748-a3fd-4cc3-8296-6c311a8060cc
+mrp_pbe_min(γ, c) = 4*c / (2*(1+c^2) - γ*(1+c)^2)
+
+# ╔═╡ d16d7e17-3662-4f5e-a98c-1c423399feed
+#=╠═╡
+function plot_mrp_value_functions(γ, c, w_test)
+	v1s = 0:0.01:10
+	v2s = 0:0.01:10
+	v1 = γ / (1 - γ)
+	v2 = 2 + γ / (1-γ)
+	vtrue = scatter(x = [v1], y = [v2]; name = "True Value Function", mode = "markers")
+	w_minve = mrp_ve_min(γ, c)
+	w_test = min_be(γ, c)
+	ve_magnitude = ((w_minve - v1)^2 + (c*w_minve - v2)^2)/2
+	v̂_ve = scatter(x = [w_minve], y = [c*w_minve]; name = "Minimum VE", mode = "markers")
+	v̂_test = scatter(x = [w_test], y = [c*w_test]; name = "v̂ at w = $w_test", mode = "markers")
+	
+	w_pbe_min = mrp_pbe_min(γ, c)
+
+	ve = scatter(x = [w_minve, v1], y = [c*w_minve, v2], name = "Value Error Vector, magnitude = $(round(ve_magnitude, sigdigits = 3))", mode = "lines")
+	bo_v̂ = mrp_bellman_operator(w_minve, γ, c)
+	bo_test = mrp_bellman_operator(w_test, γ, c)
+	be_test = ((bo_test[1] - w_test)^2 + (bo_test[2] - c*w_test)^2)/2
+	bo_tr = scatter(x = [bo_v̂[1]], y = [bo_v̂[2]]; name = "Bellman Operator on v̂", mode = "markers")
+	bo_test_tr = scatter(x = [bo_test[1]], y = [bo_test[2]]; name = "Bellman Operator on v̂ test", mode = "markers")
+	be_test_tr = scatter(x = [w_test, bo_test[1]], y = [c*w_test, bo_test[2]]; name = "Test Bellman Error Vector, magnitude = $(round(be_test; sigdigits = 3))", mode = "lines")
+	be_tr = scatter(x = [w_minve, bo_v̂[1]], y = [c*w_minve, bo_v̂[2]]; name = "Bellman Error Vector", mode = "lines")
+	pbe_w = mrp_wmin(bo_test[1], bo_test[2], c)
+	pbe_tr = scatter(x = [pbe_w], y = [c*pbe_w], name = "PBE", mode = "markers")
+
+	pbe_min_tr = scatter(x = [w_pbe_min], y = [c*w_pbe_min], name = "TD fixed point", mode = "markers")
+	ws = 0:0.01:10
+	v̂ = scatter(x = ws, y = c .* ws; name = "Approximate Value Functions")
+	plot([vtrue, v̂, v̂_ve, v̂_test, ve, bo_tr, be_tr, bo_test_tr, be_test_tr, pbe_tr, pbe_min_tr], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 10], yaxis_range = [0, 5], xaxis_constrain = "domain", yaxis_scaleanchor = "x"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 874003a9-40f0-4d73-8070-085143487d12
+#=╠═╡
+plot_mrp_value_functions(mrp_value_params...)
+  ╠═╡ =#
+
+# ╔═╡ 2fe9a9de-4771-40a8-90f0-291116521617
+mrp_pbe_min(.8, 1)
+
+# ╔═╡ 4befb480-593c-4c29-adcf-3775cc3e736f
+md"""
+Finally, consider the *mean square TD error*
+
+$\frac{1}{4} \left [ (\gamma w - w)^2 + (\gamma c w - w)^2 + (2 + \gamma w - cw)^2 + (2 + \gamma c w - c w)^2 \right ]$
+
+$\frac{1}{4} \left [ w^2((\gamma -1)^2 + (\gamma c  - 1)^2) + (2 + \gamma w - cw)^2 + (2 + \gamma c w - c w)^2 \right ]$
+
+The difference between this and the Bellman error is that we take the expectation of the TD squared difference rather than the square of the expected TDE
 """
 
 # ╔═╡ 3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
@@ -1610,9 +2151,27 @@ version = "17.4.0+2"
 # ╟─a23b5ab9-8963-426d-9672-cf99a71d8884
 # ╟─434045f4-865e-4993-913e-938b6cdf7a3f
 # ╟─2c668d98-453d-482b-8980-bfbccf82dd86
+# ╟─676ea0b7-b27c-4c62-88fd-8d892b57c6b2
+# ╠═e27231d2-0970-4875-b861-795788d5a2f1
+# ╠═255bb3cc-5a26-4817-b515-3b760c351f2e
+# ╠═bea94375-277b-4f38-ad9d-4fa7fc646364
 # ╟─e6e606c4-39d7-4b87-bd1a-b5799281f033
 # ╟─8d463e53-12ee-441c-bd14-e8b377fcdced
 # ╟─29364905-2458-426a-999c-210cd3c60263
+# ╠═7b913193-0bcc-43b3-b9b2-908a9c29524e
+# ╠═8128c9a6-6b6e-4325-8476-37d55a2678e5
+# ╠═0d5412d3-24ec-4fd8-856e-04372f189ab1
+# ╠═3f7c0436-4bf5-4631-9e3f-75f7b1236287
+# ╠═3e2afc15-0e7b-4a5d-8e38-91e70cfa87e5
+# ╠═f847211d-caeb-498e-a5fd-7267672e5eed
+# ╠═e7abb675-6697-4f23-a8b7-01eb2231f6d1
+# ╠═ddda80bc-fd6b-4110-83b3-aaf995ce8a71
+# ╠═05a77bfa-2573-4b31-b108-ad4351902d11
+# ╠═c15bedae-1231-4421-8abe-ab2fa3cb34ec
+# ╟─aca67da3-b936-4233-88ea-77987e31b90c
+# ╟─ac53f74b-3909-44b7-acf2-d2dd5f2e57cc
+# ╟─21174c39-7b4d-48ce-80b1-a2c72be9239a
+# ╟─3c2bb063-db4f-4680-bf4a-2f3ac10a174d
 # ╠═c044414e-77d5-4a54-865e-dca4a879cd30
 # ╠═d2033a7d-3d9d-4983-8fd1-b4e6ee015080
 # ╠═1ba56556-2ac7-4d23-98c3-0d3fb54ec3d6
@@ -1634,8 +2193,15 @@ version = "17.4.0+2"
 # ╠═c3ad2cdc-6e85-48a7-a746-c7599f80a126
 # ╠═ad6c8986-8fb0-4682-ade8-ebb76b4c829a
 # ╟─fcef571c-9656-42e4-9a85-e13c3ed51edb
-# ╠═6965a4d3-5422-4a3e-8eba-fa101cb1b16d
-# ╟─a9264500-167f-4883-8514-d3fb962ef143
+# ╟─6965a4d3-5422-4a3e-8eba-fa101cb1b16d
+# ╟─17307c42-3175-4cfc-b9b7-e5d21e02d64a
+# ╠═5705a385-253f-4805-9879-0e0ceeb18001
+# ╟─e39098da-a3df-47a0-867d-ccaf1a5a54f3
+# ╟─bd2abdf1-725a-491d-b6f3-5a15ae51762c
+# ╟─40a966dd-d8c1-486e-bed7-5a0094778f31
+# ╟─256efb33-1b85-4fbb-be51-e43384fd149c
+# ╟─c63b1e1c-db89-4d47-af39-e353dda0e50b
+# ╟─f82090ed-8b6b-4b2e-89c9-26cc0ef4b30a
 # ╟─3dade251-ddf7-463e-8d55-1c37e6d8ac9a
 # ╠═3280e9dc-e0e4-4a18-88a5-0a4ac188e71c
 # ╠═5960d4a9-5493-41d8-a98f-e9d91e34fa79
@@ -1648,10 +2214,41 @@ version = "17.4.0+2"
 # ╠═00e447c7-1ec8-4b51-80b9-784020bd5071
 # ╠═c537aeb0-963c-4cf9-88fd-cf94859b1964
 # ╠═1b68a25e-9f12-4894-a3a7-3fdd6df34316
+# ╠═1db46615-4b43-4434-ad73-c03246f28593
 # ╟─6a654e0e-2809-4e46-989f-815de38c8bf6
 # ╟─b62b78f5-4721-4fb6-b056-cc4dae9eae9f
 # ╟─c79e0f4d-6858-4f9c-960c-08f3c247566d
-# ╠═3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
+# ╟─3bd92abe-cb9d-4e71-af82-096e6fce17a5
+# ╠═2dff23c5-0641-4377-8d7a-a4e2d3459b2f
+# ╠═f2bc7752-d263-4f11-afec-40f82d5188ec
+# ╠═ee4ba290-9a25-44ba-abe0-44f4e39a1099
+# ╠═672c91f9-6df1-4834-a2ae-ead92d245cda
+# ╠═e91cf338-fc0b-4d05-828d-6302c6acc924
+# ╟─b3a62cf0-f1f2-42f3-978c-14a09b20eb75
+# ╟─677532a9-82a7-439b-b05a-013c92dd2f60
+# ╟─5a083034-5075-46fe-a988-4dab0011c9a4
+# ╟─94adc5c2-9ade-4b66-8814-705c2cc23534
+# ╠═3560cece-1420-41e5-8590-54041d210996
+# ╠═bfc7e5e3-2f2a-49f8-b1e8-c86e6d16b160
+# ╟─88a415dd-0fe8-493e-9446-75b909b3f68c
+# ╟─c401d8fc-704b-42e7-bbb2-0322329341fe
+# ╟─874003a9-40f0-4d73-8070-085143487d12
+# ╠═d16d7e17-3662-4f5e-a98c-1c423399feed
+# ╠═2fe9a9de-4771-40a8-90f0-291116521617
+# ╟─8a8f8290-e71d-415e-b36f-bf509163a6a6
+# ╠═ac92068b-5fc7-456c-9ab1-f7a6acbe0089
+# ╠═d5b1580a-154d-43e7-9eb3-86ac2504e6b1
+# ╠═95d37731-401e-456f-97a3-1e965cbe8b9e
+# ╠═a9e39487-19d7-49ad-8536-29f79f3a80d8
+# ╟─3b4be6a5-e4bc-4a48-91ad-99705700b81f
+# ╠═f715250f-291b-4fae-a40e-149f88a01bfe
+# ╠═bcace027-418c-4d2e-beb2-cb40a5f16c22
+# ╟─39ac140a-5e2b-41fe-93e1-3612b6dd0604
+# ╠═5c5331ae-675a-4e07-a14f-fed84250829e
+# ╟─99f42969-f9a0-4c02-8eaf-2ae395d55147
+# ╠═f6141748-a3fd-4cc3-8296-6c311a8060cc
+# ╠═4befb480-593c-4c29-adcf-3775cc3e736f
+# ╟─3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
 # ╠═6e6b9d64-2d90-40a4-abde-2fd0d6ab7d7a
 # ╟─d577b03d-bc68-4b32-9c6d-d92e0c4d7c99
 # ╠═c4916313-d4f0-443c-a81e-05d2b765acf0
@@ -1664,7 +2261,7 @@ version = "17.4.0+2"
 # ╟─45e8699f-18ca-47a6-97eb-f855950b326d
 # ╠═31333ae3-615e-4587-80cf-d2716669af9e
 # ╠═702e5559-55b0-4392-af55-846886aa1244
-# ╠═ba4b1307-1f3e-4304-8d56-c85310265e4b
+# ╠═c8bae838-0549-48e3-b858-0c071334c0b7
 # ╠═9b35e3ae-95c4-4fe6-a84e-df4e22ab85e2
 # ╠═edd27759-c2c5-4b5a-92b2-590f8673461a
 # ╟─00000000-0000-0000-0000-000000000001
