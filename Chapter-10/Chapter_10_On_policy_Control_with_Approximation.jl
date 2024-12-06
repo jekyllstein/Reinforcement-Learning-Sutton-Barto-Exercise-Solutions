@@ -249,7 +249,7 @@ Below is an implementation of Semi-gradient Sarsa in a similar style to the algo
 compute_sarsa_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = action_values[i_a]
 
 # ╔═╡ 991492f4-7dfc-43aa-ab6c-a6b1f3e38225
-function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, compute_value = compute_sarsa_value, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), kwargs...) where {P, T<:Real}
+function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, compute_value = compute_sarsa_value, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {P, T<:Real}
 	s = mdp.initialize_state()
 	i_a = rand(eachindex(mdp.actions))
 	ep = 1
@@ -260,6 +260,9 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 	action_values = zeros(T, length(mdp.actions))
 	policy = zeros(T, length(mdp.actions))
 	decay = one(T)
+	parameter_history = Vector{P}()
+	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+	
 	while (ep <= max_episodes) && (step <= max_steps)
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
@@ -284,11 +287,12 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 			decay *= α_decay
 		end
 		update_parameters!(parameters, s, i_a, U_t, α * learning_rate * decay, update_args...)
+		save_parameter_history && push!(parameter_history, deepcopy(parameters))
 		s = s′
 		i_a = i_a′
 		step += 1
 	end
-	return episode_rewards, episode_steps
+	return episode_rewards, episode_steps, parameter_history
 end
 
 # ╔═╡ 8b7e1031-9864-439c-86eb-11aa08f53b90
@@ -1385,7 +1389,7 @@ md"""
 """
 
 # ╔═╡ a9fdb1fd-3f62-4e1c-9157-c4eee6215261
-function differential_semi_gradient_sarsa!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, β = one(T)/100, ϵ = one(T) / 10, compute_value = compute_sarsa_value, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+function differential_semi_gradient_sarsa!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, β = one(T)/100, ϵ = one(T) / 10, compute_value = compute_sarsa_value, max_only_update = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	s = mdp.initialize_state()
 	i_a = rand(eachindex(mdp.actions))
 	ep = 1
@@ -1418,8 +1422,10 @@ function differential_semi_gradient_sarsa!(parameters, mdp::StateMDP{T, S, A, P,
 		q̂′ = compute_value(action_values, policy, i_a′)
 		U_t += q̂′
 		δ = U_t - q̂
-		ō += β * (one(T) - ō)
-		R̄ += (β/ō)*δ
+		if !max_only_update || (i_a′ == argmax(policy))
+			ō += β * (one(T) - ō)
+			R̄ += (β/ō)*δ
+		end
 		# R̄ += β*δ
 		push!(average_step_reward, R̄)
 		update_parameters!(parameters, s, i_a, U_t, α, update_args...)
@@ -1434,7 +1440,7 @@ end
 differential_semi_gradient_expected_sarsa!(args...; kwargs...) = differential_semi_gradient_sarsa!(args...; kwargs..., compute_value=compute_expected_sarsa_value)
 
 # ╔═╡ c9759bd9-ec9b-47a1-9080-a7fc332be565
-differential_semi_gradient_q_learning!(args...; kwargs...) = differential_semi_gradient_sarsa!(args...; kwargs..., compute_value=compute_q_learning_value)
+differential_semi_gradient_q_learning!(args...; kwargs...) = differential_semi_gradient_sarsa!(args...; kwargs..., max_only_update = true, compute_value=compute_q_learning_value)
 
 # ╔═╡ b5d2776f-4b93-4eaa-8873-c1c4e610e6b0
 function run_fcann_differential_semi_gradient_sarsa(mdp::StateMDP, max_episodes::Integer, max_steps::Integer, state_representation::Vector{Float32}, update_state_representation!::Function, layers::Vector{T}; kwargs...) where T<:Integer
@@ -1451,30 +1457,6 @@ end
 md"""
 ### *Differential Semi-gradient Dynamic Programming Implementation*
 """
-
-# ╔═╡ 5e500019-d129-4c3c-91dd-cae93e7ab44f
-function run_nonlinear_differential_semi_gradient_dp(mdp::StateMDP, max_episodes::Integer, max_steps::Integer, state_representation::Vector{Float32}, update_state_representation!::Function, layers::Vector{T}; kwargs...) where T<:Integer
-	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!)
-	num_actions = length(mdp.actions)
-	episode_rewards, episode_steps, average_step_reward = differential_semi_gradient_dp!(setup.parameters, mdp, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
-	
-	action_values = zeros(Float32, num_actions)
-	function π_greedy(s)
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T) 
-			for i in eachindex(probabilities)
-				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
-				q += probabilities[i]*(rewards[i] + v̂′)
-			end
-			action_values[i_a] = q
-		end
-		make_greedy_policy!(action_values)
-		i_a = sample_action(action_values)
-	end
-	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, average_step_reward = average_step_reward)
-end
 
 # ╔═╡ 1a7ba296-52ca-4069-85fa-792d08d77b0e
 md"""
@@ -1523,7 +1505,7 @@ end
 
 # ╔═╡ ae5c5377-8b44-4c82-a63c-d2cb8a0d6667
 #=╠═╡
-(q̂_mountain_car2_fcann, episode_rewards2_fcann, episode_steps2_fcann, average_step_reward_fcann) = mountaincar_fcann_differential_test(1_000_000, 1f-4, 0.001f0, 0.5f0; num_layers = 3, layer_size = 8, compute_value = compute_q_learning_value)
+(q̂_mountain_car2_fcann, episode_rewards2_fcann, episode_steps2_fcann, average_step_reward_fcann) = mountaincar_fcann_differential_test(1_000_000, 1f-4, 1f-5, 0.1f0; num_layers = 3, layer_size = 8, compute_value = compute_q_learning_value, max_only_update = true)
   ╠═╡ =#
 
 # ╔═╡ b094bf9f-bb97-4f23-acdc-f39411a07fb9
@@ -1642,7 +1624,7 @@ The differetial value function is defined as: $v_\pi(s) \doteq \mathbb{E}_\pi[G_
 
 $v_\pi (s) \doteq \mathbb{E}_\pi[G_t \vert S_t = s] = \mathbb{E}_\pi \left [ \sum_{h = 1}^{\infty} [R_{t+h} - r(\pi) ]  \mid S_t = s \right ] = \sum_{h = 1}^{\infty} \mathbb{E}_\pi[R_{t+h} \vert S_t = s] - r(\pi)$ 
 
-In particular, the sum does not exist since the values alternate and do not approach a single value.  Thus the differential value function is not well defined.  Therefore, we must consider the alternative definition: 
+In particular, the sum does not converge since the values alternate and do not approach a single value.  Thus the differential value function is not well defined.  Therefore, we must consider the alternative definition: 
 
 $v_\pi (s) \doteq \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} \sum_{t=0}^h \gamma^t \left ( \mathbb{E_\pi} [R_{t+1}|S_0=s]-r(\pi)  \right )$ 
 
@@ -1653,13 +1635,13 @@ For state A, each parenthetical term in the sum will be: $1 - 0.5, 0 - 0.5, 1 - 
 For state B, each parenthetical term in the sum will be: $0 - 0.5, 1 - 0.5, 0 - 0.5, 1 - 0.5, \dots = -0.5, 0.5, -0.5, 0.5, \dots$
 
 $\begin{flalign}
-v_\pi (A) &= \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} 0.5 - 0.5\gamma + 0.5 \gamma^2 - 0.5\gamma^3 + \cdots \\
+v_\pi (A) &= \lim_{\gamma \rightarrow 1} 0.5 - 0.5\gamma + 0.5 \gamma^2 - 0.5\gamma^3 + \cdots \\
 &=0.5\lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty}\sum_{t=0}^h (-\gamma)^t \\
 &=0.5\lim_{\gamma \rightarrow 1}\frac{1}{\gamma +1 } = 0.25
 \end{flalign}$
 
 $\begin{flalign}
-v_\pi (B) &= \lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty} -0.5 + 0.5\gamma - 0.5 \gamma^2 + 0.5\gamma^3 + \cdots \\
+v_\pi (B) &= \lim_{\gamma \rightarrow 1} -0.5 + 0.5\gamma - 0.5 \gamma^2 + 0.5\gamma^3 + \cdots \\
 &=-0.5\lim_{\gamma \rightarrow 1} \lim_{h \rightarrow \infty}\sum_{t=0}^h (-\gamma)^t \\
 &=-0.5\lim_{\gamma \rightarrow 1}\frac{1}{\gamma +1 } = -0.25
 \end{flalign}$
@@ -1784,13 +1766,13 @@ function linear_features_action_gradient_setup(problem::Union{StateMDP{T, S, A, 
 end
 
 # ╔═╡ 2c620fe4-2f62-40f8-a666-8dced1e0b84a
-function run_linear_semi_gradient_sarsa(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
+function run_linear_semi_gradient_sarsa(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), init_param::Vector{T} = zeros(T, length(state_representation)), kwargs...) where T<:Real
 	setup = linear_features_action_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
 	l = length(state_representation)
 	num_actions = length(mdp.actions)
 	# parameters = zeros(T, l, num_actions)
-	parameters = [zeros(T, l) for _ in 1:num_actions]
-	episode_rewards, episode_steps = semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	parameters = [copy(init_param) for _ in 1:num_actions]
+	episode_rewards, episode_steps, parameter_history = semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
 	q̂(s, i_a) = setup.value_function(s, i_a, parameters, setup.value_args...)
 	function q̂(s)
 		action_values = zeros(T, num_actions)
@@ -1800,7 +1782,7 @@ function run_linear_semi_gradient_sarsa(mdp::StateMDP, γ::T, max_episodes::Inte
 
 	π_greedy(s) = q̂(s)[2]
 	
-	return (value_function = q̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
+	return (value_function = q̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameter_history = parameter_history)
 end
 
 # ╔═╡ 7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
@@ -1872,6 +1854,12 @@ show_mountaincar_trajectory(π_mountain_car_q, 1_000, "Q-Learning Learned Policy
 plot_mountaincar_action_values(q̂_mountain_car_q, 500, 500)
   ╠═╡ =#
 
+# ╔═╡ 36a53700-9e9a-4131-89c8-dbd520d5c407
+run_linear_semi_gradient_expected_sarsa(args...; kwargs...) = run_linear_semi_gradient_sarsa(args...; kwargs..., compute_value = compute_expected_sarsa_value)
+
+# ╔═╡ 39a07c8a-0253-42b8-ba8d-f00b02ca82a5
+run_linear_semi_gradient_q_learning(args...; kwargs...) = run_linear_semi_gradient_sarsa(args...; kwargs..., compute_value = compute_q_learning_value)
+
 # ╔═╡ 065b2626-01f1-443f-8be4-3036003a2772
 function run_linear_differential_semi_gradient_sarsa(mdp::StateMDP, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
 	setup = linear_features_action_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
@@ -1899,7 +1887,7 @@ end
 # ╔═╡ db189316-e880-4cc8-9070-ccfe2b4fc545
 # ╠═╡ skip_as_script = true
 #=╠═╡
-(q̂_mountain_car2, episode_rewards2, episode_steps2, average_step_reward) = mountaincar_differential_test(1_000_000, 2f-3, 1f-4, 0.05f0; compute_value = compute_q_learning_value)
+(q̂_mountain_car2, episode_rewards2, episode_steps2, average_step_reward) = mountaincar_differential_test(1_000_000, 1f-6, 1f-5, 0.1f0; compute_value = compute_q_learning_value, max_only_update = true)
   ╠═╡ =#
 
 # ╔═╡ 7bc49107-9de5-4985-8750-979f36b3aa81
@@ -1951,7 +1939,7 @@ begin
 end
 
 # ╔═╡ b0761704-5447-4e64-8270-708d9dccef60
-function semi_gradient_dp!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, PR}
 	s = mdp.initialize_state()
 	i_a = rand(eachindex(mdp.actions))
 	ep = 1
@@ -1962,13 +1950,15 @@ function semi_gradient_dp!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ
 	action_values = zeros(T, length(mdp.actions))
 	policy = zeros(T, length(mdp.actions))
 	decay = one(T)
+	parameter_history = Vector{PR}()
+	save_parameter_history && push!(parameter_history, deepcopy(parameters))
 	while (ep <= max_episodes) && (step <= max_steps)
 		#computes q and finds maximizing action value, this is effectively trajectory sampling in the case of approximation where we stay close to the optimal policy
 		maxq = update_action_values!(action_values, s, s -> estimate_value(s, parameters, estimate_args...), mdp, γ)
 		
 		learning_rate = nn_momentum ? T(1 - 0.999^step) : one(T)
 		update_parameters!(parameters, s, maxq, α * learning_rate * decay, update_args...)
-
+		save_parameter_history && push!(parameter_history, deepcopy(parameters))
 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
 		i_a = sample_action(action_values)
 		(r, s) = mdp.ptf(s, i_a)
@@ -1987,7 +1977,7 @@ function semi_gradient_dp!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ
 		end
 		step += 1
 	end
-	return episode_rewards, episode_steps
+	return episode_rewards, episode_steps, parameter_history
 end
 
 # ╔═╡ 56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
@@ -1996,7 +1986,7 @@ function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer
 	l = length(state_representation)
 	num_actions = length(mdp.actions)
 	parameters = zeros(T, l)
-	episode_rewards, episode_steps = semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	episode_rewards, episode_steps, parameter_history = semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
 	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
 	function π_greedy(s)
 		action_values = zeros(T, num_actions)
@@ -2012,7 +2002,7 @@ function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer
 		make_greedy_policy!(action_values)
 		i_a = sample_action(action_values)
 	end
-	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
+	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameter_history = parameter_history)
 end
 
 # ╔═╡ b0cc6ff8-7296-461c-9db7-e52fa518e2e2
@@ -2136,8 +2126,12 @@ function semi_gradient_differential_dp!(parameters, mdp::StateMDP{T, S, A, P, F1
 		if step > decay_step
 			decay *= α_decay
 		end
-		ō += β * (one(T) - ō)
-		R̄ += (β/ō)*(maxq - R̄ - v)
+
+		#only update average reward for actions that match the greedy policy
+		if i_a == argmax(action_values)
+			ō += β * (one(T) - ō)
+			R̄ += (β/ō)*(maxq - R̄ - v)
+		end
 		push!(average_step_reward, R̄)
 		step += 1
 	end
@@ -2180,7 +2174,7 @@ end
 
 # ╔═╡ 2441b61e-5954-41e2-8ee4-38b16ed04cef
 #=╠═╡
-const differential_linear_dp_mountaincar = mountaincar_differential_dp_test(1_000_000, 2f-5, 1f-4, 0.01f0)
+const differential_linear_dp_mountaincar = mountaincar_differential_dp_test(1_000_000, 4f-5, 1f-4, 0.1f0)
   ╠═╡ =#
 
 # ╔═╡ 6f4f8b64-0c17-446e-bfb6-0540871ad9e0
@@ -2196,6 +2190,65 @@ show_mountaincar_trajectory(differential_linear_dp_mountaincar.π_greedy, 1_000,
 # ╔═╡ c94da551-06b2-4e2b-bf39-ceb5cb5c390c
 #=╠═╡
 plot_mountaincar_values(differential_linear_dp_mountaincar.value_function, differential_linear_dp_mountaincar.π_greedy)
+  ╠═╡ =#
+
+# ╔═╡ 5e500019-d129-4c3c-91dd-cae93e7ab44f
+function run_nonlinear_differential_semi_gradient_dp(mdp::StateMDP, max_episodes::Integer, max_steps::Integer, state_representation::Vector{Float32}, update_state_representation!::Function, layers::Vector{T}; kwargs...) where T<:Integer
+	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!)
+	num_actions = length(mdp.actions)
+	episode_rewards, episode_steps, average_step_reward = semi_gradient_differential_dp!(setup.parameters, mdp, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
+	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
+	
+	action_values = zeros(Float32, num_actions)
+	function π_greedy(s)
+		for i_a in eachindex(action_values)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T) 
+			for i in eachindex(probabilities)
+				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
+				q += probabilities[i]*(rewards[i] + v̂′)
+			end
+			action_values[i_a] = q
+		end
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+	end
+	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, average_step_reward = average_step_reward)
+end
+
+# ╔═╡ 3b66c97b-ebad-4d13-987c-ac0172b349d1
+#=╠═╡
+function mountaincar_differential_dp_nonlinear_test(num_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_layers = 3, layer_size = 8, kwargs...)
+	feature_vector = zeros(Float32, 2)
+	function update_feature_vector!(v::Vector{Float32}, s::NTuple{2, Float32})
+		x1 = 3.45f0*(((s[1] - 1.2f0) / 1.7f0) - 0.5f0)
+		x2 = 1.725f0*s[2] / 0.07f0
+		v[1] = x1
+		v[2] = x2
+	end
+	layers = fill(layer_size, num_layers)
+	run_nonlinear_differential_semi_gradient_dp(mountain_car_differential_dist_mdp, 1_000, num_steps, feature_vector, update_feature_vector!, layers; α = α, β = β, ϵ = ϵ, kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 86f7dcde-b27e-4096-bec8-c5d17fd553d2
+#=╠═╡
+const differential_nonlinear_dp_mountaincar = mountaincar_differential_dp_nonlinear_test(100_000, 8f-6, 1f-6, 0.1f0; layer_size = 32)
+  ╠═╡ =#
+
+# ╔═╡ ad692a51-e93b-4480-8a6c-2ad86dc6766b
+#=╠═╡
+plot(differential_nonlinear_dp_mountaincar.average_step_reward)
+  ╠═╡ =#
+
+# ╔═╡ cf00a316-38e3-4423-9909-d5ffbd7c0b06
+#=╠═╡
+show_mountaincar_trajectory(differential_nonlinear_dp_mountaincar.π_greedy, 1_000, "Differential Non-Linear DP Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ 89288ce6-11e8-41f3-b32d-e19edee7db33
+#=╠═╡
+plot_mountaincar_values(differential_nonlinear_dp_mountaincar.value_function, differential_nonlinear_dp_mountaincar.π_greedy)
   ╠═╡ =#
 
 # ╔═╡ 4271151d-d5a6-4a29-96c3-f2102b142b95
@@ -2918,7 +2971,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.1"
+julia_version = "1.11.2"
 manifest_format = "2.0"
 project_hash = "f96742aa2407e40995be21bd65f67a020afa7644"
 
@@ -3680,6 +3733,8 @@ version = "17.4.0+2"
 # ╠═1410db13-4b73-4a87-af34-30a5232af4ba
 # ╠═7812e801-70fd-4331-ad0a-fad02c1a399f
 # ╠═5be866c3-0fb2-4d1f-9c31-b85aba332905
+# ╠═36a53700-9e9a-4131-89c8-dbd520d5c407
+# ╠═39a07c8a-0253-42b8-ba8d-f00b02ca82a5
 # ╟─f7410fe7-e3d8-4047-8fa7-f076476e9d3a
 # ╠═cbac1927-b087-4c4c-98ae-6aa5f0b824ad
 # ╠═b5409b69-a254-4355-b2b9-99394eceb2f7
@@ -3734,6 +3789,11 @@ version = "17.4.0+2"
 # ╠═6f4f8b64-0c17-446e-bfb6-0540871ad9e0
 # ╠═1a56e4dd-15dd-47b3-afd8-1dd7f5b690ac
 # ╠═c94da551-06b2-4e2b-bf39-ceb5cb5c390c
+# ╠═3b66c97b-ebad-4d13-987c-ac0172b349d1
+# ╠═86f7dcde-b27e-4096-bec8-c5d17fd553d2
+# ╠═ad692a51-e93b-4480-8a6c-2ad86dc6766b
+# ╠═cf00a316-38e3-4423-9909-d5ffbd7c0b06
+# ╠═89288ce6-11e8-41f3-b32d-e19edee7db33
 # ╟─9df1a18d-137c-4ea5-8d15-05697f7bbf07
 # ╟─0c7f5742-6c51-4c6a-b67f-217163935ba5
 # ╟─a6c5ec28-b2d5-4893-a118-95c1318d1f7f
