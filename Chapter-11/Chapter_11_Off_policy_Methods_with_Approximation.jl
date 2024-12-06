@@ -117,9 +117,6 @@ md"""
 This version of semi-gradient DP uses a function `π!` which can update the probability distribution over actions for a given policy and state.  Policy evaluation is done through trajectory sampling where the policy is used to generate the distribution of states which are updated.  All of the potential transition states are used in the bootstrap update, so enough samples need to be collected in order to visit those states.
 """
 
-# ╔═╡ e27231d2-0970-4875-b861-795788d5a2f1
-#add implementation of dynamic programming style policy evaluation.  follow the pattern from chapter 10 about this technique for the optimal policy, need to do trajectory sampling though but must keep adding states to the queue that are reachable from each transition as it branches
-
 # ╔═╡ 255bb3cc-5a26-4817-b515-3b760c351f2e
 function semi_gradient_dp!(parameters::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π!::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), save_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, Q}
 	s = mdp.initialize_state()
@@ -271,17 +268,36 @@ function baird_update_state_vector!(x::Vector{Float32}, s::Integer)
 	end
 end
 
+# ╔═╡ 4996bfd5-137c-4b31-9f80-e463ca5d2b8a
+md"""
+##### Baird Target Policy
+
+This policy always takes the "solid" action which is the second action using the convention above.
+"""
+
 # ╔═╡ ddda80bc-fd6b-4110-83b3-aaf995ce8a71
 function π_baird!(x::Vector{Float32}, s)
 	x[1] = 0f0
 	x[2] = 1f0
 end
 
+# ╔═╡ 6ae6a0c3-6ba6-4512-8ce7-ad98758f835f
+md"""
+##### Baird Behavior Policy
+
+This policy takes the "dashed" action $\frac{6}{7}$ of the time in order to equalize the probability of visiting each state.
+"""
+
 # ╔═╡ 05a77bfa-2573-4b31-b108-ad4351902d11
 function b_baird!(x::Vector{Float32}, s)
 	x[1] = 6f0/7f0
 	x[2] = inv(7f0)
 end
+
+# ╔═╡ 25572d20-89a3-4e08-948b-d678bc978b70
+md"""
+##### Dynamic Programming Solution to Baird Using Trajectory Sampling
+"""
 
 # ╔═╡ aca67da3-b936-4233-88ea-77987e31b90c
 #=╠═╡
@@ -301,12 +317,12 @@ const baird_dp_result = run_linear_semi_gradient_dp(baird_state_mdp, on_policy_b
 
 # ╔═╡ ac53f74b-3909-44b7-acf2-d2dd5f2e57cc
 #=╠═╡
-plot([scatter(y = [x[i] for x in baird_dp_result.parameter_history], name = "weight $i") for i in 1:8])
+plot([scatter(y = [x[i] for x in baird_dp_result.parameter_history], name = "weight $i") for i in 1:8], Layout(xaxis_title = "Evaluation Steps", yaxis_title = "Weight Value", title = "Baird Weights During Semi-Gradient DP Learning"))
   ╠═╡ =#
 
 # ╔═╡ 21174c39-7b4d-48ce-80b1-a2c72be9239a
 #=╠═╡
-plot([scatter(y = [x[7] + 2*x[8] for x in baird_dp_result.parameter_history], name = "State value 7"), scatter(y = [2*x[1] + x[8] for x in baird_dp_result.parameter_history], name = "State value 1")])
+plot([scatter(y = [x[7] + 2*x[8] for x in baird_dp_result.parameter_history], name = "State value 7"), scatter(y = [2*x[1] + x[8] for x in baird_dp_result.parameter_history], name = "State value 1")], Layout(xaxis_title = "Evaluation Steps", yaxis_title = "State Value", title = "Value of Baird States 1 and 7 During Semi-gradient DP Learning"))
   ╠═╡ =#
 
 # ╔═╡ 3c2bb063-db4f-4680-bf4a-2f3ac10a174d
@@ -350,7 +366,7 @@ bairdπ(s::Int64) = [0.0, 1.0]
 	counts[s0] += 1
 	nsteps == 0 && return counts ./ sum(counts)
 	a = sample(1:7, pweights(π(s0)))
-	(s, r) = bairdtransition(s0, a)
+	(r, s) = baird_state_mdp.ptf(s0, a)
 	runbaird(s, π, nsteps-1, counts)
 end
   ╠═╡ =#
@@ -612,11 +628,38 @@ md"""
 ### Example 11.1: Tsitsiklis and Van Roy's Counterexample
 """
 
+# ╔═╡ d9f38410-a1e4-4e10-a16b-ee933da553d2
+md"""
+#### Exact Solution
+Since all of the rewards are 0, this MRP is solved exactly when both state values are 0:
+
+$v_1 = 0$
+$v_2 = 0$
+
+#### Minimum Value Error Solution
+The value error is just the squared error between the approximate solution and the exact solution weighted by the on-policy distribution.  Since both state values are just multiples of $w$, the exact solution is trivial to find:  $w = 0 \implies \hat v_1 = 0, \hat v_2 = 0$
+
+#### TD Fixed-Point Evaluation
+
+At the TD Fixed-Point the expected TD update is 0 for both states which is given by:
+
+State 1: 
+
+$w_{k+1} = w_k + \alpha [ \gamma 2 w_k - w_k ] = w_k(1 + \alpha(2 \gamma - 1))$
+
+State 2:
+
+$w_{k+1} = w_k + \alpha 2[(1 - \epsilon) \gamma 2 w_k - 2 w_k] = w_k(1 + 4\alpha((1-\epsilon)\gamma - 1))$
+
+Since both updates involve the learning rate times a multiple of $w_k$ then this update is only 0 when $w_k = 0$ which is the correct value.  Since this problem is solved exactly with $w = 0$, the solution that minimizes the value error matches the TD Fixed-Point.
+"""
+
 # ╔═╡ 17307c42-3175-4cfc-b9b7-e5d21e02d64a
 md"""
 #### Ignoring the on-policy distribution
 
 The following weight updates are calculated to minimize the average estimation error for each transition weighted by the probability of experiencing that transition. (Note that vs equation (9.1) this is missing the on policy distribution over states).
+
 $\begin{flalign}
 w_{k+1} &= \text{argmin}_{w \in \mathbb{R}} \enspace \sum_{s \in \mathcal{S}} \left ( \hat v(s, w) - \mathbb{E}_\pi[R_{t+1} + \gamma \hat v(S_{t+1}, w_k) | S_t = s] \right )^2\\ 
 &= \text{argmin}_{w \in \mathbb{R}} \enspace (w - \gamma2w_k)^2 + (2w - (1-\epsilon)\gamma2w_k)^2\\
@@ -637,12 +680,8 @@ We are still safe if the threshold exceeds 1 since for this problem $$\gamma \le
 Indeed, in the plot below, when $\epsilon \ge \frac{1}{4}$ the $\gamma$ threshold is greater than 1 and we are guaranteed convergence.  Note that the larger the value of $\epsilon$ the closer the expected state visit counts get to each other so we approach the on policy case again.
 """
 
-# ╔═╡ 5705a385-253f-4805-9879-0e0ceeb18001
-#derive what the TD fixed point of this is compared to teh minimum value error parameter if they differ.
-
 # ╔═╡ e39098da-a3df-47a0-867d-ccaf1a5a54f3
 #=╠═╡
-
 plot(scatter(x = 0:0.01:1, y = 5 ./(6 .- 4 .* (0:0.01:1))), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold", title = "γ above the blue line results in diverging weights for a given ϵ"))
   ╠═╡ =#
 
@@ -858,137 +897,44 @@ md"""
 > Apply one-step semi-gradient Q-learning to Baird's counterexample and show empirically that its weights diverge.
 """
 
-# ╔═╡ 96e4f976-27ec-48c5-b902-b53af8a8d802
-#One step Semi-gradient Sarsa using ϵ-greedy policy
-function semi_gradient_sarsa(mdp::Episodic_MDP, q̂::Function, ∇q̂::Function, w::Vector, maxsteps::Int64; α = 0.01, ϵ = 0.01)	
-	#q̂ should be a function that takes a feature vector representing a state/action pair and produces a value estimate as a single value
-	s0 = rand(mdp.states)
-	a0 = rand(mdp.actions)
-	w_history = [copy(w)]
-	greedyaction(s) = argmax(q̂(s, a, w) for a in mdp.actions)
-	function ϵgreedy_action(s)
-		if rand() < ϵ
-			rand(mdp.actions)
-		else
-			greedyaction(s)
-		end
-	end
-	
-	@tailrec function step!(s, a, nmax)
-		nmax == 0 && return nothing
-		(s′, r) = mdp.step(s, a)
-		if s′ == mdp.sterm 
-			w .+= α .* (r .- q̂(s, a, w)) .* ∇q̂(s, a, w)
-			return step!(rand(mdp.states), rand(mdp.actions), nmax-1)
-		end
-		a′ = ϵgreedy_action(s′)
-		δ =  r .+ (mdp.γ .* q̂(s′, a′, w)) .- q̂(s, a, w) 
-		w .+= α .* δ .* ∇q̂(s, a, w)
-		push!(w_history, copy(w))
-		step!(s′, a′, nmax-1)
-	end
-	step!(s0, a0, maxsteps)
-	return w_history
-end
-
-# ╔═╡ 00e447c7-1ec8-4b51-80b9-784020bd5071
-#One step Semi-gradient Q-learning using ϵ-greedy policy
-function semi_gradient_qlearning(mdp::Episodic_MDP, q̂::Function, ∇q̂::Function, w::Vector, maxsteps::Int64; α = 0.01, ϵ = 0.01)	
-	#q̂ should be a function that takes a feature vector representing a state/action pair and produces a value estimate as a single value
-	s0 = rand(mdp.states)
-	w_history = [copy(w)]
-	#find the greedy action at state s based on the value estimate q̂
-	greedyaction(s) = argmax(q̂(s, a, w) for a in mdp.actions)
-	#find the value estimate for the action that produces the maximum value at state s
-	maxq(s) = maximum(q̂(s, a, w) for a in mdp.actions)
-	function ϵgreedy_action(s)
-		if rand() < ϵ
-			rand(mdp.actions)
-		else
-			greedyaction(s)
-		end
-	end
-	
-	@tailrec function step!(s, nmax)
-		nmax == 0 && return nothing
-		s == mdp.sterm && return step!(rand(mdp.states), nmax-1)
-		a = ϵgreedy_action(s)
-		(s′, r) = mdp.step(s, a)
-		δ =  r .+ (mdp.γ .* maxq(s′)) .- q̂(s, a, w) 
-		w .+= α .* δ .* ∇q̂(s, a, w)
-		push!(w_history, copy(w))
-		step!(s′, nmax-1)
-	end
-	step!(s0, maxsteps)
-	return w_history
-end
-
-# ╔═╡ c537aeb0-963c-4cf9-88fd-cf94859b1964
+# ╔═╡ b68b6bf1-78ad-4339-a872-993e9d9fdfc2
 #=╠═╡
-function exercise_11_3(;initializeweights = () -> [1., 1., 1., 1., 1., 1., 10., 1., 1., 10.], maxsteps = 1000, γ = 0.99, ϵ = 0.01, α = 0.01)
+function exercise_11_3_2(;winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), maxsteps = 10_000, γ = 0.99f0, ϵ = 0.99f0, α = 0.01f0, state_index = 1)
+	winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1])
+	sarsa_output = run_linear_semi_gradient_sarsa(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, init_param = winit)
+
+	q_learning_output = run_linear_semi_gradient_q_learning(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, init_param = winit)
 	
-	statefeatures = [
-		[2, 0, 0, 0, 0, 0, 0, 1],
-		[0, 2, 0, 0, 0, 0, 0, 1],
-		[0, 0, 2, 0, 0, 0, 0, 1],
-		[0, 0, 0, 2, 0, 0, 0, 1],
-		[0, 0, 0, 0, 2, 0, 0, 1],
-		[0, 0, 0, 0, 0, 2, 0, 1],
-		[0, 0, 0, 0, 0, 0, 1, 2]
-	]
+	p1 = plot([scatter(y = [a[1][i] for a in sarsa_output.parameter_history], name = "Parameter $i", showlegend=false) for i in 1:8], Layout(xaxis_title = "Step", yaxis_title = "Parameter Value"))
+	p2 = plot([scatter(y = [a[1][i] for a in q_learning_output.parameter_history], name = "Parameter $i") for i in 1:8])
 
-	actionfeatures = [
-		[2., 1.],
-		[1., 2.]
-	]
-
-	#form state/action features by appending state feature to action feature
-	x(s, a) = [statefeatures[s]; actionfeatures[a]]
+	baird_values(w::Vector{T}) where T<:Real = [2*w[1] + w[8], 2*w[2] + w[8], 2*w[3]+w[8], 2*w[4] + w[8], 2*w[5] + w[8], 2*w[6] + w[8], w[7] + 2*w[8]]
 	
-	#define value function estimator and its gradient with respect to parameters
-	q̂(s, a, w) = w' * x(s, a)
-	∇q̂(s, a, w) = x(s, a)
+	q_value_history1 = [baird_values(w[1]) for w in q_learning_output.parameter_history]
+	q_value_history2 = [baird_values(w[2]) for w in q_learning_output.parameter_history]
 
-	mdp = Episodic_MDP(collect(1:7), [1, 2], bairdtransition, 0, γ)
+	sarsa_value_history1 = [baird_values(w[1]) for w in sarsa_output.parameter_history]
+	sarsa_value_history2 = [baird_values(w[2]) for w in sarsa_output.parameter_history]
 
-	w_history_sarsa = semi_gradient_sarsa(mdp, q̂, ∇q̂, initializeweights(), maxsteps, ϵ = ϵ, α = α)	
-	w_history_qlearn = semi_gradient_qlearning(mdp, q̂, ∇q̂, initializeweights(), maxsteps, ϵ = ϵ, α = α)	
-
-	qstar_sarsa = mapreduce(a -> [q̂(s, a, w_history_sarsa[end]) for s in mdp.states], hcat, mdp.actions)
-	qstar_qlearn = mapreduce(a -> [q̂(s, a, w_history_qlearn[end]) for s in mdp.states], hcat, mdp.actions)
+	p3 = plot([scatter(y = [a[i] for a in q_value_history1], name = "State $i") for i in 1:7])
+	p4 = plot([scatter(y = [a[i] for a in q_value_history2], name = "State $i") for i in 1:7])
+	p5 = plot(scatter(y = [Float32(q_value_history1[i][state_index] - q_value_history2[i][state_index]) for i in 1:length(q_learning_output.parameter_history)]))
+	p6 = plot(scatter(y = [Float32(sarsa_value_history1[i][state_index] - sarsa_value_history2[i][state_index]) for i in 1:length(sarsa_output.parameter_history)]))
 	
-	function plot_weights(w_history, title; legend = true)
-		l = length(w_history)
-		traces = [scatter(x = 1:l, y = [w[i] for w in w_history], name = "w_$i") for i in 1:length(initializeweights())]
-		Plot(traces, Layout(showlegend=legend, title=title, legend_orientation="h"))
-	end
-
-	p1 = plot_weights(w_history_sarsa, "One Step Sarsa")
-	h1 = heatmap(x = mdp.actions, y = mdp.states, z = qstar_sarsa)
-	p2 = plot_weights(w_history_qlearn, "One Step Q-Learning")
-	h2 = heatmap(x = mdp.actions, y = mdp.states, z = qstar_qlearn)
-	# p3 = plot_weights(w_history_DP, "Semi-gradient DP")
-	# plot([p1 p2; p3])
-	# plot(p1)
 	md"""
-	$(plot([p1 p2]))
-	$(plot(h1, Layout(xaxis_title = "Action", yaxis_title="State", title = "Optimal Policy Action/Value Estimates Sarsa")))
-	$(plot(h2, Layout(xaxis_title = "Action", yaxis_title="State", title = "Optimal Policy Action/Value Estimates Q-Learning")))
+	$([p1 p2; p3 p4; p5 p6])
 	"""
 end
   ╠═╡ =#
 
-# ╔═╡ 1b68a25e-9f12-4894-a3a7-3fdd6df34316
+# ╔═╡ 86c51ac5-10d7-4652-9219-d514cfe07bb6
 #=╠═╡
-exercise_11_3(maxsteps = 30_000, ϵ = 0.05, α = 0.01)
+exercise_11_3_2(;state_index = 1)
   ╠═╡ =#
-
-# ╔═╡ 1db46615-4b43-4434-ad73-c03246f28593
-#if you always follow the behavior policy wiht Q-learning it should diverge just like the case of off-policy DP
 
 # ╔═╡ 6a654e0e-2809-4e46-989f-815de38c8bf6
 md"""
-I applied one-step semi-gradient Q-learning to Baird's counterexample extending the feature vectors by 2 elements to represent the two actions.  After checking different intial weight vectors and ϵ values, both sarsa and q-learning seem to converge to show no preference for actions and value estimates of 0.  While the weights may diverge momentarily, after enough time steps it converges over a range of parameter values.  In the section describing the counter example it mentions that with the ϵ greedy behavior policy in Q-learning it has not been found to diverge, so I'm not sure why the weights would be expected to diverge here.
+I applied one-step semi-gradient Q-learning to Baird's counterexample extending the feature vectors by 2 elements to represent the two actions.  After checking different intial weight vectors and ϵ values, both sarsa and q-learning seem to converge to show no preference for actions and value estimates of 0.  While the weights may diverge momentarily, after enough time steps it converges over a range of parameter values.  In the section describing the counter example it mentions that with the ϵ greedy behavior policy in Q-learning it has not been found to diverge, so I'm not sure why the weights would be expected to diverge here.  Notice that the weights do diverge at first but then begin to converge to the correct values even with $\epsilon = 0.99$.  The convergence shift seems to occur around the same time of the optimal policy changing to favor action 1 instead of action 2.    
 """
 
 # ╔═╡ b62b78f5-4721-4fb6-b056-cc4dae9eae9f
@@ -1100,18 +1046,50 @@ $\begin{flalign}
 where $c$ is some constant.  Depending on the value of $c$ and $w$, there is an infinite family of approximation functions we can visualize in the 2D plane.
 """
 
-# ╔═╡ c401d8fc-704b-42e7-bbb2-0322329341fe
+# ╔═╡ 88aa7985-dab6-4bd0-8685-321e1499f830
 #=╠═╡
-@bind mrp_value_params PlutoUI.combine() do Child
+@bind mrp_test_params PlutoUI.combine() do Child
 	md"""
-	Discount Rate: $(Child(:γ, Slider(0:0.01:1, default = 0.5)))
+	Discount Rate: $(Child(:γ, Slider(0:0.01:1, default = 0.8, show_value=true)))
 	
-	Linear Constant: $(Child(:c, Slider(0:0.1:10, default = 1, show_value=true)))
+	Linear Constant: $(Child(:c, Slider(0:0.01:2, default = 0.5, show_value=true)))
 
 	Evaluation Weight: $(Child(:w, Slider(0:0.1:10, default = 5, show_value=true)))
 	"""
 end
   ╠═╡ =#
+
+# ╔═╡ c401d8fc-704b-42e7-bbb2-0322329341fe
+#=╠═╡
+@bind mrp_value_params PlutoUI.combine() do Child
+	md"""
+	Discount Rate: $(Child(:γ, Slider(0:0.01:1, default = 0.5, show_value=true)))
+	
+	Linear Constant: $(Child(:c, Slider(0:0.01:10, default = 1, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 5d84f27f-4d72-46e9-99e8-2e5aa361c5f9
+#could also show some kind of animation with this of a point moving towards the true value function where the value error is 0 and then how the projection works, I need to standardize the plot so it can just put all the relevant vectors for a single evaluation on like the bellman operator and the projection back.  I should maybe also show the actual gradient step that would be taken and how that's equivalent to the bellman operator projected back
+
+#should show TDE, BE, PBE, and VE for each estimate to see when each gets minimized, also should show the magnitude of all the vectors
+
+# ╔═╡ 860de14e-751c-483c-b570-3b1ae938a1b3
+#=╠═╡
+@bind mrp_bellman_iteration_params PlutoUI.combine() do Child
+	md"""
+	Discount Rate: $(Child(:γ, Slider(0:0.01:1, default = 0.5)))
+	
+	Initial Value 1: $(Child(:v1, Slider(0:0.1:10, default = 1, show_value=true)))
+
+	Initial Value 2: $(Child(:v2, Slider(0:0.1:5, default = 1, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 6def32ca-da3d-438c-a677-40247afd2119
+#add to this the TD(0) iteration with dynamic programming and approximation and see if it acts like the projected bellman error
 
 # ╔═╡ 8a8f8290-e71d-415e-b36f-bf509163a6a6
 md"""
@@ -1133,9 +1111,6 @@ w(1 + c^2) &= \frac{\gamma + 2c - c \gamma}{1 - \gamma} \\
 &\therefore \\
 w &= \frac{\gamma + 2c - c \gamma}{(1 - \gamma)(1 + c^2)} \\
 &= \frac{\gamma(1 - c) + 2c}{(1 - \gamma)(1 + c^2)} \\
-&= \frac{\gamma(1 - c)}{(1 - \gamma)(1 + c)(1 - c)} + \frac{2c}{(1 - \gamma)(1 + c^2)} \\
-&= \frac{\gamma}{(1 - \gamma)(1 + c)} + \frac{2c}{(1 - \gamma)(1 + c)(1-c)} \\
-&= \frac{1}{(1-\gamma)(1 + c)} \left [ \gamma + \frac{2c}{1-c} \right ] \\
 \end{flalign}$
 
 """
@@ -1145,6 +1120,40 @@ mrp_ve_min(γ, c) = (γ + 2*c - c*γ) / ((1 - γ)*(1 + c^2))
 
 # ╔═╡ d5b1580a-154d-43e7-9eb3-86ac2504e6b1
 mrp_bellman_operator(w, γ, c) = (γ*w*(1+c)/2, 2 + γ*w*(1+c)/2)
+
+# ╔═╡ 2bf91a55-b327-422d-b331-630c898dcb64
+mrp_bellman_operator2(v1, v2, γ) = (γ*(v1 + v2)/2, 2 + γ*(v1 + v2)/2)
+
+# ╔═╡ 620d9b39-cf3f-4937-b3f1-332558aef6fb
+#=╠═╡
+function plot_mrp_bellman_iteration(γ, v0::Tuple; maxiter = 50)
+	v1s = 0:0.01:10
+	v2s = 0:0.01:10
+	v1 = γ / (1 - γ)
+	v2 = 2 + γ / (1-γ)
+	vtrue = scatter(x = [v1], y = [v2]; name = "True Value Function", mode = "markers", marker_size = 10.)
+
+	v1_path = [v0[1]]
+	v2_path = [v0[2]]
+	v′ = mrp_bellman_operator2(v0..., γ)
+	iter = 1
+	while !isapprox(v′[1], v1) && !isapprox(v′[2], v2) && (iter < maxiter)
+		push!(v1_path, v′[1])
+		push!(v2_path, v′[2])
+		v′ = mrp_bellman_operator2(v′..., γ)
+		iter += 1
+	end
+
+	vpath = scatter(x = v1_path, y = v2_path, name = "Bellman Iteration", mode = "lines+markers", marker_size = 4.)
+	
+	plot([vtrue, vpath], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ", xaxis_range = [0, 10], yaxis_range = [0, 5], xaxis_constrain = "domain", xaxis_scaleanchor = "y"))
+end
+  ╠═╡ =#
+
+# ╔═╡ c5c814ce-7524-4742-880a-9827153b0cd2
+#=╠═╡
+plot_mrp_bellman_iteration(mrp_bellman_iteration_params.γ, (mrp_bellman_iteration_params.v1, mrp_bellman_iteration_params.v2))
+  ╠═╡ =#
 
 # ╔═╡ 95d37731-401e-456f-97a3-1e965cbe8b9e
 mrp_be_vector(w, w_k, γ, c) = (w - (1+c)*γ*w_k / 2, (c*w - 2 - (1+c)*γ*w_k/2))
@@ -1199,6 +1208,99 @@ So for any value function in the space, we can find the value $w$ that minimizes
 # ╔═╡ 5c5331ae-675a-4e07-a14f-fed84250829e
 mrp_wmin(v1, v2, c) = (v1 + c*v2) / (1 + c^2)
 
+# ╔═╡ 65c4f33b-0c7d-4003-9a69-9e4d1147641e
+#=╠═╡
+function plot_mrp_errors(γ, c, wtest)
+	v1s = 0:0.01:10
+	v2s = 0:0.01:10
+	v1 = γ / (1 - γ)
+	v2 = 2 + γ / (1-γ)
+	vtrue = scatter(x = [v1], y = [v2]; name = "True Value Function", mode = "markers")
+	v̂ = scatter(x = [wtest], y = [c*wtest], name = "Approximate Value Function", mode = "markers")
+	ve = scatter(x = [wtest, v1], y = [c*wtest, v2], name = "Value Error", mode = "lines")
+
+	bo_td = mrp_bellman_operator(wtest, γ, c)
+	bπv̂ = scatter(x = [bo_td[1]], y = [bo_td[2]], name = "Bellman Operator on Approximation", mode = "markers")
+	be = scatter(x = [wtest, bo_td[1]], y = [c*wtest, bo_td[2]], name = "Bellman Error Vector", mode = "lines")
+
+	w_pbe = mrp_wmin(bo_td[1], bo_td[2], c)
+	pbe = scatter(x = [wtest, w_pbe], y = [c*wtest, c*w_pbe], name = "Projected Bellman Error", mode = "lines", line_color = "black")
+
+	pbe_line = scatter(x = [w_pbe, bo_td[1]], y = [c*w_pbe, bo_td[2]], mode = "lines", line_dash = "dash", line_color = "black", showlegend = false)
+
+	w_minve = mrp_ve_min(γ, c)
+
+	wmin = -3
+	ws = wmin:0.01:10
+	v̂s = scatter(x = ws, y = c .* ws; name = "Approximate Value Functions")
+
+	p1 = plot([vtrue, ve, v̂, bπv̂, be, v̂s, pbe, pbe_line], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 8], yaxis_range = [0, 10], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 800, legend_orientation = "h"))
+
+	calc_ve(w) = ((w - v1)^2 + (c*w - v2)^2)/2
+	calc_error(v1, v2) = ((v1[1] - v2[1])^2 + (v1[2] - v2[2])^2)/2
+	function calc_pbe(w)
+		bo = mrp_bellman_operator(w, γ, c)
+		w_pbe = mrp_wmin(bo[1], bo[2], c)
+		calc_error([w, c*w], [w_pbe, c*w_pbe])
+	end
+	ves = calc_ve.(ws)
+	bes = [calc_error(mrp_bellman_operator(w, γ, c), [w, c*w]) for w in ws]
+	pbes = [calc_pbe(w) for w in ws]
+	ve_tr = scatter(x = ws, y = sqrt.(ves), name = "RMS Value Errors")
+	be_tr = scatter(x = ws, y = sqrt.(bes), name = "RMS Bellman Errors")
+	pbe_tr = scatter(x = ws, y = sqrt.(pbes), name = "RMS Projected Bellman Errors")
+	ve_point = scatter(x = [wtest], y = [sqrt(calc_ve(wtest))], mode = "markers", name = "Value Error at w = $wtest")
+	be_point = scatter(x = [wtest], y = [sqrt(calc_error(mrp_bellman_operator(wtest, γ, c), [wtest, c*wtest]))], mode = "markers", name = "Bellman Error at w = $wtest")
+	pbe_point = scatter(x = [wtest], y = [sqrt(calc_pbe(wtest))], mode = "markers", name = "Projected Bellman Error at w = $wtest")
+	p2 = plot([ve_tr, ve_point, be_tr, be_point, pbe_tr, pbe_point], Layout(xaxis_range = [wmin, 10], yaxis_range = [0, 5], legend_orientation = "h"))
+
+	@htl("""
+	<div style = "display: flex;">
+	$p2 
+	$p1
+	</div>
+	""")
+	
+	# w_test = min_be(γ, c)
+	# ve_magnitude = ((w_minve - v1)^2 + (c*w_minve - v2)^2)/2
+	# v̂_ve = scatter(x = [w_minve], y = [c*w_minve]; name = "Minimum VE", mode = "markers")
+	# v̂_test = scatter(x = [w_test], y = [c*w_test]; name = "Minimum BE", mode = "markers")
+	
+	# w_pbe_min = mrp_pbe_min(γ, c)
+	
+	# bo_td_tr = scatter(x = [bo_td[1]], y = [bo_td[2]]; name = "Bellman Operator on TD Fixed Point", mode = "markers")
+
+	# be_td_tr = scatter(x = [w_pbe_min, bo_td[1]], y = [c*w_pbe_min, bo_td[2]]; name = "Bellman Error on TD Fixed Point", mode = "lines")
+
+	# wmin_tde = mrp_wmin_tde(γ, c)
+	# min_tde_tr = scatter(x = [wmin_tde], y = [c*wmin_tde], name = "Minimum TDE", mode = "markers")
+	
+	# ve = scatter(x = [w_minve, v1], y = [c*w_minve, v2], name = "Value Error Vector, magnitude = $(round(ve_magnitude, sigdigits = 3))", mode = "lines")
+	# bo_v̂ = mrp_bellman_operator(w_minve, γ, c)
+	# bo_test = mrp_bellman_operator(w_test, γ, c)
+	# be_test = ((bo_test[1] - w_test)^2 + (bo_test[2] - c*w_test)^2)/2
+	# bo_tr = scatter(x = [bo_v̂[1]], y = [bo_v̂[2]]; name = "Bellman Operator on v̂", mode = "markers")
+	# bo_test_tr = scatter(x = [bo_test[1]], y = [bo_test[2]]; name = "Bellman Operator on v̂ test", mode = "markers")
+	# be_test_tr = scatter(x = [w_test, bo_test[1]], y = [c*w_test, bo_test[2]]; name = "Test Bellman Error Vector, magnitude = $(round(be_test; sigdigits = 3))", mode = "lines")
+	# be_tr = scatter(x = [w_minve, bo_v̂[1]], y = [c*w_minve, bo_v̂[2]]; name = "Bellman Error Vector", mode = "lines")
+	# pbe_w = mrp_wmin(bo_test[1], bo_test[2], c)
+	# pbe_tr = scatter(x = [pbe_w], y = [c*pbe_w], name = "PBE", mode = "markers")
+
+	# pbe_min_tr = scatter(x = [w_pbe_min], y = [c*w_pbe_min], name = "TD fixed point", mode = "markers")
+	
+
+	# bos = [mrp_bellman_operator(w, γ, c) for w in ws]
+	# bos_tr = scatter(x = [x[1] for x in bos], y = [x[2] for x in bos], name = "Bellman Operator on Approximations", mode = "lines")
+	
+	# plot([vtrue, v̂, v̂_ve, v̂_test, ve, bo_tr, be_tr, bo_test_tr, be_test_tr, pbe_tr, pbe_min_tr, bo_td_tr, be_td_tr, bos_tr, min_tde_tr], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 10], yaxis_range = [0, 7], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 700))
+end
+  ╠═╡ =#
+
+# ╔═╡ d90dcfef-325c-4227-84a9-671f01b7383a
+#=╠═╡
+plot_mrp_errors(mrp_test_params...)
+  ╠═╡ =#
+
 # ╔═╡ 99f42969-f9a0-4c02-8eaf-2ae395d55147
 md"""
 Given two points on the approximation line defined by $w_1$ and $w_2$, the squared distance between them is just:
@@ -1228,9 +1330,39 @@ w_{\text{min}} = \frac{4c}{2(1+c^2) - \gamma (1+c)^2}
 # ╔═╡ f6141748-a3fd-4cc3-8296-6c311a8060cc
 mrp_pbe_min(γ, c) = 4*c / (2*(1+c^2) - γ*(1+c)^2)
 
+# ╔═╡ 4befb480-593c-4c29-adcf-3775cc3e736f
+md"""
+Finally, consider the *mean square TD error*
+
+$\frac{1}{4} \left [ (\gamma w - w)^2 + (\gamma c w - w)^2 + (2 + \gamma w - cw)^2 + (2 + \gamma c w - c w)^2 \right ]$
+
+$\frac{1}{4} \left [ w^2((\gamma -1)^2 + (\gamma c  - 1)^2) + (2 + \gamma w - cw)^2 + (2 + \gamma c w - c w)^2 \right ]$
+
+$\frac{1}{4} \left [ w^2((\gamma -1)^2 + (\gamma c  - 1)^2) + (2 + w (\gamma - c))^2 + (2 + w c(\gamma   - 1)^2 \right ]$
+
+$\frac{1}{4} \left [ w^2((\gamma -1)^2 + (\gamma c  - 1)^2) + 4 + 4w(\gamma - c) + w^2 (\gamma - c)^2 + 4 + 4wc(\gamma - 1) + w^2 c^2 (\gamma - 1)^2 \right ]$
+
+$\frac{1}{4} \left [ w^2((\gamma -1)^2 + (\gamma c  - 1)^2 + (\gamma - c)^2 + c^2(\gamma - 1)^2) + 4w(\gamma - 2c + c\gamma)) + 8\right ]$
+
+The difference between this and the Bellman error is that we take the expectation of the TD squared difference rather than the square of the expected TDE
+
+Taking the derivative of this wrt $w$ yields
+
+$\frac{1}{4} \left [ 2w((\gamma -1)^2 + (\gamma c  - 1)^2 + (\gamma - c)^2 + c^2(\gamma - 1)^2) + 4(\gamma - 2c + c\gamma))\right ]$
+
+$\frac{1}{2}w((\gamma -1)^2 + (\gamma c  - 1)^2 + (\gamma - c)^2 + c^2(\gamma - 1)^2) + \gamma - 2c + c\gamma$
+
+setting to 0 and solving for $w$
+
+$w = \frac{2(2c - \gamma (1 + c))}{(\gamma -1)^2 + (\gamma c  - 1)^2 + (\gamma - c)^2 + c^2(\gamma - 1)^2}$
+"""
+
+# ╔═╡ 9be0a35f-bf46-4edd-be72-cd92a76822da
+mrp_wmin_tde(γ, c) = 2(2c - γ*(1+c)) / ((γ-1)^2 + (γ*c - 1)^2 + (γ-c)^2 + c^2 * (γ-1)^2)
+
 # ╔═╡ d16d7e17-3662-4f5e-a98c-1c423399feed
 #=╠═╡
-function plot_mrp_value_functions(γ, c, w_test)
+function plot_mrp_value_functions(γ, c)
 	v1s = 0:0.01:10
 	v2s = 0:0.01:10
 	v1 = γ / (1 - γ)
@@ -1240,10 +1372,17 @@ function plot_mrp_value_functions(γ, c, w_test)
 	w_test = min_be(γ, c)
 	ve_magnitude = ((w_minve - v1)^2 + (c*w_minve - v2)^2)/2
 	v̂_ve = scatter(x = [w_minve], y = [c*w_minve]; name = "Minimum VE", mode = "markers")
-	v̂_test = scatter(x = [w_test], y = [c*w_test]; name = "v̂ at w = $w_test", mode = "markers")
+	v̂_test = scatter(x = [w_test], y = [c*w_test]; name = "Minimum BE", mode = "markers")
 	
 	w_pbe_min = mrp_pbe_min(γ, c)
+	bo_td = mrp_bellman_operator(w_pbe_min, γ, c)
+	bo_td_tr = scatter(x = [bo_td[1]], y = [bo_td[2]]; name = "Bellman Operator on TD Fixed Point", mode = "markers")
 
+	be_td_tr = scatter(x = [w_pbe_min, bo_td[1]], y = [c*w_pbe_min, bo_td[2]]; name = "Bellman Error on TD Fixed Point", mode = "lines")
+
+	wmin_tde = mrp_wmin_tde(γ, c)
+	min_tde_tr = scatter(x = [wmin_tde], y = [c*wmin_tde], name = "Minimum TDE", mode = "markers")
+	
 	ve = scatter(x = [w_minve, v1], y = [c*w_minve, v2], name = "Value Error Vector, magnitude = $(round(ve_magnitude, sigdigits = 3))", mode = "lines")
 	bo_v̂ = mrp_bellman_operator(w_minve, γ, c)
 	bo_test = mrp_bellman_operator(w_test, γ, c)
@@ -1257,8 +1396,11 @@ function plot_mrp_value_functions(γ, c, w_test)
 
 	pbe_min_tr = scatter(x = [w_pbe_min], y = [c*w_pbe_min], name = "TD fixed point", mode = "markers")
 	ws = 0:0.01:10
+
+	bos = [mrp_bellman_operator(w, γ, c) for w in ws]
+	bos_tr = scatter(x = [x[1] for x in bos], y = [x[2] for x in bos], name = "Bellman Operator on Approximations", mode = "lines")
 	v̂ = scatter(x = ws, y = c .* ws; name = "Approximate Value Functions")
-	plot([vtrue, v̂, v̂_ve, v̂_test, ve, bo_tr, be_tr, bo_test_tr, be_test_tr, pbe_tr, pbe_min_tr], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 10], yaxis_range = [0, 5], xaxis_constrain = "domain", yaxis_scaleanchor = "x"))
+	plot([vtrue, v̂, v̂_ve, v̂_test, ve, bo_tr, be_tr, bo_test_tr, be_test_tr, pbe_tr, pbe_min_tr, bo_td_tr, be_td_tr, bos_tr, min_tde_tr], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 10], yaxis_range = [0, 7], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 700))
 end
   ╠═╡ =#
 
@@ -1267,19 +1409,46 @@ end
 plot_mrp_value_functions(mrp_value_params...)
   ╠═╡ =#
 
-# ╔═╡ 2fe9a9de-4771-40a8-90f0-291116521617
-mrp_pbe_min(.8, 1)
+# ╔═╡ c0e58f98-a52e-4742-a850-661faac4bbed
+#=╠═╡
+@bind wcompare_γ Slider(0.:0.01:.99999; default = 0.5, show_value=true)
+  ╠═╡ =#
 
-# ╔═╡ 4befb480-593c-4c29-adcf-3775cc3e736f
+# ╔═╡ e37d1246-ccd6-481a-af2b-7d2d6acb8bbf
 md"""
-Finally, consider the *mean square TD error*
+Comparing all of the potential errors: 
 
-$\frac{1}{4} \left [ (\gamma w - w)^2 + (\gamma c w - w)^2 + (2 + \gamma w - cw)^2 + (2 + \gamma c w - c w)^2 \right ]$
+$\begin{flalign}
+w_{ve} &= \frac{\gamma(1 - c) + 2c}{(1 - \gamma)(1 + c^2)} \\
 
-$\frac{1}{4} \left [ w^2((\gamma -1)^2 + (\gamma c  - 1)^2) + (2 + \gamma w - cw)^2 + (2 + \gamma c w - c w)^2 \right ]$
+w_{be} &= \frac{2(2c - \gamma(1+c))}{2 + \gamma(1+c)^2 (\gamma - 2) + 2c^2} \\
 
-The difference between this and the Bellman error is that we take the expectation of the TD squared difference rather than the square of the expected TDE
+w_{pbe} &= \frac{4c}{2(1+c^2) - \gamma (1+c)^2} \\
+
+w_{tde} &=  \frac{2(2c - \gamma (1 + c))}{(\gamma -1)^2 + (\gamma c  - 1)^2 + (\gamma - c)^2 + c^2(\gamma - 1)^2}
+\end{flalign}$
 """
+
+# ╔═╡ 12d724c0-a40b-4f7b-922e-9f8738bf01f4
+#=╠═╡
+function compare_optimal_w(γ::T; c_range = LinRange(zero(T), one(T)*3, 1000)) where T<:Real
+	ve = mrp_ve_min.(γ, c_range)
+	be = min_be.(γ, c_range)
+	td0 = mrp_pbe_min.(γ, c_range)
+	tde = mrp_wmin_tde.(γ, c_range)
+	traces1 = [scatter(x = c_range, y = y, name = name) for (y, name) in zip([ve, be, td0, tde], ["Value Error", "Bellman Error", "Projected Bellman Error", "Mean Square TD Error"])]
+	traces2 = [scatter(x = c_range, y = c_range .* y, name = name) for (y, name) in zip([ve, be, td0, tde], ["Value Error 2", "Bellman Error 2", "Projected Bellman Error 2", "Mean Square TD Error 2"])]
+	v1_true = γ / (1 - γ)
+	value1_trace = scatter(x = c_range, y = fill(v1_true, 1000), name = "True Value 1")
+	value2_trace = scatter(x = c_range, y = fill(2 + v1_true, 1000), name = "True Value 2")
+	plot([traces1; traces2; value1_trace; value2_trace])
+end
+  ╠═╡ =#
+
+# ╔═╡ 56672e64-6834-4639-921b-0e87cede4d7a
+#=╠═╡
+compare_optimal_w(wcompare_γ)
+  ╠═╡ =#
 
 # ╔═╡ 3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
 md"""
@@ -1303,6 +1472,21 @@ plot([scatter(x = [0, 0], y = [0, 1], name = "x1"), scatter(x = [0, sqrt(3)/2], 
 	"""
 end
   ╠═╡ =#
+
+# ╔═╡ d45813bd-8aa2-4454-bc12-ae8dce0a4590
+function test_step_dist(;num_steps = 1000)
+	state_visits = zeros(3)
+	s = 1
+	for i in 1:num_steps
+		s += rand((-1, 1))
+		s = clamp(s, 1, 3)
+		state_visits[s] += 1
+	end
+	return state_visits
+end
+
+# ╔═╡ a36695bb-599d-4f83-a747-9e3d0668e7d8
+test_step_dist(; num_steps = 100_000)
 
 # ╔═╡ 5047d396-af48-49fa-bf68-702fbe42c18e
 #=╠═╡
@@ -1438,7 +1622,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.1"
+julia_version = "1.11.2"
 manifest_format = "2.0"
 project_hash = "255f2ce5b77ba80892ed71be96febe8a241adad2"
 
@@ -2152,7 +2336,6 @@ version = "17.4.0+2"
 # ╟─434045f4-865e-4993-913e-938b6cdf7a3f
 # ╟─2c668d98-453d-482b-8980-bfbccf82dd86
 # ╟─676ea0b7-b27c-4c62-88fd-8d892b57c6b2
-# ╠═e27231d2-0970-4875-b861-795788d5a2f1
 # ╠═255bb3cc-5a26-4817-b515-3b760c351f2e
 # ╠═bea94375-277b-4f38-ad9d-4fa7fc646364
 # ╟─e6e606c4-39d7-4b87-bd1a-b5799281f033
@@ -2165,8 +2348,11 @@ version = "17.4.0+2"
 # ╠═3e2afc15-0e7b-4a5d-8e38-91e70cfa87e5
 # ╠═f847211d-caeb-498e-a5fd-7267672e5eed
 # ╠═e7abb675-6697-4f23-a8b7-01eb2231f6d1
+# ╟─4996bfd5-137c-4b31-9f80-e463ca5d2b8a
 # ╠═ddda80bc-fd6b-4110-83b3-aaf995ce8a71
+# ╟─6ae6a0c3-6ba6-4512-8ce7-ad98758f835f
 # ╠═05a77bfa-2573-4b31-b108-ad4351902d11
+# ╟─25572d20-89a3-4e08-948b-d678bc978b70
 # ╠═c15bedae-1231-4421-8abe-ab2fa3cb34ec
 # ╟─aca67da3-b936-4233-88ea-77987e31b90c
 # ╟─ac53f74b-3909-44b7-acf2-d2dd5f2e57cc
@@ -2194,8 +2380,8 @@ version = "17.4.0+2"
 # ╠═ad6c8986-8fb0-4682-ade8-ebb76b4c829a
 # ╟─fcef571c-9656-42e4-9a85-e13c3ed51edb
 # ╟─6965a4d3-5422-4a3e-8eba-fa101cb1b16d
+# ╟─d9f38410-a1e4-4e10-a16b-ee933da553d2
 # ╟─17307c42-3175-4cfc-b9b7-e5d21e02d64a
-# ╠═5705a385-253f-4805-9879-0e0ceeb18001
 # ╟─e39098da-a3df-47a0-867d-ccaf1a5a54f3
 # ╟─bd2abdf1-725a-491d-b6f3-5a15ae51762c
 # ╟─40a966dd-d8c1-486e-bed7-5a0094778f31
@@ -2210,11 +2396,8 @@ version = "17.4.0+2"
 # ╠═e28a8728-bf1d-4a94-89f3-24d15d81425a
 # ╠═fab9d8f8-8dbc-450e-8a40-7b83b5a236d0
 # ╟─4965afd6-b7b9-4fa9-ad1c-9744d5b9727d
-# ╠═96e4f976-27ec-48c5-b902-b53af8a8d802
-# ╠═00e447c7-1ec8-4b51-80b9-784020bd5071
-# ╠═c537aeb0-963c-4cf9-88fd-cf94859b1964
-# ╠═1b68a25e-9f12-4894-a3a7-3fdd6df34316
-# ╠═1db46615-4b43-4434-ad73-c03246f28593
+# ╠═b68b6bf1-78ad-4339-a872-993e9d9fdfc2
+# ╠═86c51ac5-10d7-4652-9219-d514cfe07bb6
 # ╟─6a654e0e-2809-4e46-989f-815de38c8bf6
 # ╟─b62b78f5-4721-4fb6-b056-cc4dae9eae9f
 # ╟─c79e0f4d-6858-4f9c-960c-08f3c247566d
@@ -2231,13 +2414,21 @@ version = "17.4.0+2"
 # ╠═3560cece-1420-41e5-8590-54041d210996
 # ╠═bfc7e5e3-2f2a-49f8-b1e8-c86e6d16b160
 # ╟─88a415dd-0fe8-493e-9446-75b909b3f68c
+# ╟─88aa7985-dab6-4bd0-8685-321e1499f830
+# ╠═d90dcfef-325c-4227-84a9-671f01b7383a
+# ╠═65c4f33b-0c7d-4003-9a69-9e4d1147641e
 # ╟─c401d8fc-704b-42e7-bbb2-0322329341fe
 # ╟─874003a9-40f0-4d73-8070-085143487d12
+# ╠═5d84f27f-4d72-46e9-99e8-2e5aa361c5f9
 # ╠═d16d7e17-3662-4f5e-a98c-1c423399feed
-# ╠═2fe9a9de-4771-40a8-90f0-291116521617
+# ╟─860de14e-751c-483c-b570-3b1ae938a1b3
+# ╠═c5c814ce-7524-4742-880a-9827153b0cd2
+# ╠═6def32ca-da3d-438c-a677-40247afd2119
+# ╠═620d9b39-cf3f-4937-b3f1-332558aef6fb
 # ╟─8a8f8290-e71d-415e-b36f-bf509163a6a6
 # ╠═ac92068b-5fc7-456c-9ab1-f7a6acbe0089
 # ╠═d5b1580a-154d-43e7-9eb3-86ac2504e6b1
+# ╠═2bf91a55-b327-422d-b331-630c898dcb64
 # ╠═95d37731-401e-456f-97a3-1e965cbe8b9e
 # ╠═a9e39487-19d7-49ad-8536-29f79f3a80d8
 # ╟─3b4be6a5-e4bc-4a48-91ad-99705700b81f
@@ -2247,11 +2438,18 @@ version = "17.4.0+2"
 # ╠═5c5331ae-675a-4e07-a14f-fed84250829e
 # ╟─99f42969-f9a0-4c02-8eaf-2ae395d55147
 # ╠═f6141748-a3fd-4cc3-8296-6c311a8060cc
-# ╠═4befb480-593c-4c29-adcf-3775cc3e736f
+# ╟─4befb480-593c-4c29-adcf-3775cc3e736f
+# ╠═9be0a35f-bf46-4edd-be72-cd92a76822da
+# ╠═c0e58f98-a52e-4742-a850-661faac4bbed
+# ╠═56672e64-6834-4639-921b-0e87cede4d7a
+# ╟─e37d1246-ccd6-481a-af2b-7d2d6acb8bbf
+# ╠═12d724c0-a40b-4f7b-922e-9f8738bf01f4
 # ╟─3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
 # ╠═6e6b9d64-2d90-40a4-abde-2fd0d6ab7d7a
 # ╟─d577b03d-bc68-4b32-9c6d-d92e0c4d7c99
 # ╠═c4916313-d4f0-443c-a81e-05d2b765acf0
+# ╠═a36695bb-599d-4f83-a747-9e3d0668e7d8
+# ╠═d45813bd-8aa2-4454-bc12-ae8dce0a4590
 # ╠═5047d396-af48-49fa-bf68-702fbe42c18e
 # ╠═9bc2895e-ab70-49f2-be7c-61f19054cf50
 # ╠═a780e90c-c6d1-44c8-9b55-d52cf4c20db4
