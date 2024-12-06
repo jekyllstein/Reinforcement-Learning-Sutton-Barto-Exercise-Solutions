@@ -4608,6 +4608,7 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 		#if state has never been visited then just follow the greedy policy and fill out the tree
 		i_a = i_a_greedy
 	else
+		exclude_inds = Set(findall(iszero, prior))
 		#sample topk options from prior distribution plus include indices that have already been sampled
 		@inbounds @simd for i in eachindex(prior)
 			prior[i] = pscale * log(prior[i]) - log(-log(rand(T)))
@@ -4620,7 +4621,8 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 				push!(include_indices, i_a)
 			end
 		end
-		filter!(i -> !isinf(prior[i]), include_indices) #despite the topk, remove any indices that have a prior of 0
+		setdiff!(include_indices, exclude_inds) #despite the topk, remove any indices that have a prior of 0
+		# filter!(i -> !isinf(prior[i]), include_indices) 
 
 		i_a_select = 0
 		v_max = typemin(T)
@@ -4636,13 +4638,16 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 
 		#if all of the sampled indices are at max value then select a new one
 		if i_a_select == 0
-			include_indices = filter(i -> !isinf(prior[i]), partialsortperm(prior, topk+1:length(prior); rev=true))
+			include_indices2 = partialsortperm(prior, topk+1:length(prior); rev=true) |> collect
+			setdiff!(include_indices2, exclude_inds)
+			setdiff!(include_indices2, include_indices)
+			isempty(include_indices2) && @info "In state $s after considering actions $include_indices there are no other options with non zero prior probability"
 			i = 1
-			while (i_a_select == 0) && (i < length(include_indices))
-				i_a = include_indices[i]
+			while (i_a_select == 0) && (i <= length(include_indices2))
+				i_a = include_indices2[i]
 				state_action_output = compute_state_action_bonus_value((s, i_a) -> mdp.ptf.step(s, i_a; step_kwargs...), mdp.isterm, tree, s, i_a, γ, c)
 				if isinf(state_action_output.q_max) || ((state_action_output.q_max < state_action_output.max_value) && (state_action_output.max_value > tree[s].value_visits[2]))
-					i_a_select == i_a
+					i_a_select = i_a
 				else
 					push!(tree[s].visited_actions, i_a)
 				end
@@ -4650,8 +4655,13 @@ function simulate2!(tree::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π
 			end
 		end
 		
-		#if every potential action to select has a maximum value, then just return the existing tree state as is done above 
-		(i_a_select == 0) && return (tree[s].value_visits[1], tree[s].value_visits[2]) 
+		#if every potential action to select has a maximum value, then just return the existing tree state as is done above and set the max value for this state to be the observed max
+		# (i_a_select == 0) && return (tree[s].value_visits[1], tree[s].value_visits[2]) 
+		if i_a_select == 0
+			@info "State $s has exhausted all potential actions.  Changing max value from $(tree[s].max_value) to $(tree[s].value_visits[2])" 
+			tree[s] = (value_visits = tree[s].value_visits, visited_actions = tree[s].visited_actions, min_value = tree[s].min_value, max_value = tree[s].value_visits[2], first_value = tree[s].first_value)
+			return (tree[s].value_visits[1], tree[s].value_visits[2])
+		end
 		# (i_a_select == 0) && error("Could not find an action that is not maximized in state $s")
 		i_a = i_a_select
 	end
@@ -5781,7 +5791,7 @@ Transducers = "~0.4.82"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.1"
+julia_version = "1.11.2"
 manifest_format = "2.0"
 project_hash = "c080370de5167442d60c6f98b32e0b22fecb52d7"
 
