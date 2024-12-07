@@ -1059,6 +1059,14 @@ where $c$ is some constant.  Depending on the value of $c$ and $w$, there is an 
 end
   ╠═╡ =#
 
+# ╔═╡ 4ff4bb04-ca03-40cf-a8c6-03d9987cde19
+#add the curve for Root Mean Squared TDE. maybe also add the points that minimize all 4 errors.  The TDE must be represented on the chart with 2 lines which show the 2 different state values as targets
+
+# ╔═╡ 9145a0ff-bfa8-47d4-91c6-118ef17da5b8
+md"""
+Notice there is a point where the Bellman operator produces the true value function.  At this point the Bellman Error equals the value error though neither of them are minimized.  It is unclear if other problems have a point in general for which this occurs.  The point approximation point is just something for which if the values were initialized there then one sweep of dynamic programming would produce the correct value.  Note that the projected Bellman error vector also suggests a direction of change for the parameter which is used when we do semi-gradient TD(0).  You could also project the value error and the point for which this is 0 is also the point of minimum VE.  The problem with this objective is that we cannot observe the true value.  The Bellman operator on the approximation however can always be evaluated from the environment  or if not that then at least a sample of it.  There is also a point for which the mean squared TD error is equal to the mean squared Bellman error.  We can see the two vectors that make up the TD error together are equivalent to the Bellman Operator.  With the TD error we minimize the sum of the lengths of these vectors whereas minimizing the Bellman error is minimizing the length of the sum of the vectors.  When these equal, the Bellman operator points along the line of approximation functions.  So at this particular w, the Bellman operator produces another value function which is in the approximation space.
+"""
+
 # ╔═╡ c401d8fc-704b-42e7-bbb2-0322329341fe
 #=╠═╡
 @bind mrp_value_params PlutoUI.combine() do Child
@@ -1208,99 +1216,6 @@ So for any value function in the space, we can find the value $w$ that minimizes
 # ╔═╡ 5c5331ae-675a-4e07-a14f-fed84250829e
 mrp_wmin(v1, v2, c) = (v1 + c*v2) / (1 + c^2)
 
-# ╔═╡ 65c4f33b-0c7d-4003-9a69-9e4d1147641e
-#=╠═╡
-function plot_mrp_errors(γ, c, wtest)
-	v1s = 0:0.01:10
-	v2s = 0:0.01:10
-	v1 = γ / (1 - γ)
-	v2 = 2 + γ / (1-γ)
-	vtrue = scatter(x = [v1], y = [v2]; name = "True Value Function", mode = "markers")
-	v̂ = scatter(x = [wtest], y = [c*wtest], name = "Approximate Value Function", mode = "markers")
-	ve = scatter(x = [wtest, v1], y = [c*wtest, v2], name = "Value Error", mode = "lines")
-
-	bo_td = mrp_bellman_operator(wtest, γ, c)
-	bπv̂ = scatter(x = [bo_td[1]], y = [bo_td[2]], name = "Bellman Operator on Approximation", mode = "markers")
-	be = scatter(x = [wtest, bo_td[1]], y = [c*wtest, bo_td[2]], name = "Bellman Error Vector", mode = "lines")
-
-	w_pbe = mrp_wmin(bo_td[1], bo_td[2], c)
-	pbe = scatter(x = [wtest, w_pbe], y = [c*wtest, c*w_pbe], name = "Projected Bellman Error", mode = "lines", line_color = "black")
-
-	pbe_line = scatter(x = [w_pbe, bo_td[1]], y = [c*w_pbe, bo_td[2]], mode = "lines", line_dash = "dash", line_color = "black", showlegend = false)
-
-	w_minve = mrp_ve_min(γ, c)
-
-	wmin = -3
-	ws = wmin:0.01:10
-	v̂s = scatter(x = ws, y = c .* ws; name = "Approximate Value Functions")
-
-	p1 = plot([vtrue, ve, v̂, bπv̂, be, v̂s, pbe, pbe_line], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 8], yaxis_range = [0, 10], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 800, legend_orientation = "h"))
-
-	calc_ve(w) = ((w - v1)^2 + (c*w - v2)^2)/2
-	calc_error(v1, v2) = ((v1[1] - v2[1])^2 + (v1[2] - v2[2])^2)/2
-	function calc_pbe(w)
-		bo = mrp_bellman_operator(w, γ, c)
-		w_pbe = mrp_wmin(bo[1], bo[2], c)
-		calc_error([w, c*w], [w_pbe, c*w_pbe])
-	end
-	ves = calc_ve.(ws)
-	bes = [calc_error(mrp_bellman_operator(w, γ, c), [w, c*w]) for w in ws]
-	pbes = [calc_pbe(w) for w in ws]
-	ve_tr = scatter(x = ws, y = sqrt.(ves), name = "RMS Value Errors")
-	be_tr = scatter(x = ws, y = sqrt.(bes), name = "RMS Bellman Errors")
-	pbe_tr = scatter(x = ws, y = sqrt.(pbes), name = "RMS Projected Bellman Errors")
-	ve_point = scatter(x = [wtest], y = [sqrt(calc_ve(wtest))], mode = "markers", name = "Value Error at w = $wtest")
-	be_point = scatter(x = [wtest], y = [sqrt(calc_error(mrp_bellman_operator(wtest, γ, c), [wtest, c*wtest]))], mode = "markers", name = "Bellman Error at w = $wtest")
-	pbe_point = scatter(x = [wtest], y = [sqrt(calc_pbe(wtest))], mode = "markers", name = "Projected Bellman Error at w = $wtest")
-	p2 = plot([ve_tr, ve_point, be_tr, be_point, pbe_tr, pbe_point], Layout(xaxis_range = [wmin, 10], yaxis_range = [0, 5], legend_orientation = "h"))
-
-	@htl("""
-	<div style = "display: flex;">
-	$p2 
-	$p1
-	</div>
-	""")
-	
-	# w_test = min_be(γ, c)
-	# ve_magnitude = ((w_minve - v1)^2 + (c*w_minve - v2)^2)/2
-	# v̂_ve = scatter(x = [w_minve], y = [c*w_minve]; name = "Minimum VE", mode = "markers")
-	# v̂_test = scatter(x = [w_test], y = [c*w_test]; name = "Minimum BE", mode = "markers")
-	
-	# w_pbe_min = mrp_pbe_min(γ, c)
-	
-	# bo_td_tr = scatter(x = [bo_td[1]], y = [bo_td[2]]; name = "Bellman Operator on TD Fixed Point", mode = "markers")
-
-	# be_td_tr = scatter(x = [w_pbe_min, bo_td[1]], y = [c*w_pbe_min, bo_td[2]]; name = "Bellman Error on TD Fixed Point", mode = "lines")
-
-	# wmin_tde = mrp_wmin_tde(γ, c)
-	# min_tde_tr = scatter(x = [wmin_tde], y = [c*wmin_tde], name = "Minimum TDE", mode = "markers")
-	
-	# ve = scatter(x = [w_minve, v1], y = [c*w_minve, v2], name = "Value Error Vector, magnitude = $(round(ve_magnitude, sigdigits = 3))", mode = "lines")
-	# bo_v̂ = mrp_bellman_operator(w_minve, γ, c)
-	# bo_test = mrp_bellman_operator(w_test, γ, c)
-	# be_test = ((bo_test[1] - w_test)^2 + (bo_test[2] - c*w_test)^2)/2
-	# bo_tr = scatter(x = [bo_v̂[1]], y = [bo_v̂[2]]; name = "Bellman Operator on v̂", mode = "markers")
-	# bo_test_tr = scatter(x = [bo_test[1]], y = [bo_test[2]]; name = "Bellman Operator on v̂ test", mode = "markers")
-	# be_test_tr = scatter(x = [w_test, bo_test[1]], y = [c*w_test, bo_test[2]]; name = "Test Bellman Error Vector, magnitude = $(round(be_test; sigdigits = 3))", mode = "lines")
-	# be_tr = scatter(x = [w_minve, bo_v̂[1]], y = [c*w_minve, bo_v̂[2]]; name = "Bellman Error Vector", mode = "lines")
-	# pbe_w = mrp_wmin(bo_test[1], bo_test[2], c)
-	# pbe_tr = scatter(x = [pbe_w], y = [c*pbe_w], name = "PBE", mode = "markers")
-
-	# pbe_min_tr = scatter(x = [w_pbe_min], y = [c*w_pbe_min], name = "TD fixed point", mode = "markers")
-	
-
-	# bos = [mrp_bellman_operator(w, γ, c) for w in ws]
-	# bos_tr = scatter(x = [x[1] for x in bos], y = [x[2] for x in bos], name = "Bellman Operator on Approximations", mode = "lines")
-	
-	# plot([vtrue, v̂, v̂_ve, v̂_test, ve, bo_tr, be_tr, bo_test_tr, be_test_tr, pbe_tr, pbe_min_tr, bo_td_tr, be_td_tr, bos_tr, min_tde_tr], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 10], yaxis_range = [0, 7], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 700))
-end
-  ╠═╡ =#
-
-# ╔═╡ d90dcfef-325c-4227-84a9-671f01b7383a
-#=╠═╡
-plot_mrp_errors(mrp_test_params...)
-  ╠═╡ =#
-
 # ╔═╡ 99f42969-f9a0-4c02-8eaf-2ae395d55147
 md"""
 Given two points on the approximation line defined by $w_1$ and $w_2$, the squared distance between them is just:
@@ -1356,6 +1271,75 @@ setting to 0 and solving for $w$
 
 $w = \frac{2(2c - \gamma (1 + c))}{(\gamma -1)^2 + (\gamma c  - 1)^2 + (\gamma - c)^2 + c^2(\gamma - 1)^2}$
 """
+
+# ╔═╡ 376fe140-bd40-447a-992c-97b52ffc4c2b
+mrp_tde(γ, c, w) = (w^2*((γ-1)^2 + (γ*c - 1)^2 + (γ - c)^2 + c^2 * (γ-1)^2) + 4*w*(γ-2*c + c*γ) + 8)/4
+
+# ╔═╡ 65c4f33b-0c7d-4003-9a69-9e4d1147641e
+#=╠═╡
+function plot_mrp_errors(γ, c, wtest)
+	v1s = 0:0.01:10
+	v2s = 0:0.01:10
+	v1 = γ / (1 - γ)
+	v2 = 2 + γ / (1-γ)
+	vtrue = scatter(x = [v1], y = [v2]; name = "True Value Function", mode = "markers")
+	v̂ = scatter(x = [wtest], y = [c*wtest], name = "Approximate Value Function", mode = "markers")
+	ve = scatter(x = [wtest, v1], y = [c*wtest, v2], name = "Value Error", mode = "lines")
+
+	bo_td = mrp_bellman_operator(wtest, γ, c)
+	bπv̂ = scatter(x = [bo_td[1]], y = [bo_td[2]], name = "Bellman Operator on Approximation", mode = "markers")
+	be = scatter(x = [wtest, bo_td[1]], y = [c*wtest, bo_td[2]], name = "Bellman Error Vector", mode = "lines")
+	tde1 = scatter(x = [γ*wtest], y = [γ*c*wtest], name = "TDE Target 1", mode = "markers")
+	tde1_error = scatter(x = [wtest, γ*wtest], y = [c*wtest, γ*c*wtest], showlegend = false, mode = "lines", line_color = "black")
+	tde2 = scatter(x = [2 + γ*wtest], y = [2 + γ*c*wtest], name = "TDE Target 2", mode = "markers")
+	tde2_error = scatter(x = [wtest, 2+γ*wtest], y = [c*wtest, 2+ γ*c*wtest], showlegend = false, mode = "lines", line_color = "black")
+	
+	w_pbe = mrp_wmin(bo_td[1], bo_td[2], c)
+	pbe = scatter(x = [wtest, w_pbe], y = [c*wtest, c*w_pbe], name = "Projected Bellman Error", mode = "lines", line_color = "black")
+
+	pbe_line = scatter(x = [w_pbe, bo_td[1]], y = [c*w_pbe, bo_td[2]], mode = "lines", line_dash = "dash", line_color = "black", showlegend = false)
+
+	w_minve = mrp_ve_min(γ, c)
+
+	wmin = -3
+	ws = wmin:0.01:10
+	v̂s = scatter(x = ws, y = c .* ws; name = "Approximate Value Functions")
+
+	p1 = plot([vtrue, ve, v̂, bπv̂, be, v̂s, pbe, pbe_line, tde1, tde2, tde1_error, tde2_error], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 8], yaxis_range = [0, 10], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 800, legend_orientation = "h"))
+
+	calc_ve(w) = ((w - v1)^2 + (c*w - v2)^2)/2
+	calc_error(v1, v2) = ((v1[1] - v2[1])^2 + (v1[2] - v2[2])^2)/2
+	function calc_pbe(w)
+		bo = mrp_bellman_operator(w, γ, c)
+		w_pbe = mrp_wmin(bo[1], bo[2], c)
+		calc_error([w, c*w], [w_pbe, c*w_pbe])
+	end
+	ves = calc_ve.(ws)
+	bes = [calc_error(mrp_bellman_operator(w, γ, c), [w, c*w]) for w in ws]
+	pbes = [calc_pbe(w) for w in ws]
+	tdes = mrp_tde.(γ, c, ws)
+	ve_tr = scatter(x = ws, y = sqrt.(ves), name = "RMS Value Errors")
+	be_tr = scatter(x = ws, y = sqrt.(bes), name = "RMS Bellman Errors")
+	pbe_tr = scatter(x = ws, y = sqrt.(pbes), name = "RMS Projected Bellman Errors")
+	tde_tr = scatter(x = ws, y = sqrt.(tdes), name = "RMS TD Errors")
+	ve_point = scatter(x = [wtest], y = [sqrt(calc_ve(wtest))], mode = "markers", name = "Value Error at w = $wtest")
+	be_point = scatter(x = [wtest], y = [sqrt(calc_error(mrp_bellman_operator(wtest, γ, c), [wtest, c*wtest]))], mode = "markers", name = "Bellman Error at w = $wtest")
+	pbe_point = scatter(x = [wtest], y = [sqrt(calc_pbe(wtest))], mode = "markers", name = "Projected Bellman Error at w = $wtest")
+	p2 = plot([ve_tr, ve_point, be_tr, be_point, pbe_tr, pbe_point, tde_tr], Layout(xaxis_range = [wmin, 10], yaxis_range = [0, 5], legend_orientation = "h"))
+
+	@htl("""
+	<div style = "display: flex;">
+	$p2 
+	$p1
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ d90dcfef-325c-4227-84a9-671f01b7383a
+#=╠═╡
+plot_mrp_errors(mrp_test_params...)
+  ╠═╡ =#
 
 # ╔═╡ 9be0a35f-bf46-4edd-be72-cd92a76822da
 mrp_wmin_tde(γ, c) = 2(2c - γ*(1+c)) / ((γ-1)^2 + (γ*c - 1)^2 + (γ-c)^2 + c^2 * (γ-1)^2)
@@ -1535,9 +1519,204 @@ end
 plot_value_approximation([1, 0], feature_vectors[1], feature_vectors[2]; w = [weight_select[1], weight_select[2]])
   ╠═╡ =#
 
-# ╔═╡ df8ffae5-73e4-4691-8e60-4fe6beb80113
+# ╔═╡ 586ab905-0564-4938-bdc5-507eb43cb746
 md"""
 ## 11.5 Gradient Descent in the Bellman Error
+
+First consider the *mean square TD error:
+
+$\begin{flalign}
+\overline{\text{TDE}}(\mathbf{w}) &= \sum_{s \in \mathcal{S}} \mu(s) \mathbb{E}[\delta_t^2 \mid S_t = s, A_t \sim \pi] \\
+&= \sum_{s \in \mathcal{S}} \mu(s) \mathbb{E}[\rho_t \delta_t^2 \mid S_t = s, A_t \sim b] \\
+&= \mathbb{E}_b [\rho_t \delta_t^2] \tag{if μ is the distribution encountered under b}
+\end{flalign}$
+
+This can be sampled from the environment but does not properly account for the difference in distribution between the states visited by $\pi$ and $b$.  Using the one-step TD error we can minimize this with SGD and the following update rule:
+
+$\begin{flalign}
+\delta_t &= R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \\
+\mathbf{w}_{t+1} &= \mathbf{w}_t - \frac{1}{2} \alpha \nabla (\rho_t \delta_t^2) \\
+&= \mathbf{w}_t - \alpha \rho_t \delta_t \nabla \delta_t \\
+&= \mathbf{w}_t + \alpha \rho_t \delta_t \left ( \nabla \hat v(S_t, \mathbf{w}_t) - \gamma \nabla \hat v(S_{t+1}, \mathbf{w}_t) \right ) \tag{11.23} \\
+\end{flalign}$
+
+This update rule is a true gradient method and converges to the minimum $\overline{\text{TDE}}$ as defined above.  The algorithm which uses (11.23) to update weights is known as the *naive residual-gradient* algorithm.  Ignoring the improper treatment of the state distribution, this point can differ from the TD fixed point and the minimum value error point even for on policy learning.  As seen above in the linear value function diagram, this point may be undesireable and is further away from the minimum value error point for the example shown. 
+
+"""
+
+# ╔═╡ 61d6ed9e-98c3-487c-959f-462df483b3da
+md"""
+### Example 11.2: A-split example
+
+#### True Values
+
+The true values for this MDP with $\gamma = 1$ are:
+
+$\begin{flalign}
+v_B &= 1 \\
+v_C &= 0 \\
+v_A &= \frac{1}{2}(v_B + v_C) = \frac{1}{2}
+\end{flalign}$
+
+Consider the case of approximation but with three parameters $w_A, w_B, w_C$ so that an exact solution is possible with $w_A = \frac{1}{2}, w_B = 1, w_C = 0$ where each parameter matches the corresponding state value.  We would hope that any algorithm used will converge to the correct values.  Obviously gradient Monte Carlo will, but what about semi-gradient TD(0)?  The update rule for each state will be:
+
+#### TD Fixed Point
+$\begin{flalign} 
+
+w_A &\leftarrow w_A + \alpha \left ( \frac{1}{2}(w_B + w_C) - w_A \right ) \\
+w_B &\leftarrow w_B + \alpha (1 - w_B) \\
+w_C &\leftarrow w_C + \alpha (0 - w_C)
+\end{flalign}$
+
+At convergence, all updates will leave the parameter unchanged.  It is easy to see for $w_B$ and $w_C$ that this occurs at $w_B = 1$ and $w_C = 0$.  Those two values imply $w_A = \frac{1}{2}(1 + 0) = \frac{1}{2}$ and that confirms that the TD fixed point equals the exact solution:  
+
+$\begin{flalign}
+w_A &= \frac{1}{2} = v_A \\
+w_B &= 1 = v_B \\
+w_C &= 0 = v_C
+\end{flalign}$
+
+
+
+
+#### Minimum $\overline{\text{TDE}}$ Solution
+
+Now let's repeat this calculation but with the (11.23) update.
+
+State A is visited double the time of B and C since episodes start there.  So the full expression for the $\overline{\text{TDE}}$ is:
+
+$\frac{1}{4}\left ( (w_B - w_A)^2 + (w_C - w_A)^2 \right ) + (1 - w_B)^2 + (0-w_C)^2$
+
+$\frac{1}{4} \left ( 2w_B^2 - 2 w_B w_A + 2w_A^2 + 2w_C^2 - 2 w_A w_C+ 1 - 2 w_B \right )$
+
+Next consider the gradient with respect to each parameter which will be 0 at convergence to the minimum
+
+$\begin{flalign}
+\frac{\partial \overline{\text{TDE}}}{\partial w_A} &= \frac{1}{4} \left ( -2 w_B + 4w_A - 2 w_C \right ) = \frac{1}{2}(2w_A - w_B - w_C)\\
+\frac{\partial \overline{\text{TDE}}}{\partial w_B} &= \frac{1}{4} \left (4w_B - 2w_A - 2 \right ) = \frac{1}{2}(2w_B - w_A - 1)\\
+\frac{\partial \overline{\text{TDE}}}{\partial w_C} &= \frac{1}{4} \left ( 4w_C - 2w_A \right ) = \frac{1}{2}(2w_C - w_A)\\
+\end{flalign}$
+
+Setting the three components to 0 implies the following
+
+$\begin{flalign}
+0 &=  2w_A - w_B - w_C \implies 2w_A = w_B + w_C \\
+0 &= 2w_B - w_A - 1 \implies 2w_B = 1 + w_A\\
+0 &= 2w_C - w_A \implies 2w_C = w_A\\
+\end{flalign}$
+
+Using the last two expressions we can change the first expression into one just in terms of $w_A$: $4w_A = 1 + w_A + w_A \implies w_A = \frac{1}{2}$
+
+Then the other weights follow: $w_B = \frac{1}{2} (1 + \frac{1}{2}) = \frac{3}{4}$ and $w_C = \frac{1}{4}$
+
+$\begin{flalign}
+w_A &= \frac{1}{2} = v_A \\
+w_B &= \frac{3}{4} \ne v_B \\
+w_C &= \frac{1}{4} \ne v_C
+\end{flalign}$
+
+So even though an exact solution is possible, minimizing the $\overline{\text{TDE}}$ does not find it.
+
+"""
+
+# ╔═╡ 0babc5a1-c404-4ce8-bf30-74db15790c72
+md"""
+### Residual Gradient Algorithm
+
+Instead of the $\overline{\text{TDE}}$ we can consider the Bellman error denoted $\overline{\text{BE}}$ which is just the expected value of the TD error.  Like all the previous error metrics the difference between the estimated value and the target value is squared, but the squaring is done after the expected value here instead of before
+
+$\begin{flalign}
+\delta_t &= R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \\
+\mathbf{w}_{t+1} &= \mathbf{w}_t - \frac{1}{2} \alpha \nabla (\mathbb{E}_\pi [\delta_t]^2) \\
+&= \mathbf{w}_t - \frac{1}{2} \alpha \nabla (\mathbb{E}_b [\rho_t \delta_t]^2) \\
+&= \mathbf{w}_t - \alpha \mathbb{E}_b[\rho_t \delta_t] \nabla \mathbb{E}_b [\rho_t \delta_t] \tag{chain rule}\\
+&= \mathbf{w}_t - \alpha \mathbb{E}_b [\rho_t (R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}) - \hat v(S_t, \mathbf{w}))] \mathbb{E}_b[\rho_t \nabla \delta_t] \tag{linearity of expected value}\\
+&= \mathbf{w}_t + \alpha \left [ \mathbb{E}_b [\rho_t (R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}) ] - \hat v(S_t, \mathbf{w}) \right ] \left [ \nabla \hat v(S_t, \mathbb{w}) - \gamma \mathbb{E}_b[\rho_t \nabla \hat v(S_{t+1}, \mathbf{w})] \right ] \\
+\end{flalign}$
+
+Note that the two expected values in this expression cannot in general use the same sample of the transition state since the product would reflect the correlation between the samples.  Instead we need two independent samples or, if the environment is deterministic, this is unecessary.  For example 11.2, this algorithm would find the correct values since it is guaranteed to minimize the Bellman error and the exact solution will always have 0 Bellman error at every state.  We can however, modify the example to one in which the minimum Bellman error solution is also problematic.
+"""
+
+# ╔═╡ 8091e40f-0232-4142-a1b0-b803ed2f157f
+md"""
+### Example 11.3: A-presplit example, a counterexample for the $\overline{\text{BE}}$
+
+There are 4 true states in this MRP since A is split into A1 and A2 and the problem is deterministic.  But we will consider approximate solutions in which both A states share a single parameter:
+
+#### Exact Solution
+
+$\begin{flalign}
+v_{A1} &= 1, \; \hat v_{A1} = w_A \\
+v_{A2} &= 0, \; \hat v_{A2} = w_A \\
+v_B &= 1, \; \hat v_B = w_B \\
+v_C &= 0, \; \hat v_C = w_C \\
+\end{flalign}$
+
+Now equal time is spent in all 4 states, so the value error is given by:
+
+$\overline{\text{VE}} = \frac{1}{4} \left ( (w_A - 1)^2 + (w_A - 0)^2 + (w_B - 1)^2 + (w_C - 0)^2 \right ) = \frac{1}{4} \left ( 2(w_A^2 - w_A) + 1 + (w_B - 1)^2 + w_C^2 \right )$
+
+$\begin{flalign}
+\frac{\partial \overline{\text{VE}}}{\partial w_A} &= \frac{1}{2} \left ( 2 w_A - 1 \right ) \\
+\frac{\partial \overline{\text{VE}}}{\partial w_B} &= \frac{1}{2} \left (w_B - 1 \right )\\
+\frac{\partial \overline{\text{VE}}}{\partial w_C} &= \frac{1}{2} w_C\\
+\end{flalign}$
+
+#### Minimum $\overline{\text{VE}}$ Solution
+
+Setting each of these to zero reveals the unique solution which minimizes the value error:
+
+$\begin{flalign}
+w_A &= \frac{1}{2} \\
+w_B &= 1 \\
+w_C &= 0 \\
+\end{flalign}$
+
+which is the same solution as before, expect now the value error is not zero but rather $\frac{1}{4}(2(\frac{1}{4} - \frac{1}{2}) + 1) = \frac{1}{8}$.  An exact solution is not possible since we have one too few parameters, but the whole purpose of approximation is to define what we mean by a good solution that cannot be exact.
+
+#### Minimum $\overline{\text{BE}}$ Solution
+
+What if we instead try to minimize the Bellman error?  We fully know the dynamics of the problem, so we can directly find a solution without resorting to gradient methods. 
+
+$\begin{flalign}
+\overline{\text{BE}} &= \sum_{s \in \mathcal{S}} \mu_\pi(s)\mathbb{E}_\pi [\delta_t \mid S_t = s, A_t \sim \pi]^2 \\
+&= \frac{1}{4} \left [(w_B - w_A)^2 + (w_C - w_A)^2 + (1 - w_B)^2 + w_C^2 \right ]\\
+\end{flalign}$
+
+But this is the same expression we had for the $\overline{\text{TDE}}$ for example 11.2, so the previous minimizing parameters will also apply here:
+
+$\begin{flalign}
+w_A &= \frac{1}{2} \\
+w_B &= \frac{3}{4} \\
+w_C &= \frac{1}{4}
+\end{flalign}$
+
+Obviously this differs from the minimum value error solution.  What about the TD fixed point though?  We know in general that the semi-gradient algorithm does not converge to the minimum value error, but would it perform better than the Bellman error in this case?  Let's consider the TD(0) update rule and when it converges.
+
+#### TD Fixed Point Solution
+
+$\begin{flalign} 
+
+w_A &\leftarrow w_A + \alpha \left ( w_B - w_A \right ) \\
+w_A &\leftarrow w_A + \alpha \left ( w_C - w_A \right ) \\
+w_B &\leftarrow w_B + \alpha (1 - w_B) \\
+w_C &\leftarrow w_C + \alpha (0 - w_C)
+\end{flalign}$
+
+For $w_B$ and $w_C$ it is clear that the update is 0 when $w_B = 1$ and $w_C = 0$ which matches the minimum value error solution.  The first two updates for $w_A$ occur with equal frequency so we would seek a solution when the combined update is 0 which implies $w_B - w_A + w_C - w_A = 0 \implies 2w_A = w_B + w_C = 1 \implies w_A = \frac{1}{2}$.  So the TD fixed point also matches the minimum value error solution: 
+
+$\begin{flalign}
+w_A &= \frac{1}{2} \\
+w_B &= 1 \\
+w_C &= 0 \\
+\end{flalign}$
+
+We did not attempt to show any bound for the Bellman error to ensure that its solution is close to the value error, but just from this example it is clear that there are examples where semi-gradient TD methods find the same solution as the minimum value error but the Bellman error minimum solution is different.
+
+"""
+
+# ╔═╡ f12ad623-59f9-4efe-8fb5-14b1bf6904bc
+md"""
 ## 11.6 The Bellman Error is Not Learnable
 """
 
@@ -1550,7 +1729,13 @@ To start out we have the definition of the *mean square return error*
 
 $\overline{\text{RE}}(\mathbf{w}) = \mathbb{E} \left [ (G_t - \hat v(S_t, \mathbf{w}))^2 \right ]$
 
-Also we can note from Chapter 3 that $v_\pi(s) = \mathbb{E}_\pi[G_t | S_t = s]$ and from Chapter 9 that $\overline{\text{VE}}(\mathbf{w}) \dot = \sum_{s \in \mathcal{S}} \mu(s) \left [ v_\pi(s) - \hat v(s, \mathbf{w}) \right ]^2$.
+Also we can note from Chapter 3 that 
+
+$v_\pi(s) = \mathbb{E}_\pi[G_t | S_t = s] \tag{1}$ 
+
+and from Chapter 9 that 
+
+$\overline{\text{VE}}(\mathbf{w}) \doteq \sum_{s \in \mathcal{S}} \mu(s) \left [ v_\pi(s) - \hat v(s, \mathbf{w}) \right ]^2 \tag{2}$
 
 Rewriting expectation results in:
 
@@ -1559,9 +1744,8 @@ $\begin{flalign}
 &= \sum_s \mu_\pi(s) \mathbb{E_\pi}\left [ (G_t - \hat v(S_t, \mathbf{w}) + v_\pi(S_t) - v_\pi(S_t))^2 | S_t = s \right ]\\
 &= \sum_s \mu_\pi(s) \mathbb{E_\pi}\left [ ((G_t - v_\pi(S_t)) + (v_\pi(S_t) - \hat v(S_t, \mathbf{w})))^2 | S_t = s\right ]\\
 &= \sum_s \mu_\pi(s) \mathbb{E_\pi} \left [ (G_t - v_\pi(S_t))^2 + (v_\pi(S_t) - \hat v(S_t, \mathbf{w}))^2 + 2((G_t - v_\pi(S_t))(v_\pi(S_t) - \hat v(S_t, \mathbf{w}))) | S_t = s \right ]\\
-&= \mathbb{E}\left [ (G_t - v_\pi(S_t))^2 \right ] + \sum_s  \mu_\pi(s) \left [v_\pi(s) - \hat v(s, \mathbf{w}) \right ]^2 +\\ 
-&\sum_s 2\mu_\pi(s) \left [ v_\pi(s) \mathbb{E_\pi}[G_t | S_t = s] -  \hat v(s, \mathbf{w}) \mathbb{E_\pi}[G_t | S_t = s] - v_\pi(s)^2 + v_\pi(s) \hat v(s, \mathbf{w}) \right]\\
-&= \mathbb{E}\left [ ((G_t - v(S_t))^2 \right ] + \overline{\text{VE}} + \sum_s 2\mu_\pi(s) \left [ v_\pi(s)^2 -  \hat v(s, \mathbf{w}) v_\pi(s) - v_\pi(s)^2 + v_\pi(s) \hat v(s, \mathbf{w}) \right]\\
+&= \mathbb{E}\left [ (G_t - v_\pi(S_t))^2 \right ] + \sum_s  \mu_\pi(s) \left [v_\pi(s) - \hat v(s, \mathbf{w}) \right ]^2 + \sum_s 2\mu_\pi(s) \left [ \mathbb{E_\pi}[G_t | S_t = s] (v_\pi(s) - \hat v(s, \mathbf{w})) - v_\pi(s)^2 + v_\pi(s) \hat v(s, \mathbf{w}) \right]\\
+&= \mathbb{E}\left [ ((G_t - v(S_t))^2 \right ] + \overline{\text{VE}} + \sum_s 2\mu_\pi(s) \left [ v_\pi(s)^2 -  \hat v(s, \mathbf{w}) v_\pi(s) - v_\pi(s)^2 + v_\pi(s) \hat v(s, \mathbf{w}) \right] \tag{by (1) and (2)}\\
 &= \mathbb{E}\left [ ((G_t - v(S_t))^2 \right ] + \overline{\text{VE}} + \sum_s 2\mu_\pi(s) \times 0\\
 &\therefore\\
 \overline{\text{RE}}(\mathbf{w}) &= \mathbb{E}\left [ ((G_t - v(S_t))^2 \right ] + \overline{\text{VE}}
@@ -2416,6 +2600,8 @@ version = "17.4.0+2"
 # ╟─88a415dd-0fe8-493e-9446-75b909b3f68c
 # ╟─88aa7985-dab6-4bd0-8685-321e1499f830
 # ╠═d90dcfef-325c-4227-84a9-671f01b7383a
+# ╠═4ff4bb04-ca03-40cf-a8c6-03d9987cde19
+# ╟─9145a0ff-bfa8-47d4-91c6-118ef17da5b8
 # ╠═65c4f33b-0c7d-4003-9a69-9e4d1147641e
 # ╟─c401d8fc-704b-42e7-bbb2-0322329341fe
 # ╟─874003a9-40f0-4d73-8070-085143487d12
@@ -2439,6 +2625,7 @@ version = "17.4.0+2"
 # ╟─99f42969-f9a0-4c02-8eaf-2ae395d55147
 # ╠═f6141748-a3fd-4cc3-8296-6c311a8060cc
 # ╟─4befb480-593c-4c29-adcf-3775cc3e736f
+# ╠═376fe140-bd40-447a-992c-97b52ffc4c2b
 # ╠═9be0a35f-bf46-4edd-be72-cd92a76822da
 # ╠═c0e58f98-a52e-4742-a850-661faac4bbed
 # ╠═56672e64-6834-4639-921b-0e87cede4d7a
@@ -2454,7 +2641,11 @@ version = "17.4.0+2"
 # ╠═9bc2895e-ab70-49f2-be7c-61f19054cf50
 # ╠═a780e90c-c6d1-44c8-9b55-d52cf4c20db4
 # ╠═aeca907a-ee07-4045-b98f-0c67b1734008
-# ╟─df8ffae5-73e4-4691-8e60-4fe6beb80113
+# ╟─586ab905-0564-4938-bdc5-507eb43cb746
+# ╟─61d6ed9e-98c3-487c-959f-462df483b3da
+# ╟─0babc5a1-c404-4ce8-bf30-74db15790c72
+# ╟─8091e40f-0232-4142-a1b0-b803ed2f157f
+# ╠═f12ad623-59f9-4efe-8fb5-14b1bf6904bc
 # ╟─e49849c5-d9b1-426b-b471-3acd32dcf07d
 # ╟─45e8699f-18ca-47a6-97eb-f855950b326d
 # ╠═31333ae3-615e-4587-80cf-d2716669af9e
