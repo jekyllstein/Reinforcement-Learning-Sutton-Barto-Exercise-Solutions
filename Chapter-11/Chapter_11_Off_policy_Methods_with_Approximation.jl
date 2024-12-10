@@ -1059,9 +1059,6 @@ where $c$ is some constant.  Depending on the value of $c$ and $w$, there is an 
 end
   ╠═╡ =#
 
-# ╔═╡ 4ff4bb04-ca03-40cf-a8c6-03d9987cde19
-#add the curve for Root Mean Squared TDE. maybe also add the points that minimize all 4 errors.  The TDE must be represented on the chart with 2 lines which show the 2 different state values as targets
-
 # ╔═╡ 9145a0ff-bfa8-47d4-91c6-118ef17da5b8
 md"""
 Notice there is a point where the Bellman operator produces the true value function.  At this point the Bellman Error equals the value error though neither of them are minimized.  It is unclear if other problems have a point in general for which this occurs.  The point approximation point is just something for which if the values were initialized there then one sweep of dynamic programming would produce the correct value.  Note that the projected Bellman error vector also suggests a direction of change for the parameter which is used when we do semi-gradient TD(0).  You could also project the value error and the point for which this is 0 is also the point of minimum VE.  The problem with this objective is that we cannot observe the true value.  The Bellman operator on the approximation however can always be evaluated from the environment  or if not that then at least a sample of it.  There is also a point for which the mean squared TD error is equal to the mean squared Bellman error.  We can see the two vectors that make up the TD error together are equivalent to the Bellman Operator.  With the TD error we minimize the sum of the lengths of these vectors whereas minimizing the Bellman error is minimizing the length of the sum of the vectors.  When these equal, the Bellman operator points along the line of approximation functions.  So at this particular w, the Bellman operator produces another value function which is in the approximation space.
@@ -1286,13 +1283,17 @@ function plot_mrp_errors(γ, c, wtest)
 	v̂ = scatter(x = [wtest], y = [c*wtest], name = "Approximate Value Function", mode = "markers")
 	ve = scatter(x = [wtest, v1], y = [c*wtest, v2], name = "Value Error", mode = "lines")
 
+	tde1s = ((γ*wtest - wtest) / 2, (γ*c*wtest - wtest)/2)
+	tde2s = ((2 + γ*c*wtest - c*wtest) / 2, (2 + γ*wtest - c*wtest)/2)
+	
+	
 	bo_td = mrp_bellman_operator(wtest, γ, c)
 	bπv̂ = scatter(x = [bo_td[1]], y = [bo_td[2]], name = "Bellman Operator on Approximation", mode = "markers")
 	be = scatter(x = [wtest, bo_td[1]], y = [c*wtest, bo_td[2]], name = "Bellman Error Vector", mode = "lines")
-	tde1 = scatter(x = [γ*wtest], y = [γ*c*wtest], name = "TDE Target 1", mode = "markers")
-	tde1_error = scatter(x = [wtest, γ*wtest], y = [c*wtest, γ*c*wtest], showlegend = false, mode = "lines", line_color = "black")
-	tde2 = scatter(x = [2 + γ*wtest], y = [2 + γ*c*wtest], name = "TDE Target 2", mode = "markers")
-	tde2_error = scatter(x = [wtest, 2+γ*wtest], y = [c*wtest, 2+ γ*c*wtest], showlegend = false, mode = "lines", line_color = "black")
+	tde1 = scatter(x = [wtest + tde1s[1]], y = [c*wtest + tde2s[1]] , name = "TDE Target 1", mode = "markers")
+	tde1_error = scatter(x = [wtest, wtest+tde1s[1]], y = [c*wtest, c*wtest + tde2s[1]], showlegend = false, mode = "lines", line_color = "gray", line_dash = "dot")
+	tde2 = scatter(x = [wtest+tde1s[1]+tde1s[2]], y = [c*wtest+tde2s[1]+tde2s[2]], name = "TDE Target 2", mode = "markers")
+	tde2_error = scatter(x = [wtest+tde1s[1], wtest+tde1s[1]+tde1s[2]], y = [c*wtest + tde2s[1], c*wtest+tde2s[1]+tde2s[2]], showlegend = false, mode = "lines", line_color = "gray", line_dash = "dot")
 	
 	w_pbe = mrp_wmin(bo_td[1], bo_td[2], c)
 	pbe = scatter(x = [wtest, w_pbe], y = [c*wtest, c*w_pbe], name = "Projected Bellman Error", mode = "lines", line_color = "black")
@@ -1305,7 +1306,7 @@ function plot_mrp_errors(γ, c, wtest)
 	ws = wmin:0.01:10
 	v̂s = scatter(x = ws, y = c .* ws; name = "Approximate Value Functions")
 
-	p1 = plot([vtrue, ve, v̂, bπv̂, be, v̂s, pbe, pbe_line, tde1, tde2, tde1_error, tde2_error], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, w that minimizes value error = $w_minve", xaxis_range = [0, 8], yaxis_range = [0, 10], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 800, legend_orientation = "h"))
+	p1 = plot([vtrue, ve, v̂, bπv̂, be, v̂s, pbe, pbe_line, tde1, tde2, tde1_error, tde2_error], Layout(xaxis_title = "State 1 Value", yaxis_title = "State 2 Value", title = "MRP Values for γ = $γ and c = $c, <br> w that minimizes value error = $(round(w_minve, sigdigits = 4))", xaxis_range = [0, 8], yaxis_range = [0, 10], xaxis_constrain = "domain", yaxis_scaleanchor = "x", height = 800, legend_orientation = "h"))
 
 	calc_ve(w) = ((w - v1)^2 + (c*w - v2)^2)/2
 	calc_error(v1, v2) = ((v1[1] - v2[1])^2 + (v1[2] - v2[2])^2)/2
@@ -1325,7 +1326,7 @@ function plot_mrp_errors(γ, c, wtest)
 	ve_point = scatter(x = [wtest], y = [sqrt(calc_ve(wtest))], mode = "markers", name = "Value Error at w = $wtest")
 	be_point = scatter(x = [wtest], y = [sqrt(calc_error(mrp_bellman_operator(wtest, γ, c), [wtest, c*wtest]))], mode = "markers", name = "Bellman Error at w = $wtest")
 	pbe_point = scatter(x = [wtest], y = [sqrt(calc_pbe(wtest))], mode = "markers", name = "Projected Bellman Error at w = $wtest")
-	p2 = plot([ve_tr, ve_point, be_tr, be_point, pbe_tr, pbe_point, tde_tr], Layout(xaxis_range = [wmin, 10], yaxis_range = [0, 5], legend_orientation = "h"))
+	p2 = plot([ve_tr, ve_point, be_tr, be_point, pbe_tr, pbe_point, tde_tr], Layout(xaxis_range = [wmin, 10], yaxis_range = [0, 10], legend_orientation = "h", height = 800))
 
 	@htl("""
 	<div style = "display: flex;">
@@ -1393,6 +1394,11 @@ end
 plot_mrp_value_functions(mrp_value_params...)
   ╠═╡ =#
 
+# ╔═╡ fbf4401f-fb57-4d9c-a8a6-439ad19fd5bb
+md"""
+#### True Values vs Minimizing Solutions for All Errors
+"""
+
 # ╔═╡ c0e58f98-a52e-4742-a850-661faac4bbed
 #=╠═╡
 @bind wcompare_γ Slider(0.:0.01:.99999; default = 0.5, show_value=true)
@@ -1423,8 +1429,8 @@ function compare_optimal_w(γ::T; c_range = LinRange(zero(T), one(T)*3, 1000)) w
 	traces1 = [scatter(x = c_range, y = y, name = name) for (y, name) in zip([ve, be, td0, tde], ["Value Error", "Bellman Error", "Projected Bellman Error", "Mean Square TD Error"])]
 	traces2 = [scatter(x = c_range, y = c_range .* y, name = name) for (y, name) in zip([ve, be, td0, tde], ["Value Error 2", "Bellman Error 2", "Projected Bellman Error 2", "Mean Square TD Error 2"])]
 	v1_true = γ / (1 - γ)
-	value1_trace = scatter(x = c_range, y = fill(v1_true, 1000), name = "True Value 1")
-	value2_trace = scatter(x = c_range, y = fill(2 + v1_true, 1000), name = "True Value 2")
+	value1_trace = scatter(x = c_range, y = fill(v1_true, 1000), name = "True Value 1", line_color = "black", line_dash = "dash")
+	value2_trace = scatter(x = c_range, y = fill(2 + v1_true, 1000), name = "True Value 2", line_color = "black", line_dash = "dash")
 	plot([traces1; traces2; value1_trace; value2_trace])
 end
   ╠═╡ =#
@@ -1585,7 +1591,7 @@ Now let's repeat this calculation but with the (11.23) update.
 
 State A is visited double the time of B and C since episodes start there.  So the full expression for the $\overline{\text{TDE}}$ is:
 
-$\frac{1}{4}\left ( (w_B - w_A)^2 + (w_C - w_A)^2 \right ) + (1 - w_B)^2 + (0-w_C)^2$
+$\frac{1}{4}\left ( (w_B - w_A)^2 + (w_C - w_A)^2 + (1 - w_B)^2 + (0-w_C)^2 \right )$
 
 $\frac{1}{4} \left ( 2w_B^2 - 2 w_B w_A + 2w_A^2 + 2w_C^2 - 2 w_A w_C+ 1 - 2 w_B \right )$
 
@@ -1718,6 +1724,14 @@ We did not attempt to show any bound for the Bellman error to ensure that its so
 # ╔═╡ f12ad623-59f9-4efe-8fb5-14b1bf6904bc
 md"""
 ## 11.6 The Bellman Error is Not Learnable
+
+In the context of this chapter, learnability means that a quantity can be estimated from data alone.  In the strictest approximation case, the only data available is the rewards observed as well as the feature vector of whatever state we are in.  Sometimes we also have access to the state information in addition to the feature vector alone, and in this case there are more quantities we can calculate.
+
+Consider the original objective we defined for approximation, the value error: $\overline{\text{VE}} = \sum_{s \in \mathcal{S}} \mu_\pi(s)(v_\pi(s) - \hat v (s))^2$.  This calculation depends on knowing the true state value which is only possible if we have full information about the state.  Consider an alternative error though in which we replace this unknown quantity with something that can be observed: $\overline{\text{RE}}(\mathbf{w}) = \mathbb{E}\left [ \left ( G_t - \hat v(S_t, \mathbf{w}) \right )^2 \right]$.  It turns out that this objective is equal to the value error objective plus a variance term that does not depend on the paramters $\mathbf{w}$.  So if we optimize $\overline{\text{RE}}$ the parameters we find will match those we would have found optimizing $\overline{\text{VE}}$.  Note that we can only sample this in the case of Monte Carlo estimation and that is not possible for continuing problems.  For those, we must consider the bootstrapping objectives such as the TD error.
+
+Luckily the TD error is also always observable $\delta_t \doteq R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t)$ since it only depends on the observed rewards and feature vectors.  The semi-gradient methods we previously developed only depend on the TD error and thus are observable and in the case of linear approximation are bounded to some region around the minimum value error solution.  
+
+The Bellman error, on the other hand is $\mathbb{E}_\pi [\delta_t]$ is not observable because it requires knowledge of the state in order to correctly assign samples to the state.  We can clearly sample this error on each step, but if two states appear to have the same feature vector, and that is the only information we have, then we cannot correctly separate those samples to the assigned states and apply the probability weighting to the error.  If we had access to the state, then we can in theory observe the Bellman error, but we will see that minimizing it does not produce desireable results.
 """
 
 # ╔═╡ e49849c5-d9b1-426b-b471-3acd32dcf07d
@@ -1752,6 +1766,252 @@ $\begin{flalign}
 \end{flalign}$
 """
 
+# ╔═╡ b180997e-fa2b-44de-936f-eb42bef4b6ad
+md"""
+### Example 11.4: Counterexample to the learnability of the Bellman error
+
+#### True Values
+We can use the Bellman equations to calculate the true state values for both MDPs
+
+##### Left MDP
+$\begin{flalign}
+v_A &= 0 + \gamma v_B \implies v_A = \gamma v_B \\
+v_B &= \frac{1}{2} \left (-1 + \gamma v_B + 1 + \gamma v_A \right ) = \frac{\gamma}{2}(v_B + v_A) \\
+&\text{combining the two expressions we can get an equation just for the value of state B} \\
+v_B &= \frac{\gamma}{2}(v_B + \gamma v_B) \implies v_B = \frac{\gamma v_B}{2}(1 + \gamma)
+\end{flalign}$
+
+Given that $0 \le \gamma \lt 1$, this equality is only possible when $v_B = 0 \implies v_A = 0$ and these values are independent of $\gamma$
+
+##### Right MDP
+$\begin{flalign}
+v_A &= \frac{1}{2} \left ( 0 + \gamma v_B + 0 + \gamma v_{B^\prime} \right ) = \frac{\gamma}{2} \left ( v_B + v_{B^\prime} \right ) \\
+v_B &= 1 + \gamma v_A \\
+v_B^\prime &= \frac{1}{2} \left ( -1 + \gamma v_{B^\prime} - 1 + \gamma v_B \right ) = -1 + \frac{\gamma}{2} \left (v_{B^\prime} + v_B) \right ) = -1 + v_A \\
+&\text{Using the last two expressions, we can derive an equation involving only the value of state A} \\
+v_A &= \frac{\gamma}{2}(1 + \gamma v_A - 1 + v_A) = \frac{\gamma v_A}{2} (\gamma + 1) \\
+\end{flalign}$
+
+Given that $0 \le \gamma \lt 1$, this equality is only possible when $v_A = 0$.  The other two values follow immediately giving a complete value function of:
+
+$\begin{flalign}
+v_A &= 0 \\
+v_B &= 1 \\
+v_B^\prime &= -1 \\
+\end{flalign}$
+
+which like the first is independent of $\gamma$.
+"""
+
+# ╔═╡ bce9cdca-de1d-432c-a2f2-cbb6e414dfcb
+#=╠═╡
+@bind params_11_4 PlutoUI.combine() do Child
+	md"""
+	$(Child(:w1, Slider(-1:0.1:1, default = 0, show_value=true)))
+	$(Child(:w2, Slider(-1:0.1:1, default = 0, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 05647633-14d2-4d5b-8c60-e236fbfeb334
+#=╠═╡
+function plot_11_4_value(;γ = 1, w1 = 0, w2 = 0, n = 100)
+	v_true = scatter3d(x = [0], y = [1], z = [-1], mode = "markers", name = "True Value Function")
+	v(w1, w2) = (x = w1, y = w2, z = w2)
+	ve(w1, w2) = (1/3)*(w1^2 + 2*w2^2 + 2)
+	bo(w1, w2) = (x = [γ*w2], y = [1 + γ*w1], z = [-1 + γ*w2])
+	be(w1, w2) = (1/3)*((γ+w2 - w1)^2 + (1 + γ*w1 - w2)^2 + (-1 + γ*w2 - w2)^2)
+	xs = []
+	ys = []
+	zs = []
+	ves = []
+	bes = []
+	for w1 in LinRange(-3, 3, n)
+		for w2 in LinRange(-3, 3, n)
+			push!(xs, w1)
+			push!(ys, w2)
+			push!(zs, w2)
+			push!(ves, ve(w1, w2))
+			push!(bes, be(w1, w2))
+		end
+	end
+
+	
+	ves_tr = scatter3d(x = xs, y = ys, z = ves, mode = "markers", marker_size = 1)
+	bes_tr = scatter3d(x = xs, y = ys, z = bes, mode = "markers", marker_size = 1)
+	
+	v̂_tr = scatter3d(x = xs, y = ys, z = zs, mode = "markers", marker_size = 1, color = "blue", name = "Possible Approximate Value Functions")
+	v̂_ex_tr = scatter3d(x = [w1], y = [w2], z = [w2], mode = "markers", name = "Value Function for w = [$w1, $w2])")
+	ve_tr = scatter3d(x = [w1, 0], y = [w2, 1], z = [w2, -1], mode = "lines", name = "Value Error Vector for w = [$w1, $w2])", line_dash = "dash", line_color = "black", line_width = 8)
+	bo_tr = scatter3d(;bo(w1, w2)..., mode = "markers", name = "Bellman Operator on Approximation")
+	p1 = plot([v̂_tr, v_true, v̂_ex_tr, ve_tr, bo_tr], Layout(scene = attr(xaxis_range = [-2, 2], yaxis_range = [-2, 2], zaxis_range = [-2, 2], xaxis_title = "Value A", yaxis_title = "Value B", zaxis_title = "Value C", camera = attr(eye = attr(x = 2, y = 1, z = .5), up = attr(x = 1.4, y = .95, z = 0.1))), height = 700, legend_orientation = "h"))
+	p2 = plot([ves_tr, bes_tr], Layout(scene = attr(xaxis_title = "w1", yaxis_title = "w2", zaxis_title = "value error"), height = 600))
+	@htl("""
+	<div style = "display: flex;">
+	$p1 
+	
+	$p2
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 6b70f463-7d50-4b03-8210-b151575f98db
+#=╠═╡
+plot_11_4_value(;params_11_4...)
+  ╠═╡ =#
+
+# ╔═╡ f10a08f2-eba8-4e5e-87f8-313bb7494a49
+md"""
+#### Value Error
+Consider an approximate solution with only two parameters $w_1, w_2$.  For the first problem, this is still a tabular case with an optimal solution of $w_1 = v_A$ and $w_2 = v_B$.  For the second problem, we impose the following: 
+
+$\hat v_A = w_1, \; \hat v_B = \hat v_{B^\prime} = w_2$
+Now consider the original objective for approximation for which we need access to $\mu(s)$.  For the first problem $\mu(A) = \frac{1}{3}, \; \mu(B) = \frac{2}{3}$ and for the second $\mu(A) = \mu(B) = \mu(B^\prime) = \frac{1}{3}$.  Note that this also implies that the observed reward sequence for each problem will look exactly the same with respect to the feature vectors.
+
+##### Left MDP
+
+Since the problem is tabular, the minimum value error is 0 with the following solution:
+
+$\begin{flalign}
+\overline{\text{VE}} &= 0 \\
+w_1 &= w_2 = 0 \\
+\hat v_A &= \hat v_B = \hat v_{B^\prime} = 0
+\end{flalign}$
+
+##### Right MDP
+
+This problem cannot have 0 value error due to the limited number of parameters, so we can only hope to minimize it.  We can calculate this minimum explicitely using the known true values:
+
+$\begin{flalign}
+\overline{\text{VE}} &= \frac{1}{3} \left [ w_1^2 + (w_2 - 1)^2 + (w_2 + 1)^ 2 \right ] \\
+&= \frac{1}{3} \left [ w_1^2 + w_2^2 - 2w_2 + 1 + w_2^2 + 2 w_2 + 1 \right ] \\
+&= \frac{1}{3} \left [ w_1^2 + 2 w_2^2 + 2 \right ] 
+\end{flalign}$
+
+We can minimize this by setting the gradient to 0 for each term:
+
+$\begin{flalign}
+\frac{\partial \overline{\text{VE}}}{\partial w_1} &= \frac{2 w_1 }{3}\\
+\frac{\partial \overline{\text{VE}}}{\partial w_2} &= \frac{4 w_2 }{3}\\
+\therefore w_1 &= w_2 = 0
+\end{flalign}$
+
+So the final solution is the same as that for the first problem but with a different value error:
+
+$\begin{flalign}
+\overline{\text{VE}} &= \frac{2}{3} \\
+w_1 &= w_2 = 0 \\
+\hat v_A &= \hat v_B = \hat v_{B^\prime} = 0
+\end{flalign}$
+
+"""
+
+# ╔═╡ a4e11eb7-d314-4d78-b9b6-df8fc2838149
+md"""
+#### Bellman Error
+
+$\overline{\text{BE}} = \sum_{s} \mu_s \mathbb{E}_\pi \left [ R_{t+1} + \gamma \hat v(S_{t+1}) - \hat v(S_t) \mid S_t = s, A_t \sim \pi \right ] ^2$ 
+
+##### Left MDP
+
+Since the problem is tabular, we'd expect the Bellman error to be 0 with the exact solution.  We can verify the solution using the above expression for the Bellman error:
+
+$\begin{flalign}
+\overline{\text{BE}} &= \frac{1}{3}(0 + \gamma w_2 - w_1)^2 + \frac{2}{3}\left [ \frac{1}{2}(-1 + \gamma w_2 - w_2 + 1 + \gamma w_1 - w_2) \right ]^2 \\
+&= \frac{1}{3}(\gamma w_2 - w_1)^2 + \frac{2}{12}\left [w_2 (\gamma - 2) + \gamma w_1 \right ]^2 \\
+\end{flalign}$
+
+We can already see that the minimum value of 0 is achieved when $w_1 = w_2 = 0$, but we can also verify this by setting each term of the gradient to 0:
+
+$\begin{flalign}
+\frac{\partial \overline{\text{BE}}}{\partial w_1} &= \frac{2}{3}(\gamma w_2 - w_1) \times -1 + \frac{4}{12}(w_2(\gamma - 2) + \gamma w_1) \times \gamma\\
+&= \frac{2}{3}(\gamma w_2 - w_1) \times -1 + \frac{4}{12}(w_2(\gamma - 2) + \gamma w_1) \times \gamma\\
+&= \frac{\gamma}{3} (w_2 \left (\gamma - 4 \right ) + w_1 \left ( 2 + \gamma \right )) \\
+
+&\therefore \\
+w_1 &= w_2 \frac{\gamma - 4}{2 + \gamma} \\
+\frac{\partial \overline{\text{BE}}}{\partial w_2} &= \frac{2}{3}(\gamma w_2 - w_1) \times \gamma + \frac{4}{12}(w_2(\gamma - 2) + \gamma w_1) (\gamma - 2)\\
+&= \frac{1}{3} \left [ 2\gamma(\gamma w_2 - w_1) + (\gamma - 2)^2 w_2 + \gamma (\gamma - 2) w_1 \right ]\\
+&= \frac{1}{3} \left [ \gamma w_1(\gamma - 4) + w_2(3\gamma^2 - 4\gamma + 4) \right ]\\
+& \therefore \\
+w_1 &= w_2 \frac{3\gamma^2 - 4\gamma + 4}{\gamma(\gamma - 4)}
+\end{flalign}$
+
+Since two fractions are not equal, this equality is only satisfied when $w_1 = w_2 = 0$ which is the same exact solution we had earlier with a Bellman error of 0.
+
+##### Right MDP
+
+Even though the problem appears the same with respect to the state representation, the Bellman error expression will differ for the second problem since we must separate the terms by state.
+
+$\begin{flalign}
+\overline{\text{BE}} &= \frac{1}{3} \left [ (0 + \gamma w_2 - w_1)^2 + (1 + \gamma w_1 - w_2)^2 + (-1 + \gamma w_2 - w_2)^2 \right ]\\
+&\therefore \\
+\frac{\partial \overline{\text{BE}}}{\partial w_1} &= \frac{2}{3} \left [ (\gamma w_2 - w_1)\times -1 + (1 + \gamma w_1 - w_2)\times \gamma \right ] \\
+&= \frac{2}{3} \left [ w_1(1 + \gamma^2) - 2\gamma w_2 + \gamma \right ] \\
+&\therefore \\ 
+w_1 &= \frac{2\gamma w_2 - \gamma}{1 + \gamma^2} = w_2 \frac{2 \gamma}{1+\gamma^2} - \frac{\gamma}{1 + \gamma^2} \\
+
+\frac{\partial \overline{\text{BE}}}{\partial w_2} &= \frac{2}{3} \left [ (\gamma w_2 - w_1)\times \gamma - (1 + \gamma w_1 - w_2) + (w_2(\gamma - 1) - 1)(\gamma - 1) \right ] \\
+&= \frac{2}{3} \left [ -2\gamma w_1 + w_2(\gamma ^2 + 1 + (\gamma - 1)^2) - 1 - \gamma + 1\right ] \\
+&= \frac{2}{3} \left [ w_2(2\gamma ^2 - 2\gamma + 2) -2\gamma w_1 - \gamma \right ] \\
+&\therefore \\ 
+w_1 &= \frac{2w_2(\gamma^2 - \gamma + 1) - \gamma}{2\gamma} = w_2 \frac{\gamma^2 - \gamma + 1}{\gamma} - \frac{1}{2}\\
+&\therefore
+w_2 \frac{2 \gamma}{1+\gamma^2} - \frac{\gamma}{1 + \gamma^2} = w_2 \frac{\gamma^2 - \gamma + 1}{\gamma} - \frac{1}{2} \\
+&w_2 \left [ \frac{2 \gamma}{1+\gamma^2} -\frac{\gamma^2 - \gamma + 1}{\gamma} \right ] = \frac{\gamma}{1 + \gamma^2} - \frac{1}{2} \\
+\end{flalign}$
+
+Clearly this answer depends on $\gamma$ unlike the previous solutions. In the limit of $\gamma \rightarrow 1$, we can calculate the optimal weights according to the Bellman error:
+
+$w_2 = 0 - (1 - 1) = 0 \implies w_1 = w_2 - \frac{1}{2} = -\frac{1}{2}$
+
+which does not match the solution we had for the minimum value error.
+
+"""
+
+# ╔═╡ 6c2fcfc8-158e-4165-9375-638d9444f70b
+md"""
+#### Projection Operator
+
+$d(v_1, v_2, v_3) = (v_1 - w_1)^2 + (v_2 - w_2)^2 + (v_3 - w_2)^2$
+
+$\frac{\partial d}{\partial w_1} = -2(v_1 - w_1) \implies w_1 = v_1$
+
+$\frac{\partial d}{\partial w_2} = -2(v_2 - w_2) - 2(v_3 - w_2) = -2(v_2 - 2w_2 + v_3)\implies w_2 = \frac{v_2 + v_3}{2}$
+
+#### Projected Bellman Error
+
+$B_\pi(\hat v(w_1, w_2)) = \{\gamma w_2, 1 + \gamma w_1, -1 + \gamma w_2 \}$
+
+Projected Bellman Operator:
+
+$w_1 = \gamma w_2$
+$w_2 = \frac{\gamma}{2} (w_1 + w_2)$
+
+Projected Bellman Error:
+
+$(\gamma w_2 - w_1)^2 + 2(\frac{\gamma}{2}(w_1 + w_2) - w_2)^2 = (\gamma w_2 - w_1)^2 + 2(\frac{\gamma}{2}(w_1 + w_2) - w_2)^2$
+
+This is 0 when $w_1 = w_2 = 0$
+"""
+
+# ╔═╡ 7f6c554b-3423-4bb5-bf07-853afa4e76fb
+#=╠═╡
+function plot_11_4_be()
+	γs = LinRange(0, 1, 1000)
+	w2s = γs ./ (1 .+ γs .^2) .- .5
+	tr1 = scatter(x = γs, y = w2s, name = "w2")
+	tr2 = scatter(x = γs, y = w2s .- .5, name = "w1")
+	plot([tr1, tr2], Layout(xaxis_title = "Discount Rate", yaxis_title = "Weight Value", title = "Weights that Minimize Bellman Error"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 1d1afe4f-8b7f-4d81-aa97-1448b47befac
+#=╠═╡
+plot_11_4_be()
+  ╠═╡ =#
+
 # ╔═╡ 45e8699f-18ca-47a6-97eb-f855950b326d
 md"""
 # Dependencies
@@ -1772,6 +2032,121 @@ html"""
 	</style>
 	"""
   ╠═╡ =#
+
+# ╔═╡ 4c505f66-0c2c-4f59-858d-bd16c59f3397
+#=╠═╡
+@htl("""
+<div style="display: flex; align-items: center; background-color: lightgray; color: black; height: 70px">
+<div>0</div>
+<div class="loop" style = "transform:rotate(-135deg);"></div>
+<div class="backup" style="transform: scale(130%)">
+	<div class="circlestate"></div>
+</div>
+<div class="loop"></div>
+<div>2</div>
+</div>
+<style>
+	.loop {
+		display: flex;
+		border-width: 2px 0px 0px 2px;
+		border-style: solid;
+		border-color: black;
+		width: 38px;
+		height: 28px;
+		border-radius: 50% 50% 50% 15%;
+		transform: translateY(0px) rotate(45deg);
+	}
+	.loop::before {
+		content: '';
+		position: relative;
+		width: 5px;
+		height: 5px;
+		border-width: 0px 0px 3px 3px;
+		border-style: solid;
+		border-color: black;
+		transform: translateX(-4px) translateY(17px) rotate(-45deg)
+	}
+	.loop::after {
+		content: '';
+		border-width: 0px 2px 2px 0px;
+		border-style: solid;
+		border-color: black;
+		width: 38px;
+		height: 28px;
+		border-radius: 50% 50% 50% 0%;
+	}
+</style>
+""")
+  ╠═╡ =#
+
+# ╔═╡ faba7178-bc20-4d93-87e3-26541851b1ad
+HTML("""
+<style>
+
+	.backup {
+		margin: 5px;
+	}
+	.backup, .backup * {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		color: black;
+	}
+	.circlestate, .circleaction {
+		margin: 0;
+	}
+	.circlestate::before {
+		content: 'w';
+		display: inline-block;
+		border: 1px solid black;
+		border-radius: 50%;
+		height: 20px;
+		width: 20px;
+		background-color: white;
+	}
+	.circleaction::before {
+		content: '';
+		display: inline-block;
+		border: 1px solid black;
+		border-radius: 50%;
+		height: 10px;
+		width: 10px;
+		background-color: black;
+	}
+	.arrow {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+	.arrow::before {
+		content: '';
+		display: inline-block;
+		width: 2px;
+		height: 30px;
+		background-color: black;
+		margin-bottom: 0px;
+	}
+	.arrow::after {
+		content: '';
+		display: inline-block;
+		width: 4px;
+		height: 4px;
+		border-bottom: 3px solid black;
+		border-right: 3px solid black;
+		transform: translateY(-5px) rotate(45deg);
+		position: relative;
+	}
+	.term::before {
+		content: '';
+		display: inline-block;
+		width: 20px;
+		height: 20px;
+		border: 2px solid black;
+		background-color: rgb(50, 50, 50);
+	}
+</style>
+""")
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2600,7 +2975,6 @@ version = "17.4.0+2"
 # ╟─88a415dd-0fe8-493e-9446-75b909b3f68c
 # ╟─88aa7985-dab6-4bd0-8685-321e1499f830
 # ╠═d90dcfef-325c-4227-84a9-671f01b7383a
-# ╠═4ff4bb04-ca03-40cf-a8c6-03d9987cde19
 # ╟─9145a0ff-bfa8-47d4-91c6-118ef17da5b8
 # ╠═65c4f33b-0c7d-4003-9a69-9e4d1147641e
 # ╟─c401d8fc-704b-42e7-bbb2-0322329341fe
@@ -2627,7 +3001,8 @@ version = "17.4.0+2"
 # ╟─4befb480-593c-4c29-adcf-3775cc3e736f
 # ╠═376fe140-bd40-447a-992c-97b52ffc4c2b
 # ╠═9be0a35f-bf46-4edd-be72-cd92a76822da
-# ╠═c0e58f98-a52e-4742-a850-661faac4bbed
+# ╟─fbf4401f-fb57-4d9c-a8a6-439ad19fd5bb
+# ╟─c0e58f98-a52e-4742-a850-661faac4bbed
 # ╠═56672e64-6834-4639-921b-0e87cede4d7a
 # ╟─e37d1246-ccd6-481a-af2b-7d2d6acb8bbf
 # ╠═12d724c0-a40b-4f7b-922e-9f8738bf01f4
@@ -2645,13 +3020,24 @@ version = "17.4.0+2"
 # ╟─61d6ed9e-98c3-487c-959f-462df483b3da
 # ╟─0babc5a1-c404-4ce8-bf30-74db15790c72
 # ╟─8091e40f-0232-4142-a1b0-b803ed2f157f
-# ╠═f12ad623-59f9-4efe-8fb5-14b1bf6904bc
+# ╟─f12ad623-59f9-4efe-8fb5-14b1bf6904bc
 # ╟─e49849c5-d9b1-426b-b471-3acd32dcf07d
+# ╟─b180997e-fa2b-44de-936f-eb42bef4b6ad
+# ╟─bce9cdca-de1d-432c-a2f2-cbb6e414dfcb
+# ╠═6b70f463-7d50-4b03-8210-b151575f98db
+# ╠═05647633-14d2-4d5b-8c60-e236fbfeb334
+# ╟─f10a08f2-eba8-4e5e-87f8-313bb7494a49
+# ╟─a4e11eb7-d314-4d78-b9b6-df8fc2838149
+# ╠═6c2fcfc8-158e-4165-9375-638d9444f70b
+# ╠═1d1afe4f-8b7f-4d81-aa97-1448b47befac
+# ╠═7f6c554b-3423-4bb5-bf07-853afa4e76fb
 # ╟─45e8699f-18ca-47a6-97eb-f855950b326d
 # ╠═31333ae3-615e-4587-80cf-d2716669af9e
 # ╠═702e5559-55b0-4392-af55-846886aa1244
 # ╠═c8bae838-0549-48e3-b858-0c071334c0b7
 # ╠═9b35e3ae-95c4-4fe6-a84e-df4e22ab85e2
 # ╠═edd27759-c2c5-4b5a-92b2-590f8673461a
+# ╟─4c505f66-0c2c-4f59-858d-bd16c59f3397
+# ╟─faba7178-bc20-4d93-87e3-26541851b1ad
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
