@@ -41,7 +41,7 @@ $\overline{\text{VE}}(\mathbf{w}) \doteq \sum_{s \in S} \mu(s)[v_\pi(s) - \hat v
 
 Often $\mu(s)$ is taken to be the fraction of time spent in $s$.  In contiunuing tasks the on-policy distribution is the stationary distribution under $\pi$.  In episodic tasks one must account for the probability of starting an episode in a particular state and the probability of transitioning to that state during an episode.  The state distribution will need to depend on that function typically denoted $\eta(s)$.
 
-An ideal goal for optimizing $\overline {\text{VE}}$ is to find a *global optimum* for the weight vector such that $\overline {\text{VE}}(\mathbf{w}^*) \leq \overline {\text{VE}}(\mathbf{w})$ for all posible weights.  Typically this isn't possible but we can find a *local optimum* but even this objective is not guaranteed for many approximation methods.  In this chapter we will focus on approximation methods based on linear gradient-descent methods to we have to easily find an optimum.
+An ideal goal for optimizing $\overline {\text{VE}}$ is to find a *global optimum* for the weight vector such that $\overline {\text{VE}}(\mathbf{w}^*) \leq \overline {\text{VE}}(\mathbf{w})$ for all posible weights.  Typically this isn't possible, but we can find a *local optimum* in most cases.  Even this objective is not guaranteed for many approximation methods.  In this chapter we will focus on approximation methods based on linear gradient-descent methods since we can easily find an optimum in those cases.
 """
   ╠═╡ =#
 
@@ -2178,7 +2178,7 @@ Statistics = "~1.11.1"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.1"
+julia_version = "1.11.2"
 manifest_format = "2.0"
 project_hash = "9b98d48d6bf9e14b16c62bf0541fe2aeda787431"
 

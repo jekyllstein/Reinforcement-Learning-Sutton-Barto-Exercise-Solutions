@@ -24,7 +24,7 @@ end
 
 # ╔═╡ 826139cc-b52e-11ec-0d47-25ab689851fd
 md"""
-# Chapter 5 Monte Carlo Methods
+# Chapter 5: Monte Carlo Methods
 
 In this chapter we will use a sampling technique that does not require complete knowledge of the environment, only the ability to interact with it.  We will focus on episodic tasks so that the sampled returns are always well defined.  Unlike the dynamic programming methods from before, these techniques will estimate the value functions rather than computing them directly.  With enough samples, these techniques will also converge to the correct solution.
 
@@ -2049,7 +2049,7 @@ StatsBase = "~0.33.21"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.1"
+julia_version = "1.11.2"
 manifest_format = "2.0"
 project_hash = "990dbfbe6352d957b45d8ff73c0fb69e8f9dae59"
 
