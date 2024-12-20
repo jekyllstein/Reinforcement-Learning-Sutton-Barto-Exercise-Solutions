@@ -595,55 +595,39 @@ md"""
 """
 
 # ╔═╡ cafb20b4-a2bd-46a9-9660-b0ace84d6e4c
-# ╠═╡ skip_as_script = true
-#=╠═╡
 function initialize_car_state()
 	a = rand(Float32) * 0.2f0
 	x = a - 0.6f0
 	ẋ = 0f0
 	(x, ẋ)
 end
-  ╠═╡ =#
 
 # ╔═╡ fe7926e8-98cd-4bbc-a5fd-d3523b7c6b8f
-# ╠═╡ skip_as_script = true
-#=╠═╡
 function mountain_car_step(s::Tuple{Float32, Float32}, a::Float32)
 	ẋ′ = clamp(s[2] + 0.001f0*a - 0.0025f0*cos(3*s[1]), -0.07f0, 0.07f0)
 	x′ = clamp(s[1] + ẋ′, -1.2f0, 0.5f0)
 	x′ == -1.2f0 && return (x′, 0f0)
 	return (x′, ẋ′)
 end
-  ╠═╡ =#
 
 # ╔═╡ d577b393-4b40-4c90-9993-4ffbcbd9df6d
-# ╠═╡ skip_as_script = true
-#=╠═╡
 const mountain_car_actions = [-1f0, 0f0, 1f0]
-  ╠═╡ =#
 
 # ╔═╡ b07460f1-0461-4f63-b145-c4e1818a497e
-#=╠═╡
 function mountain_car_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	a = mountain_car_actions[i_a]
 	s′ = mountain_car_step(s, a)
 	return (-1f0, s′)
 end
-  ╠═╡ =#
 
 # ╔═╡ df07524f-b3fe-4a66-98ac-8f80df66bcff
-#=╠═╡
 function mountain_car_dist_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	(r, s′) = mountain_car_step(s, i_a)
 	([r], [s′], [1f0])
 end
-  ╠═╡ =#
 
 # ╔═╡ 28e0d632-0df3-4a5b-85c4-571c845ff827
-# ╠═╡ skip_as_script = true
-#=╠═╡
 const mountain_car_action_names = ["Decelerate", "Nothing", "Accelerate"]
-  ╠═╡ =#
 
 # ╔═╡ 8befede5-378a-447a-96bd-edcd9d2ce98b
 md"""
@@ -651,26 +635,16 @@ We can use these to create a sampling transition function, although it will be d
 """
 
 # ╔═╡ ac80958a-73ec-4342-b553-b33df6612a50
-#=╠═╡
 const mountain_car_transition = StateMDPTransitionSampler(mountain_car_step, initialize_car_state())
-  ╠═╡ =#
 
 # ╔═╡ f9abf433-8ce3-4520-9b47-f17f8f07b4cb
-#=╠═╡
 const mountain_car_transition_distribution = StateMDPTransitionDistribution(mountain_car_dist_step, initialize_car_state())
-  ╠═╡ =#
 
 # ╔═╡ 1e9c537a-a731-4b81-8f6a-cb658b52c5be
-# ╠═╡ skip_as_script = true
-#=╠═╡
 const mountain_car_mdp = StateMDP(mountain_car_actions, mountain_car_transition, initialize_car_state, s -> s[1] == 0.5f0)
-  ╠═╡ =#
 
 # ╔═╡ 5b2ffd90-ead0-42ce-999a-584ed8995910
-# ╠═╡ skip_as_script = true
-#=╠═╡
 const mountain_car_dist_mdp = StateMDP(mountain_car_actions, mountain_car_transition_distribution, initialize_car_state, s -> s[1] == 0.5f0)
-  ╠═╡ =#
 
 # ╔═╡ f6e08689-040f-4565-9dfb-e9a65d1c1f18
 md"""
@@ -747,7 +721,6 @@ If we discretize the positions and velocities then we can transform this into a 
 """
 
 # ╔═╡ 12f5065b-5bed-4d03-a0f0-72a942492394
-#=╠═╡
 function make_tabular_mountaincar(N, M)
 	x_range = (-1.2f0, 0.5f0)
 	v_range = (-0.07f0, 0.07f0)
@@ -783,7 +756,6 @@ function make_tabular_mountaincar(N, M)
 	ptf = TabularDeterministicTransition(state_transition_map, reward_transition_map)
 	(mdp = TabularMDP(states, mountain_car_actions, ptf, init_state_index), assign_state_index = bucket_state)
 end
-  ╠═╡ =#
 
 # ╔═╡ 39c63495-36c3-4e62-b8fb-36865f2c6243
 md"""
@@ -995,10 +967,7 @@ md"""
 """
 
 # ╔═╡ 742100ba-c38e-4840-8988-40990039b527
-# ╠═╡ skip_as_script = true
-#=╠═╡
 setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), tile_size, num_tilings, (1, 3))
-  ╠═╡ =#
 
 # ╔═╡ af97f222-08d1-4200-a10b-8da178182175
 md"""
@@ -1466,14 +1435,12 @@ In order to apply differential learning to the mountain car task, we need to cha
 """
 
 # ╔═╡ eb28458f-b222-4f8e-9a5b-8203d3997f7b
-#=╠═╡
 function mountain_car_differential_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	a = mountain_car_actions[i_a]
 	s′ = mountain_car_step(s, a)
 	r = Float32(s′[1] == 0.5f0)
 	return (r, s′)
 end
-  ╠═╡ =#
 
 # ╔═╡ e5ad765a-341f-4f11-9ae8-37d81cb349d2
 # ╠═╡ skip_as_script = true
@@ -1534,22 +1501,16 @@ md"""
 """
 
 # ╔═╡ 7146649a-1052-4ff6-8f44-eb448b849a6a
-#=╠═╡
 function mountain_car_differential_dist_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	(r, s′) = mountain_car_differential_step(s, i_a)
 	return ([r], [s′], [1f0])
 end
-  ╠═╡ =#
 
 # ╔═╡ 6ea7c88e-7808-4557-acfa-6151f21bb88d
-#=╠═╡
 const mountain_car_differential_transition_distribution = StateMDPTransitionDistribution(mountain_car_differential_dist_step, initialize_car_state())
-  ╠═╡ =#
 
 # ╔═╡ c1ab5827-e3e5-4e8b-9322-e4a5fe0314c4
-#=╠═╡
 const mountain_car_differential_dist_mdp = StateMDP(mountain_car_actions, mountain_car_differential_transition_distribution, initialize_car_state, s -> s[1] == 0.5f0)
-  ╠═╡ =#
 
 # ╔═╡ 9df1a18d-137c-4ea5-8d15-05697f7bbf07
 md"""
@@ -2006,13 +1967,11 @@ function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer
 end
 
 # ╔═╡ b0cc6ff8-7296-461c-9db7-e52fa518e2e2
-#=╠═╡
 function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
 	v = setup.args.feature_vector
 	run_linear_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
 end
-  ╠═╡ =#
 
 # ╔═╡ d0cf3806-05c6-4a50-94c8-55c9042d51b7
 # ╠═╡ skip_as_script = true
@@ -2057,11 +2016,9 @@ function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer,
 end
 
 # ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
-#=╠═╡
 function mountaincar_fcann_dp(max_episodes::Integer, α::Float32, ϵ::Float32; layers = [4, 4], max_steps = typemax(Int64), kwargs...)
 	run_fcann_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, 2), update_mountaincar_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
 end
-  ╠═╡ =#
 
 # ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
 # ╠═╡ skip_as_script = true
@@ -2164,18 +2121,14 @@ function run_linear_differential_semi_gradient_dp(mdp::StateMDP, max_episodes::I
 end
 
 # ╔═╡ 501b7284-6e04-4a15-b8e4-2601156b0345
-#=╠═╡
 function mountaincar_differential_dp_test(num_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 16, kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
 	v = setup.args.feature_vector
 	run_linear_differential_semi_gradient_dp(mountain_car_differential_dist_mdp, 1_000, num_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, β = β, ϵ = ϵ, kwargs...)
 end
-  ╠═╡ =#
 
 # ╔═╡ 2441b61e-5954-41e2-8ee4-38b16ed04cef
-#=╠═╡
 const differential_linear_dp_mountaincar = mountaincar_differential_dp_test(1_000_000, 4f-5, 1f-4, 0.1f0)
-  ╠═╡ =#
 
 # ╔═╡ 6f4f8b64-0c17-446e-bfb6-0540871ad9e0
 #=╠═╡
@@ -2217,7 +2170,6 @@ function run_nonlinear_differential_semi_gradient_dp(mdp::StateMDP, max_episodes
 end
 
 # ╔═╡ 3b66c97b-ebad-4d13-987c-ac0172b349d1
-#=╠═╡
 function mountaincar_differential_dp_nonlinear_test(num_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_layers = 3, layer_size = 8, kwargs...)
 	feature_vector = zeros(Float32, 2)
 	function update_feature_vector!(v::Vector{Float32}, s::NTuple{2, Float32})
@@ -2229,12 +2181,9 @@ function mountaincar_differential_dp_nonlinear_test(num_steps::Integer, α::Floa
 	layers = fill(layer_size, num_layers)
 	run_nonlinear_differential_semi_gradient_dp(mountain_car_differential_dist_mdp, 1_000, num_steps, feature_vector, update_feature_vector!, layers; α = α, β = β, ϵ = ϵ, kwargs...)
 end
-  ╠═╡ =#
 
 # ╔═╡ 86f7dcde-b27e-4096-bec8-c5d17fd553d2
-#=╠═╡
 const differential_nonlinear_dp_mountaincar = mountaincar_differential_dp_nonlinear_test(100_000, 8f-6, 1f-6, 0.1f0; layer_size = 32)
-  ╠═╡ =#
 
 # ╔═╡ ad692a51-e93b-4480-8a6c-2ad86dc6766b
 #=╠═╡

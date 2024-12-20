@@ -2051,82 +2051,78 @@ md"""
 """
 
 # ╔═╡ 5f7635d8-42a3-4b74-b027-6a870d6e7d47
-begin
-	function tdc_estimation(π!::Function, b!::Function, d::Integer, initialize_state::Function, transition::AbstractStateTransition, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, parameters = zeros(T, d), save_parameter_history = false) where {T<:Real, S}
-		s = initialize_state()
-		ep = 1
-		step = 1
-	
-		state_representation1 = zeros(T, d)
-		state_representation2 = zeros(T, d)
+function tdc_estimation(mdp::StateMDP, π!::Function, b!::Function, d::Integer, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, parameters = zeros(T, d), save_parameter_history = false) where {T<:Real, S}
+	s = mdp.initialize_state()
+	ep = 1
+	step = 1
 
-		parameter_history = Vector{Vector{T}}()
+	state_representation1 = zeros(T, d)
+	state_representation2 = zeros(T, d)
+
+	parameter_history = Vector{Vector{T}}()
+
+	save_parameter_history && push!(parameter_history, copy(parameters))
+
+	π_dist = zeros(T, length(mdp.actions))
+	b_dist = zeros(T, length(mdp.actions))
+	v = zeros(T, d)
+	
+	update_state_representation!(state_representation1, s)
+	episode_errors = Vector{T}()
+	err = zero(T)
+	epstep = 1
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		π!(π_dist, state_representation1)
+		b!(b_dist, state_representation1)
+		i_a = sample_action(b_dist)
+		(r, s′) = mdp.ptf(s, i_a)
+		ρ = π_dist[i_a] / b_dist[i_a]
+		if mdp.isterm(s′)
+			state_representation2 .= zero(T)
+		else
+			update_state_representation!(state_representation2, s′)
+		end
+
+		if !iszero(ρ)
+			δ = r + γ*dot(parameters, state_representation2) - dot(parameters, state_representation1) 
+			parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
+			v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
+		end
 
 		save_parameter_history && push!(parameter_history, copy(parameters))
-
-		π_dist = zeros(T, d)
-		b_dist = zeros(T, d)
-		v = zeros(T, d)
-		
-		update_state_representation!(state_representation1, s)
-		episode_errors = Vector{T}()
-		err = zero(T)
-		epstep = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			π!(π_dist, s)
-			b!(b_dist, s)
-			i_a = sample_action(b_dist)
-			(r, s′) = transition(s, i_a)
-			ρ = π_dist[i_a] / b_dist[i_a]
-			if isterm(s′)
-				state_representation2 .= zero(T)
-			else
-				update_state_representation!(state_representation2, s′)
-			end
-
-			if !iszero(ρ)
-				δ = r + γ*dot(parameters, state_representation2) - dot(parameters, state_representation1) 
-				parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
-				v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
-			end
-
-			save_parameter_history && push!(parameter_history, copy(parameters))
+		s = s′
+		epstep += 1
+		if mdp.isterm(s′)
+			s = mdp.initialize_state()
+			ep += 1
+			ep_step = 1
+			update_state_representation!(state_representation1, s)
+		else
 			s = s′
-			epstep += 1
-			if isterm(s′)
-				s = initialize_state()
-				ep += 1
-				ep_step = 1
-				update_state_representation!(state_representation1, s)
-			else
-				s = s′
-				state_representation1 .= state_representation2
-			end
-			step += 1
+			state_representation1 .= state_representation2
 		end
-
-		function v(s::S)
-			x = zeros(T, d)
-			update_state_representation!(x, s)
-			dot(parameters, x)
-		end
-
-		function v(states::AbstractVector{S})
-			x = zeros(T, d)
-			input = zeros(T, length(states), d)
-			for i in eachindex(states)
-				update_state_representation!(x, states[i])
-				for j in 1:d
-					input[i, j] = x[j]
-				end
-			end
-			input*parameters
-		end
-		return (parameters = parameters, value_estimate = v, episode_errors = episode_errors, parameter_history = parameter_history)
+		step += 1
 	end
 
-	tdc_estimation(mdp::StateMDP, π!::Function, b!::Function, d::Integer, args...; kwargs...) = tdc_estimation(π!, b!, d, mdp.initialize_state, mdp.ptf, mdp.isterm, args...; kwargs...)
+	function v(s::S)
+		x = zeros(T, d)
+		update_state_representation!(x, s)
+		dot(parameters, x)
+	end
+
+	function v(states::AbstractVector{S})
+		x = zeros(T, d)
+		input = zeros(T, length(states), d)
+		for i in eachindex(states)
+			update_state_representation!(x, states[i])
+			for j in 1:d
+				input[i, j] = x[j]
+			end
+		end
+		input*parameters
+	end
+	return (parameters = parameters, value_estimate = v, episode_errors = episode_errors, parameter_history = parameter_history)
 end
 
 # ╔═╡ 6fd223aa-3d28-47e9-ba4f-391be5362521
@@ -2185,7 +2181,11 @@ function figure_11_5(;steps = 2_000, γ::Float32 = 0.99f0, α::Float32 = 0.0005f
 	pbe_trace = scatter(y = [sqrt(ve(a))*(1-γ) for a in out.parameter_history], name = L"\sqrt{\overline{\text{PBE}}}")
 	baseline_tr = scatter(x = [0, steps], y = [0, 0], mode = "lines", line_dash = "dash", line_color = "black", showlegend=false)
 	traces = [param_traces; ve_trace; pbe_trace; baseline_tr]
-	plot(traces, Layout(yaxis_range = [-3, 10], title = "TDC", xaxis_title = "Steps", width = 800))
+	@htl("""
+	<div style = "width: min(90%, 800px);">
+	$(plot(traces, Layout(yaxis_range = [-3, 10], title = "TDC", xaxis_title = "Steps")))
+	</div>
+	""")
 end
   ╠═╡ =#
 
@@ -2210,7 +2210,316 @@ We can use the TDC algorithm to try to do a better job of Q-learning with linear
 #add method for make_ϵ_greedy_policy! which works with linear value approximation.  maybe I already have it but under a different name
 
 # ╔═╡ 12068dea-798d-4cc3-86f0-07b7315caa91
+function tdc_control(mdp::StateMDP, d::Integer, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, parameters = [zeros(T, d) for _ in 1:length(mdp.actions)], save_parameter_history = false) where {T<:Real, S}
+	s = mdp.initialize_state()
+	ep = 1
+	step = 1
 
+	state_representation1 = zeros(T, d)
+	state_representation2 = zeros(T, d)
+
+	parameter_history = Vector{Vector{Vector{T}}}()
+
+	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+
+	action_values = zeros(T, length(mdp.actions))
+	v = zeros(T, d)
+	
+	update_state_representation!(state_representation1, s)
+	episode_errors = Vector{T}()
+	err = zero(T)
+	epstep = 1
+
+	function update_action_values!(action_values, x; parameters = parameters)
+		qmax = typemin(T)
+		i_a_max = 1
+		for i_a in eachindex(parameters)
+			q = dot(x, parameters[i_a])
+			action_values[i_a] = q
+			newmax = q > qmax
+			qmax = newmax*q + !newmax*qmax
+			i_a_max = newmax*i_a + !newmax*i_a_max
+		end
+		return (qmax, i_a_max)
+	end
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		(qmax, i_a_max) = update_action_values!(action_values, state_representation1)
+		make_ϵ_greedy_policy!(action_values; ϵ =  ϵ)
+		i_a = sample_action(action_values)
+		(r, s′) = mdp.ptf(s, i_a)
+		ρ = (i_a_max == i_a) / action_values[i_a]
+		q′ = if mdp.isterm(s′)
+			r
+		else
+			update_state_representation!(state_representation2, s′)
+			r + γ*update_action_values!(action_values, state_representation2)[1]
+		end
+
+		if !iszero(ρ)
+			δ = q′ - dot(parameters[i_a], state_representation1) 
+			parameters[i_a] .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
+			v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
+		end
+
+		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		s = s′
+		epstep += 1
+		if mdp.isterm(s′)
+			s = mdp.initialize_state()
+			ep += 1
+			ep_step = 1
+			update_state_representation!(state_representation1, s)
+		else
+			s = s′
+			state_representation1 .= state_representation2
+		end
+		step += 1
+	end
+
+	function action_value_function(s::S; kwargs...)
+		x = zeros(T, d)
+		action_values = zeros(T, length(mdp.actions))
+		update_state_representation!(x, s)
+		(qmax, i_a_max) = update_action_values!(action_values, x; kwargs...)
+		return (action_values = action_values, qmax = qmax, greedy_action = i_a_max)
+	end
+
+	π_greedy(s::S; kwargs...) = action_value_function(s; kwargs...).greedy_action
+	
+	return (parameters = parameters, action_value_estimate = action_value_function, episode_errors = episode_errors, parameter_history = parameter_history, π_greedy = π_greedy)
+end
+
+# ╔═╡ 85bf8c44-348b-4825-b89a-33ec7614bb25
+function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, d::Integer, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, parameters = zeros(T, d), save_parameter_history = false) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
+	s = mdp.initialize_state()
+	ep = 1
+	step = 1
+
+	state_representation1 = zeros(T, d)
+	state_representation2 = zeros(T, d)
+	state_representation3 = zeros(T, d)
+
+	parameter_history = Vector{Vector{T}}()
+
+	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+
+	action_values = zeros(T, length(mdp.actions))
+	v = zeros(T, d)
+	
+	update_state_representation!(state_representation1, s)
+	episode_errors = Vector{T}()
+	err = zero(T)
+	epstep = 1
+
+	function update_action_values!(action_values, s::S; parameters = parameters, state_representation = state_representation3)
+		qmax = typemin(T)
+		i_a_max = 1
+		for i_a in eachindex(mdp.actions)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T)
+			for i in eachindex(probabilities)
+				s′ = states[i]
+				r = rewards[i]
+				p = probabilities[i]
+				if mdp.isterm(s′)
+					state_representation .= zero(T)
+				else
+					update_state_representation!(state_representation, s′)
+				end
+				v′ = dot(state_representation, parameters)
+				q += p*(r + γ*v′)
+			end
+			newmax = q > qmax
+			qmax = newmax*q + !newmax*qmax
+			i_a_max = newmax*i_a + !newmax*i_a_max
+			action_values[i_a] = q
+		end
+		return (qmax, i_a_max)
+	end
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		(qmax, i_a_max) = update_action_values!(action_values, s)
+		make_ϵ_greedy_policy!(action_values; ϵ =  ϵ)
+		i_a = sample_action(action_values)
+		(r, s′) = mdp.ptf(s, i_a)
+		if mdp.isterm(s′)
+			state_representation2 .= zero(T)
+		else
+			update_state_representation!(state_representation2, s′)
+		end
+		ρ = (i_a_max == i_a) / action_values[i_a]
+
+		if !iszero(ρ)
+			δ = qmax - dot(parameters, state_representation1) 
+			parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
+			v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
+		end
+
+		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		s = s′
+		epstep += 1
+		if mdp.isterm(s′)
+			s = mdp.initialize_state()
+			ep += 1
+			ep_step = 1
+			update_state_representation!(state_representation1, s)
+		else
+			s = s′
+			state_representation1 .= state_representation2
+		end
+		step += 1
+	end
+
+	function action_value_function(s::S; kwargs...)
+		x = zeros(T, d)
+		action_values = zeros(T, length(mdp.actions))
+		(qmax, i_a_max) = update_action_values!(action_values, s; state_representation = x, kwargs...)
+		return (action_values = action_values, qmax = qmax, greedy_action = i_a_max)
+	end
+
+	π_greedy(s::S; kwargs...) = action_value_function(s; kwargs...).greedy_action
+		
+	
+	return (parameters = parameters, action_value_estimate = action_value_function, episode_errors = episode_errors, parameter_history = parameter_history, π_greedy = π_greedy)
+end
+
+# ╔═╡ cfe7ed5a-514a-4753-b029-9118813fa0ed
+md"""
+### *TDC Control on Baird Counter Example*
+"""
+
+# ╔═╡ 344a94a8-58ad-4cb5-ad1c-dcf779a6ea76
+#=╠═╡
+function tdc_control_baird(;winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), maxsteps = 2_000, γ = 0.99f0, ϵ = 0.5f0, α = 0.01f0, state_index = 1)
+	winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1])
+	sarsa_output = run_linear_semi_gradient_sarsa(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, init_param = winit)
+
+	tdc_control_output = tdc_control(baird_state_mdp, 8, γ, 1000, maxsteps, baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [copy(winit) for _ in 1:2])
+
+	tdc_dp_control_output = tdc_dp_control(baird_state_mdp, 8, γ, 1000, maxsteps, baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = copy(winit))
+	
+	tdc_parameter_traces = [scatter(y = [tdc_control_output.parameter_history[i][2][i_w] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
+
+
+	tdc_value_traces = [scatter(y = [tdc_control_output.action_value_estimate(i_s; parameters = tdc_control_output.parameter_history[i]).qmax for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
+
+	tdc_dp_value_traces = [scatter(y = [tdc_dp_control_output.action_value_estimate(i_s; parameters = tdc_dp_control_output.parameter_history[i]).qmax for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
+
+	tdc_dp_parameter_traces = [scatter(y = [tdc_dp_control_output.parameter_history[i][i_w] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
+
+	tdc_value_plot = plot([tdc_value_traces; tdc_parameter_traces])
+
+	tdc_dp_value_plot = plot([tdc_dp_value_traces; tdc_dp_parameter_traces])
+
+	md"""
+	$tdc_value_plot $tdc_dp_value_plot
+	"""
+
+	# tdc_dp_control_output.parameter_history
+	
+	# p1 = plot([scatter(y = [a[1][i] for a in sarsa_output.parameter_history], name = "Parameter $i", showlegend=false) for i in 1:8], Layout(xaxis_title = "Step", yaxis_title = "Parameter Value"))
+	# p2 = plot([scatter(y = [a[1][i] for a in q_learning_output.parameter_history], name = "Parameter $i") for i in 1:8])
+
+	# baird_values(w::Vector{T}) where T<:Real = [2*w[1] + w[8], 2*w[2] + w[8], 2*w[3]+w[8], 2*w[4] + w[8], 2*w[5] + w[8], 2*w[6] + w[8], w[7] + 2*w[8]]
+	
+	# q_value_history1 = [baird_values(w[1]) for w in q_learning_output.parameter_history]
+	# q_value_history2 = [baird_values(w[2]) for w in q_learning_output.parameter_history]
+
+	# sarsa_value_history1 = [baird_values(w[1]) for w in sarsa_output.parameter_history]
+	# sarsa_value_history2 = [baird_values(w[2]) for w in sarsa_output.parameter_history]
+
+	# p3 = plot([scatter(y = [a[i] for a in q_value_history1], name = "State $i") for i in 1:7])
+	# p4 = plot([scatter(y = [a[i] for a in q_value_history2], name = "State $i") for i in 1:7])
+	# p5 = plot(scatter(y = [Float32(q_value_history1[i][state_index] - q_value_history2[i][state_index]) for i in 1:length(q_learning_output.parameter_history)]))
+	# p6 = plot(scatter(y = [Float32(sarsa_value_history1[i][state_index] - sarsa_value_history2[i][state_index]) for i in 1:length(sarsa_output.parameter_history)]))
+	
+	# md"""
+	# $([p1 p2; p3 p4; p5 p6])
+	# """
+end
+  ╠═╡ =#
+
+# ╔═╡ 4ffc878c-d856-4183-96ea-ef77447b8a5c
+#=╠═╡
+tdc_control_baird()
+  ╠═╡ =#
+
+# ╔═╡ 9f85ad2d-f417-4463-9894-53f0eead4d83
+function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
+	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	v = setup.args.feature_vector
+	run_linear_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
+end
+
+# ╔═╡ c25fa03c-0464-4e07-a777-9ee5f732b0a2
+(v̂_mountain_car, π_greedy_dp, episode_rewards_dp, episode_steps_dp) = mountaincar_dist_test(100, 0.001f0/32, 0.9f0)
+
+# ╔═╡ bf5d1782-5109-4cfd-8744-82ac80b5bc45
+function mountaincar_tdc_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
+	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	v = setup.args.feature_vector
+	tdc_dp_control(mountain_car_dist_mdp, length(v), 1f0, max_episodes, max_steps, setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
+end
+
+# ╔═╡ 41bd4480-7672-4adf-924a-5bc1e9d4b45e
+tdc_out = mountaincar_tdc_test(10000, 0.00001f0, 0.25f0; max_steps = 500_000, β = 1f-8)
+
+# ╔═╡ a5ec3b99-af5a-42e5-8dff-533b45e50af5
+#=╠═╡
+function show_mountaincar_trajectory(π::Function, max_steps::Integer, name)
+	states, actions, rewards, sterm, nsteps = runepisode(mountain_car_mdp; π = π, max_steps = max_steps)
+	positions = [s[1] for s in states]
+	velocities = [s[2] for s in states]
+	tr1 = scatter(x = positions, y = velocities, mode = "markers", showlegend = false)
+	tr2 = scatter(y = positions, showlegend = false)
+	tr3 = scatter(y = [mountain_car_actions[i] for i in actions], showlegend = false)
+	p1 = plot(tr1, Layout(xaxis_title = "position", yaxis_title = "velocity", xaxis_range = [-1.2, 0.5], yaxis_range = [-0.07, 0.07]))
+	p2 = plot(tr2, Layout(xaxis_title = "time", yaxis_title = "position"))
+	p3 = plot(tr3, Layout(xaxis_title = "time", yaxis_title = "action"))
+	mdname = Markdown.parse(name)
+	md"""
+	$mdname
+	Total Reward: $(sum(rewards))
+	$([p1 p2 p3])
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ a9443d53-1eae-4eab-b001-904be1523ca4
+#=╠═╡
+show_mountaincar_trajectory(tdc_out.π_greedy, 500, "TDC Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ 5c87ea86-aec5-42d3-9423-4cd9d14dbc97
+#=╠═╡
+show_mountaincar_trajectory(π_greedy_dp, 1_000, "DP Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ 3d48d0e2-353c-44cf-a51b-1fad1b0002d2
+#=╠═╡
+function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
+	xvals = LinRange(-1.2f0, 0.5f0, n1)
+	vvals = LinRange(-0.07f0, 0.07f0, n2)
+	values = zeros(Float32, n1, n2)
+	actions = zeros(Float32, n1, n2)
+	for (i, x) in enumerate(xvals)
+		for (j, v) in enumerate(vvals)
+			v̂ = v̂_mountain_car((x, v))
+			values[j, i] = v̂
+			actions[j, i] = π((x, v))
+		end
+	end
+	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Learned Value Function"))
+	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)"))
+	[p1 p2]
+end
+  ╠═╡ =#
+
+# ╔═╡ 38e6ef4c-63c1-4df5-9451-f40df4fe57e7
+#=╠═╡
+plot_mountaincar_values(s -> tdc_out.action_value_estimate(s).qmax, tdc_out.π_greedy)
+  ╠═╡ =#
 
 # ╔═╡ 45e8699f-18ca-47a6-97eb-f855950b326d
 md"""
@@ -3242,6 +3551,19 @@ version = "17.4.0+2"
 # ╟─e523bc1f-f2ad-49a0-ae3e-aa79db6e8043
 # ╠═0fefa79e-64f2-41d9-9e35-b0e56d2f90fd
 # ╠═12068dea-798d-4cc3-86f0-07b7315caa91
+# ╠═85bf8c44-348b-4825-b89a-33ec7614bb25
+# ╟─cfe7ed5a-514a-4753-b029-9118813fa0ed
+# ╠═344a94a8-58ad-4cb5-ad1c-dcf779a6ea76
+# ╠═4ffc878c-d856-4183-96ea-ef77447b8a5c
+# ╠═41bd4480-7672-4adf-924a-5bc1e9d4b45e
+# ╠═a9443d53-1eae-4eab-b001-904be1523ca4
+# ╠═38e6ef4c-63c1-4df5-9451-f40df4fe57e7
+# ╠═c25fa03c-0464-4e07-a777-9ee5f732b0a2
+# ╠═5c87ea86-aec5-42d3-9423-4cd9d14dbc97
+# ╠═9f85ad2d-f417-4463-9894-53f0eead4d83
+# ╠═bf5d1782-5109-4cfd-8744-82ac80b5bc45
+# ╠═a5ec3b99-af5a-42e5-8dff-533b45e50af5
+# ╠═3d48d0e2-353c-44cf-a51b-1fad1b0002d2
 # ╟─45e8699f-18ca-47a6-97eb-f855950b326d
 # ╠═31333ae3-615e-4587-80cf-d2716669af9e
 # ╠═702e5559-55b0-4392-af55-846886aa1244
