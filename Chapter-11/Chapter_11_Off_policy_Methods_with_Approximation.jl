@@ -1836,15 +1836,18 @@ function plot_11_4_value(;γ = 1, w1 = 0, w2 = 0, n = 100)
 		end
 	end
 
+	param1_tr = scatter3d(x = [-3, 3], y = [0, 0], z = [0, 0], line_color = "black", name = "weight 1 axis", mode = "lines", line_width = 5)
+	param2_tr = scatter3d(x = [0, 0], y = [-3, 3], z = [-3, 3], line_color = "black", name = "weight 2 axis", mode = "lines", line_width = 5)
+
 	
 	ves_tr = scatter3d(x = xs, y = ys, z = ves, mode = "markers", marker_size = 1)
 	bes_tr = scatter3d(x = xs, y = ys, z = bes, mode = "markers", marker_size = 1)
 	
 	v̂_tr = scatter3d(x = xs, y = ys, z = zs, mode = "markers", marker_size = 1, color = "blue", name = "Possible Approximate Value Functions")
 	v̂_ex_tr = scatter3d(x = [w1], y = [w2], z = [w2], mode = "markers", name = "Value Function for w = [$w1, $w2])")
-	ve_tr = scatter3d(x = [w1, 0], y = [w2, 1], z = [w2, -1], mode = "lines", name = "Value Error Vector for w = [$w1, $w2])", line_dash = "dash", line_color = "black", line_width = 8)
+	ve_tr = scatter3d(x = [w1, 0], y = [w2, 1], z = [w2, -1], mode = "lines", name = "Value Error Vector for w = [$w1, $w2])", line_dash = "dot", line_color = "black", line_width = 8)
 	bo_tr = scatter3d(;bo(w1, w2)..., mode = "markers", name = "Bellman Operator on Approximation")
-	p1 = plot([v̂_tr, v_true, v̂_ex_tr, ve_tr, bo_tr], Layout(scene = attr(xaxis_range = [-2, 2], yaxis_range = [-2, 2], zaxis_range = [-2, 2], xaxis_title = "Value A", yaxis_title = "Value B", zaxis_title = "Value C", camera = attr(eye = attr(x = 2, y = 1, z = .5), up = attr(x = 1.4, y = .95, z = 0.1))), height = 700, legend_orientation = "h"))
+	p1 = plot([v̂_tr, v_true, v̂_ex_tr, ve_tr, bo_tr, param1_tr, param2_tr], Layout(scene = attr(xaxis_range = [-2, 2], yaxis_range = [-2, 2], zaxis_range = [-2, 2], xaxis_title = "Value A", yaxis_title = "Value B", zaxis_title = "Value C", camera = attr(eye = attr(x = 2, y = 1, z = .5), up = attr(x = 1.4, y = .95, z = 0.1))), height = 700, legend_orientation = "h"))
 	p2 = plot([ves_tr, bes_tr], Layout(scene = attr(xaxis_title = "w1", yaxis_title = "w2", zaxis_title = "value error"), height = 600))
 	@htl("""
 	<div style = "display: flex;">
@@ -1991,7 +1994,7 @@ $w_2 = \frac{\gamma}{2} (w_1 + w_2)$
 
 Projected Bellman Error:
 
-$(\gamma w_2 - w_1)^2 + 2(\frac{\gamma}{2}(w_1 + w_2) - w_2)^2 = (\gamma w_2 - w_1)^2 + 2(\frac{\gamma}{2}(w_1 + w_2) - w_2)^2$
+$(\gamma w_2 - w_1)^2 + 2(\frac{\gamma}{2}(w_1 + w_2) - w_2)^2$
 
 This is 0 when $w_1 = w_2 = 0$
 """
@@ -2011,6 +2014,203 @@ end
 #=╠═╡
 plot_11_4_be()
   ╠═╡ =#
+
+# ╔═╡ bfbe7c40-3f60-49b4-9690-ad0ee0d7db99
+md"""
+## 11.7 Gradient-TD Methods
+
+We now consider SGD methods for minimizing the $\overline{\text{PBE}}$.  Remember that in the linear case, there is always an exact solution, the TD fixed point $\mathbf{w}_{\text{TD}}$, at which the $\overline{\text{PBE}}$ is zero.  This could be found by least-squares methods (Section 9.8), but only by methods of quadratic $O(d^2)$ complexity in the number of parameters.  We seek instead an SGD method, which should be $O(d)$ and have robust convergence properties.  Gradient-TD methods come close to achieving these goals, at the cost of a rough doubling of computational complexity.
+
+ $\mathbf{D}$ is the $\vert \mathcal{S} \vert \times \vert \mathcal{S} \vert$ diagonal matrix with the $\mu(s)$ on the diagonal
+ 
+ $\mathbf{X}$ is the $\vert \mathcal{S} \vert \times d$ matrix whose rows are the feature vectors $\mathbf{x}(s)^\top$, one for each state $s$
+
+To derive an SGD method for the $\overline{\text{PBE}}$ (assuming linear function approximation) we begin by expanding and rewriting the objective (11.22) in matrix terms:
+
+$\begin{flalign}
+\overline{\text{PBE}}(\mathbf{w}) &= \left \vert \left \vert \Pi \overline{\delta}_\mathbf{w} \right \vert  \right \vert^2_\mu \\
+&= (\Pi \overline{\delta}_{\mathbf{w}})^{\top} \mathbf{D} \Pi \overline{\delta}_\mathbf{w} \\
+\end{flalign}$
+"""
+
+# ╔═╡ f3915dbd-6266-48cd-9bc0-a40b39b8dd22
+md"""
+### TDC: TD(0) with gradient correction
+
+$\mathbf{v}_{t+1} \doteq \mathbf{v}_t + \beta \rho_t \left ( \delta_t - \mathbf{v}_t^\top\mathbf{x}_t \right ) \mathbf{x}_t$
+
+$\begin{flalign}
+\mathbf{w}_{t+1} &= \mathbf{w}_t + \alpha \left ( \mathbb{E} [\rho_t \delta_t \mathbf{x}_t ] - \gamma \mathbb{E} \left [ \rho_t \mathbf{x}_{t+1} \mathbf{x}_t ^\top \right ] \mathbf{v}_t \right ) \\
+&\approx  \mathbf{w}_t + \alpha \rho_t \left ( \delta_t \mathbf{x}_t - \gamma \mathbf{x}_{t+1} \mathbf{x}_t ^ \top \mathbf{v}_t \right )\tag{sampling}
+\end{flalign}$
+"""
+
+# ╔═╡ 4fd5b88f-eb4b-415b-9f8e-781dd4e194d0
+md"""
+### *TDC Implementation*
+"""
+
+# ╔═╡ 5f7635d8-42a3-4b74-b027-6a870d6e7d47
+begin
+	function tdc_estimation(π!::Function, b!::Function, d::Integer, initialize_state::Function, transition::AbstractStateTransition, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, parameters = zeros(T, d), save_parameter_history = false) where {T<:Real, S}
+		s = initialize_state()
+		ep = 1
+		step = 1
+	
+		state_representation1 = zeros(T, d)
+		state_representation2 = zeros(T, d)
+
+		parameter_history = Vector{Vector{T}}()
+
+		save_parameter_history && push!(parameter_history, copy(parameters))
+
+		π_dist = zeros(T, d)
+		b_dist = zeros(T, d)
+		v = zeros(T, d)
+		
+		update_state_representation!(state_representation1, s)
+		episode_errors = Vector{T}()
+		err = zero(T)
+		epstep = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			π!(π_dist, s)
+			b!(b_dist, s)
+			i_a = sample_action(b_dist)
+			(r, s′) = transition(s, i_a)
+			ρ = π_dist[i_a] / b_dist[i_a]
+			if isterm(s′)
+				state_representation2 .= zero(T)
+			else
+				update_state_representation!(state_representation2, s′)
+			end
+
+			if !iszero(ρ)
+				δ = r + γ*dot(parameters, state_representation2) - dot(parameters, state_representation1) 
+				parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
+				v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
+			end
+
+			save_parameter_history && push!(parameter_history, copy(parameters))
+			s = s′
+			epstep += 1
+			if isterm(s′)
+				s = initialize_state()
+				ep += 1
+				ep_step = 1
+				update_state_representation!(state_representation1, s)
+			else
+				s = s′
+				state_representation1 .= state_representation2
+			end
+			step += 1
+		end
+
+		function v(s::S)
+			x = zeros(T, d)
+			update_state_representation!(x, s)
+			dot(parameters, x)
+		end
+
+		function v(states::AbstractVector{S})
+			x = zeros(T, d)
+			input = zeros(T, length(states), d)
+			for i in eachindex(states)
+				update_state_representation!(x, states[i])
+				for j in 1:d
+					input[i, j] = x[j]
+				end
+			end
+			input*parameters
+		end
+		return (parameters = parameters, value_estimate = v, episode_errors = episode_errors, parameter_history = parameter_history)
+	end
+
+	tdc_estimation(mdp::StateMDP, π!::Function, b!::Function, d::Integer, args...; kwargs...) = tdc_estimation(π!, b!, d, mdp.initialize_state, mdp.ptf, mdp.isterm, args...; kwargs...)
+end
+
+# ╔═╡ 6fd223aa-3d28-47e9-ba4f-391be5362521
+md"""
+### Revisiting Baird's Counter Example
+
+There are 7 states, 2 actions, and 8 parameters.  We can analytically write down the different errors in terms of the 8 parameter values for the target policy which always takes the solid action.  Also, the on-policy distribution for the target policy is $\mu(7) = 1$ so we only need to consider there error for that state.
+
+#### Value Error
+
+The true values are 0 for every state, so the value error is simply:
+
+$\overline{\text{VE}} = (w_7 + 2w_8)^2$ 
+
+which is minimized when $w_7 = -2w_8$
+
+#### Mean Squared Bellman Error
+
+$(0 + \gamma (w_7 + 2 w_8) - w_7 - 2 w_8)^2 = ((w_7 + 2w_8)(\gamma - 1))^2$
+
+If we minimize this with respect to $w_7$ and $w_8$
+
+$0 = 2(\gamma - 1)(w_7 + 2w_8) \implies w_7 = -2w_8$
+
+$0 = 4(\gamma - 1)(w_7 + 2w_8) \implies w_7 = -2w_8$
+
+#### Projected Bellman Error
+
+Normally, there are fewer parameters than states, so there is a single projection point which minimizes the distance from any true state value function to the approximation function.  Here we have one more parameter, so there is a whole family of projections that are equally good and reproduce the exact value function.  Again, the only state value error that matters is for state 7 whose value is given as
+
+$\begin{flalign}
+v_7 &= w_7 + 2w_8 \\
+\end{flalign}$
+
+This distance is 0 for any parameters that satisfy this equality.  To calculate the mean squared projected Bellman Error, we first take state 7 and apply the Bellman operator to it:
+
+$B_\pi(\hat v_7) = \gamma(w_7 + 2 w_8)$
+
+Given this new value, which parameters satisfy the projection?  We can pick any new value which satisfies $\gamma (w_7 + 2 w_8) = w_7^\prime + 2w_8^\prime$.  One easy option that satisfies this relationship is just $w_7^\prime = \gamma w_7$ and $w_8^\prime = \gamma w_8$ so each parameter can just be multiplied by $\gamma$ to find the projection point.  Now the projected Bellman error is the distance between these two values:
+
+$\overline{\text{PBE}} = ((w_7 + 2w_8) - \gamma (w_7 + 2 w_8))^2 = ((w_7 + 2 w_8)(1-\gamma))^2 = \overline{\text{VE}} (1-\gamma)^2$
+
+which is the same as the Bellman Error since the projection in this case can just match any value from the Bellman operator, and we already know this is minimized when $w_7 = -2w_8$ which is the same value that minimizes the value error.
+"""
+
+# ╔═╡ 773c82f4-ba00-4907-953a-c1d7d6eb3478
+#=╠═╡
+function figure_11_5(;steps = 2_000, γ::Float32 = 0.99f0, α::Float32 = 0.0005f0, β::Float32 = α*10)
+
+	out = tdc_estimation(baird_state_mdp, π_baird!, b_baird!, 8, γ, 1, steps, baird_update_state_vector!; parameters = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), α = α, β = β, save_parameter_history = true)
+
+	ve(params) = (params[7] + 2*params[8])^2
+
+	param_traces = [scatter(y = [a[i] for a in out.parameter_history], name = latexstring("w_$i")) for i in 1:8]
+	ve_trace = scatter(y = [sqrt(ve(a)) for a in out.parameter_history], name = L"\sqrt{\overline{\text{VE}}}")
+	pbe_trace = scatter(y = [sqrt(ve(a))*(1-γ) for a in out.parameter_history], name = L"\sqrt{\overline{\text{PBE}}}")
+	baseline_tr = scatter(x = [0, steps], y = [0, 0], mode = "lines", line_dash = "dash", line_color = "black", showlegend=false)
+	traces = [param_traces; ve_trace; pbe_trace; baseline_tr]
+	plot(traces, Layout(yaxis_range = [-3, 10], title = "TDC", xaxis_title = "Steps", width = 800))
+end
+  ╠═╡ =#
+
+# ╔═╡ aee362e3-b1a0-4378-9af0-1ea1ed6580fe
+#=╠═╡
+figure_11_5(;α = 0.005f0, γ = 0.99f0)
+  ╠═╡ =#
+
+# ╔═╡ 9a21ebe8-186f-4ab4-b0ae-8a0c668c3f92
+md"""
+The convergence is very slow due to $\gamma$ being close to 1.  Even though the value error remains high, the fact that the observed projected Bellman error is shrunk by a factor of $(1 - \gamma)^2$ makes it nearly 0 even while the value error is close to 4.  If we shrink the value of $\gamma$ towards 0, then both errors converge to 0 much faster.
+"""
+
+# ╔═╡ e523bc1f-f2ad-49a0-ae3e-aa79db6e8043
+md"""
+### TDC Generalized Policy Iteration
+
+We can use the TDC algorithm to try to do a better job of Q-learning with linear approximation.  Previously, we had used some value function approximation to learn action values and then try to follow the greedy policy while updating the values.  With sarsa this was an on-policy method, but in the case of Q-learning we used the parameter update that takes the maximum action value while still following the $\epsilon$-greedy policy.  Usually if $\epsilon$ isn't too large, this does not cause diverging weights, but there is always a risk of that happening.  We can try to use the TDC method instead learn the greedy value function while still following the $\epsilon$-greedy one.  We can update the policy after one or more update steps while tracking the approximation vectors used in TDC.  Unlike in TDC estimation, we will not have an explicit target policy.  The behavior policy will usually just be the $\epsilon$-greedy policy and change throughout training, but this method also means we can have a static behavior policy such as one that visits all states with equal probability.
+"""
+
+# ╔═╡ 0fefa79e-64f2-41d9-9e35-b0e56d2f90fd
+#add method for make_ϵ_greedy_policy! which works with linear value approximation.  maybe I already have it but under a different name
+
+# ╔═╡ 12068dea-798d-4cc3-86f0-07b7315caa91
+
 
 # ╔═╡ 45e8699f-18ca-47a6-97eb-f855950b326d
 md"""
@@ -3028,9 +3228,20 @@ version = "17.4.0+2"
 # ╠═05647633-14d2-4d5b-8c60-e236fbfeb334
 # ╟─f10a08f2-eba8-4e5e-87f8-313bb7494a49
 # ╟─a4e11eb7-d314-4d78-b9b6-df8fc2838149
-# ╠═6c2fcfc8-158e-4165-9375-638d9444f70b
+# ╟─6c2fcfc8-158e-4165-9375-638d9444f70b
 # ╠═1d1afe4f-8b7f-4d81-aa97-1448b47befac
 # ╠═7f6c554b-3423-4bb5-bf07-853afa4e76fb
+# ╠═bfbe7c40-3f60-49b4-9690-ad0ee0d7db99
+# ╟─f3915dbd-6266-48cd-9bc0-a40b39b8dd22
+# ╟─4fd5b88f-eb4b-415b-9f8e-781dd4e194d0
+# ╠═5f7635d8-42a3-4b74-b027-6a870d6e7d47
+# ╟─6fd223aa-3d28-47e9-ba4f-391be5362521
+# ╠═773c82f4-ba00-4907-953a-c1d7d6eb3478
+# ╟─aee362e3-b1a0-4378-9af0-1ea1ed6580fe
+# ╟─9a21ebe8-186f-4ab4-b0ae-8a0c668c3f92
+# ╟─e523bc1f-f2ad-49a0-ae3e-aa79db6e8043
+# ╠═0fefa79e-64f2-41d9-9e35-b0e56d2f90fd
+# ╠═12068dea-798d-4cc3-86f0-07b7315caa91
 # ╟─45e8699f-18ca-47a6-97eb-f855950b326d
 # ╠═31333ae3-615e-4587-80cf-d2716669af9e
 # ╠═702e5559-55b0-4392-af55-846886aa1244
