@@ -1525,11 +1525,56 @@ end
 plot_value_approximation([1, 0], feature_vectors[1], feature_vectors[2]; w = [weight_select[1], weight_select[2]])
   ╠═╡ =#
 
-# ╔═╡ 586ab905-0564-4938-bdc5-507eb43cb746
+# ╔═╡ 666a27b0-6fa3-4f5c-b85e-c3f66f0b5790
 md"""
 ## 11.5 Gradient Descent in the Bellman Error
 
-First consider the *mean square TD error:
+True gradient methods update the parameters of an objective function in the direction of the negative gradient of some objective function.  Under the right conditions, these techniques have robust convergence properties and can find the true minimum value of the objective.  Previously, the only true gradient methods developed were Monte Carlo methods, but now we seek to find true gradient methods in the off-policy case in terms of some other objective.  If we forgo Monte Carlo methods, then the value error objective is no longer available to us so we must consider alternatives such as the Bellman Error.  It also turns out that in the on-policy case, semi-gradient TD in the linear case does behave like a true gradient method that reaches the TD fixed point, however this point minimizes the projected Bellman Error rather than the value error.  The TD fixed point is a fixed point because unlike the other error metrics, it can be reduced to 0 for any MDP and any linear approximation function.  At this point, the semi-gradient update is expected to be 0.
+"""
+
+# ╔═╡ 16b45f02-8bdf-4721-ab70-ab2146c139bb
+md"""
+### Bellman Error Definition
+
+With a true SGD method for off-policy training, we would not have to worry about divergence even under non-linear approximation.  One of the most popular proposed objectives for SGD is the *Bellman error*.  Consider first the effect of applying the Bellman operator on a given state value function approximation $\hat v(s)$
+
+$(B_\pi \hat v)(s) \doteq \sum_a \pi(a\vert s)\sum_{s^\prime, r} p(s^\prime, r \vert s, a)[r + \gamma \hat v (s^\prime)$
+
+The *Bellman error* at state $s$ is the difference between the value at state s and the Bellman operator value:
+
+$\overline{\delta}_\mathbf{w}(s) \doteq (B_\pi \hat v)(s) - \hat v (s)$
+
+We know that for the true value function $v_\pi$, the effect of applying the Bellman operator is to leave the value unchanged:
+
+$(B_\pi v_\pi)(s) = v_\pi(s) \; \forall s$
+
+So for the true value function the Bellman error is 0 at every state.  In the tabular methods for part 1 of the book, we sought to find this unique value function for which the Bellman error is 0 at every state and the value error is also 0 at every state.  When we deal with approximation, however, it is impossible to guarantee 0 Bellman error, so we must define a different objective like we did for the value error, one that weights the errors at each state by the on-policy distribution.  This distribution is irrelevant for tabular methods since the final result will have 0 error at every state.
+"""
+
+# ╔═╡ 3368ae68-3ce7-4426-a088-a24e5574abde
+md"""
+### Mean Square Bellman Error
+
+One natural choice for objective function is to take the squared sum of the Bellman error at each state weighted by the probability of visiting that state while following the target policy.  We call this objective the mean square Bellman error and it is defined as:
+
+$\begin{flalign}
+\overline{\text{BE}} & \doteq \sum_s \mu_\pi(s) \overline{\delta}_\mathbf{w}(s)^2 \\
+&= \sum_s \mu_\pi(s) \left ( (B_\pi \hat v)(s) - \hat v (s) \right )^2 \\
+&= \sum_s \mu_\pi(s) \left [ \sum_a \pi(a\vert s)\sum_{s^\prime, r} p(s^\prime, r \vert s, a)[r + \gamma \hat v (s^\prime)] - \hat v (s) \right ]^2 \\
+\end{flalign}$
+
+In the diagram in the previous section this error is represented by the length of a vector which points from the initial approximation point to the Bellman operator applied to that point.  Since that diagram represents a two state MDP, the point's position on the graph represents both values.
+"""
+
+# ╔═╡ 68539414-2775-4f1e-bc03-016a7736c583
+md"""
+### Mean Square TD Error
+
+Prior to analyzing $\overline{\text{BE}}$, consider the one-step TD error that we often use as a starting point for bootstrap approximation methods:
+
+$\delta_t = R_{t+1} + \gamma \hat v (S_{t+1}) - \hat v(S_t)$
+
+This error term is always available by sampling from the environment, so let's consider an objective that directly uses this to as a minimization objective.  For example, we could square the TD error to ensure it is always positive and weight it accoring to the target policy distribution.  Such an objective is called the *mean square TD error*:
 
 $\begin{flalign}
 \overline{\text{TDE}}(\mathbf{w}) &= \sum_{s \in \mathcal{S}} \mu(s) \mathbb{E}[\delta_t^2 \mid S_t = s, A_t \sim \pi] \\
@@ -1537,26 +1582,28 @@ $\begin{flalign}
 &= \mathbb{E}_b [\rho_t \delta_t^2] \tag{if μ is the distribution encountered under b}
 \end{flalign}$
 
-This can be sampled from the environment but does not properly account for the difference in distribution between the states visited by $\pi$ and $b$.  Using the one-step TD error we can minimize this with SGD and the following update rule:
+The importance sampling ratio is first used to adjust the values from actions taken by the behavior policy.  Notice that in the last step, however, if we sample an entire trajectory by the behavior policy, we will not weight updates according to the on-policy distribution $\mu_\pi(s)$ but rather according to $\mu_b (s)$.  This can be sampled from the environment but represents a different objective.  Although incorrect, a true SGD method will converge to this objective which eliminates one of the problems we previously had for off-policy training.  We can derive the following update rule by taking the gradient of this objective assuming that our approximation function is parametrized by some weight vector $\hat v(s, \mathbf{w})$:
 
 $\begin{flalign}
-\delta_t &= R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \\
 \mathbf{w}_{t+1} &= \mathbf{w}_t - \frac{1}{2} \alpha \nabla (\rho_t \delta_t^2) \\
 &= \mathbf{w}_t - \alpha \rho_t \delta_t \nabla \delta_t \\
 &= \mathbf{w}_t + \alpha \rho_t \delta_t \left ( \nabla \hat v(S_t, \mathbf{w}_t) - \gamma \nabla \hat v(S_{t+1}, \mathbf{w}_t) \right ) \tag{11.23} \\
 \end{flalign}$
 
-This update rule is a true gradient method and converges to the minimum $\overline{\text{TDE}}$ as defined above.  The algorithm which uses (11.23) to update weights is known as the *naive residual-gradient* algorithm.  Ignoring the improper treatment of the state distribution, this point can differ from the TD fixed point and the minimum value error point even for on policy learning.  As seen above in the linear value function diagram, this point may be undesireable and is further away from the minimum value error point for the example shown. 
+This update rule is a true gradient method and converges to the minimum $\overline{\text{TDE}}$ as defined above.  The algorithm which uses (11.23) to update weights is known as the *naive residual-gradient* algorithm.  It appears very similar to the semi-gradient TD update with importance sampling:
 
+$\mathbf{w}_{t+1} = \mathbf{w}_t + \alpha \rho_t \delta_t \nabla \hat v (S_t, \mathbf{w}_t)$
+
+The only difference is the final term which turns this into a true SGD method.  However, this method does not converge to the TD fixed point or the point of minimum value error in general which is not surprising considering the objective is different.  As seen above in the linear value function diagram, this point may be undesireable since it is further away from the point of minimum value error.  The subsequent example highlights another problem with this objective even in the on-policy case where the distribution of states is no longer a problem.
 """
 
-# ╔═╡ 61d6ed9e-98c3-487c-959f-462df483b3da
+# ╔═╡ 2344c8c6-6cff-4047-bf43-5e081a3067ef
 md"""
 ### Example 11.2: A-split example
 
-#### True Values
+Consider a stochastic episodic environment with three states: A, B, C.  Episodes always begin in state A and have an equal chance of transitioning into B or C with 0 reward.  Episodes always terminate from states B and C with a reward of 1 and 0 respectively.  Since this problem is an MRP, there are no policies and thus no consideration of off-policy learning or importance sampling ratios.  Since the problem is episodic, we can consider the undiscounted case $\gamma = 1$.  Given these constraints, the true state values are easy to determine.
 
-The true values for this MDP with $\gamma = 1$ are:
+#### True Values
 
 $\begin{flalign}
 v_B &= 1 \\
@@ -1564,36 +1611,78 @@ v_C &= 0 \\
 v_A &= \frac{1}{2}(v_B + v_C) = \frac{1}{2}
 \end{flalign}$
 
-Consider the case of approximation but with three parameters $w_A, w_B, w_C$ so that an exact solution is possible with $w_A = \frac{1}{2}, w_B = 1, w_C = 0$ where each parameter matches the corresponding state value.  We would hope that any algorithm used will converge to the correct values.  Obviously gradient Monte Carlo will, but what about semi-gradient TD(0)?  The update rule for each state will be:
+#### Approximation Function
 
-#### TD Fixed Point
-$\begin{flalign} 
+Consider the case of approximation but with three parameters $w_A, w_B, w_C$ so that an exact solution is possible with $w_A = \frac{1}{2}, w_B = 1, w_C = 0$ where each parameter matches the corresponding state value:
 
-w_A &\leftarrow w_A + \alpha \left ( \frac{1}{2}(w_B + w_C) - w_A \right ) \\
-w_B &\leftarrow w_B + \alpha (1 - w_B) \\
-w_C &\leftarrow w_C + \alpha (0 - w_C)
+$\begin{flalign}
+\hat v_A &= w_A \\
+\hat v_B &= w_B \\
+\hat v_C &= w_C \\
 \end{flalign}$
 
-At convergence, all updates will leave the parameter unchanged.  It is easy to see for $w_B$ and $w_C$ that this occurs at $w_B = 1$ and $w_C = 0$.  Those two values imply $w_A = \frac{1}{2}(1 + 0) = \frac{1}{2}$ and that confirms that the TD fixed point equals the exact solution:  
+Approximation methods must also take into account $\mu(s)$.  Episodes always begin in state A and split evenly into B and C before terminating, so $\mu_A = 2 \mu_B = 2 \mu_C$ and $\mu_B = \mu_C$.  From these relationships we can solve for the state distribution:
+
+$\begin{flalign}
+\mu_A &= \frac{1}{2} \\
+\mu_B &= \frac{1}{4} \\
+\mu_C &= \frac{1}{4} \\
+\end{flalign}$
+
+With three parameters this is a tabular problem, and we have already established that Monte Carlo gradient methods will converge to the exact solution in this case.  The semi-gradient TD(0) method should also converge to the exact solution since the minimum value-error is 0, but we can also verify this by studying the update rule:
+"""
+
+# ╔═╡ bb099078-5995-48aa-b634-82c5c8f5f396
+md"""
+#### Semi-gradient TD(0)
+
+The update for each state depends upon the TD error.  State A has two equally likely TD errors given by:
+
+$\begin{flalign} 
+\delta_A &= 0 + w_B - w_A = w_B - w_A \\
+\delta_A &= 0 + w_C - w_A = w_C - w_A\\
+\end{flalign}$
+
+States B and C both transition into terminal states deterministically, so their TD errors are given by:
+
+$\begin{flalign} 
+\delta_B &= 1 - w_B \\
+\delta_C &= 0 - w_C = w_C\\
+\end{flalign}$
+
+At the TD-fixed point, the expected parameter update after visiting states according to the on-policy distribution should be 0.  Let's consider all 4 updates that occur:
+
+$\begin{flalign} 
+w_A &\leftarrow w_A + \alpha \left ( w_B - w_A \right ) \\
+w_A &\leftarrow w_A + \alpha \left ( w_C - w_A \right ) \\
+w_B &\leftarrow w_B + \alpha (1 - w_B) \\
+w_C &\leftarrow w_C + \alpha w_C
+\end{flalign}$
+
+The convergence condition for $w_B$ and $w_C$ is obvious from the last two equations: $w_B = 1$ and $w_C = 0$.  For state A, the two updates occur with equal probability, so the sum of the term multiplying $\alpha$ for each should be 0.  We can substitude the values we already know for $w_B$ and $w_C$ to get: $1 - w_A - w_A = 0 \implies w_A = \frac{1}{2}$, confirming that the TD fixed point equals the exact solution:  
 
 $\begin{flalign}
 w_A &= \frac{1}{2} = v_A \\
 w_B &= 1 = v_B \\
 w_C &= 0 = v_C
 \end{flalign}$
+"""
 
-
-
-
+# ╔═╡ 1b9d8e13-7872-4bfe-9269-aee9a31d5ae6
+md"""
 #### Minimum $\overline{\text{TDE}}$ Solution
 
-Now let's repeat this calculation but with the (11.23) update.
+Now let's calculate the parameters that minimize the mean square TD error.  Instead of applying the parameter update rule, we can solve directly for the minimizing parameters using the definition of the objective:
 
-State A is visited double the time of B and C since episodes start there.  So the full expression for the $\overline{\text{TDE}}$ is:
+$\overline{\text{TDE}} = \mathbb{E}_b [\rho_t \delta_t^2]$
 
-$\frac{1}{4}\left ( (w_B - w_A)^2 + (w_C - w_A)^2 + (1 - w_B)^2 + (0-w_C)^2 \right )$
+There are four distinct TD errors as shown above.  The two for state A have equal probability and $\mu_A = \frac{1}{2}$ so each TD error will occur with $\frac{1}{4}$ probability:
 
-$\frac{1}{4} \left ( 2w_B^2 - 2 w_B w_A + 2w_A^2 + 2w_C^2 - 2 w_A w_C+ 1 - 2 w_B \right )$
+$\begin{flalign}
+\overline{\text{TDE}} &= \mathbb{E}_b [\rho_t \delta_t^2] \\
+&= \frac{1}{4}\left ( (w_B - w_A)^2 + (w_C - w_A)^2 + (1 - w_B)^2 + w_C^2 \right ) \\
+&= \frac{1}{4} \left ( 2w_B^2 - 2 w_B w_A + 2w_A^2 + 2w_C^2 - 2 w_A w_C+ 1 - 2 w_B \right )
+\end{flalign}$
 
 Next consider the gradient with respect to each parameter which will be 0 at convergence to the minimum
 
@@ -1621,7 +1710,7 @@ w_B &= \frac{3}{4} \ne v_B \\
 w_C &= \frac{1}{4} \ne v_C
 \end{flalign}$
 
-So even though an exact solution is possible, minimizing the $\overline{\text{TDE}}$ does not find it.
+So even though an exact solution is possible, minimizing the $\overline{\text{TDE}}$ does not find it.  For Monte Carlo gradient and semi-gradient TD methods developed earlier, the tabular approximation case always reduced to the tabular methods from part 1.  This simple example shows that is not the case for the mean square TD objective.
 
 """
 
@@ -1629,10 +1718,21 @@ So even though an exact solution is possible, minimizing the $\overline{\text{TD
 md"""
 ### Residual Gradient Algorithm
 
-Instead of the $\overline{\text{TDE}}$ we can consider the Bellman error denoted $\overline{\text{BE}}$ which is just the expected value of the TD error.  Like all the previous error metrics the difference between the estimated value and the target value is squared, but the squaring is done after the expected value here instead of before
+Let's now return to the mean square Bellman error and try to derive an update rule that can be achieved through sampling:
 
 $\begin{flalign}
-\delta_t &= R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \\
+\overline{\text{BE}} &= \sum_s \mu_\pi(s) \left [ \sum_a \pi(a\vert s)\sum_{s^\prime, r} p(s^\prime, r \vert s, a)[r + \gamma \hat v (s^\prime)] - \hat v (s) \right ]^2 \\
+&= \sum_s \mu_\pi(s) \left [ \sum_a \pi(a\vert s)\sum_{s^\prime, r} p(s^\prime, r \vert s, a)[r + \gamma \hat v (s^\prime) - \hat v (s)] \right ]^2 \\
+&= \sum_s \mu_\pi(s) \mathbb{E} \left [ \delta_t \vert S_t = s, A_t \sim \pi(s) \right ]^2 \\
+&= \sum_s \mu_\pi(s) \mathbb{E}_\pi \left [ \delta_t \vert S_t = s \right ]^2 \\
+&= \sum_s \mu_\pi(s) \mathbb{E}_b \left [\rho_t \delta_t \vert S_t = s \right ]^2 \\
+\end{flalign}$
+
+We can see that the mean square Bellman error is just expected value of the TD error for each state squared.  The only difference between this and the $\overline{\text{TDE}}$ is that the squaring is done outside of the expected value.
+
+We can derive an SGD parameter update rule by taking the gradient with respect to the parameters.  If the visited states matches the behavior policy instead of the target policy then we are really optimizing something different again which is the mean square Bellman error weighted by the behavior policy, but it will still converge to that value as well.  The example we will consider does not have an off-policy distribution, and the problems with this approach will appear ignoring that problem.
+
+$\begin{flalign}
 \mathbf{w}_{t+1} &= \mathbf{w}_t - \frac{1}{2} \alpha \nabla (\mathbb{E}_\pi [\delta_t]^2) \\
 &= \mathbf{w}_t - \frac{1}{2} \alpha \nabla (\mathbb{E}_b [\rho_t \delta_t]^2) \\
 &= \mathbf{w}_t - \alpha \mathbb{E}_b[\rho_t \delta_t] \nabla \mathbb{E}_b [\rho_t \delta_t] \tag{chain rule}\\
@@ -1643,22 +1743,38 @@ $\begin{flalign}
 Note that the two expected values in this expression cannot in general use the same sample of the transition state since the product would reflect the correlation between the samples.  Instead we need two independent samples or, if the environment is deterministic, this is unecessary.  For example 11.2, this algorithm would find the correct values since it is guaranteed to minimize the Bellman error and the exact solution will always have 0 Bellman error at every state.  We can however, modify the example to one in which the minimum Bellman error solution is also problematic.
 """
 
-# ╔═╡ 8091e40f-0232-4142-a1b0-b803ed2f157f
+# ╔═╡ 6edbe471-361c-463a-b942-3ecbd879c427
 md"""
 ### Example 11.3: A-presplit example, a counterexample for the $\overline{\text{BE}}$
 
-There are 4 true states in this MRP since A is split into A1 and A2 and the problem is deterministic.  But we will consider approximate solutions in which both A states share a single parameter:
+Consider the A-split example from before but converted into a deterministic problem by separating state A into two parts each of which does a deterministic transition either into state B or C.  The exact solution is trivial for the four state values:
 
 #### Exact Solution
 
 $\begin{flalign}
-v_{A1} &= 1, \; \hat v_{A1} = w_A \\
-v_{A2} &= 0, \; \hat v_{A2} = w_A \\
-v_B &= 1, \; \hat v_B = w_B \\
-v_C &= 0, \; \hat v_C = w_C \\
+v_B &= 1 \\
+v_C &= 0 \\
+v_{A1} &= 0 + v_B = 1 \\
+v_{A2} &= 0 + v_C = 0 \\
 \end{flalign}$
 
-Now equal time is spent in all 4 states, so the value error is given by:
+There are four deterministic states in this MRP, but we will consider approximate solutions in which both A states share a single parameter.
+
+$\begin{flalign}
+\hat v_{A1} = w_A \\
+\hat v_{A2} = w_A \\
+\hat v_B = w_B \\
+\hat v_C = w_C \\
+\end{flalign}$
+
+Equal time is spent in all four states since episodes start in either A1 or A2 with equal probability.  From the perspective of the approximation parameter, $w_A$ will appear $\frac{1}{2}$ of the time while $w_B$ and $w_C$ will appear $\frac{1}{4}$ of the time, so this problem appears the same as the A-split example with respect of $\mathbf{w}$
+"""
+
+# ╔═╡ 77566379-e31c-41a7-bb31-ccb3f2d69723
+md"""
+#### Minimum $\overline{\text{VE}}$ Solution
+
+Using the true values, we can write down the value error objective and directly calculate the parameters which minimize it by taking the gradient:
 
 $\overline{\text{VE}} = \frac{1}{4} \left ( (w_A - 1)^2 + (w_A - 0)^2 + (w_B - 1)^2 + (w_C - 0)^2 \right ) = \frac{1}{4} \left ( 2(w_A^2 - w_A) + 1 + (w_B - 1)^2 + w_C^2 \right )$
 
@@ -1668,7 +1784,7 @@ $\begin{flalign}
 \frac{\partial \overline{\text{VE}}}{\partial w_C} &= \frac{1}{2} w_C\\
 \end{flalign}$
 
-#### Minimum $\overline{\text{VE}}$ Solution
+
 
 Setting each of these to zero reveals the unique solution which minimizes the value error:
 
@@ -1678,14 +1794,17 @@ w_B &= 1 \\
 w_C &= 0 \\
 \end{flalign}$
 
-which is the same solution as before, expect now the value error is not zero but rather $\frac{1}{4}(2(\frac{1}{4} - \frac{1}{2}) + 1) = \frac{1}{8}$.  An exact solution is not possible since we have one too few parameters, but the whole purpose of approximation is to define what we mean by a good solution that cannot be exact.
+which is the same solution as before, expect now the value error is not zero but rather $$\frac{1}{4}(2(\frac{1}{4} - \frac{1}{2}) + 1) = \frac{1}{8}$$.  An exact solution is not possible since we have one too few parameters, but the whole purpose of approximation is to define what we mean by a good solution that cannot be exact.  The data with respect to the parameters is the same as would be for the A-split example, and if this data did come from that problem then the value error would be 0.  The fact that two distinct problems can appear the same but have different true value error might seem to be a problem, but the difference is value error is always a variance term which does not depend on the parameters but only on the stochastic nature of the problem.  From that perspective, the A-split example has zero value error for these parameters because the true value from state A is always $$\frac{1}{2}$$ while the the A-presplit example the true value of A1 and A2 is not $$\frac{1}{2}$$ but that information is hidden from the approximation.
+"""
 
+# ╔═╡ 358daffe-cf39-440d-a9b4-d0a3497b41ad
+md"""
 #### Minimum $\overline{\text{BE}}$ Solution
 
 What if we instead try to minimize the Bellman error?  We fully know the dynamics of the problem, so we can directly find a solution without resorting to gradient methods. 
 
 $\begin{flalign}
-\overline{\text{BE}} &= \sum_{s \in \mathcal{S}} \mu_\pi(s)\mathbb{E}_\pi [\delta_t \mid S_t = s, A_t \sim \pi]^2 \\
+\overline{\text{BE}} &= \sum_{s \in \mathcal{S}} \mu_\pi(s)\mathbb{E}_\pi [\delta_t \mid S_t = s]^2 \\
 &= \frac{1}{4} \left [(w_B - w_A)^2 + (w_C - w_A)^2 + (1 - w_B)^2 + w_C^2 \right ]\\
 \end{flalign}$
 
@@ -1698,7 +1817,10 @@ w_C &= \frac{1}{4}
 \end{flalign}$
 
 Obviously this differs from the minimum value error solution.  What about the TD fixed point though?  We know in general that the semi-gradient algorithm does not converge to the minimum value error, but would it perform better than the Bellman error in this case?  Let's consider the TD(0) update rule and when it converges.
+"""
 
+# ╔═╡ c368eab7-9ce2-4b9a-bd91-3a8810472839
+md"""
 #### TD Fixed Point Solution
 
 $\begin{flalign} 
@@ -1709,7 +1831,7 @@ w_B &\leftarrow w_B + \alpha (1 - w_B) \\
 w_C &\leftarrow w_C + \alpha (0 - w_C)
 \end{flalign}$
 
-For $w_B$ and $w_C$ it is clear that the update is 0 when $w_B = 1$ and $w_C = 0$ which matches the minimum value error solution.  The first two updates for $w_A$ occur with equal frequency so we would seek a solution when the combined update is 0 which implies $w_B - w_A + w_C - w_A = 0 \implies 2w_A = w_B + w_C = 1 \implies w_A = \frac{1}{2}$.  So the TD fixed point also matches the minimum value error solution: 
+These updates each occur with equal probability and are exactly the same as the expected updates for the A-spit example.  Therefore, the solution will be the same and match the exactly solution for A-split and the solution which minimizes the value error for A-presplit:
 
 $\begin{flalign}
 w_A &= \frac{1}{2} \\
@@ -1736,12 +1858,14 @@ The Bellman error, on the other hand is $\mathbb{E}_\pi [\delta_t]$ is not obser
 
 # ╔═╡ e49849c5-d9b1-426b-b471-3acd32dcf07d
 md"""
-> ### *Exercise 11.4* 
+> ### * *Exercise 11.4* 
 > Prove (11.24). Hint: Write the $\overline{\text{RE}}$ as an expectation over possible states $s$ of the expectation of the squared error given that $S_t = s$.  Then add and subtract the true value of state $s$ from the error (before squaring), grouping the subtracted true value with the return and the added true value with the estimated value.  Then if you expand the square, the most complex term will end up being zero, leaving you with (11.24).
+
+$\overline{\text{RE}}(\mathbf{w}) = \overline{\text{VE}}(\mathbf{w}) + \mathbb{E}_\pi \left [ \left ( G_t - v_\pi(S_t) \right )^2 \right ] \tag{11.24}$
 
 To start out we have the definition of the *mean square return error*
 
-$\overline{\text{RE}}(\mathbf{w}) = \mathbb{E} \left [ (G_t - \hat v(S_t, \mathbf{w}))^2 \right ]$
+$\overline{\text{RE}}(\mathbf{w}) = \mathbb{E}_\pi \left [ (G_t - \hat v(S_t, \mathbf{w}))^2 \right ]$
 
 Also we can note from Chapter 3 that 
 
@@ -1803,67 +1927,6 @@ v_B^\prime &= -1 \\
 which like the first is independent of $\gamma$.
 """
 
-# ╔═╡ bce9cdca-de1d-432c-a2f2-cbb6e414dfcb
-#=╠═╡
-@bind params_11_4 PlutoUI.combine() do Child
-	md"""
-	$(Child(:w1, Slider(-1:0.1:1, default = 0, show_value=true)))
-	$(Child(:w2, Slider(-1:0.1:1, default = 0, show_value=true)))
-	"""
-end
-  ╠═╡ =#
-
-# ╔═╡ 05647633-14d2-4d5b-8c60-e236fbfeb334
-#=╠═╡
-function plot_11_4_value(;γ = 1, w1 = 0, w2 = 0, n = 100)
-	v_true = scatter3d(x = [0], y = [1], z = [-1], mode = "markers", name = "True Value Function")
-	v(w1, w2) = (x = w1, y = w2, z = w2)
-	ve(w1, w2) = (1/3)*(w1^2 + 2*w2^2 + 2)
-	bo(w1, w2) = (x = [γ*w2], y = [1 + γ*w1], z = [-1 + γ*w2])
-	be(w1, w2) = (1/3)*((γ+w2 - w1)^2 + (1 + γ*w1 - w2)^2 + (-1 + γ*w2 - w2)^2)
-	xs = []
-	ys = []
-	zs = []
-	ves = []
-	bes = []
-	for w1 in LinRange(-3, 3, n)
-		for w2 in LinRange(-3, 3, n)
-			push!(xs, w1)
-			push!(ys, w2)
-			push!(zs, w2)
-			push!(ves, ve(w1, w2))
-			push!(bes, be(w1, w2))
-		end
-	end
-
-	param1_tr = scatter3d(x = [-3, 3], y = [0, 0], z = [0, 0], line_color = "black", name = "weight 1 axis", mode = "lines", line_width = 5)
-	param2_tr = scatter3d(x = [0, 0], y = [-3, 3], z = [-3, 3], line_color = "black", name = "weight 2 axis", mode = "lines", line_width = 5)
-
-	
-	ves_tr = scatter3d(x = xs, y = ys, z = ves, mode = "markers", marker_size = 1)
-	bes_tr = scatter3d(x = xs, y = ys, z = bes, mode = "markers", marker_size = 1)
-	
-	v̂_tr = scatter3d(x = xs, y = ys, z = zs, mode = "markers", marker_size = 1, color = "blue", name = "Possible Approximate Value Functions")
-	v̂_ex_tr = scatter3d(x = [w1], y = [w2], z = [w2], mode = "markers", name = "Value Function for w = [$w1, $w2])")
-	ve_tr = scatter3d(x = [w1, 0], y = [w2, 1], z = [w2, -1], mode = "lines", name = "Value Error Vector for w = [$w1, $w2])", line_dash = "dot", line_color = "black", line_width = 8)
-	bo_tr = scatter3d(;bo(w1, w2)..., mode = "markers", name = "Bellman Operator on Approximation")
-	p1 = plot([v̂_tr, v_true, v̂_ex_tr, ve_tr, bo_tr, param1_tr, param2_tr], Layout(scene = attr(xaxis_range = [-2, 2], yaxis_range = [-2, 2], zaxis_range = [-2, 2], xaxis_title = "Value A", yaxis_title = "Value B", zaxis_title = "Value C", camera = attr(eye = attr(x = 2, y = 1, z = .5), up = attr(x = 1.4, y = .95, z = 0.1))), height = 700, legend_orientation = "h"))
-	p2 = plot([ves_tr, bes_tr], Layout(scene = attr(xaxis_title = "w1", yaxis_title = "w2", zaxis_title = "value error"), height = 600))
-	@htl("""
-	<div style = "display: flex;">
-	$p1 
-	
-	$p2
-	</div>
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ 6b70f463-7d50-4b03-8210-b151575f98db
-#=╠═╡
-plot_11_4_value(;params_11_4...)
-  ╠═╡ =#
-
 # ╔═╡ f10a08f2-eba8-4e5e-87f8-313bb7494a49
 md"""
 #### Value Error
@@ -1914,7 +1977,7 @@ w_1 &= w_2 = 0 \\
 md"""
 #### Bellman Error
 
-$\overline{\text{BE}} = \sum_{s} \mu_s \mathbb{E}_\pi \left [ R_{t+1} + \gamma \hat v(S_{t+1}) - \hat v(S_t) \mid S_t = s, A_t \sim \pi \right ] ^2$ 
+$\overline{\text{BE}} = \sum_{s} \mu_s \mathbb{E}_\pi \left [ R_{t+1} + \gamma \hat v(S_{t+1}) - \hat v(S_t) \mid S_t = s \right ] ^2$ 
 
 ##### Left MDP
 
@@ -1973,39 +2036,21 @@ which does not match the solution we had for the minimum value error.
 
 """
 
-# ╔═╡ 6c2fcfc8-158e-4165-9375-638d9444f70b
-md"""
-#### Projection Operator
-
-$d(v_1, v_2, v_3) = (v_1 - w_1)^2 + (v_2 - w_2)^2 + (v_3 - w_2)^2$
-
-$\frac{\partial d}{\partial w_1} = -2(v_1 - w_1) \implies w_1 = v_1$
-
-$\frac{\partial d}{\partial w_2} = -2(v_2 - w_2) - 2(v_3 - w_2) = -2(v_2 - 2w_2 + v_3)\implies w_2 = \frac{v_2 + v_3}{2}$
-
-#### Projected Bellman Error
-
-$B_\pi(\hat v(w_1, w_2)) = \{\gamma w_2, 1 + \gamma w_1, -1 + \gamma w_2 \}$
-
-Projected Bellman Operator:
-
-$w_1 = \gamma w_2$
-$w_2 = \frac{\gamma}{2} (w_1 + w_2)$
-
-Projected Bellman Error:
-
-$(\gamma w_2 - w_1)^2 + 2(\frac{\gamma}{2}(w_1 + w_2) - w_2)^2$
-
-This is 0 when $w_1 = w_2 = 0$
-"""
+# ╔═╡ b5f926d8-3ea2-47a8-9093-ea366afe374f
+function min_be_weights(γ)
+	w2 = (γ / (1 + γ^2)) - 0.5
+	w1 = w2 * (γ^2 - γ + 1)/γ - 0.5
+	(w1, w2)
+end
 
 # ╔═╡ 7f6c554b-3423-4bb5-bf07-853afa4e76fb
 #=╠═╡
 function plot_11_4_be()
-	γs = LinRange(0, 1, 1000)
-	w2s = γs ./ (1 .+ γs .^2) .- .5
-	tr1 = scatter(x = γs, y = w2s, name = "w2")
-	tr2 = scatter(x = γs, y = w2s .- .5, name = "w1")
+	γs = LinRange(0.2, 1, 1000)
+	ws = min_be_weights.(γs)
+	
+	tr1 = scatter(x = γs, y = [w[1] for w in ws], name = "w1")
+	tr2 = scatter(x = γs, y = [w[2] for w in ws], name = "w2")
 	plot([tr1, tr2], Layout(xaxis_title = "Discount Rate", yaxis_title = "Weight Value", title = "Weights that Minimize Bellman Error"))
 end
   ╠═╡ =#
@@ -2014,6 +2059,110 @@ end
 #=╠═╡
 plot_11_4_be()
   ╠═╡ =#
+
+# ╔═╡ bce9cdca-de1d-432c-a2f2-cbb6e414dfcb
+#=╠═╡
+@bind params_11_4 PlutoUI.combine() do Child
+	md"""
+	γ: $(Child(:γ, Slider(0:0.1:1, default = 1, show_value=true)))
+	
+	w1: $(Child(:w1, Slider(-1:0.1:1, default = 0, show_value=true)))
+	
+	w2: $(Child(:w2, Slider(-1:0.1:1, default = 0, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 05647633-14d2-4d5b-8c60-e236fbfeb334
+#=╠═╡
+function plot_11_4_value(;γ = 1, w1 = 0, w2 = 0, n = 100)
+	v_true = scatter3d(x = [0], y = [1], z = [-1], mode = "markers", name = "True Value Function")
+	v(w1, w2) = (x = [w1], y = [w2], z = [w2])
+	ve(w1, w2) = (1/3)*(w1^2 + 2*w2^2 + 2)
+	bo(w1, w2) = (x = [γ*w2], y = [1 + γ*w1], z = [-1 + γ*w2])
+	be(w1, w2) = (1/3)*((γ+w2 - w1)^2 + (1 + γ*w1 - w2)^2 + (-1 + γ*w2 - w2)^2)
+	xs = []
+	ys = []
+	zs = []
+	ves = []
+	bes = []
+	for w1 in LinRange(-3, 3, n)
+		for w2 in LinRange(-3, 3, n)
+			push!(xs, w1)
+			push!(ys, w2)
+			push!(zs, w2)
+			push!(ves, ve(w1, w2))
+			push!(bes, be(w1, w2))
+		end
+	end
+
+	w_minbe = min_be_weights(γ)
+
+	param1_tr = scatter3d(x = [-3, 3], y = [0, 0], z = [0, 0], line_color = "black", name = "weight 1 axis", mode = "lines", line_width = 5)
+	param2_tr = scatter3d(x = [0, 0], y = [-3, 3], z = [-3, 3], line_color = "gray", name = "weight 2 axis", mode = "lines", line_width = 5)
+
+	min_be_tr = scatter3d(;v(w_minbe...)..., mode = "markers", name = "Minimum BE Solution")
+	
+	ves_tr = scatter3d(x = xs, y = ys, z = ves, mode = "markers", marker_size = 1, name = "Value Error")
+	bes_tr = scatter3d(x = xs, y = ys, z = bes, mode = "markers", marker_size = 1, name = "Mean Square Bellman Error")
+	
+	v̂_tr = scatter3d(x = xs, y = ys, z = zs, mode = "markers", marker_size = 1, color = "blue", name = "Possible Approximate Value Functions")
+	v̂_ex_tr = scatter3d(x = [w1], y = [w2], z = [w2], mode = "markers", name = "Value Function for w = [$w1, $w2])")
+	ve_tr = scatter3d(x = [w1, 0], y = [w2, 1], z = [w2, -1], mode = "lines", name = "Value Error Vector for w = [$w1, $w2])", line_dash = "dot", line_color = "black", line_width = 8)
+	bo_tr = scatter3d(;bo(w1, w2)..., mode = "markers", name = "Bellman Operator on Approximation")
+	p1 = plot([v̂_tr, v_true, v̂_ex_tr, ve_tr, bo_tr, param1_tr, param2_tr, min_be_tr], Layout(scene = attr(xaxis_range = [-2, 2], yaxis_range = [-2, 2], zaxis_range = [-2, 2], xaxis_title = "Value A", yaxis_title = "Value B", zaxis_title = "Value C", camera = attr(eye = attr(x = 2, y = 1, z = .5), up = attr(x = 1.4, y = .95, z = 0.1))), height = 700, legend_orientation = "h"))
+	# p2 = plot([ves_tr, bes_tr], Layout(scene = attr(xaxis_title = "w1", yaxis_title = "w2", zaxis_title = "value error", zaxis_range = [0, 6]), legend_orientation = "h"))
+	# @htl("""
+	# <div style = "display: flex;">
+	# $p1 
+	
+	# $p2
+	# </div>
+	# """)
+end
+  ╠═╡ =#
+
+# ╔═╡ 6b70f463-7d50-4b03-8210-b151575f98db
+#=╠═╡
+plot_11_4_value(;params_11_4...)
+  ╠═╡ =#
+
+# ╔═╡ 6c2fcfc8-158e-4165-9375-638d9444f70b
+md"""
+#### Projection Operator
+
+For this form of approximation we can directly compute the parameters which minimize the distance from an arbitrary value function to an approximate one.  All three states have equal visit probability so we can simply sum the squared distance components and use the fact that states 2 and 3 share the same approximation:
+
+$\begin{flalign}
+d(v_1, v_2, v_3) &= (v_1 - w_1)^2 + (v_2 - w_2)^2 + (v_3 - w_2)^2 \\
+&\therefore \\
+\frac{\partial d}{\partial w_1} &= -2(v_1 - w_1) \implies w_1 = v_1 \\
+\frac{\partial d}{\partial w_2} &= -2(v_2 - w_2) - 2(v_3 - w_2) \\
+&= -2(v_2 - 2w_2 + v_3)\implies w_2 = \frac{v_2 + v_3}{2} \\
+\end{flalign}$
+
+#### Projected Bellman Error
+
+If we apply the Bellman operator to an approximation, we get the following three state values: 
+
+$B_\pi(\hat v(w_1, w_2)) = \{\gamma w_2, 1 + \gamma w_1, -1 + \gamma w_2 \}$
+
+Applying the projection operator to these results in the following parameters:
+
+$\begin{flalign}
+w_1 &= \gamma w_2 \\
+w_2 &= \frac{\gamma}{2} (w_1 + w_2)
+\end{flalign}$
+
+The Projected Bellman Error is the distance between the initial state values and the new ones implied by the updated parameters:
+
+$\begin{flalign}
+\overline{\text{PBE}} &= \frac{1}{3} \left [ (w_1 - \gamma w_2)^2 + (w_2 - \frac{\gamma}{2}(w_1 + w_2))^2 + (w_2 - \frac{\gamma}{2}(w_1 + w_2))^2 \right ] \\
+&= \frac{1}{3} \left [ (\gamma w_2 - w_1)^2 + 2(\frac{\gamma}{2}(w_1 + w_2) - w_2)^2 \right ]
+\end{flalign}$
+
+Normally, we'd have to minimize this, but since we know the best solution will always have exactly 0 Projected Bellman Error, we can notice that when $w_1 = w_2 = 0$ this entire expression is 0.  That is the TD fixed point which also matches the minimizing value error solution.
+"""
 
 # ╔═╡ bfbe7c40-3f60-49b4-9690-ad0ee0d7db99
 md"""
@@ -2191,7 +2340,7 @@ end
 
 # ╔═╡ aee362e3-b1a0-4378-9af0-1ea1ed6580fe
 #=╠═╡
-figure_11_5(;α = 0.005f0, γ = 0.99f0)
+figure_11_5(;α = 0.00005f0, γ = 0.1f0)
   ╠═╡ =#
 
 # ╔═╡ 9a21ebe8-186f-4ab4-b0ae-8a0c668c3f92
@@ -2205,9 +2354,6 @@ md"""
 
 We can use the TDC algorithm to try to do a better job of Q-learning with linear approximation.  Previously, we had used some value function approximation to learn action values and then try to follow the greedy policy while updating the values.  With sarsa this was an on-policy method, but in the case of Q-learning we used the parameter update that takes the maximum action value while still following the $\epsilon$-greedy policy.  Usually if $\epsilon$ isn't too large, this does not cause diverging weights, but there is always a risk of that happening.  We can try to use the TDC method instead learn the greedy value function while still following the $\epsilon$-greedy one.  We can update the policy after one or more update steps while tracking the approximation vectors used in TDC.  Unlike in TDC estimation, we will not have an explicit target policy.  The behavior policy will usually just be the $\epsilon$-greedy policy and change throughout training, but this method also means we can have a static behavior policy such as one that visits all states with equal probability.
 """
-
-# ╔═╡ 0fefa79e-64f2-41d9-9e35-b0e56d2f90fd
-#add method for make_ϵ_greedy_policy! which works with linear value approximation.  maybe I already have it but under a different name
 
 # ╔═╡ 12068dea-798d-4cc3-86f0-07b7315caa91
 function tdc_control(mdp::StateMDP, d::Integer, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, parameters = [zeros(T, d) for _ in 1:length(mdp.actions)], save_parameter_history = false) where {T<:Real, S}
@@ -2445,6 +2591,12 @@ end
 tdc_control_baird()
   ╠═╡ =#
 
+# ╔═╡ f3753f04-ec45-42c9-ba54-d348499f6473
+#add episode detection to tdc algorithm
+
+# ╔═╡ 4b932772-b69f-427a-b8f4-ee52fba4696a
+#add parameter study comparing TDC and semi-gradient q learning
+
 # ╔═╡ 9f85ad2d-f417-4463-9894-53f0eead4d83
 function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
@@ -2463,7 +2615,7 @@ function mountaincar_tdc_test(max_episodes::Integer, α::Float32, ϵ::Float32; n
 end
 
 # ╔═╡ 41bd4480-7672-4adf-924a-5bc1e9d4b45e
-tdc_out = mountaincar_tdc_test(10000, 0.00001f0, 0.25f0; max_steps = 500_000, β = 1f-8)
+tdc_out = mountaincar_tdc_test(10000, 0.000002f0, 0.9f0; max_steps = 500_000, β = 1f-8)
 
 # ╔═╡ a5ec3b99-af5a-42e5-8dff-533b45e50af5
 #=╠═╡
@@ -3525,38 +3677,48 @@ version = "17.4.0+2"
 # ╠═9bc2895e-ab70-49f2-be7c-61f19054cf50
 # ╠═a780e90c-c6d1-44c8-9b55-d52cf4c20db4
 # ╠═aeca907a-ee07-4045-b98f-0c67b1734008
-# ╟─586ab905-0564-4938-bdc5-507eb43cb746
-# ╟─61d6ed9e-98c3-487c-959f-462df483b3da
+# ╟─666a27b0-6fa3-4f5c-b85e-c3f66f0b5790
+# ╟─16b45f02-8bdf-4721-ab70-ab2146c139bb
+# ╟─3368ae68-3ce7-4426-a088-a24e5574abde
+# ╟─68539414-2775-4f1e-bc03-016a7736c583
+# ╟─2344c8c6-6cff-4047-bf43-5e081a3067ef
+# ╟─bb099078-5995-48aa-b634-82c5c8f5f396
+# ╟─1b9d8e13-7872-4bfe-9269-aee9a31d5ae6
 # ╟─0babc5a1-c404-4ce8-bf30-74db15790c72
-# ╟─8091e40f-0232-4142-a1b0-b803ed2f157f
+# ╟─6edbe471-361c-463a-b942-3ecbd879c427
+# ╟─77566379-e31c-41a7-bb31-ccb3f2d69723
+# ╟─358daffe-cf39-440d-a9b4-d0a3497b41ad
+# ╟─c368eab7-9ce2-4b9a-bd91-3a8810472839
 # ╟─f12ad623-59f9-4efe-8fb5-14b1bf6904bc
 # ╟─e49849c5-d9b1-426b-b471-3acd32dcf07d
 # ╟─b180997e-fa2b-44de-936f-eb42bef4b6ad
-# ╟─bce9cdca-de1d-432c-a2f2-cbb6e414dfcb
-# ╠═6b70f463-7d50-4b03-8210-b151575f98db
-# ╠═05647633-14d2-4d5b-8c60-e236fbfeb334
 # ╟─f10a08f2-eba8-4e5e-87f8-313bb7494a49
 # ╟─a4e11eb7-d314-4d78-b9b6-df8fc2838149
-# ╟─6c2fcfc8-158e-4165-9375-638d9444f70b
-# ╠═1d1afe4f-8b7f-4d81-aa97-1448b47befac
+# ╠═b5f926d8-3ea2-47a8-9093-ea366afe374f
+# ╟─1d1afe4f-8b7f-4d81-aa97-1448b47befac
 # ╠═7f6c554b-3423-4bb5-bf07-853afa4e76fb
-# ╠═bfbe7c40-3f60-49b4-9690-ad0ee0d7db99
+# ╟─bce9cdca-de1d-432c-a2f2-cbb6e414dfcb
+# ╟─6b70f463-7d50-4b03-8210-b151575f98db
+# ╠═05647633-14d2-4d5b-8c60-e236fbfeb334
+# ╟─6c2fcfc8-158e-4165-9375-638d9444f70b
+# ╟─bfbe7c40-3f60-49b4-9690-ad0ee0d7db99
 # ╟─f3915dbd-6266-48cd-9bc0-a40b39b8dd22
 # ╟─4fd5b88f-eb4b-415b-9f8e-781dd4e194d0
 # ╠═5f7635d8-42a3-4b74-b027-6a870d6e7d47
 # ╟─6fd223aa-3d28-47e9-ba4f-391be5362521
 # ╠═773c82f4-ba00-4907-953a-c1d7d6eb3478
-# ╟─aee362e3-b1a0-4378-9af0-1ea1ed6580fe
+# ╠═aee362e3-b1a0-4378-9af0-1ea1ed6580fe
 # ╟─9a21ebe8-186f-4ab4-b0ae-8a0c668c3f92
 # ╟─e523bc1f-f2ad-49a0-ae3e-aa79db6e8043
-# ╠═0fefa79e-64f2-41d9-9e35-b0e56d2f90fd
 # ╠═12068dea-798d-4cc3-86f0-07b7315caa91
 # ╠═85bf8c44-348b-4825-b89a-33ec7614bb25
 # ╟─cfe7ed5a-514a-4753-b029-9118813fa0ed
 # ╠═344a94a8-58ad-4cb5-ad1c-dcf779a6ea76
 # ╠═4ffc878c-d856-4183-96ea-ef77447b8a5c
 # ╠═41bd4480-7672-4adf-924a-5bc1e9d4b45e
+# ╠═f3753f04-ec45-42c9-ba54-d348499f6473
 # ╠═a9443d53-1eae-4eab-b001-904be1523ca4
+# ╠═4b932772-b69f-427a-b8f4-ee52fba4696a
 # ╠═38e6ef4c-63c1-4df5-9451-f40df4fe57e7
 # ╠═c25fa03c-0464-4e07-a777-9ee5f732b0a2
 # ╠═5c87ea86-aec5-42d3-9423-4cd9d14dbc97
