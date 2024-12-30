@@ -1,8 +1,20 @@
 ### A Pluto.jl notebook ###
-# v0.19.46
+# v0.20.3
 
 using Markdown
 using InteractiveUtils
+
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    #! format: off
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+    #! format: on
+end
 
 # ╔═╡ 67f08f89-698c-4aa4-80d5-1ebcb830fc0c
 using PlutoDevMacros
@@ -15,26 +27,273 @@ PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")
 end
 
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
-using PlutoUI, PlutoPlotly ,StatsBase, BenchmarkTools, PlutoProfile, HypertextLiteral
+using PlutoUI, PlutoPlotly ,StatsBase, BenchmarkTools, PlutoProfile, HypertextLiteral, LaTeXStrings
 
 # ╔═╡ c62195dd-aa6e-4fd2-b9a9-848837a072d8
 md"""
 # Chapter 12: Eligibility Traces
 """
 
-# ╔═╡ b5479c7a-9140-11ed-257a-b342885b47fa
+# ╔═╡ 3bc13de6-b767-4e2c-95bc-a44c1e688a77
+md"""
+Eligibility traces unify and generalize TD and Monte Carlo methods.  When TD methods are augmented with eligibility traces, they produce a family of methods spanning a spectrum that has Monte Carlo methods at one end (λ = 1) and one-step TD methods at the other (λ = 0).  In between are intermediate methods that are often better than either extreme.  Eligibility traces also provide a way of implementing Monte Carlo methods online and on continuing problems without episodes.
+
+Of course, we have already seen one way of unifying TD and Monte Carlo methods: the n-step TD methods of Chapter 7.  What eligibility traces offer beyond these is an elegant algorithmic mechanism with significant computational advantages.  The mechanism is a short-term memory vector, the *eligibility trace* $\mathbf{z}_t \in \mathbb{R}^d$, that parallels the long-term weight vector $\mathbf{w}_t \in \mathbb{R}^d$.  The rough idea is that when a component of $\mathbf{w}_t$ participates in producing an estimated value, then the corresponding component of $\mathbf{z}_t$ is bumped up and then begins to fade away.  Learning will then occur in that component of $\mathbf{w}_t$ if a nonzero TD error occurs before the trace falls back to zero.  The trace-decay parameter $\lambda \in [0,1]$ determines the rate at which the trace falls.
+
+The primary computational advantage of eligibility traces over n-step methods is that only a single trace vector is required rather than a store of the last n feature vectors.  Learning also occurs continually and uniformly rather than being delayed and then catching up at the end of the episode.  In addition, learning can occur and affect behavior immediately after a state is encountered rather than being belayed n steps.
+
+Eligibility traces illustrate that a learning algorithm can sometimes be implemented in a different way to obtain computational advantages.  Many algorithms are most naturally formulated and understood as an update of a state's value based on events that follow that state over multiple future time steps.  For example Monte Carlo methods (Chapter 5) update a state based on all the future rewards, and n-step TD methods (Chapter 7) update based on the next n rewards and state n steps in the future.  Such formulations, based on looking forward from the updated state, are called *forward views*.  Forward views are always somewhat complex to implement because the update depends on later things that are not available at the time.  However, as we show in this chapter, it is often possible to achieve nearly the same updates -- and sometimes *exactly* the same updates -- with an algorithm that uses the current TD error, looking backwards to recently visited states using an eligibility trace.  These alternate ways of looking at and implementing learing algorithms are called *backward views*.  Backward views, transformations between forward views and backward views, and equivalences between them, date back to the introduction of temporal difference learning but have become much more powerful and sophisticated since 2014.  Here we present the basics of the modern view.
+
+As usual, first we fully develop the ideas for state values and prediction, then extend them to action values and control.  We develop them first for the on-policy case then extend them to off-policy learning.  Our treatment pays special attention to the case of linear function approximation, for which the results with eligibility traces are stronger.  All these results apply also to the tabular and state aggregation casesbecause these are special cases of linear function approximation.
+"""
+
+# ╔═╡ 6426347e-4264-4a7f-9393-1065f8365efb
 md"""
 ## 12.1 The λ-return
 
-$\begin{flalign}
-G_{t:t+n} \hspace{2mm}&  \dot = \hspace{2mm} R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}) \tag{12.1}\\
-G_t^\lambda \hspace{2mm}&  \dot = \hspace{2mm} (1 - \lambda) \sum_{n=1}^\infty \lambda^{n-1} G_{t:t+n} \tag{12.2}\\
+In Chapter 7 we defined an n-step return as the sum of the first n rewards plus the estimated value of the state reached in n steps, each appropriately discounted (7.1).  The general form of that equation, for any parametrized function approximator is:
 
-&\text{We can rewrite (12.2) as follows in the case of an episode terminating at step T:}\\
-G_t^\lambda \hspace{2mm}&  \dot = \hspace{2mm} (1 - \lambda) \sum_{n=1}^{T-t+1} \lambda^{n-1} G_{t:t+n} + \lambda^{T-t+1}G_t \tag{12.3}\\
-\end{flalign}$
+$G_{t:t+n} \doteq R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}), \; 0 \leq t \leq T-n \tag{12.1}$
+
+where $\hat v(s, \mathbf{w})$ is the approximate value of state $s$ given the weight vector $\mathbf{w}$ (Chapter 9), and $T$ is the time of episode termination, if any.  We noted in Chapter 7 that each n-step return for $n \geq 1$, is a valid update target for a tabularlearning update, just as it is for an approximate SGD learning update such as (9.7).
+
+Now we noted that a valid update can bbe done not just toward anyn-step return, but toward any *average* of n-step returns for different ns.  For example, an update can be done toward a target that is half of a two-step return and half of a four-step return: $\frac{1}{2}G_{t:t+2} + \frac{1}{2}G_{t:t+4}$.  Any ste of n-step returns can be averaged in this way, even an infinite set, as long as the weights on the component returns are positive and sum to 1.  The composite return possesses an error reduction property similar to that of individual n-step returns (7.3) and thus can be used to construct updates with guaranteed convergence properties.  Averaging produces a substantial new range of algorithms.  For example, one could average one-step and infinite-step returns to obtain another way of interrelating TD and Monte Carlo methods.  In principle, one could even average experience based updates with DP updates to get a simple combination of experience-based and model-based methods (cf. Chapter 8).
+
+An update that averages simpler component updates is called a *compound update*.  The backup diagram for a compound update consists of the backup diagrams for each of the component updates with a horizontal line above them and the weighting fractions below.  For example, the compound update for the case mentioned at the start of this section, mixing half of a two-step return and half of a four-step return, has the diagram shown below.  A compound update can only be done when the longest of its component updates is complete.  The update below, for example, could only be done at the time $t+4$ for the estimate formed at time $t$.  In general, one would like to limit the length of the longest component update because of the corresponding delay in the updates.
+"""
+
+# ╔═╡ c126b7c4-73df-4a0f-9ee4-a766eb19c5ba
+@htl("""
+<div style = "width: min(300px, 70vw); background-color: white;">
+<div style = "height: 1px;"></div>
+<hr style = "background-color: black; height: 2px; margin-left: 40px; margin-right: 40px; border: 0;">
+<div style = "display: flex; align-items: flex-start; justify-content: space-around; padding: 5px; font-size: 1.2em;">
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	$(md"""$\frac{1}{2}$""")
+</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	$(md"""$\frac{1}{2}$""")
+</div>
+</div>
+</div>
+""")
+
+# ╔═╡ 01144f94-7a2e-4137-9cf8-4264d87a50a2
+HTML("""
+<style>
+.backup-diagram {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	background-color: white;
+	color: black;
+	width: max(100px, 10vw); 
+}
+
+.down-arrow {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-end;
+	width: 2px;
+	height: 35px;
+	background-color: black;
+	padding-bottom: 0px;
+	margin-bottom: 1px;
+}
+
+.down-arrow::before {
+	content: '';
+	width: 0;
+	height: 0;
+	border-left: 4px solid transparent;
+	border-right: 4px solid transparent;
+	border-top: 8px solid black;
+	transform: translateY(1px);
+}
+
+.state {
+	width: 30px;
+	height: 30px;
+	border: 2px solid black;
+	background-color: white;
+	border-radius: 50%;
+}
+.action {
+	width: 20px;
+	height: 20px;
+	background-color: black;
+	border-radius: 50%;
+}
+.term {
+	width: 30px;
+	height: 30px;
+	background-color: gray;
+	border: 2px solid black;
+}
+</style>
+""")
+
+# ╔═╡ 50a4de5c-3856-45be-b552-011966faf9aa
+md"""
+The TD(λ) algorithm can be understood as one particular way of averaging n-step updates.  This average contains all the n-step updates, each weighted proportionally to $\lambda^{n-1}$ $($where $\lambda \in [0,1])$, and is normalized by a factor of $1-\lambda$ to ensure that the weights sum to 1 (Figure 12.1).  The resulting update is toward a return, called the λ-*return*, defined in its state-based form by
+
+$G_t^\lambda \doteq (1 - \lambda) \sum_{n=1}^\infty \lambda^{n-1} G_{t:t+n} \tag{12.2}$
+"""
+
+# ╔═╡ cd03392d-c19e-48ca-8d02-00bd342fbbb3
+md"""
+### Figure 12.1
+
+The blackup diagram for TD$(\lambda)$.  If $\lambda = 0$ the overall update reduces to its first component, the one-step TD update, whereas if $\lambda=1$, then the overall update reduces to its last component, the Monte Carlo update.
+"""
+
+# ╔═╡ 2dcc2fa1-093d-4e6c-b168-4878d4e7ee86
+@htl("""
+<div style = "width: min(600px, 70vw); background-color: white;">
+<div style = "color: black; font-size: 2em; display: flex; justify-content: center;">$(md"""TD$(\lambda)$""")</div>
+<hr style = "background-color: black; height: 2px; margin-left: 40px; margin-right: 40px; border: 0;">
+<div style = "display: flex; align-items: flex-start; justify-content: space-around; padding: 5px; font-size: 1.2em; color: black;">
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	$(md"""$1-\lambda$""")
+</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	$(md"""$(1-\lambda)\lambda$""")
+</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	$(md"""$(1-\lambda)\lambda^2$""")
+</div>
+<div>
+<div style = "font-size: 60px; color: black; transform: translateY(150px);">&hellip;</div>
+<div style = "font-size: 60px; color: black; transform: translateY(420px) rotate(45deg) translateX(20px);">&hellip;</div>
+</div>
+<div class = "backup-diagram">
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "state"></div>
+	<div class = "down-arrow"></div>
+	<div class = "action"></div>
+	<div style = "font-size: 40px; padding: 10px; color: black;">&vellip;</div>
+	<div class = "action"></div>
+	<div class = "down-arrow"></div>
+	<div class = "term"></div>
+	$(md"""$\lambda^{T-t-1}$""")
+</div>
+<div>
+</div>
+</div>
+</div>
+""")
+
+# ╔═╡ b670fe33-3db3-40f3-beb5-8508c260b3d0
+md"""
+Figure 12.2 further illustrates the weighting on the sequence of n-step returns in the λ-return.  The one-step return is given the largest weight, $1-\lambda$; the two-step return is given the next largest weight, $(1-\lambda)\lambda$; the three-step return si given the weight $(1-\lambda)\lambda^2$; and so on.  The weight fades by $\lambda$ with each additional step.  After a terminal state has been reached, all subsequent n-step returns are equal to the conventional return $G_t$.  If we want, we can separate these post-termination terms from the main sum, yielding
+
+$G_t^\lambda \doteq (1 - \lambda) \sum_{n=1}^{T-t+1} \lambda^{n-1} G_{t:t+n} + \lambda^{T-t+1}G_t \tag{12.3}$
 
 """
+
+# ╔═╡ 6ffa37d5-b587-4989-93fb-7003d818c082
+md"""
+### Figure 12.2
+
+The weighting given in the λ-return to each of the n-step returns for an episode that terminates at step T.
+"""
+
+# ╔═╡ 2c1afacc-7956-479b-898d-eadf02a2ec19
+@bind fig_12_2_params PlutoUI.combine() do Child
+md"""
+|λ|Steps Until Termination|
+|:-:|:-:|
+|$(Child(:λ, Slider(vcat(0:0.1:0.9, 0.91:.01:1), default = 0.5, show_value=true)))|$(Child(:T, Slider(1:50, default = 25, show_value=true)))|
+"""
+end
+
+# ╔═╡ 7f43afbf-3375-4ad1-acee-f6b74f98e20f
+function figure_12_2(λ::Real, T::Integer)
+	weights = vcat([(1-λ)*λ^(n-1) for n in 1:T], λ^(T-1))
+	tr = bar(x = 1:T+1, y = weights)
+	plot(tr, Layout(yaxis = attr(title = "Weighting", tickvals = [0, 1-λ, λ^(T-1), 1], range = [0, 1], ticktext = ["0", L"1-λ", L"λ^{T-t-1}", "1"]), xaxis = attr(title = "Time", tickvals = [1,2, T, T+1], ticktext = ["t", "t+1", "T-1", "T"])))
+end
+
+# ╔═╡ 1035d33b-5e02-4d41-81cc-66546383db68
+figure_12_2(fig_12_2_params...)
 
 # ╔═╡ dccc9b45-b711-44e8-8788-93de05f26543
 md"""
@@ -46,7 +305,7 @@ Revisiting (3.9): $G_t = R_{t+1} + \gamma G_{t+1}$.  We are looking for an equat
 Using (12.1):
 
 $\begin{flalign}
-G_{t:t+n} \hspace{2mm}&  \dot = \hspace{2mm} R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}) \\
+G_{t:t+n} \doteq + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}) \\
 G_{t+1:t+n} &= R_{t+2} + \gamma R_{t+3} +\cdots+\gamma^{n-2}R_{t+n} + \gamma^{n-1} \hat v(S_{t+n}, \mathbf{w}_{t+n-1})\\
 \therefore \\
 G_{t:t+n} &= R_{t+1} + \gamma G_{t+1:t+n}
@@ -881,7 +1140,7 @@ html"""
 	<style>
 		main {
 			margin: 0 auto;
-			max-width: min(1200px, 90%);
+			max-width: min(1600px, 90%);
 			padding-left: max(10px, 5%);
 			padding-right: max(10px, 5%);
 			font-size: max(10px, min(24px, 2vw));
@@ -894,6 +1153,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
@@ -903,6 +1163,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 [compat]
 BenchmarkTools = "~1.3.2"
 HypertextLiteral = "~0.9.5"
+LaTeXStrings = "~1.4.0"
 PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.3.6"
 PlutoProfile = "~0.4.0"
@@ -914,15 +1175,15 @@ StatsBase = "~0.33.21"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.5"
+julia_version = "1.11.2"
 manifest_format = "2.0"
-project_hash = "dcf1e87976350577e63bdf41dd87e45e5458a278"
+project_hash = "1e38bea45d9a623b1d6c5728e719025913f31cdb"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
-git-tree-sha1 = "8eaf9f1b4921132a4cff3f36a1d9ba923b14a481"
+git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.1.4"
+version = "1.3.2"
 
 [[deps.AbstractTrees]]
 git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
@@ -931,13 +1192,15 @@ version = "0.3.4"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
-version = "1.1.1"
+version = "1.1.2"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+version = "1.11.0"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+version = "1.11.0"
 
 [[deps.BenchmarkTools]]
 deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
@@ -952,34 +1215,40 @@ uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
 version = "1.3.6"
 
 [[deps.ColorSchemes]]
-deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "Random", "SnoopPrecompile"]
-git-tree-sha1 = "aa3edc8f8dea6cbfa176ee12f7c2fc82f0608ed3"
+deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
+git-tree-sha1 = "c785dfb1b3bfddd1da557e861b919819b82bbe5b"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
-version = "3.20.0"
+version = "3.27.1"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
-git-tree-sha1 = "eb7f0f8307f71fac7c606984ea5fb2817275d6e4"
+git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
-version = "0.11.4"
+version = "0.11.5"
 
 [[deps.ColorVectorSpace]]
-deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "SpecialFunctions", "Statistics", "TensorCore"]
-git-tree-sha1 = "600cc5508d66b78aae350f7accdb58763ac18589"
+deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
+git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
-version = "0.9.10"
+version = "0.10.0"
+
+    [deps.ColorVectorSpace.extensions]
+    SpecialFunctionsExt = "SpecialFunctions"
+
+    [deps.ColorVectorSpace.weakdeps]
+    SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
-git-tree-sha1 = "fc08e5930ee9a4e03f84bfb5211cb54e7769758a"
+git-tree-sha1 = "362a287c3aa50601b0bc359053d5c2468f0e7ce0"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
-version = "0.12.10"
+version = "0.12.11"
 
 [[deps.Compat]]
-deps = ["UUIDs"]
-git-tree-sha1 = "7a60c856b9fa189eb34f5f8a6f6b5529b7942957"
+deps = ["TOML", "UUIDs"]
+git-tree-sha1 = "8ae8d32e09f0dcf42a36b90d4e17f5dd2e4c4215"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "4.6.1"
+version = "4.16.0"
 weakdeps = ["Dates", "LinearAlgebra"]
 
     [deps.Compat.extensions]
@@ -991,19 +1260,20 @@ uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.1.1+0"
 
 [[deps.DataAPI]]
-git-tree-sha1 = "e8119c1a33d267e16108be441a287a6981ba1630"
+git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
-version = "1.14.0"
+version = "1.16.0"
 
 [[deps.DataStructures]]
 deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
-git-tree-sha1 = "d1fff3a548102f48987a52a2e0d114fa97d730f0"
+git-tree-sha1 = "1d0a14036acb104d9e89698bd408f63ab58cdc82"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.18.13"
+version = "0.18.20"
 
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+version = "1.11.0"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
@@ -1024,18 +1294,25 @@ version = "1.6.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "82d8afa92ecf4b52d78d869f038ebfb881267322"
+git-tree-sha1 = "2dd20384bf8c6d411b5c7370865b1e9b26cb2ea3"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.16.3"
+version = "1.16.6"
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
+    [deps.FileIO.weakdeps]
+    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
-git-tree-sha1 = "335bfdceacc84c5cdf16aadc768aa5ddfc5383cc"
+git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
-version = "0.8.4"
+version = "0.8.5"
 
 [[deps.FlameGraphs]]
 deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
@@ -1045,9 +1322,9 @@ version = "0.2.10"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
-git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
+git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
 uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
-version = "0.0.4"
+version = "0.0.5"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
@@ -1057,9 +1334,9 @@ version = "0.9.5"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
-git-tree-sha1 = "f7be53659ab06ddc986428d3a9dcc95f6fa6705a"
+git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "0.2.2"
+version = "0.2.5"
 
 [[deps.IndirectArrays]]
 git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
@@ -1069,34 +1346,29 @@ version = "1.0.0"
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+version = "1.11.0"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.2"
 
-[[deps.JLLWrappers]]
-deps = ["Preferences"]
-git-tree-sha1 = "abc9885a7ca2052a736a600f7fa66209f96506e1"
-uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
-version = "1.4.1"
-
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
-git-tree-sha1 = "3c837543ddb02250ef42f4738347454f95079d4e"
+git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
-version = "0.21.3"
+version = "0.21.4"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "4b415b6cccb9ab61fec78a621572c82ac7fa5776"
+git-tree-sha1 = "10da5154188682e5c0726823c2b5125957ec3778"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.9.35"
+version = "0.9.38"
 
 [[deps.LaTeXStrings]]
-git-tree-sha1 = "f2355693d6778a178ade15952b7ac47a4ff97996"
+git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-version = "1.3.0"
+version = "1.4.0"
 
 [[deps.LeftChildRightSiblingTrees]]
 deps = ["AbstractTrees"]
@@ -1112,16 +1384,17 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.4.0+0"
+version = "8.6.0+0"
 
 [[deps.LibGit2]]
 deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+version = "1.11.0"
 
 [[deps.LibGit2_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.6.4+0"
+version = "1.7.2+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
@@ -1130,16 +1403,18 @@ version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+version = "1.11.0"
 
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+version = "1.11.0"
 
 [[deps.LogExpFunctions]]
 deps = ["DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
-git-tree-sha1 = "0a1b7c2863e44523180fdb3146534e265a91870b"
+git-tree-sha1 = "a2d09619db4e765091ee5c6ffe8872849de0feea"
 uuid = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
-version = "0.3.23"
+version = "0.3.28"
 
     [deps.LogExpFunctions.extensions]
     LogExpFunctionsChainRulesCoreExt = "ChainRulesCore"
@@ -1153,6 +1428,7 @@ version = "0.3.23"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
@@ -1168,24 +1444,26 @@ version = "0.5.13"
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+version = "1.11.0"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+1"
+version = "2.28.6+0"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
-git-tree-sha1 = "f66bdc5de519e8f8ae43bdc598782d35a25b1272"
+git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
 uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
-version = "1.1.0"
+version = "1.2.0"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2023.1.10"
+version = "2023.12.12"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1194,23 +1472,18 @@ version = "1.2.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+4"
-
-[[deps.OpenLibm_jll]]
-deps = ["Artifacts", "Libdl"]
-uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+2"
-
-[[deps.OpenSpecFun_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "13652491f6856acfd2db29360e1bbcd4565d04f1"
-uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
-version = "0.5.5+0"
+version = "0.3.27+1"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "d321bf2de576bf25ec4d3e4360faca399afca282"
+git-tree-sha1 = "12f1439c4f986bb868acda6ea33ebc78e19b95ad"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.6.0"
+version = "1.7.0"
+
+[[deps.PackageExtensionCompat]]
+git-tree-sha1 = "fb28e33b8a95c4cee25ce296c817d89cc2e53518"
+uuid = "65ce6f38-6b18-4e1d-a461-8949797d7930"
+version = "1.0.2"
+weakdeps = ["Requires", "TOML"]
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -1219,15 +1492,19 @@ uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 version = "0.12.3"
 
 [[deps.Parsers]]
-deps = ["Dates", "SnoopPrecompile"]
-git-tree-sha1 = "478ac6c952fddd4399e71d4779797c538d0ff2bf"
+deps = ["Dates", "PrecompileTools", "UUIDs"]
+git-tree-sha1 = "8489905bcdbcfac64d1daa51ca07c0d8f0283821"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.5.8"
+version = "2.8.1"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.10.0"
+version = "1.11.0"
+weakdeps = ["REPL"]
+
+    [deps.Pkg.extensions]
+    REPLExt = "REPL"
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
@@ -1242,10 +1519,16 @@ uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
 version = "0.9.0"
 
 [[deps.PlutoPlotly]]
-deps = ["AbstractPlutoDingetjes", "Colors", "Dates", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "PlotlyBase", "PlutoUI", "Reexport"]
-git-tree-sha1 = "dec81dcd52748ffc59ce3582e709414ff78d947f"
+deps = ["AbstractPlutoDingetjes", "Colors", "Dates", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "PackageExtensionCompat", "PlotlyBase", "PlutoUI", "Reexport"]
+git-tree-sha1 = "9a77654cdb96e8c8a0f1e56a053235a739d453fe"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-version = "0.3.6"
+version = "0.3.9"
+
+    [deps.PlutoPlotly.extensions]
+    PlotlyKaleidoExt = "PlotlyKaleido"
+
+    [deps.PlutoPlotly.weakdeps]
+    PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
 
 [[deps.PlutoProfile]]
 deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
@@ -1255,23 +1538,30 @@ version = "0.4.0"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "5bb5129fdd62a2bbbe17c2756932259acf467386"
+git-tree-sha1 = "eba4810d5e6a01f612b948c9fa94f905b49087b0"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.50"
+version = "0.7.60"
+
+[[deps.PrecompileTools]]
+deps = ["Preferences"]
+git-tree-sha1 = "5aa36f7049a63a1528fe8f7c3f2113413ffd4e1f"
+uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+version = "1.2.1"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "47e5f437cc0e7ef2ce8406ce1e7e24d44915f88d"
+git-tree-sha1 = "9306f6085165d270f7e3db02af26a400d580f5c6"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.3.0"
+version = "1.4.3"
 
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+version = "1.11.0"
 
 [[deps.Profile]]
-deps = ["Printf"]
 uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+version = "1.11.0"
 
 [[deps.ProfileCanvas]]
 deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
@@ -1280,12 +1570,14 @@ uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 version = "0.1.0"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
+deps = ["InteractiveUtils", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+version = "1.11.0"
 
 [[deps.Random]]
 deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
@@ -1304,49 +1596,38 @@ version = "0.7.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
-
-[[deps.SnoopPrecompile]]
-deps = ["Preferences"]
-git-tree-sha1 = "e760a70afdcd461cf01a575947738d359234665c"
-uuid = "66db9d55-30c0-4569-8b51-7e840670fc0c"
-version = "1.0.3"
+version = "1.11.0"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
+version = "1.11.0"
 
 [[deps.SortingAlgorithms]]
 deps = ["DataStructures"]
-git-tree-sha1 = "a4ada03f999bd01b3a25dcaa30b2d929fe537e00"
+git-tree-sha1 = "66e0a8e672a0bdfca2c3f5937efb8538b9ddc085"
 uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
-version = "1.1.0"
+version = "1.2.1"
 
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.10.0"
-
-[[deps.SpecialFunctions]]
-deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
-git-tree-sha1 = "ef28127915f4229c971eb43f3fc075dd3fe91880"
-uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
-version = "2.2.0"
-
-    [deps.SpecialFunctions.extensions]
-    SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
-
-    [deps.SpecialFunctions.weakdeps]
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+version = "1.11.0"
 
 [[deps.Statistics]]
-deps = ["LinearAlgebra", "SparseArrays"]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.10.0"
+version = "1.11.1"
+weakdeps = ["SparseArrays"]
+
+    [deps.Statistics.extensions]
+    SparseArraysExt = ["SparseArrays"]
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "45a7769a04a3cf80da1c1c7c60caf932e6f4c9f7"
+git-tree-sha1 = "1ff449ad350c9c4cbc756624d6f8a8c3ef56d3ed"
 uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
-version = "1.6.0"
+version = "1.7.0"
 
 [[deps.StatsBase]]
 deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
@@ -1354,10 +1635,14 @@ git-tree-sha1 = "d1bf48bfcc554a3761a133fe3a9bb01488e06916"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.33.21"
 
+[[deps.StyledStrings]]
+uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+version = "1.11.0"
+
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.1+1"
+version = "7.7.0+0"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -1378,20 +1663,22 @@ version = "0.1.1"
 [[deps.Test]]
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+version = "1.11.0"
 
 [[deps.Tricks]]
-git-tree-sha1 = "aadb748be58b492045b4f56166b5188aa63ce549"
+git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
-version = "0.1.7"
+version = "0.1.9"
 
 [[deps.URIs]]
-git-tree-sha1 = "074f993b0ca030848b897beff716d93aca60f06a"
+git-tree-sha1 = "67db6cc7b3821e19ebe75791a9dd19c9b1188f2b"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.4.2"
+version = "1.5.1"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
@@ -1400,6 +1687,7 @@ version = "1.0.2"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+version = "1.11.0"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
@@ -1414,7 +1702,7 @@ version = "5.11.0+0"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.52.0+1"
+version = "1.59.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1424,8 +1712,19 @@ version = "17.4.0+2"
 
 # ╔═╡ Cell order:
 # ╟─c62195dd-aa6e-4fd2-b9a9-848837a072d8
-# ╟─b5479c7a-9140-11ed-257a-b342885b47fa
-# ╟─dccc9b45-b711-44e8-8788-93de05f26543
+# ╟─3bc13de6-b767-4e2c-95bc-a44c1e688a77
+# ╟─6426347e-4264-4a7f-9393-1065f8365efb
+# ╟─c126b7c4-73df-4a0f-9ee4-a766eb19c5ba
+# ╟─01144f94-7a2e-4137-9cf8-4264d87a50a2
+# ╟─50a4de5c-3856-45be-b552-011966faf9aa
+# ╟─cd03392d-c19e-48ca-8d02-00bd342fbbb3
+# ╟─2dcc2fa1-093d-4e6c-b168-4878d4e7ee86
+# ╟─b670fe33-3db3-40f3-beb5-8508c260b3d0
+# ╟─6ffa37d5-b587-4989-93fb-7003d818c082
+# ╟─2c1afacc-7956-479b-898d-eadf02a2ec19
+# ╟─1035d33b-5e02-4d41-81cc-66546383db68
+# ╟─7f43afbf-3375-4ad1-acee-f6b74f98e20f
+# ╠═dccc9b45-b711-44e8-8788-93de05f26543
 # ╟─752a80ea-1da6-49ef-91ef-a03c590b825d
 # ╠═9d131051-eeee-4aba-8f78-9ddff9babab4
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
