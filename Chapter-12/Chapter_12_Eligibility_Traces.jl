@@ -4,18 +4,6 @@
 using Markdown
 using InteractiveUtils
 
-# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
-macro bind(def, element)
-    #! format: off
-    quote
-        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
-        local el = $(esc(element))
-        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
-        el
-    end
-    #! format: on
-end
-
 # ╔═╡ 67f08f89-698c-4aa4-80d5-1ebcb830fc0c
 using PlutoDevMacros
 
@@ -23,11 +11,14 @@ using PlutoDevMacros
 # ╠═╡ show_logs = false
 PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) begin
 	using NonTabularRL
-	using >.Random, >.Statistics, >.LinearAlgebra, >.TailRec
+	using >.Random, >.Statistics, >.LinearAlgebra, >.TailRec, >.StaticArrays
 end
 
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
+# ╠═╡ skip_as_script = true
+#=╠═╡
 using PlutoUI, PlutoPlotly ,StatsBase, BenchmarkTools, PlutoProfile, HypertextLiteral, LaTeXStrings
+  ╠═╡ =#
 
 # ╔═╡ c62195dd-aa6e-4fd2-b9a9-848837a072d8
 md"""
@@ -63,6 +54,7 @@ An update that averages simpler component updates is called a *compound update*.
 """
 
 # ╔═╡ c126b7c4-73df-4a0f-9ee4-a766eb19c5ba
+#=╠═╡
 @htl("""
 <div style = "width: min(300px, 70vw); background-color: white;">
 <div style = "height: 1px;"></div>
@@ -103,6 +95,7 @@ An update that averages simpler component updates is called a *compound update*.
 </div>
 </div>
 """)
+  ╠═╡ =#
 
 # ╔═╡ 01144f94-7a2e-4137-9cf8-4264d87a50a2
 HTML("""
@@ -176,6 +169,7 @@ The blackup diagram for TD$(\lambda)$.  If $\lambda = 0$ the overall update redu
 """
 
 # ╔═╡ 2dcc2fa1-093d-4e6c-b168-4878d4e7ee86
+#=╠═╡
 @htl("""
 <div style = "width: min(600px, 70vw); background-color: white;">
 <div style = "color: black; font-size: 2em; display: flex; justify-content: center;">$(md"""TD$(\lambda)$""")</div>
@@ -260,6 +254,7 @@ The blackup diagram for TD$(\lambda)$.  If $\lambda = 0$ the overall update redu
 </div>
 </div>
 """)
+  ╠═╡ =#
 
 # ╔═╡ b670fe33-3db3-40f3-beb5-8508c260b3d0
 md"""
@@ -277,6 +272,7 @@ The weighting given in the λ-return to each of the n-step returns for an episod
 """
 
 # ╔═╡ 2c1afacc-7956-479b-898d-eadf02a2ec19
+#=╠═╡
 @bind fig_12_2_params PlutoUI.combine() do Child
 md"""
 |λ|Steps Until Termination|
@@ -284,16 +280,21 @@ md"""
 |$(Child(:λ, Slider(vcat(0:0.1:0.9, 0.91:.01:1), default = 0.5, show_value=true)))|$(Child(:T, Slider(1:50, default = 25, show_value=true)))|
 """
 end
+  ╠═╡ =#
 
 # ╔═╡ 7f43afbf-3375-4ad1-acee-f6b74f98e20f
+#=╠═╡
 function figure_12_2(λ::Real, T::Integer)
 	weights = vcat([(1-λ)*λ^(n-1) for n in 1:T], λ^(T-1))
 	tr = bar(x = 1:T+1, y = weights)
 	plot(tr, Layout(yaxis = attr(title = "Weighting", tickvals = [0, 1-λ, λ^(T-1), 1], range = [0, 1], ticktext = ["0", L"1-λ", L"λ^{T-t-1}", "1"]), xaxis = attr(title = "Time", tickvals = [1,2, T, T+1], ticktext = ["t", "t+1", "T-1", "T"])))
 end
+  ╠═╡ =#
 
 # ╔═╡ 1035d33b-5e02-4d41-81cc-66546383db68
+#=╠═╡
 figure_12_2(fig_12_2_params...)
+  ╠═╡ =#
 
 # ╔═╡ dccc9b45-b711-44e8-8788-93de05f26543
 md"""
@@ -305,17 +306,17 @@ Revisiting (3.9): $G_t = R_{t+1} + \gamma G_{t+1}$.  We are looking for an equat
 Using (12.1):
 
 $\begin{flalign}
-G_{t:t+n} \doteq + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}) \\
+G_{t:t+n} &\doteq R_{t+1} + \gamma R_{t+2} + \cdots + \gamma^{n-1}R_{t+n} + \gamma^n \hat v(S_{t+n}, \mathbf{w}_{t+n-1}) \\
 G_{t+1:t+n} &= R_{t+2} + \gamma R_{t+3} +\cdots+\gamma^{n-2}R_{t+n} + \gamma^{n-1} \hat v(S_{t+n}, \mathbf{w}_{t+n-1})\\
 \therefore \\
-G_{t:t+n} &= R_{t+1} + \gamma G_{t+1:t+n}
+G_{t:t+n} &= R_{t+1} + \gamma G_{t+1:t+n} \tag{a}
 \end{flalign}$
 
 Using (12.2): 
 
 $\begin{flalign}
 G_{t}^\lambda &= (1-\lambda)\sum_{n=1}^\infty \lambda^{n-1} G_{t:t+n} \\
-&= (1-\lambda)\sum_{n=1}^\infty \lambda^{n-1} (R_{t+1} + \gamma G_{t+1:t+n}) \\
+&= (1-\lambda)\sum_{n=1}^\infty \lambda^{n-1} (R_{t+1} + \gamma G_{t+1:t+n}) \tag{using (a)}\\
 &= R_{t+1}(1-\lambda)\sum_{n=0}^\infty \lambda^n + \gamma(1-\lambda)\sum_{n=1}^\infty \lambda^{n-1} G_{t+1:t+n}\\
 &= R_{t+1}\frac{1-\lambda}{1-\lambda} + \gamma(1-\lambda)\sum_{n=1}^\infty \lambda^{n-1} G_{t+1:t+n}\\
 &= R_{t+1} + \gamma(1-\lambda)\left [ G_{t+1:t+1} + \lambda G_{t+1:t+2} + \lambda^2 G_{t+1:t+3} + \cdots \right ]\\
@@ -324,8 +325,11 @@ G_{t}^\lambda &= (1-\lambda)\sum_{n=1}^\infty \lambda^{n-1} G_{t:t+n} \\
 &\text{Note that also} \\ 
 G_{t+1}^\lambda &= (1-\lambda)\sum_{n=1}^\infty \lambda^{n-1} G_{t+1:t+n+1} \\
 &= (1-\lambda)(G_{t+1:t+2} + \lambda G_{t+1:t+3} + \lambda^2 G_{t+1:t+4} + \cdots) \\
+&\text{and} \\
 
-&\text{So we can replace it in the above expression } \therefore \\
+G_{t:t} &\doteq \hat v(S_t, \mathbf{w}_t) \\
+
+&\text{So we can replace them in the above expression } \therefore \\
 
 G_{t}^\lambda &= R_{t+1} + \gamma(1-\lambda)G_{t+1:t+1} + \gamma \lambda G_{t+1}^\lambda \\
 
@@ -337,29 +341,158 @@ From this expression it is clear that for $\lambda = 1$ we simply get $R_{t+1} +
 """
 
 # ╔═╡ 9d131051-eeee-4aba-8f78-9ddff9babab4
+#=╠═╡
 function plot_hl()
-	τ(λ) = (log(λ) - log(2)) / log(λ)
-	λs = 0:0.01:1
-	plot(λs, τ.(λs), Layout(xaxis_title = "λ", yaxis_title = "τ_λ"))
+	τ(λ) = - log(2) / log(λ)
+	λs = 0:0.001:1
+	plot(λs, τ.(λs), Layout(xaxis_title = "λ", yaxis_title = L"τ_λ", yaxis_range = [0, 5]))
 end
+  ╠═╡ =#
 
 # ╔═╡ 752a80ea-1da6-49ef-91ef-a03c590b825d
+#=╠═╡
 md"""
 > ### *Exercise 12.2* 
 > The parameter λ characterizes how fast the exponential weighting in Figure 12.2 falls off, and thus how far into the future the λ-return algorithm looks in determining its update. But a rate factor such as λ is sometimes an awkward way of characterizing the speed of the decay. For some purposes it is better to specify a time constant, or half-life. What is the equation relating λ and the half-life, $\tau_\lambda$, the time by which the weighting sequence will have fallen to half of its initial value?
 
-The initial weight is $\lambda^0=1$, so the question is at what n will the weight value be $\frac{1}{2}$.  That will occur when:
+The initial weight for $n=1$ is $\lambda^0=1$, so the question is at what n will the weight value be $\frac{1}{2}$.  That will occur when:
 
 $\begin{flalign}
 \lambda^{n_\tau-1} &= \frac{1}{2}\\
 (n_\tau-1) \log{\lambda} &= \log{\frac{1}{2}} \\
 n_\tau-1 &= \frac{\log{1} - \log{2}}{\log{\lambda}} \\
-n_\tau &= \frac{\log{\lambda} - \log{2}}{\log{\lambda}}
 \end{flalign}$
 
-From the plot we can see that the halflife approaches infinity as λ approaches 1 which we expect from the monte-carlo return.
+ $n = 1$ corresponds to the reference time, so $\tau_\lambda = n_\tau - 1 = - \frac{log{2}}{\log{\lambda}}$
+
+From the plot we can see that the halflife approaches infinity as λ approaches 1 which we expect from the monte-carlo return.  Also $\lambda = \frac{1}{2} \implies \tau_\lambda = 1$.
 $(plot_hl())
 """
+  ╠═╡ =#
+
+# ╔═╡ 134ce360-6290-4aea-b6c0-eaa825d6f9a5
+md"""
+We are now ready to define our first learning algorithm based on the λ-return: the *off-line λ-return algorithm*.  As an off-line algorithm, itmakes no changes to the weight vector during the episode.  Then, at the end of the episode, a whole sequence of off-line updates are made according to our usual semi-gradient rule, using the λ-return as the target:
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ G_t^\lambda - \hat v (S_t, \mathbf{w}_t) \right ] \nabla \hat v (S_t, \mathbf{w}_t), \; t = 0, \dots, T-1 \tag{12.4}$
+
+The λ-return gives us an alternative way of moving smoothly between Monte Carlo and one-step TD methods that can be compared with the n-step bootstrapping way developed in Chapter 7.  There we assessed effectiveness on a 19-state random walk task (Example 7.1).  Figure 12.3 shows the performance of the off-line λ-return algorithm on this task alongside that of the n-step methods (repeated from Figure 7.2).  The experiment was just as described earlier except that for the λ-return algorithm λ is varied instead of n.  The performance measure used is the estimated root-mean-square error between the correct and estimated values of each state measured at the end of the episode, averaged over the first 10 episodes and the 19 states.  Note that overall the performance of the off-line λ-return algorithms in comparable to that of the n-step algorithms.  In both cases we get the best performance with an intermediate value of the bootstrapping parameter, n for the n-step methods and λ for the off-line λ-return algorithm.  The preference for higher values of n and λ increases with a larger random walk and vice versa.
+"""
+
+# ╔═╡ 37ffc88c-8418-468b-a537-37b8e6bf5922
+md"""
+### *Off-line λ-return and random walk example*
+"""
+
+# ╔═╡ 5f53c771-db36-42f8-9e73-375bf1bf73e1
+TabularRL.create_random_walk_distribution(19, -1f0, 1f0)
+
+# ╔═╡ ce8b9ebf-942a-4807-a36f-ced03c3c7916
+function value_estimate_random_walk(nstates, α, n; kwargs...)
+	mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
+	c = (nstates + 1)/2
+	v_true = [(s-c)/c for s in 1:nstates]
+	value_estimate_random_walk(mrp, v_true, α, n; kwargs...)
+end
+
+# ╔═╡ 9d512c7b-3d49-439a-a971-1a3dad065d6e
+function n_step_TD_prediction(mrp::TabularMRP{X, S, P, F}, γ::X, num_episodes, n::Integer; v_est::Vector{X} = initialize_state_value(mrp), α::X = one(X)/100, calc_err::Function = (v_est) -> zero(T), static_values = false, save_error = false, epkwargs...) where {X<:Real, S, P, F}
+	#initialize
+	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
+	rewardbuffer = MVector{n+1, X}(zeros(X, n+1))
+	get_state_index(i) = stateindexbuffer[mod(i, n+1) + 1]
+	get_reward(i) = rewardbuffer[mod(i, n+1) + 1]
+	get_value(buffer, i) = buffer[mod(i, n+1)+1]
+	v_est[mrp.terminal_states] .= zero(X) #terminal state must always have 0 value
+	if static_values
+		v_est2 = copy(v_est)
+	end
+
+	error_history = Vector{X}(undef, num_episodes)
+
+	#simulate and episode and update the value function every step
+	function runepisode!(V, j)
+		i_s = mrp.initialize_state_index()
+		T = typemax(Int64)
+		t = 0
+		τ = 0
+		stateindexbuffer[1] = i_s
+		while τ != T - 1
+			if t < T
+				(r, i_s′) = mrp.ptf(i_s)
+				i_s = i_s′
+				i = mod(t+1, n+1) + 1
+				stateindexbuffer[i] = i_s′
+				rewardbuffer[i] = r
+				if mrp.terminal_states[i_s′]
+					T = t + 1
+				end
+			end
+			τ = t - n + 1
+			if τ >= 0
+				G = zero(X)
+				for i in τ+1:min(τ+n, T)
+					G += (γ^(i - τ - 1))*get_reward(i)
+				end
+				if τ+n < T
+					G += γ^n * v_est[get_state_index(τ+n)]
+				end
+				i_τ = get_value(stateindexbuffer, τ)
+				update_value = V[i_τ] + α*(G-v_est[i_τ])
+				if static_values
+					v_est2[i_τ] = update_value
+				else
+					v_est[i_τ] = update_value
+				end
+			end
+			t += 1
+		end
+	
+		if static_values
+			v_est .= v_est2
+		end
+
+		if save_error
+			error_history[j] = calc_err(v_est)
+		end
+		return V
+	end
+		
+	for i = 1:num_episodes; runepisode!(v_est, i); end
+	
+	return v_est, error_history
+end
+
+# ╔═╡ c240d631-3095-4880-b454-66e05a59e4ea
+#=╠═╡
+function value_estimate_random_walk(mrp, v_true, α, n; num_trials = 100, num_episodes = 10, kwargs...)
+	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, 1:length(v_true)-1))
+	(1:num_trials |> Map(i -> calc_err(n_step_TD_prediction(mrp, 1f0, num_episodes, n; α = α, calc_err = calc_err, kwargs...)[1])) |> foldxt(+)) / num_trials
+end
+  ╠═╡ =#
+
+# ╔═╡ 583d2f42-692a-4028-93cc-47c2e178c84e
+#=╠═╡
+function nsteptd_error_random_walk(nstates; kwargs...)
+	α_vec = Float32.(0.0:0.1:1.0)
+	n_vec = 2 .^ (0:9)
+	mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
+	c = (nstates + 1)/2
+	v_true = [(s-c)/c for s in 1:nstates]
+	get_α_line(n) = α_vec |> Map(α -> value_estimate_random_walk(mrp, v_true, α, n; kwargs...)) |> collect
+	lines = n_vec |> Map(n -> get_α_line(n)) |> collect
+	traces = [scatter(x = α_vec, y = lines[i], name = "n = $n", mode = "lines", line_shape = "spline") for (i, n) in enumerate(n_vec)]
+	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range = [0.1, first(first(lines))]))
+end
+  ╠═╡ =#
+
+# ╔═╡ 176ee625-51c6-48f1-8f01-d3fb7008db6e
+md"""
+### Figure 12.3
+"""
+
+# ╔═╡ 50f70e38-9dd2-43a8-986c-731037ee9aac
+
 
 # ╔═╡ 57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 md"""
@@ -382,6 +515,7 @@ md"""
 """
 
 # ╔═╡ bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
+#=╠═╡
 function semi_gradient_TDλ(π, v̂, ∇v̂, w, states, sterm, step, λ, γ, α, numepisodes, s_init, Vtrue)
 	rmserr() = sqrt(mean((Vtrue[s] - v̂(s, w))^2 for s in states))
 	rmserrs = zeros(numepisodes)
@@ -402,6 +536,7 @@ function semi_gradient_TDλ(π, v̂, ∇v̂, w, states, sterm, step, λ, γ, α,
 	end
 	return w, rmserrs
 end		
+  ╠═╡ =#
 
 # ╔═╡ 5e5fdcee-356e-46d4-a5b0-3c433aee989d
 md"""
@@ -620,6 +755,7 @@ $\begin{flalign}
 """
 
 # ╔═╡ 5324724c-93d1-4186-9dcf-55afd410aa72
+#=╠═╡
 function true_online_TDλ(π, x, w, states, sterm, step, λ, γ, α, numepisodes, s_init, Vtrue)
 	rmserr() = sqrt(mean((Vtrue[s] - w'*x(s))^2 for s in states))
 	rmserrs = zeros(numepisodes)
@@ -642,6 +778,7 @@ function true_online_TDλ(π, x, w, states, sterm, step, λ, γ, α, numepisodes
 	end
 	return w, rmserrs
 end	
+  ╠═╡ =#
 
 # ╔═╡ b36896b1-6802-48e1-8cd3-f08bf3b99e3e
 md"""
@@ -726,6 +863,7 @@ function findmaxrand(v::AbstractVector)
 end	
 
 # ╔═╡ 72895891-9212-4722-b2a1-0e13c30a8ecf
+#=╠═╡
 function sarsaλ_linear(ℱ, w, states, actions, sterm, step, λ, γ, α, numepisodes, s_init, ϵ, usedutch = false)
 	function ϵ_greedy(s, ϵ)
 		rand() < ϵ && return rand(actions)
@@ -772,8 +910,10 @@ function sarsaλ_linear(ℱ, w, states, actions, sterm, step, λ, γ, α, numepi
 	end
 	return w, stepcounts, s -> ϵ_greedy(s, 0.0)
 end
+  ╠═╡ =#
 
 # ╔═╡ 07245a98-cab2-4b0c-a17a-4eaaa8a30703
+#=╠═╡
 function gridworld_sarsa(width, height, goal, λ, ϵ, α, numepisodes, usedutch = false; f = sarsaλ_linear)
 	#states are tuples in an nxm grid
 	states = [(x, y) for x in 1:width for y in 1:height]
@@ -812,8 +952,10 @@ function gridworld_sarsa(width, height, goal, λ, ϵ, α, numepisodes, usedutch 
 	# run_episode(π_rand, (1, 1))
 	(w, steps, π, π_rand, run_episode, step, states)
 end
+  ╠═╡ =#
 
 # ╔═╡ f5c3d5a4-7fe8-420e-af0a-4318b1eeda2c
+#=╠═╡
 function eval_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=false,  αlist = [0.05, 0.1, 0.2, 0.4, 0.8], λlist = [0.0, 0.4, 0.8, 0.9, 0.99])
 	function runtrial(α, λ)::Float64
 		(w, steps, π, π_rand, makepath, step, states) = gridworld_sarsa(lmax, wmax, goal, λ, ϵ, α, 100, usedutch, f = f)
@@ -826,8 +968,10 @@ function eval_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=fals
 	results = [[runtrials(α, λ) for α in αlist] for λ in λlist]
 	(results = results, αlist=αlist, λlist=λlist)
 end
+  ╠═╡ =#
 
 # ╔═╡ 4bd9d7a4-979d-492f-b863-8359864004ea
+#=╠═╡
 function plot_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=false, αlist = [0.05, 0.1, 0.2, 0.4, 0.8], λlist = [0.0, 0.4, 0.8, 0.9, 0.99])
 	(results, αlist, λlist) = eval_grid(lmax, wmax, goal, ϵ=ϵ, f = f, usedutch=usedutch, αlist = αlist, λlist = λlist)
 	traces = [begin
@@ -836,9 +980,13 @@ function plot_grid(lmax, wmax, goal; ϵ = 0.1, f = sarsaλ_linear, usedutch=fals
 	for i in eachindex(results)]
 	plot(traces, Layout(yaxis_title = "Steps", xaxis_title = "α", title = "Mean Steps For 100 Episodes"))
 end
+  ╠═╡ =#
 
 # ╔═╡ 32832503-d48b-48bb-be7b-cf2cb6855a57
+# ╠═╡ disabled = true
+#=╠═╡
 plot_grid(10, 10, (5, 8), usedutch=false)
+  ╠═╡ =#
 
 # ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
 md"""
@@ -849,6 +997,7 @@ See the above function `sarsaλ_linear`.  In the step where $z_i$ is updated an 
 """
 
 # ╔═╡ b1d56779-9a06-4b25-9a1b-09a12923e646
+#=╠═╡
 function true_online_sarsaλ_binary(ℱ, w, states, actions, sterm, step, λ, γ, α, numepisodes, s_init, ϵ, usedutch=true)
 	function ϵ_greedy(s, ϵ)
 		rand() < ϵ && return rand(actions)
@@ -899,9 +1048,13 @@ function true_online_sarsaλ_binary(ℱ, w, states, actions, sterm, step, λ, γ
 	
 	return w, stepcounts, s -> ϵ_greedy(s, 0.0)
 end
+  ╠═╡ =#
 
 # ╔═╡ f3c3f934-6601-4383-8204-55d04c973881
+# ╠═╡ disabled = true
+#=╠═╡
 plot_grid(10, 10, (5, 8), f = true_online_sarsaλ_binary, λlist = [0.0, 0.01, 0.02], αlist = [0.00001, 0.0001, 0.001, 0.002, 0.004])
+  ╠═╡ =#
 
 # ╔═╡ 862026e9-ebe6-4f2e-8832-086bbba8db17
 md"""
@@ -940,6 +1093,7 @@ md"""
 """
 
 # ╔═╡ 013c2268-6ab8-441a-9fb4-5118dc3ae18a
+#=╠═╡
 #based on pseudocode described in book for n-step TD value estimation
 function n_step_TD_Vest(π, α, n, states, sterm, sim, γ; v0 = 0.0, numep = 1000, Vtrue = Dict(s => v0 for s in states))
 	V = Dict(s => v0 for s in states)
@@ -984,6 +1138,7 @@ function n_step_TD_Vest(π, α, n, states, sterm, sim, γ; v0 = 0.0, numep = 100
 	end
 	return V, rmserrs
 end
+  ╠═╡ =#
 
 # ╔═╡ 44a16c0a-9d0d-4e9b-9ae5-aef791c4f544
 begin
@@ -1011,6 +1166,7 @@ function create_random_walk(n::Int64)
 end
 
 # ╔═╡ f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
+#=╠═╡
 function random_walk_TDλ(nstates = 19; numepisodes = 10, nruns = 10)
 	#estimate random policy
 	π(s) = rand([Left(), Right()])
@@ -1044,14 +1200,21 @@ function random_walk_TDλ(nstates = 19; numepisodes = 10, nruns = 10)
 	ymax = maxerr
 	plot(traces, Layout(yaxis_title="RMS Error for $nstates State Chain with Random Policy Over the First $numepisodes Episodes", title = "TD(λ) Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
 end
+  ╠═╡ =#
 
 # ╔═╡ 5cbe472f-4d96-483f-975f-07d41d809dc9
+#=╠═╡
 random_walk_TDλ(5, nruns = 100)
+  ╠═╡ =#
 
 # ╔═╡ 9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
+# ╠═╡ disabled = true
+#=╠═╡
 random_walk_TDλ(nruns = 100)
+  ╠═╡ =#
 
 # ╔═╡ 2336e059-34a5-4c81-be53-fa3f66733bd9
+#=╠═╡
 function random_walk_true_onlineTDλ(nstates = 19; numepisodes = 10, nruns = 10)
 	#estimate random policy
 	π(s) = rand([Left(), Right()])
@@ -1089,11 +1252,16 @@ function random_walk_true_onlineTDλ(nstates = 19; numepisodes = 10, nruns = 10)
 	ymax = maxerr
 	plot(traces, Layout(yaxis_title="RMS Error for $nstates State Chain with Random Policy Over the First $numepisodes Episodes", title = "True online TD(λ) Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
 end
+  ╠═╡ =#
 
 # ╔═╡ 9123aa11-9187-4203-b671-d5f5feaf5813
+# ╠═╡ disabled = true
+#=╠═╡
 random_walk_true_onlineTDλ(nruns = 100)
+  ╠═╡ =#
 
 # ╔═╡ 2cafed7d-22c6-420f-9c8e-8ae734bfbad2
+#=╠═╡
 function nsteptd_error_random_walk(nstates, estimator; v0=0.0, nruns = 10)
 	#estimate random policy
 	π(s) = rand([Left(), Right()])
@@ -1115,17 +1283,28 @@ function nsteptd_error_random_walk(nstates, estimator; v0=0.0, nruns = 10)
 	rmsvecs = [[mean(get_nstep_error(α, n) for _ in 1:nruns) for α in α_vec] for n in n_vec]
 	(rmsvecs, α_vec, n_vec, ymax = maxerr)
 end
+  ╠═╡ =#
+
+# ╔═╡ 14b3b28e-1351-4b45-9a57-bfab846a2ffd
+#=╠═╡
+nsteptd_error_random_walk(19; num_trials = 100, static_values=true)
+  ╠═╡ =#
 
 # ╔═╡ a3484638-ae83-4810-9226-0a25b3fc58dc
+#=╠═╡
 function optimize_n_randomwalk(nstates; estimator = n_step_TD_Vest, v0=0.0, nruns = 10)
 	(rmsvecs, α_vec, n_vec, ymax) = nsteptd_error_random_walk(nstates, estimator, v0=v0, nruns = nruns)
 	traces = [scatter(x = α_vec, y = rmsvecs[i], name = "n=$(n_vec[i])") for i in eachindex(rmsvecs)]
 	ymin = minimum(minimum(v) for v in rmsvecs) * 0.9
 	plot(traces, Layout(title="RMS Error for $nstates State Chain with Random Policy Over the First 10 Episodes, n-step TD Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
 end
+  ╠═╡ =#
 
 # ╔═╡ f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
+# ╠═╡ disabled = true
+#=╠═╡
 walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
+  ╠═╡ =#
 
 # ╔═╡ 0358288e-be4e-46c2-ac4c-16ace6f50187
 md"""
@@ -1133,7 +1312,9 @@ md"""
 """
 
 # ╔═╡ 3e433591-2efc-4f3a-9333-13156bf1529c
+#=╠═╡
 TableOfContents()
+  ╠═╡ =#
 
 # ╔═╡ 326b3355-7941-403b-bf1e-3031f585f666
 html"""
@@ -1724,9 +1905,19 @@ version = "17.4.0+2"
 # ╟─2c1afacc-7956-479b-898d-eadf02a2ec19
 # ╟─1035d33b-5e02-4d41-81cc-66546383db68
 # ╟─7f43afbf-3375-4ad1-acee-f6b74f98e20f
-# ╠═dccc9b45-b711-44e8-8788-93de05f26543
+# ╟─dccc9b45-b711-44e8-8788-93de05f26543
 # ╟─752a80ea-1da6-49ef-91ef-a03c590b825d
 # ╠═9d131051-eeee-4aba-8f78-9ddff9babab4
+# ╠═134ce360-6290-4aea-b6c0-eaa825d6f9a5
+# ╟─37ffc88c-8418-468b-a537-37b8e6bf5922
+# ╠═5f53c771-db36-42f8-9e73-375bf1bf73e1
+# ╠═ce8b9ebf-942a-4807-a36f-ced03c3c7916
+# ╠═c240d631-3095-4880-b454-66e05a59e4ea
+# ╠═583d2f42-692a-4028-93cc-47c2e178c84e
+# ╠═14b3b28e-1351-4b45-9a57-bfab846a2ffd
+# ╠═9d512c7b-3d49-439a-a971-1a3dad065d6e
+# ╠═176ee625-51c6-48f1-8f01-d3fb7008db6e
+# ╠═50f70e38-9dd2-43a8-986c-731037ee9aac
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
