@@ -340,6 +340,9 @@ From this expression it is clear that for $\lambda = 1$ we simply get $R_{t+1} +
 
 """
 
+# ╔═╡ 5b7f54a6-02cf-43f0-9859-6dbd04f005be
+
+
 # ╔═╡ 9d131051-eeee-4aba-8f78-9ddff9babab4
 #=╠═╡
 function plot_hl()
@@ -383,17 +386,6 @@ The λ-return gives us an alternative way of moving smoothly between Monte Carlo
 md"""
 ### *Off-line λ-return and random walk example*
 """
-
-# ╔═╡ 5f53c771-db36-42f8-9e73-375bf1bf73e1
-TabularRL.create_random_walk_distribution(19, -1f0, 1f0)
-
-# ╔═╡ ce8b9ebf-942a-4807-a36f-ced03c3c7916
-function value_estimate_random_walk(nstates, α, n; kwargs...)
-	mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
-	c = (nstates + 1)/2
-	v_true = [(s-c)/c for s in 1:nstates]
-	value_estimate_random_walk(mrp, v_true, α, n; kwargs...)
-end
 
 # ╔═╡ 9d512c7b-3d49-439a-a971-1a3dad065d6e
 function n_step_TD_prediction(mrp::TabularMRP{X, S, P, F}, γ::X, num_episodes, n::Integer; v_est::Vector{X} = initialize_state_value(mrp), α::X = one(X)/100, calc_err::Function = (v_est) -> zero(T), static_values = false, save_error = false, epkwargs...) where {X<:Real, S, P, F}
@@ -463,18 +455,132 @@ function n_step_TD_prediction(mrp::TabularMRP{X, S, P, F}, γ::X, num_episodes, 
 	return v_est, error_history
 end
 
+# ╔═╡ 45bb0802-edf6-4693-bf02-5568afcea36e
+runepisode(StateMRP(TabularRL.create_random_walk_distribution(19, -1f0, 1f0)))
+
+# ╔═╡ 8bce5c7a-3eef-46fb-a3e9-612dc83e533c
+StateMRP(TabularRL.create_random_walk_distribution(19, -1f0, 1f0))
+
+# ╔═╡ d55aca40-b03a-4f6b-84e6-ced6c8f67da1
+function offline_λ_return_prediction!(params, mrp::StateMRP{T, S, P, F1, F2}, γ::T, λ::T, num_episodes::Integer, state_representation, update_state_representation!::Function, estimate_value::Function, update_params!::Function; α::T = one(T)/100, calc_err::Function = params -> zero(T), static_params = false, save_error = false, epkwargs...) where {T<:Real, S, P, F1, F2}
+	#initialize
+	if static_params
+		params2 = copy(params)
+	end
+
+	error_history = Vector{T}(undef, num_episodes)
+
+	(states, rewards, sterm, num_steps) = runepisode(mrp; epkwargs...)
+
+	params_arg = if static_params
+		params2
+	else
+		params
+	end
+
+	function episode_update!(params, states, rewards)
+		l = length(rewards)
+		g = zero(T)
+		g_λ = rewards[l]
+		update_state_representation!(state_representation, states[l])
+		v̂ = estimate_value(state_representation, params)
+		update_params!(params_arg, g_λ, v̂, state_representation, α)
+		for i = l-1:-1:1
+			g_λ = rewards[i] + γ*((1-λ)*v̂ + λ*g_λ)
+			update_state_representation!(state_representation, states[i])
+			v̂ = estimate_value(state_representation, params)
+			update_params!(params_arg, g_λ, v̂, state_representation, α)
+		end
+		if static_params
+			params .= params2
+		end
+	end
+
+	episode_update!(params, states, rewards)
+	if save_error
+		error_history[1] = calc_err(params)
+	end
+
+	for ep in 2:num_episodes
+		(states, rewards, sterm, num_steps) = runepisode!((states, rewards), mrp; epkwargs...)
+		episode_update!(params, view(states, 1:num_steps), view(rewards, 1:num_steps))
+		if save_error
+			error_history[ep] = calc_err(params)
+		end
+	end
+	
+	return params, error_history
+end
+
+# ╔═╡ a5877ac6-3bd8-4832-bf19-618b01ba16e2
+#=╠═╡
+function run_random_walk_offline_λ_estimation(mrp, nstates, calc_err::Function, α, λ; num_episodes = 10, kwargs...)
+	params = zeros(Float32, nstates)
+	state_representation = zeros(Float32, nstates)
+	estimate_value(params, state_representation) = dot(params, state_representation)
+	function update_state_representation!(state_representation, state)
+		state_representation .= 0f0
+		state_representation[state] = 1f0
+	end
+
+	function update_params!(params, g_λ, v̂, state_representation, α)
+		params .+= α .* (g_λ - v̂) .* state_representation
+	end
+
+	params, error_history = offline_λ_return_prediction!(params, mrp, 1f0, λ, num_episodes, state_representation, update_state_representation!, estimate_value, update_params!; α = α, calc_err = calc_err, save_error = true, static_params=false, kwargs...)
+	return mean(error_history)
+end
+  ╠═╡ =#
+
+# ╔═╡ fba683ec-c923-498c-b379-9d23a1d4aa76
+#=╠═╡
+run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; num_trials = 100, kwargs...) = (1:num_trials |> Map(_ -> run_random_walk_offline_λ_estimation(mrp, nstates, calc_err, α, λ; num_episodes = 10, kwargs...)) |> foldxt(+)) / num_trials
+  ╠═╡ =#
+
+# ╔═╡ eefb36bb-d988-4f5d-bfbb-c3df2f869ab6
+#=╠═╡
+function offline_λ_error_random_walk(nstates; kwargs...)
+	α_vec = vcat(Float32.(0.0:0.02:0.1), 0.15f0, Float32.(0.2:0.1:1.0))
+	λ_vec = [0f0, 0.4f0, 0.8f0, 0.9f0, 0.95f0, 0.975f0, 0.99f0, 1f0]
+	mrp = StateMRP(TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0))
+	c = (nstates + 1)/2
+	v_true = [(s-c)/c for s in 1:nstates]
+	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, eachindex(v_true)))
+	get_α_line(λ) = α_vec |> Map(α -> run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; kwargs...)) |> collect
+	lines = λ_vec |> Map(λ -> get_α_line(λ)) |> collect
+	traces = [scatter(x = α_vec, y = lines[i], name = "λ = $λ", mode = "lines", line_shape = "spline") for (i, λ) in enumerate(λ_vec)]
+	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range = [minimum(minimum(x) for x in lines) - 0.05, first(first(lines))]))
+end
+  ╠═╡ =#
+
+# ╔═╡ 2754df82-8491-4e79-8c68-f990163ce418
+#=╠═╡
+offline_λ_error_random_walk(20; num_trials = 400)
+  ╠═╡ =#
+
+# ╔═╡ 5f53c771-db36-42f8-9e73-375bf1bf73e1
+TabularRL.create_random_walk_distribution(19, -1f0, 1f0)
+
+# ╔═╡ ce8b9ebf-942a-4807-a36f-ced03c3c7916
+function value_estimate_random_walk(nstates, α, n; kwargs...)
+	mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
+	c = (nstates + 1)/2
+	v_true = [(s-c)/c for s in 1:nstates]
+	value_estimate_random_walk(mrp, v_true, α, n; kwargs...)
+end
+
 # ╔═╡ c240d631-3095-4880-b454-66e05a59e4ea
 #=╠═╡
 function value_estimate_random_walk(mrp, v_true, α, n; num_trials = 100, num_episodes = 10, kwargs...)
 	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, 1:length(v_true)-1))
-	(1:num_trials |> Map(i -> calc_err(n_step_TD_prediction(mrp, 1f0, num_episodes, n; α = α, calc_err = calc_err, kwargs...)[1])) |> foldxt(+)) / num_trials
+	(1:num_trials |> Map(i -> mean(n_step_TD_prediction(mrp, 1f0, num_episodes, n; α = α, save_error = true, calc_err = calc_err, kwargs...)[2])) |> foldxt(+)) / num_trials
 end
   ╠═╡ =#
 
 # ╔═╡ 583d2f42-692a-4028-93cc-47c2e178c84e
 #=╠═╡
 function nsteptd_error_random_walk(nstates; kwargs...)
-	α_vec = Float32.(0.0:0.1:1.0)
+	α_vec = vcat(Float32.(0.0:0.02:0.1), 0.15f0, Float32.(0.2:0.1:1.0))
 	n_vec = 2 .^ (0:9)
 	mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
 	c = (nstates + 1)/2
@@ -482,7 +588,7 @@ function nsteptd_error_random_walk(nstates; kwargs...)
 	get_α_line(n) = α_vec |> Map(α -> value_estimate_random_walk(mrp, v_true, α, n; kwargs...)) |> collect
 	lines = n_vec |> Map(n -> get_α_line(n)) |> collect
 	traces = [scatter(x = α_vec, y = lines[i], name = "n = $n", mode = "lines", line_shape = "spline") for (i, n) in enumerate(n_vec)]
-	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range = [0.1, first(first(lines))]))
+	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range = [0.25, first(first(lines))]))
 end
   ╠═╡ =#
 
@@ -545,6 +651,18 @@ $\nabla \hat v(S, w) = [x_1, x_2, x_3, ...] = \mathbf{x}(S)$
 $\mathbf{x}(S_i) = \text{1 at i and 0 elsewhere}$
 $\mathbf{x}(S_1) = [1, 0, 0, \cdots]$
 """
+
+# ╔═╡ 9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
+# ╠═╡ disabled = true
+#=╠═╡
+random_walk_TDλ(nruns = 100)
+  ╠═╡ =#
+
+# ╔═╡ f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
+# ╠═╡ disabled = true
+#=╠═╡
+walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
+  ╠═╡ =#
 
 # ╔═╡ e597a042-9c03-4d49-a48f-6dff39283c54
 md"""
@@ -778,6 +896,12 @@ function true_online_TDλ(π, x, w, states, sterm, step, λ, γ, α, numepisodes
 	end
 	return w, rmserrs
 end	
+  ╠═╡ =#
+
+# ╔═╡ 9123aa11-9187-4203-b671-d5f5feaf5813
+# ╠═╡ disabled = true
+#=╠═╡
+random_walk_true_onlineTDλ(nruns = 100)
   ╠═╡ =#
 
 # ╔═╡ b36896b1-6802-48e1-8cd3-f08bf3b99e3e
@@ -1207,12 +1331,6 @@ end
 random_walk_TDλ(5, nruns = 100)
   ╠═╡ =#
 
-# ╔═╡ 9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
-# ╠═╡ disabled = true
-#=╠═╡
-random_walk_TDλ(nruns = 100)
-  ╠═╡ =#
-
 # ╔═╡ 2336e059-34a5-4c81-be53-fa3f66733bd9
 #=╠═╡
 function random_walk_true_onlineTDλ(nstates = 19; numepisodes = 10, nruns = 10)
@@ -1254,12 +1372,6 @@ function random_walk_true_onlineTDλ(nstates = 19; numepisodes = 10, nruns = 10)
 end
   ╠═╡ =#
 
-# ╔═╡ 9123aa11-9187-4203-b671-d5f5feaf5813
-# ╠═╡ disabled = true
-#=╠═╡
-random_walk_true_onlineTDλ(nruns = 100)
-  ╠═╡ =#
-
 # ╔═╡ 2cafed7d-22c6-420f-9c8e-8ae734bfbad2
 #=╠═╡
 function nsteptd_error_random_walk(nstates, estimator; v0=0.0, nruns = 10)
@@ -1287,7 +1399,7 @@ end
 
 # ╔═╡ 14b3b28e-1351-4b45-9a57-bfab846a2ffd
 #=╠═╡
-nsteptd_error_random_walk(19; num_trials = 100, static_values=true)
+nsteptd_error_random_walk(19; num_trials = 400)
   ╠═╡ =#
 
 # ╔═╡ a3484638-ae83-4810-9226-0a25b3fc58dc
@@ -1298,12 +1410,6 @@ function optimize_n_randomwalk(nstates; estimator = n_step_TD_Vest, v0=0.0, nrun
 	ymin = minimum(minimum(v) for v in rmsvecs) * 0.9
 	plot(traces, Layout(title="RMS Error for $nstates State Chain with Random Policy Over the First 10 Episodes, n-step TD Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
 end
-  ╠═╡ =#
-
-# ╔═╡ f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
-# ╠═╡ disabled = true
-#=╠═╡
-walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
   ╠═╡ =#
 
 # ╔═╡ 0358288e-be4e-46c2-ac4c-16ace6f50187
@@ -1906,16 +2012,24 @@ version = "17.4.0+2"
 # ╟─1035d33b-5e02-4d41-81cc-66546383db68
 # ╟─7f43afbf-3375-4ad1-acee-f6b74f98e20f
 # ╟─dccc9b45-b711-44e8-8788-93de05f26543
+# ╠═5b7f54a6-02cf-43f0-9859-6dbd04f005be
 # ╟─752a80ea-1da6-49ef-91ef-a03c590b825d
 # ╠═9d131051-eeee-4aba-8f78-9ddff9babab4
 # ╠═134ce360-6290-4aea-b6c0-eaa825d6f9a5
 # ╟─37ffc88c-8418-468b-a537-37b8e6bf5922
+# ╠═9d512c7b-3d49-439a-a971-1a3dad065d6e
+# ╠═45bb0802-edf6-4693-bf02-5568afcea36e
+# ╠═8bce5c7a-3eef-46fb-a3e9-612dc83e533c
+# ╠═d55aca40-b03a-4f6b-84e6-ced6c8f67da1
+# ╠═a5877ac6-3bd8-4832-bf19-618b01ba16e2
+# ╠═fba683ec-c923-498c-b379-9d23a1d4aa76
+# ╠═eefb36bb-d988-4f5d-bfbb-c3df2f869ab6
+# ╠═2754df82-8491-4e79-8c68-f990163ce418
 # ╠═5f53c771-db36-42f8-9e73-375bf1bf73e1
 # ╠═ce8b9ebf-942a-4807-a36f-ced03c3c7916
 # ╠═c240d631-3095-4880-b454-66e05a59e4ea
 # ╠═583d2f42-692a-4028-93cc-47c2e178c84e
 # ╠═14b3b28e-1351-4b45-9a57-bfab846a2ffd
-# ╠═9d512c7b-3d49-439a-a971-1a3dad065d6e
 # ╠═176ee625-51c6-48f1-8f01-d3fb7008db6e
 # ╠═50f70e38-9dd2-43a8-986c-731037ee9aac
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
