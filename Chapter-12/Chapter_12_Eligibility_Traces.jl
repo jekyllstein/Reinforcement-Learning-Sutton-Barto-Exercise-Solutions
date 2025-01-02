@@ -20,6 +20,13 @@ end
 using PlutoUI, PlutoPlotly ,StatsBase, BenchmarkTools, PlutoProfile, HypertextLiteral, LaTeXStrings
   ╠═╡ =#
 
+# ╔═╡ 062f756b-6640-4928-9216-c54316503944
+begin
+	include(joinpath(@__DIR__, "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
+	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
+	include(joinpath(@__DIR__, "..", "Chapter-11", "Chapter_11_Off_policy_Methods_with_Approximation.jl"))
+end
+
 # ╔═╡ c62195dd-aa6e-4fd2-b9a9-848837a072d8
 md"""
 # Chapter 12: Eligibility Traces
@@ -455,12 +462,6 @@ function n_step_TD_prediction(mrp::TabularMRP{X, S, P, F}, γ::X, num_episodes, 
 	return v_est, error_history
 end
 
-# ╔═╡ 45bb0802-edf6-4693-bf02-5568afcea36e
-runepisode(StateMRP(TabularRL.create_random_walk_distribution(19, -1f0, 1f0)))
-
-# ╔═╡ 8bce5c7a-3eef-46fb-a3e9-612dc83e533c
-StateMRP(TabularRL.create_random_walk_distribution(19, -1f0, 1f0))
-
 # ╔═╡ d55aca40-b03a-4f6b-84e6-ced6c8f67da1
 function offline_λ_return_prediction!(params, mrp::StateMRP{T, S, P, F1, F2}, γ::T, λ::T, num_episodes::Integer, state_representation, update_state_representation!::Function, estimate_value::Function, update_params!::Function; α::T = one(T)/100, calc_err::Function = params -> zero(T), static_params = false, save_error = false, epkwargs...) where {T<:Real, S, P, F1, F2}
 	#initialize
@@ -537,6 +538,22 @@ end
 run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; num_trials = 100, kwargs...) = (1:num_trials |> Map(_ -> run_random_walk_offline_λ_estimation(mrp, nstates, calc_err, α, λ; num_episodes = 10, kwargs...)) |> foldxt(+)) / num_trials
   ╠═╡ =#
 
+# ╔═╡ ce8b9ebf-942a-4807-a36f-ced03c3c7916
+function value_estimate_random_walk(nstates, α, n; kwargs...)
+	mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
+	c = (nstates + 1)/2
+	v_true = [(s-c)/c for s in 1:nstates]
+	value_estimate_random_walk(mrp, v_true, α, n; kwargs...)
+end
+
+# ╔═╡ c240d631-3095-4880-b454-66e05a59e4ea
+#=╠═╡
+function value_estimate_random_walk(mrp, v_true, α, n; num_trials = 100, num_episodes = 10, kwargs...)
+	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, 1:length(v_true)))
+	(1:num_trials |> Map(i -> mean(n_step_TD_prediction(mrp, 1f0, num_episodes, n; α = α, save_error = true, calc_err = calc_err, kwargs...)[2])) |> foldxt(+)) / num_trials
+end
+  ╠═╡ =#
+
 # ╔═╡ eefb36bb-d988-4f5d-bfbb-c3df2f869ab6
 #=╠═╡
 function offline_λ_error_random_walk(nstates; kwargs...)
@@ -549,31 +566,7 @@ function offline_λ_error_random_walk(nstates; kwargs...)
 	get_α_line(λ) = α_vec |> Map(α -> run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; kwargs...)) |> collect
 	lines = λ_vec |> Map(λ -> get_α_line(λ)) |> collect
 	traces = [scatter(x = α_vec, y = lines[i], name = "λ = $λ", mode = "lines", line_shape = "spline") for (i, λ) in enumerate(λ_vec)]
-	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range = [minimum(minimum(x) for x in lines) - 0.05, first(first(lines))]))
-end
-  ╠═╡ =#
-
-# ╔═╡ 2754df82-8491-4e79-8c68-f990163ce418
-#=╠═╡
-offline_λ_error_random_walk(20; num_trials = 400)
-  ╠═╡ =#
-
-# ╔═╡ 5f53c771-db36-42f8-9e73-375bf1bf73e1
-TabularRL.create_random_walk_distribution(19, -1f0, 1f0)
-
-# ╔═╡ ce8b9ebf-942a-4807-a36f-ced03c3c7916
-function value_estimate_random_walk(nstates, α, n; kwargs...)
-	mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
-	c = (nstates + 1)/2
-	v_true = [(s-c)/c for s in 1:nstates]
-	value_estimate_random_walk(mrp, v_true, α, n; kwargs...)
-end
-
-# ╔═╡ c240d631-3095-4880-b454-66e05a59e4ea
-#=╠═╡
-function value_estimate_random_walk(mrp, v_true, α, n; num_trials = 100, num_episodes = 10, kwargs...)
-	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, 1:length(v_true)-1))
-	(1:num_trials |> Map(i -> mean(n_step_TD_prediction(mrp, 1f0, num_episodes, n; α = α, save_error = true, calc_err = calc_err, kwargs...)[2])) |> foldxt(+)) / num_trials
+	plot(traces, Layout(title = "Off-line λ-return algorithm", xaxis_title = "α", height = 500, yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range = [minimum(minimum(x) for x in lines) - 0.01, first(first(lines))]))
 end
   ╠═╡ =#
 
@@ -588,17 +581,18 @@ function nsteptd_error_random_walk(nstates; kwargs...)
 	get_α_line(n) = α_vec |> Map(α -> value_estimate_random_walk(mrp, v_true, α, n; kwargs...)) |> collect
 	lines = n_vec |> Map(n -> get_α_line(n)) |> collect
 	traces = [scatter(x = α_vec, y = lines[i], name = "n = $n", mode = "lines", line_shape = "spline") for (i, n) in enumerate(n_vec)]
-	plot(traces, Layout(xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range = [0.25, first(first(lines))]))
+	plot(traces, Layout(title = "n-step TD methods", xaxis_title = "α", height = 500, yaxis_title = "Average RMS error over $nstates <br> states and first 10 episodes", yaxis_range =  [minimum(minimum(x) for x in lines) - 0.01, first(first(lines))]))
 end
   ╠═╡ =#
 
 # ╔═╡ 176ee625-51c6-48f1-8f01-d3fb7008db6e
+#=╠═╡
 md"""
 ### Figure 12.3
+
+ $(@bind fig_12_3_n NumberField(1:30, default = 19))-state Random walk results: Performance of the off-line λ-return algorithm alongside that of the n-step TD methods.  In both cases intermediate values of the bootstrapping parameter (λ or n) performed bets.  The results with the off-line λ-return algorithm are slightly better at the best values of α and λ, and at high α.  The importance of bootstrapping diminishes the smaller the random walk chain is.
 """
-
-# ╔═╡ 50f70e38-9dd2-43a8-986c-731037ee9aac
-
+  ╠═╡ =#
 
 # ╔═╡ 57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 md"""
@@ -608,10 +602,10 @@ md"""
 # ╔═╡ 34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 md"""
 $\begin{flalign}
-& \mathbf{z}_{-1} \dot = \mathbf{0}\\
-& \mathbf{z_t} \dot = \gamma \lambda \mathbf{z}_{t-1} + \nabla \hat v(S_t, \mathbf{w_{t}}),  \hspace{5 mm} 0 \leq t \leq T-1 \tag{12.5} \\
-& \delta_t \dot = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \tag{12.6} \\
-& \mathbf{w}_{t+1} \dot = \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t \tag{12.7}
+\mathbf{z}_{-1} &\doteq \mathbf{0} \\
+\mathbf{z_t} &\doteq \gamma \lambda \mathbf{z}_{t-1} + \nabla \hat v(S_t, \mathbf{w_{t}}),  \hspace{5 mm} 0 \leq t \leq T-1 \tag{12.5} \\
+\delta_t &\doteq R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \tag{12.6} \\
+\mathbf{w}_{t+1} &\doteq \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t \tag{12.7}
 \end{flalign}$
 """
 
@@ -1399,7 +1393,12 @@ end
 
 # ╔═╡ 14b3b28e-1351-4b45-9a57-bfab846a2ffd
 #=╠═╡
-nsteptd_error_random_walk(19; num_trials = 400)
+@htl("""
+<div style = "display: flex;">
+$(offline_λ_error_random_walk(fig_12_3_n; num_trials = 200)) 
+$(nsteptd_error_random_walk(fig_12_3_n; num_trials = 200))
+</div>
+""")
   ╠═╡ =#
 
 # ╔═╡ a3484638-ae83-4810-9226-0a25b3fc58dc
@@ -2015,23 +2014,18 @@ version = "17.4.0+2"
 # ╠═5b7f54a6-02cf-43f0-9859-6dbd04f005be
 # ╟─752a80ea-1da6-49ef-91ef-a03c590b825d
 # ╠═9d131051-eeee-4aba-8f78-9ddff9babab4
-# ╠═134ce360-6290-4aea-b6c0-eaa825d6f9a5
+# ╟─134ce360-6290-4aea-b6c0-eaa825d6f9a5
 # ╟─37ffc88c-8418-468b-a537-37b8e6bf5922
 # ╠═9d512c7b-3d49-439a-a971-1a3dad065d6e
-# ╠═45bb0802-edf6-4693-bf02-5568afcea36e
-# ╠═8bce5c7a-3eef-46fb-a3e9-612dc83e533c
 # ╠═d55aca40-b03a-4f6b-84e6-ced6c8f67da1
 # ╠═a5877ac6-3bd8-4832-bf19-618b01ba16e2
 # ╠═fba683ec-c923-498c-b379-9d23a1d4aa76
-# ╠═eefb36bb-d988-4f5d-bfbb-c3df2f869ab6
-# ╠═2754df82-8491-4e79-8c68-f990163ce418
-# ╠═5f53c771-db36-42f8-9e73-375bf1bf73e1
 # ╠═ce8b9ebf-942a-4807-a36f-ced03c3c7916
 # ╠═c240d631-3095-4880-b454-66e05a59e4ea
+# ╠═eefb36bb-d988-4f5d-bfbb-c3df2f869ab6
 # ╠═583d2f42-692a-4028-93cc-47c2e178c84e
-# ╠═14b3b28e-1351-4b45-9a57-bfab846a2ffd
-# ╠═176ee625-51c6-48f1-8f01-d3fb7008db6e
-# ╠═50f70e38-9dd2-43a8-986c-731037ee9aac
+# ╟─176ee625-51c6-48f1-8f01-d3fb7008db6e
+# ╟─14b3b28e-1351-4b45-9a57-bfab846a2ffd
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
@@ -2077,6 +2071,7 @@ version = "17.4.0+2"
 # ╟─0358288e-be4e-46c2-ac4c-16ace6f50187
 # ╠═67f08f89-698c-4aa4-80d5-1ebcb830fc0c
 # ╠═8a581882-c97d-4a3b-873a-212024a529a9
+# ╠═062f756b-6640-4928-9216-c54316503944
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═3e433591-2efc-4f3a-9333-13156bf1529c
 # ╠═326b3355-7941-403b-bf1e-3031f585f666
