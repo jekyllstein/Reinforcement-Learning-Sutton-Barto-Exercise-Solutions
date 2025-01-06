@@ -241,20 +241,22 @@ function make_baird_ptf(n::Integer)
 	return (tabular_ptf = ptf2, state_ptf = ptf1)
 end
 
-# ╔═╡ 8128c9a6-6b6e-4325-8476-37d55a2678e5
-const baird_ptfs = make_baird_ptf(7)
-
-# ╔═╡ 0d5412d3-24ec-4fd8-856e-04372f189ab1
-const baird_states = collect(1:7)
-
-# ╔═╡ 3f7c0436-4bf5-4631-9e3f-75f7b1236287
-const baird_actions = [1, 2]
+# ╔═╡ 822bc5a4-8aa4-454f-8da0-a1d081b93c55
+function make_baird_mdps(n::Integer)
+	ptfs = make_baird_ptf(n)
+	states = collect(1:n)
+	actions = [1, 2]
+	ptfs = make_baird_ptf(n)
+	tabular_mdp = TabularMDP(states, actions, ptfs.tabular_ptf)
+	state_mdp =  StateMDP(actions, ptfs.state_ptf, () -> rand(1:n), s -> false)
+	return (tabular_mdp = tabular_mdp, state_mdp = state_mdp)
+end
 
 # ╔═╡ 3e2afc15-0e7b-4a5d-8e38-91e70cfa87e5
-const baird_tabular_mdp = TabularMDP(baird_states, baird_actions, baird_ptfs.tabular_ptf)
-
-# ╔═╡ f847211d-caeb-498e-a5fd-7267672e5eed
-const baird_state_mdp = StateMDP(baird_actions, baird_ptfs.state_ptf, () -> rand(1:7), s -> false)
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const baird_tabular_mdp, baird_state_mdp = make_baird_mdps(7)
+  ╠═╡ =#
 
 # ╔═╡ e7abb675-6697-4f23-a8b7-01eb2231f6d1
 function baird_update_state_vector!(x::Vector{Float32}, s::Integer)
@@ -331,19 +333,25 @@ Note that for the target policy, all of the time is spent in state 7, so that is
 """
 
 # ╔═╡ c044414e-77d5-4a54-865e-dca4a879cd30
-function make_baird_dynamics()
-	states = 1:7
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function make_baird_dynamics(;nstates = 7)
+	states = 1:nstates
 	actions = 1:2
-	
+
+	n2 = nstates - 1
 	#dashed action takes system to one of six upper states with equal probability 
-	dash = [s′ <= 6 ? 1/6 : 0.0 for s′ in states][:, [1]] #turn into matrix
+	dash = [s′ <= n2 ? 1/n2 : 0.0 for s′ in states][:, [1]] #turn into matrix
 	#solid action takes system to the 7th state
-	solid = [s′ == 7 ? 1.0 : 0.0 for s′ in states][:, [1]]
+	solid = [s′ == nstates ? 1.0 : 0.0 for s′ in states][:, [1]]
 	
 	Dict((s, a) => a == 1 ? dash : solid for s in states for a in actions)
 end
+  ╠═╡ =#
 
 # ╔═╡ d2033a7d-3d9d-4983-8fd1-b4e6ee015080
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function bairdtransition(s::Int64, a::Int64)
 	if a == 1 #dashed action takes system to one of the six upper states with equal probability
 		s′ = rand(1:6)
@@ -352,12 +360,19 @@ function bairdtransition(s::Int64, a::Int64)
 	end
 	(s′, 0.0)
 end
+  ╠═╡ =#
 
 # ╔═╡ 1ba56556-2ac7-4d23-98c3-0d3fb54ec3d6
+# ╠═╡ skip_as_script = true
+#=╠═╡
 bairdbehavior(s::Int64) = [6/7, 1/7]
+  ╠═╡ =#
 
 # ╔═╡ 1be8182a-c183-486c-9991-bcc325e75449
+# ╠═╡ skip_as_script = true
+#=╠═╡
 bairdπ(s::Int64) = [0.0, 1.0]
+  ╠═╡ =#
 
 # ╔═╡ 2feb4657-3377-434f-bf8a-400cfcfe9fef
 #=╠═╡
@@ -400,9 +415,13 @@ md"""
 """
 
 # ╔═╡ 5d85cf97-3e46-4ace-8246-2fc73a93cc2f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 abstract type MDP_Environment end
+  ╠═╡ =#
 
 # ╔═╡ 12ff2e46-fa3e-4fe8-9a1f-58afc2a43c25
+#=╠═╡
 #the step function must be called as follows (s′, r) = step(s, a::Int64) where s and a are the starting state and selected action while the return values are the subsequent state and reward.  a is an integer which represents which action is taken from some list of actions
 struct Episodic_MDP{S} <: MDP_Environment
 	states::Vector{S}
@@ -411,15 +430,20 @@ struct Episodic_MDP{S} <: MDP_Environment
 	sterm::S
 	γ::Float64
 end
+  ╠═╡ =#
 
 # ╔═╡ 84997a09-960f-4116-9045-74cb2e0e9d03
+# ╠═╡ skip_as_script = true
+#=╠═╡
 struct Continuing_MDP{S}
 	states::Vector{S}
 	actions
 	step::Function
 end
+  ╠═╡ =#
 
 # ╔═╡ 77ca116d-675d-4db5-8a68-53d1085528f4
+#=╠═╡
 #step is a dictionary that maps state/action pairs to a matrix describing the distribution over possible subsequent state/reward pairs.  The value in each position is the probability of that transition occuring
 struct Episodic_Full_Finite_MDP{S} <: MDP_Environment
 	states::Vector{S}
@@ -429,6 +453,7 @@ struct Episodic_Full_Finite_MDP{S} <: MDP_Environment
 	sterm::S
 	γ::Float64
 end
+  ╠═╡ =#
 
 # ╔═╡ 8efa076f-d14d-44ab-bc03-e7ff964bc3b3
 #=╠═╡
@@ -963,9 +988,14 @@ Consider a MRP with just two states each of which have two equally probable tran
 """
 
 # ╔═╡ 2dff23c5-0641-4377-8d7a-a4e2d3459b2f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mrp_tabular_transition = TabularStochasticTransition([sparse([0.5f0, 0.5f0]), sparse([0.5f0, 0.5f0])], [[0f0, 0f0], [2f0, 2f0]])
+  ╠═╡ =#
 
 # ╔═╡ f2bc7752-d263-4f11-afec-40f82d5188ec
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function mrp_step(s::Integer)
 	if s == 1
 		([0f0, 0f0], [1, 2], [0.5f0, 0.5f0])
@@ -973,15 +1003,24 @@ function mrp_step(s::Integer)
 		([2f0, 2f0], [1, 2], [0.5f0, 0.5f0])
 	end
 end
+  ╠═╡ =#
 
 # ╔═╡ ee4ba290-9a25-44ba-abe0-44f4e39a1099
+#=╠═╡
 const mrp_state_transition = StateMRPTransitionDistribution(mrp_step, 1)
+  ╠═╡ =#
 
 # ╔═╡ 672c91f9-6df1-4834-a2ae-ead92d245cda
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mrp_tabular_example = TabularMRP([1, 2], mrp_tabular_transition, () -> 1)
+  ╠═╡ =#
 
 # ╔═╡ e91cf338-fc0b-4d05-828d-6302c6acc924
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mrp_state_example = StateMRP(mrp_state_transition, () -> 1, s -> false)
+  ╠═╡ =#
 
 # ╔═╡ b3a62cf0-f1f2-42f3-978c-14a09b20eb75
 md"""
@@ -1121,13 +1160,22 @@ w &= \frac{\gamma + 2c - c \gamma}{(1 - \gamma)(1 + c^2)} \\
 """
 
 # ╔═╡ ac92068b-5fc7-456c-9ab1-f7a6acbe0089
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_ve_min(γ, c) = (γ + 2*c - c*γ) / ((1 - γ)*(1 + c^2))
+  ╠═╡ =#
 
 # ╔═╡ d5b1580a-154d-43e7-9eb3-86ac2504e6b1
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_bellman_operator(w, γ, c) = (γ*w*(1+c)/2, 2 + γ*w*(1+c)/2)
+  ╠═╡ =#
 
 # ╔═╡ 2bf91a55-b327-422d-b331-630c898dcb64
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_bellman_operator2(v1, v2, γ) = (γ*(v1 + v2)/2, 2 + γ*(v1 + v2)/2)
+  ╠═╡ =#
 
 # ╔═╡ 620d9b39-cf3f-4937-b3f1-332558aef6fb
 #=╠═╡
@@ -1161,10 +1209,16 @@ plot_mrp_bellman_iteration(mrp_bellman_iteration_params.γ, (mrp_bellman_iterati
   ╠═╡ =#
 
 # ╔═╡ 95d37731-401e-456f-97a3-1e965cbe8b9e
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_be_vector(w, w_k, γ, c) = (w - (1+c)*γ*w_k / 2, (c*w - 2 - (1+c)*γ*w_k/2))
+  ╠═╡ =#
 
 # ╔═╡ a9e39487-19d7-49ad-8536-29f79f3a80d8
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_be(w, γ, c) = ((w - (1+c)*γ*w/2)^2 + (c*w - 2 - γ*w*(1+c)/2)^2)/2
+  ╠═╡ =#
 
 # ╔═╡ 3b4be6a5-e4bc-4a48-91ad-99705700b81f
 md"""
@@ -1211,7 +1265,10 @@ So for any value function in the space, we can find the value $w$ that minimizes
 """
 
 # ╔═╡ 5c5331ae-675a-4e07-a14f-fed84250829e
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_wmin(v1, v2, c) = (v1 + c*v2) / (1 + c^2)
+  ╠═╡ =#
 
 # ╔═╡ 99f42969-f9a0-4c02-8eaf-2ae395d55147
 md"""
@@ -1240,7 +1297,10 @@ w_{\text{min}} = \frac{4c}{2(1+c^2) - \gamma (1+c)^2}
 """
 
 # ╔═╡ f6141748-a3fd-4cc3-8296-6c311a8060cc
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_pbe_min(γ, c) = 4*c / (2*(1+c^2) - γ*(1+c)^2)
+  ╠═╡ =#
 
 # ╔═╡ 4befb480-593c-4c29-adcf-3775cc3e736f
 md"""
@@ -1270,7 +1330,10 @@ $w = \frac{2(2c - \gamma (1 + c))}{(\gamma -1)^2 + (\gamma c  - 1)^2 + (\gamma -
 """
 
 # ╔═╡ 376fe140-bd40-447a-992c-97b52ffc4c2b
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_tde(γ, c, w) = (w^2*((γ-1)^2 + (γ*c - 1)^2 + (γ - c)^2 + c^2 * (γ-1)^2) + 4*w*(γ-2*c + c*γ) + 8)/4
+  ╠═╡ =#
 
 # ╔═╡ 65c4f33b-0c7d-4003-9a69-9e4d1147641e
 #=╠═╡
@@ -1343,7 +1406,10 @@ plot_mrp_errors(mrp_test_params...)
   ╠═╡ =#
 
 # ╔═╡ 9be0a35f-bf46-4edd-be72-cd92a76822da
+# ╠═╡ skip_as_script = true
+#=╠═╡
 mrp_wmin_tde(γ, c) = 2(2c - γ*(1+c)) / ((γ-1)^2 + (γ*c - 1)^2 + (γ-c)^2 + c^2 * (γ-1)^2)
+  ╠═╡ =#
 
 # ╔═╡ d16d7e17-3662-4f5e-a98c-1c423399feed
 #=╠═╡
@@ -2037,11 +2103,14 @@ which does not match the solution we had for the minimum value error.
 """
 
 # ╔═╡ b5f926d8-3ea2-47a8-9093-ea366afe374f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function min_be_weights(γ)
 	w2 = (γ / (1 + γ^2)) - 0.5
 	w1 = w2 * (γ^2 - γ + 1)/γ - 0.5
 	(w1, w2)
 end
+  ╠═╡ =#
 
 # ╔═╡ 7f6c554b-3423-4bb5-bf07-853afa4e76fb
 #=╠═╡
@@ -2194,6 +2263,12 @@ $\begin{flalign}
 \end{flalign}$
 """
 
+# ╔═╡ 0ac1a38b-92bd-4000-8da6-295fcd1f028f
+#since we're sampling from the behavior policy, this projected Bellman error is not the true one we care about for the on-policy distribution.  however, at convergence, the PBE is uniquely 0 which means that the projected Bellman error is zero for every state. That means that the fixed point won't change even if the weighting of states changes so the different visit distribution won't actually change the convergence to the TD fixed point.  So we don't end up correcting for the difference in state visit distribution.  Instead we use an objective that is 0 regardless of it.
+
+# ╔═╡ 5b69d857-d3c1-4a1a-9295-1691bbc73cf6
+#this update rule won't match semi-gradient TD(0) even though it converges to the same point in the on policy case.  the difference is that the semi-gradient method only converges when the states are visited according to the on policy distribution and this converges regardless of how the updates are distributed.  You could for example visit the same state over and over which would affect the value of v and prevent divergence.  Actually if the semi-gradient method converges then it will converge to the TD fixed point even under the off-policy visits.  The problem is there are times when it diverges but it doesn't converge to something that's the wrong value.  This correction term only serves to prevent divergence, not change the convergence value.  This stems again from the unique 0 value of the PBE
+
 # ╔═╡ 4fd5b88f-eb4b-415b-9f8e-781dd4e194d0
 md"""
 ### *TDC Implementation*
@@ -2340,7 +2415,7 @@ end
 
 # ╔═╡ aee362e3-b1a0-4378-9af0-1ea1ed6580fe
 #=╠═╡
-figure_11_5(;α = 0.00005f0, γ = 0.1f0)
+figure_11_5(;α = 0.005f0, γ = 0.99f0)
   ╠═╡ =#
 
 # ╔═╡ 9a21ebe8-186f-4ab4-b0ae-8a0c668c3f92
@@ -2597,25 +2672,50 @@ tdc_control_baird()
 # ╔═╡ 4b932772-b69f-427a-b8f4-ee52fba4696a
 #add parameter study comparing TDC and semi-gradient q learning
 
+# ╔═╡ d88a5c6b-8bcb-44d9-a52a-994e945aecad
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const mountain_car_mdp = MountainCarTask.mdp
+  ╠═╡ =#
+
+# ╔═╡ 321474b9-364d-4b91-bf1c-601a9b8ad470
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const mountain_car_dist_mdp = MountainCarTask.dist_mdp
+  ╠═╡ =#
+
+# ╔═╡ 1ddecb8a-fcc6-4ccc-b04a-c1b06335f614
+#=╠═╡
+setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), tile_size, num_tilings, (1, 3))
+  ╠═╡ =#
+
 # ╔═╡ 9f85ad2d-f417-4463-9894-53f0eead4d83
+#=╠═╡
 function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
 	v = setup.args.feature_vector
 	run_linear_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ c25fa03c-0464-4e07-a777-9ee5f732b0a2
+#=╠═╡
 (v̂_mountain_car, π_greedy_dp, episode_rewards_dp, episode_steps_dp) = mountaincar_dist_test(100, 0.001f0/32, 0.9f0)
+  ╠═╡ =#
 
 # ╔═╡ bf5d1782-5109-4cfd-8744-82ac80b5bc45
+#=╠═╡
 function mountaincar_tdc_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
 	v = setup.args.feature_vector
 	tdc_dp_control(mountain_car_dist_mdp, length(v), 1f0, max_episodes, max_steps, setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ 41bd4480-7672-4adf-924a-5bc1e9d4b45e
+#=╠═╡
 tdc_out = mountaincar_tdc_test(10000, 0.000002f0, 0.9f0; max_steps = 500_000, β = 1f-8)
+  ╠═╡ =#
 
 # ╔═╡ a5ec3b99-af5a-42e5-8dff-533b45e50af5
 #=╠═╡
@@ -2625,7 +2725,7 @@ function show_mountaincar_trajectory(π::Function, max_steps::Integer, name)
 	velocities = [s[2] for s in states]
 	tr1 = scatter(x = positions, y = velocities, mode = "markers", showlegend = false)
 	tr2 = scatter(y = positions, showlegend = false)
-	tr3 = scatter(y = [mountain_car_actions[i] for i in actions], showlegend = false)
+	tr3 = scatter(y = [MountainCarTask.actions[i] for i in actions], showlegend = false)
 	p1 = plot(tr1, Layout(xaxis_title = "position", yaxis_title = "velocity", xaxis_range = [-1.2, 0.5], yaxis_range = [-0.07, 0.07]))
 	p2 = plot(tr2, Layout(xaxis_title = "time", yaxis_title = "position"))
 	p3 = plot(tr3, Layout(xaxis_title = "time", yaxis_title = "action"))
@@ -3562,11 +3662,8 @@ version = "17.4.0+2"
 # ╟─8d463e53-12ee-441c-bd14-e8b377fcdced
 # ╟─29364905-2458-426a-999c-210cd3c60263
 # ╠═7b913193-0bcc-43b3-b9b2-908a9c29524e
-# ╠═8128c9a6-6b6e-4325-8476-37d55a2678e5
-# ╠═0d5412d3-24ec-4fd8-856e-04372f189ab1
-# ╠═3f7c0436-4bf5-4631-9e3f-75f7b1236287
+# ╠═822bc5a4-8aa4-454f-8da0-a1d081b93c55
 # ╠═3e2afc15-0e7b-4a5d-8e38-91e70cfa87e5
-# ╠═f847211d-caeb-498e-a5fd-7267672e5eed
 # ╠═e7abb675-6697-4f23-a8b7-01eb2231f6d1
 # ╟─4996bfd5-137c-4b31-9f80-e463ca5d2b8a
 # ╠═ddda80bc-fd6b-4110-83b3-aaf995ce8a71
@@ -3703,6 +3800,8 @@ version = "17.4.0+2"
 # ╟─6c2fcfc8-158e-4165-9375-638d9444f70b
 # ╟─bfbe7c40-3f60-49b4-9690-ad0ee0d7db99
 # ╟─f3915dbd-6266-48cd-9bc0-a40b39b8dd22
+# ╠═0ac1a38b-92bd-4000-8da6-295fcd1f028f
+# ╠═5b69d857-d3c1-4a1a-9295-1691bbc73cf6
 # ╟─4fd5b88f-eb4b-415b-9f8e-781dd4e194d0
 # ╠═5f7635d8-42a3-4b74-b027-6a870d6e7d47
 # ╟─6fd223aa-3d28-47e9-ba4f-391be5362521
@@ -3722,6 +3821,9 @@ version = "17.4.0+2"
 # ╠═38e6ef4c-63c1-4df5-9451-f40df4fe57e7
 # ╠═c25fa03c-0464-4e07-a777-9ee5f732b0a2
 # ╠═5c87ea86-aec5-42d3-9423-4cd9d14dbc97
+# ╠═d88a5c6b-8bcb-44d9-a52a-994e945aecad
+# ╠═321474b9-364d-4b91-bf1c-601a9b8ad470
+# ╠═1ddecb8a-fcc6-4ccc-b04a-c1b06335f614
 # ╠═9f85ad2d-f417-4463-9894-53f0eead4d83
 # ╠═bf5d1782-5109-4cfd-8744-82ac80b5bc45
 # ╠═a5ec3b99-af5a-42e5-8dff-533b45e50af5
