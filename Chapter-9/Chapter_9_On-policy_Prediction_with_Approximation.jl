@@ -325,22 +325,19 @@ function randomwalk_step(s::Float32, num_states::Int64)
 	(r, s′)
 end
 
-# ╔═╡ 39c6ec4d-306e-4dee-9d5a-130925341a6c
-#=╠═╡
-const randomwalk_state_ptf = StateMRPTransitionSampler((s) -> randomwalk_step(s, num_states), 1f0)
-  ╠═╡ =#
-
 # ╔═╡ 60d68f9b-d18d-4d23-9adb-27fcb205e54b
 randomwalk_isterm(s::Float32, num_states::Int64) = (s < 1) || (s > num_states)
 
-# ╔═╡ c79db82f-289e-4523-bf07-57cfdc38c073
-#=╠═╡
-randomwalk_state_init() = Float32(initial_state)
-  ╠═╡ =#
+# ╔═╡ 6f3928a9-bcaa-44b5-8723-820142cbcfc3
+function create_continuous_random_walk(num_states::Int64)
+	ptf = StateMRPTransitionSampler((s) -> randomwalk_step(s, num_states), 1f0)
+	init_state = ceil(Float32, num_states / 2)
+	StateMRP(ptf, () -> init_state, s -> randomwalk_isterm(s, num_states))
+end
 
 # ╔═╡ 2720329c-4c80-47cb-a3e3-d24fcec6ef43
 #=╠═╡
-const random_walk_state_mrp = StateMRP(randomwalk_state_ptf, randomwalk_state_init, s -> randomwalk_isterm(s, num_states))
+const random_walk_state_mrp = create_continuous_random_walk(num_states)
   ╠═╡ =#
 
 # ╔═╡ 2c6809f9-50ed-44b8-8f27-0a62e88d118c
@@ -471,7 +468,10 @@ const random_walk_state_distribution = calculate_random_walk_state_distribution(
   ╠═╡ =#
 
 # ╔═╡ 75eceb07-f739-4009-8e92-b4742cedb548
+# ╠═╡ skip_as_script = true
+#=╠═╡
 get_random_walk_true_value(s::Float32, values::Vector{Float32}) = values[Int64(s) + 1] 
+  ╠═╡ =#
 
 # ╔═╡ e3bd06e5-a16d-474c-b618-1c6f303eda00
 #=╠═╡
@@ -2655,9 +2655,8 @@ version = "17.4.0+2"
 # ╟─736b7667-904d-4a9c-bb10-a6b0b831bfb6
 # ╟─9c3f07b1-61eb-4d70-9dde-986c032a0840
 # ╠═3f2ce7e0-b623-4ce3-90cf-949f3a6b0633
-# ╠═39c6ec4d-306e-4dee-9d5a-130925341a6c
 # ╠═60d68f9b-d18d-4d23-9adb-27fcb205e54b
-# ╠═c79db82f-289e-4523-bf07-57cfdc38c073
+# ╠═6f3928a9-bcaa-44b5-8723-820142cbcfc3
 # ╠═2720329c-4c80-47cb-a3e3-d24fcec6ef43
 # ╟─2c6809f9-50ed-44b8-8f27-0a62e88d118c
 # ╟─91e4e5da-4e0f-48b2-98bd-1e9f1330b0a8
