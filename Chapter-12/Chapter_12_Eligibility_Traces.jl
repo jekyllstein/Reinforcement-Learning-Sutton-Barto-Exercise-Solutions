@@ -845,11 +845,11 @@ function tdλ_vs_offline_λ_error_random_walk(nstates, num_episodes; kwargs...)
 
 	yaxis_lims = [minimum(minimum(x) for x in lines1) - 0.05, first(first(lines1))]
 	
-	traces1 = [scatter(x = α_vec, y = lines1[i], name = "λ = $λ", mode = "lines", line_shape = "spline") for (i, λ) in enumerate(λ_vec)]
-	p1 = plot(traces1, Layout(title = "Off-line λ-return algorithm", xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first $num_episodes episodes", yaxis_range = yaxis_lims))
+	traces1 = [scatter(x = α_vec, y = lines1[i], name = "λ = $λ", mode = "lines", line_shape = "spline", showlegend = false) for (i, λ) in enumerate(λ_vec)]
+	p1 = plot(traces1, Layout(title = "Off-line λ-return algorithm", xaxis_title = L"α", yaxis_title = "Average RMS error over $nstates <br> states and first $num_episodes episodes", yaxis_range = yaxis_lims))
 
 	traces2 = [scatter(x = α_vec, y = lines2[i], name = "λ = $λ", mode = "lines", line_shape = "spline") for (i, λ) in enumerate(λ_vec)]
-	p2 = plot(traces2, Layout(title = "TD(λ)", xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first $num_episodes episodes", yaxis_range = yaxis_lims))
+	p2 = plot(traces2, Layout(title = "TD(λ)", xaxis_title = L"α", yaxis_range = yaxis_lims))
 
 	@htl("""
 	<div style = "display: flex; height: 500px;">
@@ -896,7 +896,7 @@ function plot_bound()
 		scatter(x = λs, y = ys, name = "γ = $γ")
 	end
 	for γ in γs]
-	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Error Bound", width = 600))
+	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Error Multiplicative Bound", width = 600))
 end
   ╠═╡ =#
 
@@ -943,8 +943,8 @@ md"""
 The TD$(λ)$ updates are given by: 
 
 $\begin{flalign}
-\mathbf{z_t} &doteq \gamma \lambda \mathbf{z_{t-1}} + \nabla \hat v(S_{t}, \mathbf{w_{t}}) \\
-\mathbf{w_{t+1}} &doteq \mathbf{w_t} + \alpha \delta_t \mathbf{z_t} \\
+\mathbf{z_t} &\doteq \gamma \lambda \mathbf{z_{t-1}} + \nabla \hat v(S_{t}, \mathbf{w_{t}}) \\
+\mathbf{w_{t+1}} &\doteq \mathbf{w_t} + \alpha \delta_t \mathbf{z_t} \\
 \end{flalign}$.  
 
 Let's write down all of the updates that will occur from t = 0 assuming the weights themselves are held constant the entire episode.
@@ -1606,7 +1606,7 @@ end
 # ╔═╡ 14b3b28e-1351-4b45-9a57-bfab846a2ffd
 #=╠═╡
 @htl("""
-<div style = "display: flex;">
+<div style = "display: flex; height: 500px;">
 $(offline_λ_error_random_walk(fig_12_3_n; num_trials = 200)) 
 $(nsteptd_error_random_walk(fig_12_3_n; num_trials = 200))
 </div>
@@ -2432,7 +2432,7 @@ version = "17.4.0+2"
 # ╠═eefb36bb-d988-4f5d-bfbb-c3df2f869ab6
 # ╠═583d2f42-692a-4028-93cc-47c2e178c84e
 # ╟─176ee625-51c6-48f1-8f01-d3fb7008db6e
-# ╟─14b3b28e-1351-4b45-9a57-bfab846a2ffd
+# ╠═14b3b28e-1351-4b45-9a57-bfab846a2ffd
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
