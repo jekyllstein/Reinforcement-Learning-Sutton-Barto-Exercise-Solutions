@@ -347,8 +347,28 @@ From this expression it is clear that for $\lambda = 1$ we simply get $R_{t+1} +
 
 """
 
-# ╔═╡ 5b7f54a6-02cf-43f0-9859-6dbd04f005be
+# ╔═╡ 54e578de-d12c-4257-91b5-a257ea9c6ba6
+md"""
+Repeating the calculation with a terminal state
 
+$\begin{flalign}
+G_{t}^\lambda &= (1-\lambda)\sum_{n=1}^{T-t-1} \lambda^{n-1} G_{t:t+n} + \lambda^{T-t-1}G_t \\
+G_{t+1}^\lambda &= (1-\lambda)\sum_{n=1}^{T-t-2} \lambda^{n-1} G_{t+1:t+n+1} + \lambda^{T-t-2}G_{t+1} \\
+
+\\
+G_{t}^\lambda &= (1-\lambda)\sum_{n=1}^{T-t-1} \lambda^{n-1} (R_{t+1} + \gamma G_{t+1:t+n}) + \lambda^{T-t-1}(R_{t+1} + \gamma G_{t+1}) \\
+&= (1-\lambda)\left [ R_{t+1}\sum_{n=1}^{T-t-1} \lambda^{n-1} + \gamma \sum_{n=1}^{T-t-1} \lambda^{n-1} G_{t+1:t+n}) \right ] + \lambda^{T-t-1}(R_{t+1} + \gamma G_{t+1}) \\
+&= (1-\lambda)\left [ R_{t+1}\frac{1 - \lambda^{T-t-1}}{1 - \lambda} + \gamma \sum_{n=1}^{T-t-1} \lambda^{n-1} G_{t+1:t+n}) \right ] + \lambda^{T-t-1}(R_{t+1} + \gamma G_{t+1}) \\
+&= R_{t+1}(1 - \lambda^{T-t-1} + \lambda^{T-t-1}) + (1-\lambda)\gamma \sum_{n=1}^{T-t-1} \lambda^{n-1} G_{t+1:t+n} + \lambda^{T-t-1} \gamma G_{t+1} \\
+&= R_{t+1} + \gamma \left [(1-\lambda) \sum_{n=1}^{T-t-1} \lambda^{n-1}G_{t+1:t+n} + \lambda^{T-t-1} G_{t+1} \right ] \\
+&= R_{t+1} + \gamma \left [(1-\lambda) \left ( \hat v (S_{t+1}) + \sum_{n=2}^{T-t-1} \lambda^{n-1}G_{t+1:t+n} \right ) + \lambda^{T-t-1} G_{t+1} \right ] \\
+&= R_{t+1} + \gamma \left [(1-\lambda) \left ( \hat v (S_{t+1}) + \sum_{m=1}^{T-t-2} \lambda^{m}G_{t+1:t+m+1} \right ) + \lambda^{T-t-1} G_{t+1} \right ] \\
+&= R_{t+1} + \gamma \left [(1-\lambda) \hat v (S_{t+1}) + \lambda  \left ( (1-\lambda) \sum_{m=1}^{T-t-2} \lambda^{m-1}G_{t+1:t+m+1} + \lambda^{T-t-2} G_{t+1} \right )  \right ] \\
+&= R_{t+1} + \gamma \left [(1-\lambda) \hat v (S_{t+1}) + \lambda  G_{t+1}^\lambda  \right ] \\
+\end{flalign}$
+From this expression it is clear that for $\lambda = 1$ we simply get $R_{t+1} + \gamma R_{t+2} + \cdots$ which is simply the monte carlo return.  For $\lambda = 0$, we get $R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t)$ which is the 1 step TD return.
+
+"""
 
 # ╔═╡ 9d131051-eeee-4aba-8f78-9ddff9babab4
 #=╠═╡
@@ -597,6 +617,9 @@ md"""
 # ╔═╡ 57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 md"""
 ## 12.2 TD(λ)
+TD $(\lambda)$ uses eligibility traces to look backward and compute something that approaches the theoretical forward view of the off-line λ-return.  It improves over the off-line λ-return algorithm by performing updates on every step rather than at the end of an episode.  Thus it can also be applied to continuing problems instead of just episodic problems which require an episode to reach a terminal state.  A semi-gradient version of TD $(\lambda)$ can be applied to function approximation which can also apply to tabular problems in the simple case of state aggregation with one state per parameter.
+
+With function approximation, the eligibility trace is a vector $\mathbf{z}_t \in \mathbb{R}^d$ with the same number of components as the weight vector $\mathbf{w}_t$.  Whereas the weight vector is a long term memory accumulating over the lifetime of the system, the eligibility trace is a short-term memory, typically lasting less than the length of an episode.  In TD $(\lambda)$, the eligibility trace vector is initialized to zero at the beginning of the episode, is incremented on each time step by the value graient, and then fades away by $\lambda \gamma$:
 """
 
 # ╔═╡ 34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
@@ -604,68 +627,292 @@ md"""
 $\begin{flalign}
 \mathbf{z}_{-1} &\doteq \mathbf{0} \\
 \mathbf{z_t} &\doteq \gamma \lambda \mathbf{z}_{t-1} + \nabla \hat v(S_t, \mathbf{w_{t}}),  \hspace{5 mm} 0 \leq t \leq T-1 \tag{12.5} \\
-\delta_t &\doteq R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \tag{12.6} \\
-\mathbf{w}_{t+1} &\doteq \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t \tag{12.7}
 \end{flalign}$
+
+where $\gamma$ is the discount rate and $\lambda$ is the parameter introduce with the $\lambda$-return and called the trace-decay parameter.  The eligibility trace keeps track of which components of the weight vector have contributed, positively or negatively, to recentstate valuations, where "recent" is defined in terms of $\gamma \lambda$.  (Recall that in linear function approximation, $\nabla \hat v (S_t, \mathbf{w}_t)$ is the feature vector, $\mathbb{x}_t$, in which case the eligibility trace vector is just a sum of past, fading, input vectors.)  The trace is said to indicate the eligibility of each component of hte weight vector for undergoing learning changes should a reinforcing even occur.  The reinforcing events we are concerned with are the moment-by-moment one-step TD errors.  The TD error for state-value prediction is:
+
+$\delta_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_t) \tag{12.6}$
+
+In TD $(\lambda)$, the weight vector is updated on each step proportional to the scalar TD error and the vector eligibility trace:
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t \tag{12.7}$
 """
 
 # ╔═╡ 6f5168dc-f1f3-4533-a59e-bb85895f3b13
 md"""
-### Semi-gradient TD(λ) for estimating $\hat v \approx v_\pi$
+### *Semi-gradient TD(λ) for estimating $\hat v \approx v_\pi$*
 """
 
-# ╔═╡ bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
-#=╠═╡
-function semi_gradient_TDλ(π, v̂, ∇v̂, w, states, sterm, step, λ, γ, α, numepisodes, s_init, Vtrue)
-	rmserr() = sqrt(mean((Vtrue[s] - v̂(s, w))^2 for s in states))
-	rmserrs = zeros(numepisodes)
-	for ep in 1:numepisodes
-		s = s_init()
-		z = zeros(length(w))
-		function update!(s)
-			s == sterm && return nothing
-			a = π(s)
-			(s′, r) = step(s, a)
-			z .= (γ*λ .* z) .+ ∇v̂(s, w)
-			δ = r + γ*v̂(s′, w) - v̂(s, w)
-			w .+= α*δ .* z 
-			update!(s′)
+# ╔═╡ 5610a0ba-60a8-4da6-8f68-50b1c5e82686
+begin
+	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
+	function semi_gradient_TDλ!(parameters::P, state_representation::X, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function, estimate_value::Function, update_gradient!::Function; α = one(T)/10, calculate_error::Function = params -> zero(T), ∇v::P = copy(parameters), z::P = copy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where {P, X, T<:Real}
+		s = initialize_state()
+		update_state_representation!(state_representation, s)
+		v̂ = estimate_value(state_representation, parameters)
+		update_gradient!(∇v, state_representation, parameters)
+		(r, s′) = transition(s)
+		if isterm(s′)
+			v̂′ = zero(T)
+		else
+			update_state_representation!(state_representation, s′)
+			v̂′ = estimate_value(state_representation, parameters)
 		end
-		update!(s)
-		rmserrs[ep] = rmserr()
+		ep = 1
+		step = 1
+		episode_error_history = Vector{T}()
+		step_error_history = Vector{T}()
+		
+		#initialize eligibility vector to 0
+		z .= zero(T)
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			z .= (γ*λ .* z) .+ ∇v
+			δ = r + γ*v̂′ - v̂
+			parameters .+= α*δ .* z
+	
+			save_step_errors && push!(step_error_history, calculate_error(parameters))
+	
+			if isterm(s′)
+				s = initialize_state()
+				update_state_representation!(state_representation, s)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				ep += 1
+				save_episode_errors && push!(episode_error_history, calculate_error(parameters))
+			else
+				s = s′
+			end
+
+			#note that the state representation here will be for s on the next step
+			v̂ = estimate_value(state_representation, parameters)
+			update_gradient!(∇v, state_representation, parameters)
+			
+			(r, s′) = transition(s)
+			
+			if isterm(s′)
+				v̂′ = zero(T)
+			else
+				update_state_representation!(state_representation, s′)
+				v̂′ = estimate_value(state_representation, parameters)
+			end
+			step += 1
+		end
+		return (episode_errors = episode_error_history, step_errors = step_error_history)
 	end
-	return w, rmserrs
-end		
-  ╠═╡ =#
+
+	#when evaluating an MRP, there is no policy and the transition is just from the environment
+	semi_gradient_TDλ!(parameters::P, state_representation::X, mrp::StateMRP, args...; kwargs...) where {P, X} = semi_gradient_TDλ!(parameters, state_representation, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
+
+	#when evaluating an MDP, there is a policy and the transition uses it to select actions
+	semi_gradient_TDλ!(parameters::P, state_representation::X, mdp::StateMDP, π::Function, args...; kwargs...) where {P, X} = semi_gradient_TDλ!(parameters, state_representation, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
+end
 
 # ╔═╡ 5e5fdcee-356e-46d4-a5b0-3c433aee989d
 md"""
-$\hat v(S, w) \dot = w^\top x = \sum_i w_i x_i$
-$\nabla \hat v(S, w) = [x_1, x_2, x_3, ...] = \mathbf{x}(S)$
-$\mathbf{x}(S_i) = \text{1 at i and 0 elsewhere}$
-$\mathbf{x}(S_1) = [1, 0, 0, \cdots]$
+Note that in the case of linear approximation, there is some function $\mathbf{x}(s)$ which produces a state representation vector of length $d$ and a parameter vector $\mathbf{w} \in \mathbb{R}^d$.  The value function and gradient then take on the form:
+
+$\begin{flalign}
+\hat v(s, \mathbf{w}) &= \mathbf{w}^\top \mathbf{x}(s) = \sum_i w_i x_i \\
+\nabla \hat v(s, \mathbf{w}) &= \mathbf{x}(s) = [x_1, x_2, x_3, ..., x_d]
+\end{flalign}$
+
+So to implement this algorithm in the linear case, the only function that requires definition is $\mathbf{x}(s)$.  To use the linear version of the algorithm defined below, one need only specify the number of parameters $d$ and `update_state_representation!(x, s)` which updates a vector x given state s.
 """
 
-# ╔═╡ 9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
-# ╠═╡ disabled = true
+# ╔═╡ 24468748-009d-42a3-918d-4ba18b23c9ed
+#for linear function approximation the number of parameters also define the size of the state representation.  the function that updates the state representation is all that is required to calculate the updates.  problem will either be an MRP or and MDP plus a policy to evaluate
+function run_linear_semi_gradient_TDλ(problem, num_params::Integer, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; parameters::Vector{T} = zeros(T, num_params), state_representation::Vector{T} = zeros(T, num_params), kwargs...) where {T<:Real}
+	@assert length(parameters) == length(state_representation) == num_params
+	
+	#the value estimation function is just the dot product of the parameters with the state representation
+	estimate_value(x, w) = dot(x, w)
+
+	#the gradient is just identical to the state representation
+	function update_gradient!(∇v, x, w)
+		∇v .= x
+	end
+
+	error_history = semi_gradient_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!; kwargs...)
+
+	#once the learning is done we can estimate values with the final version of the parameters.  these versions of the value function allow the computation to occur with a passed state representation vector and set of parameters or to use the existing parameters and define a new state vector each time
+	function v!(x::Vector{T}, s, w::Vector{T})
+		update_state_representation!(x, s)
+		estimate_value(x, w)
+	end
+
+	v!(x::Vector{T}, s) = v!(x, s, parameters)
+
+	function v(args...)
+		x = zeros(T, num_params)
+		v!(x, args...)
+	end
+	
+	return (value_function = v, error_history = error_history)
+end
+
+# ╔═╡ e99caf5c-7c13-4edd-b55b-dce93cc850c6
+md"""
+In the case of a tabular problem with $d$ states: $[s_1, s_2, \dots, s_d]$, then the state representation can be ignored in favor of using the state index to compute the gradient and function approximation.  Now the size of the parameter vector is defined by the number of states $d$ and each parameter $w_i$ corresponds to the value of $s_i$.
+
+$\begin{flalign}
+\mathbf{w} &= [w_1, w_2, \dots, w_d] \\
+\hat v(s_i, \mathbf{w}) &= w_i \\
+\nabla \hat v (s_1, \mathbf{w}) &= [1, 0, 0, \dots, 0] \\ 
+\nabla \hat v (s_2, \mathbf{w}) &= [0, 1, 0, \dots, 0] \\ 
+&\vdots \\
+\nabla \hat v (s_d, \mathbf{w}) &= [0, 0, 0, \dots, 1] \\ 
+\end{flalign}$
+
+The algorithm below runs semi-gradient TD(λ) for a tabular problem without needing to recast it as a StateMDP.  The definition of the parameters, value estimation function, and gradient update are all handled automatically according to the above rules.
+"""
+
+# ╔═╡ 900760f0-b253-4db7-8c4f-4ca34777198d
+begin
+	#in the case of a tabular problem, this algorithm can be used with a trivial version of the linear algorithm
+	function run_tabular_semi_gradient_TDλ(states::Vector{S}, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), state_representation::Vector{Int64} = zeros(Int64, 1), kwargs...) where {T<:Real, S}
+		@assert length(parameters) == length(states)
+
+		#the state representation just stores the index of the state
+		function update_state_representation!(x::Vector{Int64}, i_s::Integer)
+			x[1] = i_s
+		end
+		
+		#the value estimation function is just the parameter at the state index
+		estimate_value(x, w) = w[x[1]]
+
+		#the gradient is just 1 at the state index and zero elsewhere
+		function update_gradient!(∇v, x, w)
+			∇v .= zero(T)
+			∇v[x[1]] = one(T)
+		end
+
+		error_history = semi_gradient_TDλ!(parameters, state_representation, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, update_state_representation!, estimate_value, update_gradient!; kwargs...)
+		
+		return (state_values = parameters, error_history = error_history)
+	end
+
+	run_tabular_semi_gradient_TDλ(mrp::TabularMRP, args...; kwargs...) = run_tabular_semi_gradient_TDλ(mrp.states, mrp.initialize_state_index, i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
+
+	run_tabular_semi_gradient_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = run_tabular_semi_gradient_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, π), mdp.terminal_states, args...; kwargs...)
+end
+
+# ╔═╡ 373a89e3-0b8d-49a0-982e-8bb300538429
+md"""
+TD$(\lambda)$ is oriented backward in time.  At each moment we look at the current TD error and assign it backward to each prior state according to how much that state contributed to the current eligibility trace at that time.  We might imagine ourselves riding along hte stream of states, computing TD errors, and shouting them back to the previously visited states.  Where the TD error and traces come together, we get the update given by (12.7), changing the values of those past states for when they once again occurin the future.
+
+If $\lambda = 0$, then (12.5) implies that the trace at $t$ is exactly the value gradient corresponding to $S_t$.  Thus the TD$(\lambda)$ update reduces to the one-step semi-gradient TD update treated in Chapter 9 or the simple TD rule (6.2) in the tabular case.  This is why the algorithm was called TD(0).  TD(0) is the case in which only the one state preceding the current one is updated by the TD error (other states may have their value estimates changed by generalization due to the function approximation).  For larger values of $\lambda$, but still $\lambda \lt 1$, more of the preceding states are updated, but each more temporally distant state is updated less because the correspondong eligibility trace is smaller.  We say that the earlier states are given less *credit* for the TD error.
+
+If $\lambda = 1$, then the credit given to earlier states falls only by $\gamma$ per step.  This turns out to be just the right thing to do to achieve Monte Carlo behavior.  For example, remember that the TD error $\delta_t$, includes an undiscounted term of $R_{t+1}$.  In passing this back $k$ steps it needs to be discounted, like any reward in a return, by $\gamma^k$, which is just what the falling eligibility trace achieves.  If $\lambda = 1$ and $\gamma = 1$, then the eligibility traces do not decay at all with time.  In this case the method behaves like a Monte Carlo method for an undiscounted, episodic task.  If $\lambda = 1$, the algorithm is known as TD(1).
+
+TD(1) is a way of implementing Monte Carlo algorithms that is more general than those presented earlier and that significantly increases their range of applicability.  Whereas the earlier Monte Carlo methods were limited to episodic tasks, TD(1) can be applied to discounted continuing tasks as well.  Moreover, TD(1) can be performed incrementally and online.  One disadvantage of Monte Carlo methods is that they learn nothing from an episode until it is over.  For example, if a Monte Carlo control method takes an action that produces a very poor reward but does not end the episode, then the agent's gendency to repeat the action will be undimiished during the episode.  Online TD(1), on the other hand, learns in an *n*-step TD way from the incomplete ongoing episode where the *n* steps are all the way up to the current step.  If something unusually good or bad happens during an episode, control methods based on TD(1) can learn immediately and alter their behavior on that same episode.
+"""
+
+# ╔═╡ 2c3b163d-b4cd-4b40-a597-cbd103e135b6
+md"""
+### Comparing TD(λ) and Off-line λ-return algorithm on random walk example
+
+If is revealing to revisit the random walk example (Example 7.1) to see how well TD(λ) does in approximating the off-line λ-return algorithm.  The code below compares the two algorithms for different values of λ and learning rates.  For each λ value, if α is selected optimally for it (or smaller), then the two algorithms perform virtually indentically.  If α is chosen larger than is optimal, however, then the λ-return algorithm is only a little worse whereas TD(λ) is much worse and may even be unstable.  This is not catastrophic for TD(λ) on this problem, as these higher parameter values are not what one would want to use anyway, but for other problems it can be a significant weakness. 
+"""
+
+# ╔═╡ 36d87b2a-6e1a-47b7-8af5-825d47e55eec
 #=╠═╡
-random_walk_TDλ(nruns = 100)
+function run_random_walk_TDλ_estimation(mrp::TabularMRP, calc_err::Function, α, λ; num_episodes = 10, kwargs...)
+	output = run_tabular_semi_gradient_TDλ(mrp, 1f0, λ, num_episodes, typemax(Int64); save_episode_errors = true, α = α, calculate_error = calc_err, kwargs...)
+	return mean(output.error_history.episode_errors)
+end
   ╠═╡ =#
 
-# ╔═╡ f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
-# ╠═╡ disabled = true
+# ╔═╡ b68f1171-6274-4d93-bf68-05b95cb5b2f8
 #=╠═╡
-walk19_plot1 = optimize_n_randomwalk(19, nruns = 100)
+run_random_walk_TDλ_estimation_trials(mrp::TabularMRP, calc_err, α, λ; num_trials = 100, kwargs...) = (1:num_trials |> Map(_ -> run_random_walk_TDλ_estimation(mrp, calc_err, α, λ; num_episodes = 10, kwargs...)) |> foldxt(+)) / num_trials
+  ╠═╡ =#
+
+# ╔═╡ da8c5f8b-5ab6-4a2b-93e8-18be4284b932
+#=╠═╡
+function tdλ_vs_offline_λ_error_random_walk(nstates, num_episodes; kwargs...)
+	α_vec = vcat(Float32.(0.0:0.02:0.1), 0.15f0, Float32.(0.2:0.1:1.0))
+	λ_vec = [0f0, 0.4f0, 0.8f0, 0.9f0, 0.95f0, 0.975f0, 0.99f0, 1f0]
+	tabular_mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
+	mrp = StateMRP(tabular_mrp)
+	c = (nstates + 1)/2
+	v_true = [(s-c)/c for s in 1:nstates]
+	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, eachindex(v_true)))
+	get_α_line1(λ) = α_vec |> Map(α -> run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
+	get_α_line2(λ) = α_vec |> Map(α -> run_random_walk_TDλ_estimation_trials(tabular_mrp, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
+	lines1 = λ_vec |> Map(λ -> get_α_line1(λ)) |> collect
+	lines2 = λ_vec |> Map(λ -> get_α_line2(λ)) |> collect
+
+	yaxis_lims = [minimum(minimum(x) for x in lines1) - 0.05, first(first(lines1))]
+	
+	traces1 = [scatter(x = α_vec, y = lines1[i], name = "λ = $λ", mode = "lines", line_shape = "spline") for (i, λ) in enumerate(λ_vec)]
+	p1 = plot(traces1, Layout(title = "Off-line λ-return algorithm", xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first $num_episodes episodes", yaxis_range = yaxis_lims))
+
+	traces2 = [scatter(x = α_vec, y = lines2[i], name = "λ = $λ", mode = "lines", line_shape = "spline") for (i, λ) in enumerate(λ_vec)]
+	p2 = plot(traces2, Layout(title = "TD(λ)", xaxis_title = "α", yaxis_title = "Average RMS error over $nstates <br> states and first $num_episodes episodes", yaxis_range = yaxis_lims))
+
+	@htl("""
+	<div style = "display: flex; height: 500px;">
+	$p1 
+	$p2
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 83a645f8-f806-4828-bc42-d24cfd26bad3
+#=╠═╡
+@bind fig_12_6_params PlutoUI.combine() do Child
+md"""
+### Figure 12.6
+
+ $(Child(:n, NumberField(2:30, default = 19)))-state Random walk results: Performance of TD$$(\lambda)$$ alongside that of the off-line λ-return algorithm.  The two algorithms performed virtually identically at low (less than optimal) $$\alpha$$ values, but TD$$(\lambda)$$ was worse at high $$\alpha$$ values.  The importance of bootstrapping diminishes the smaller the random walk chain is.  These results are for the first $(Child(:num_episodes, NumberField(1:1000, default = 10))) episodes and averaged over 100 trials.  TD$$(\lambda)$$ has faster diverging behavior the longer the episode count.
+"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 9a75dc05-883b-47a6-b8f0-ae0799c5fc19
+#=╠═╡
+tdλ_vs_offline_λ_error_random_walk(fig_12_6_params...)
+  ╠═╡ =#
+
+# ╔═╡ addedc75-375f-429f-8e2e-90ba2151dee0
+md"""
+Linear TD(λ) has been proved to converge in the on-policy case if the step-size parameter is reduced over time according to the usual conditions (2.7).  Just as discussed in Section 9.4, convergence is not to the minimum-error weight vector, but to a nearby weight vector that depends on $λ$.  The bound on solution quality presented in that section (9.14) can now be generalized to apply for any $\lambda$.  For the continuing discounted case,
+
+$\overline{\text{VE}}(\mathbf{w}_\infty) \leq \frac{1-\gamma \lambda}{1-\gamma} \min_{\mathbf{w}} \overline{\text{VE}}(\mathbf{w}) \tag{12.8}$
+
+That is, the asymptotic error is no more than $\frac{1-\gamma \lambda}{1-\gamma}$ times the smallest possible error.  As $\lambda$ approches 1, the bound approaches the minimum error (and it is loosest at $\lambda$ = 0).  In practice, however, $\lambda = 1$ is often the poorest choice as will be illustrated later in Figure 12.14
+"""
+
+# ╔═╡ 4f9cbb26-6c9b-458a-b7e6-102f0dbf64cb
+#=╠═╡
+function plot_bound()
+	λs = LinRange(0, 1, 1000)
+	γs = [0.5, 0.6, 0.7, 0.8, 0.9]
+	
+	traces = [begin
+		ys = (1 .- (λs .* γ)) ./ (1 - γ)
+		scatter(x = λs, y = ys, name = "γ = $γ")
+	end
+	for γ in γs]
+	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Error Bound", width = 600))
+end
+  ╠═╡ =#
+
+# ╔═╡ 5e1366cc-05cd-43b3-8a00-e56242a30d8f
+#=╠═╡
+plot_bound()
   ╠═╡ =#
 
 # ╔═╡ e597a042-9c03-4d49-a48f-6dff39283c54
 md"""
 > ### *Exercise 12.3* 
-> Some insight into how TD(λ) can closely approximate the on-line λ-return algorithm can be gained by seeing that the latter’s error term (in brackets in (12.4)) can be written as the sum of TD errors (12.6) for a single fixed w. Show this, following the pattern of (6.6), and using the recursive relationship for the λ-return you obtained in Exercise 12.1.
+> Some insight into how TD$(λ)$ can closely approximate the on-line λ-return algorithm can be gained by seeing that the latter’s error term (in brackets in (12.4)) can be written as the sum of TD errors (12.6) for a single fixed w. Show this, following the pattern of (6.6), and using the recursive relationship for the λ-return you obtained in Exercise 12.1.
 
 The error term at step t is: $G_t^\lambda - \hat v(S_t, \mathbf{w_t})$
 
-The TD error at step t is given by : $\delta_t \dot = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w_t}) - \hat v(S_t, \mathbf{w_t})$
+The TD error at step t is given by : $\delta_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w_t}) - \hat v(S_t, \mathbf{w_t})$
 
 The recursive relationship for the λ-return is given by: $G_t^\lambda = R_{t+1} + \gamma \left [ (1-\lambda)\hat v(S_{t+1}, \mathbf{w}_t) + \lambda G_{t+1}^\lambda \right ]$
 
@@ -691,9 +938,16 @@ For episodic tasks the sum will be finite and the final TD error $\delta_{T-1} =
 # ╔═╡ 0c6ebdeb-77f4-44f0-9bf3-c539d54bcaec
 md"""
 > ### *Exercise 12.4* 
-> Use your result from the preceding exercise to show that, if the weight updates over an episode were computed on each step but not actually used to change the weights (w remained fixed), then the sum of TD(λ)’s weight updates would be the same as the sum of the off-line λ-return algorithm’s updates.
+> Use your result from the preceding exercise to show that, if the weight updates over an episode were computed on each step but not actually used to change the weights (w remained fixed), then the sum of TD$(λ)$’s weight updates would be the same as the sum of the off-line λ-return algorithm’s updates.
 
-The TD(λ) updates are given by: $\mathbf{w_{t+1}} \dot = \mathbf{w_t} + \alpha \delta_t \mathbf{z_t}$ with $\mathbf{z_t} = \gamma \lambda \mathbf{z_{t-1}} + \nabla \hat v(S_{t}, \mathbf{w_{t}})$.  Let's write down all of the updates that will occur from t = 0 assuming the weights themselves are held constant the entire episode.
+The TD$(λ)$ updates are given by: 
+
+$\begin{flalign}
+\mathbf{z_t} &doteq \gamma \lambda \mathbf{z_{t-1}} + \nabla \hat v(S_{t}, \mathbf{w_{t}}) \\
+\mathbf{w_{t+1}} &doteq \mathbf{w_t} + \alpha \delta_t \mathbf{z_t} \\
+\end{flalign}$.  
+
+Let's write down all of the updates that will occur from t = 0 assuming the weights themselves are held constant the entire episode.
 
 $\begin{flalign}
 \mathbf{z_0} &= \nabla \hat v(S_{0}, \mathbf{w}) \\
@@ -715,7 +969,7 @@ $\delta_t \text{ coefficient} = \alpha \mathbf{z_t} = \alpha \sum_{n = 0}^t (\ga
 
 Now we can compare these coefficients to the off-line  λ-return updates.  Those weight updates are given by:
 
-$\mathbf{w_{t+1}} \dot = \mathbf{w_t} + \alpha \left [ G_t^\lambda - \hat v(S_t, \mathbf{w_t}) \right ] \nabla \hat v(S_t, \mathbf{w_t})$
+$\mathbf{w_{t+1}} \doteq \mathbf{w_t} + \alpha \left [ G_t^\lambda - \hat v(S_t, \mathbf{w_t}) \right ] \nabla \hat v(S_t, \mathbf{w_t}) = \mathbf{w_t} + \alpha \text{VE}_t \nabla \hat v(S_t, \mathbf{w_t})$
 
 From the previous exercise we expressed the term in the brackets as follows for an episodic task ending at step T:
 
@@ -1282,48 +1536,6 @@ function create_random_walk(n::Int64)
 	end
 	(states, sterm, step)
 end
-
-# ╔═╡ f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
-#=╠═╡
-function random_walk_TDλ(nstates = 19; numepisodes = 10, nruns = 10)
-	#estimate random policy
-	π(s) = rand([Left(), Right()])
-
-	c = (nstates + 1)/2
-	Vtrue = [(s-c)/c for s in 1:nstates]
-
-	maxerr = sqrt(mean(Vtrue .^2))
-
-	(states, sterm, step) = create_random_walk(nstates)
-
-	gradlookup = [[i == s ? 1.0 : 0.0 for i in 1:nstates] for s in 1:nstates]
-
-	make_w() = zeros(nstates) #using weight vector that keeps a value for each state
-	v̂(s::Int64, w::Vector{Float64}) = s == sterm ? 0.0 : w[s] #take weight value for that state
-	∇v̂(s::Int64, w::Vector{Float64}) = gradlookup[s]
-
-	s_init() = rand(1:nstates)
-	
-	function get_λ_error(α, λ)
-		w, rmserrs = semi_gradient_TDλ(π, v̂, ∇v̂, make_w(), states, sterm, step, λ, 1.0, α, numepisodes, s_init, Vtrue)
-		mean(rmserrs)
-	end
-
-	α_vec = 1.1 .^ (-30:0)
-	λ_vec = [0.0, 0.4, 0.8, 0.9, 0.95, 0.975, 0.99, 1.0]
-	rmsvecs = [[mean(get_λ_error(α, λ) for _ in 1:nruns) for α in α_vec] for λ in λ_vec]
-
-	traces = [scatter(x = α_vec, y = rmsvecs[i], name = "λ=$(λ_vec[i])") for i in eachindex(rmsvecs)]
-	ymin = minimum(minimum(filter(!isnan, v)) for v in rmsvecs) * 0.9
-	ymax = maxerr
-	plot(traces, Layout(yaxis_title="RMS Error for $nstates State Chain with Random Policy Over the First $numepisodes Episodes", title = "TD(λ) Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
-end
-  ╠═╡ =#
-
-# ╔═╡ 5cbe472f-4d96-483f-975f-07d41d809dc9
-#=╠═╡
-random_walk_TDλ(5, nruns = 100)
-  ╠═╡ =#
 
 # ╔═╡ 2336e059-34a5-4c81-be53-fa3f66733bd9
 #=╠═╡
@@ -2206,7 +2418,7 @@ version = "17.4.0+2"
 # ╟─1035d33b-5e02-4d41-81cc-66546383db68
 # ╟─7f43afbf-3375-4ad1-acee-f6b74f98e20f
 # ╟─dccc9b45-b711-44e8-8788-93de05f26543
-# ╠═5b7f54a6-02cf-43f0-9859-6dbd04f005be
+# ╟─54e578de-d12c-4257-91b5-a257ea9c6ba6
 # ╟─752a80ea-1da6-49ef-91ef-a03c590b825d
 # ╠═9d131051-eeee-4aba-8f78-9ddff9babab4
 # ╟─134ce360-6290-4aea-b6c0-eaa825d6f9a5
@@ -2224,12 +2436,21 @@ version = "17.4.0+2"
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
-# ╠═bded7e14-0c02-4e55-b75c-cbb2c01c4e5d
+# ╠═5610a0ba-60a8-4da6-8f68-50b1c5e82686
 # ╟─5e5fdcee-356e-46d4-a5b0-3c433aee989d
-# ╠═f7ac4e92-64b0-4bdb-ab00-9edbbfdd2898
-# ╠═5cbe472f-4d96-483f-975f-07d41d809dc9
-# ╠═9fc1b81a-a1c1-43ea-adb9-af0e8b3abaa9
-# ╠═f70fe1bd-f3ba-48c0-ba93-aa647224a8bf
+# ╠═24468748-009d-42a3-918d-4ba18b23c9ed
+# ╟─e99caf5c-7c13-4edd-b55b-dce93cc850c6
+# ╠═900760f0-b253-4db7-8c4f-4ca34777198d
+# ╟─373a89e3-0b8d-49a0-982e-8bb300538429
+# ╟─2c3b163d-b4cd-4b40-a597-cbd103e135b6
+# ╠═36d87b2a-6e1a-47b7-8af5-825d47e55eec
+# ╠═b68f1171-6274-4d93-bf68-05b95cb5b2f8
+# ╠═da8c5f8b-5ab6-4a2b-93e8-18be4284b932
+# ╟─83a645f8-f806-4828-bc42-d24cfd26bad3
+# ╟─9a75dc05-883b-47a6-b8f0-ae0799c5fc19
+# ╟─addedc75-375f-429f-8e2e-90ba2151dee0
+# ╟─5e1366cc-05cd-43b3-8a00-e56242a30d8f
+# ╠═4f9cbb26-6c9b-458a-b7e6-102f0dbf64cb
 # ╟─e597a042-9c03-4d49-a48f-6dff39283c54
 # ╟─0c6ebdeb-77f4-44f0-9bf3-c539d54bcaec
 # ╟─27f535a4-2245-45aa-aefa-4c0fc6bb218d

@@ -179,7 +179,7 @@ begin
 
 	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, estimate_value, estimate_args, update_parameters!, update_args; kwargs...)
 	
-	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s, π), mrp.isterm, γ, max_episodes, max_steps, estimate_value, estimate_args, update_parameters!, update_args; kwargs...)
+	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π), mrp.isterm, γ, max_episodes, max_steps, estimate_value, estimate_args, update_parameters!, update_args; kwargs...)
 	
 end
 
