@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.3
+# v0.20.4
 
 using Markdown
 using InteractiveUtils
@@ -828,6 +828,9 @@ end
 run_random_walk_TDλ_estimation_trials(mrp::TabularMRP, calc_err, α, λ; num_trials = 100, kwargs...) = (1:num_trials |> Map(_ -> run_random_walk_TDλ_estimation(mrp, calc_err, α, λ; num_episodes = 10, kwargs...)) |> foldxt(+)) / num_trials
   ╠═╡ =#
 
+# ╔═╡ 8b67e90f-3305-4702-b7a3-393055d15e46
+
+
 # ╔═╡ da8c5f8b-5ab6-4a2b-93e8-18be4284b932
 #=╠═╡
 function tdλ_vs_offline_λ_error_random_walk(nstates, num_episodes; kwargs...)
@@ -1009,15 +1012,21 @@ But this coefficient is the same as we got previously for the TD(λ) weight upda
 md"""
 ## 12.3 n-step Truncated λ-return Methods
 
+The off-line λ-return algorithm is an important ideal, but it is of limited utility because it uses the λ-return (12.2), which is not known until the end of the episode.  In the continuing case, the λ-return is technically never known, as it depends on n-step returns for arbitrarility large n, and thus on rewards arbitrariliy far in the future.  However, the dependence becomes weaker for longer-delayed rewards, falling by $\gamma \lambda$ for each step of delay.  A natural approximation, then, would be to truncate the sequence after some number of steps.  Our existing notion of n-step returns provides a natural way to do this in which the missing rewards replaced with estimated values.
+
 Define the *truncated λ-return* for time t, given data only up to some later horizon, h, as 
 
 $\begin{flalign}
-G_{t:h}^\lambda \dot = (1-\lambda) \sum_{n=1}^{h-t-1} \lambda ^{n-1} G_{t:t+n} + \lambda^{h-t-1} G_{t:h}, \hspace{5mm} 0 \leq t < h \leq T \tag{12.9}
+G_{t:h}^\lambda \doteq (1-\lambda) \sum_{n=1}^{h-t-1} \lambda ^{n-1} G_{t:t+n} + \lambda^{h-t-1} G_{t:h}, \hspace{5mm} 0 \leq t < h \leq T \tag{12.9}
 \end{flalign}$
 
-The weight updates for Truncated TD(λ) or TTD(λ) is given by:
+If you compare this equation with the λ-return (12.3), it is clear that the horizon $h$ is playing the same role as was previously played by $T$, the time of termination.  Whereas in the λ-return there is a residual weight given to the conventional return $G_t$, here it is given to the longest available n-step return, $G_{t:h}$ (Figure 12.2).
 
-$\mathbf{w}_{t+n} \dot = \mathbf{w}_{t+n-1} + \alpha \left [ G_{t:t+n}^\lambda - \hat v(S_t, \mathbf{w}_{t+n-1}) \right ] \nabla \hat v (S_t, \mathbf{w}_{t+n-1})$
+The truncated λ-return immediately gives rise to a family of n-step λ-return algorithms similar to the n-step methods of Chapter 7.  In all of these algorithms, updates are delayed by n steps and only take into account the first n rewards, but now all the k-step returns are included for $1 \leq k \leq n$ (whereas the earlier n-step algorithms used only the n-step return), weighted geometrically as in Figure 12.2.  In the state-value case, this family of algorithms is known as Truncated TD$(\lambda)$, or TTD$(\lambda)$.  The compound backup diagram, shown in figure 12.7, is similar to that for the TD$(\lambda)$ (Figure 12.1) except that the longest component update is at most n steps rather than always going all the way to the end of the episode.
+
+The weight updates for Truncated TD$(λ)$ or TTD$(λ)$ is given by:
+
+$\mathbf{w}_{t+n} \doteq \mathbf{w}_{t+n-1} + \alpha \left [ G_{t:t+n}^\lambda - \hat v(S_t, \mathbf{w}_{t+n-1}) \right ] \nabla \hat v (S_t, \mathbf{w}_{t+n-1})$
 
 where the maximum number of steps in the future to consider returns for is n.  Much as in *n*-step TD methods, no updates are made on the first n-1 steps of each episode, and n-1 additional updates are made upon termination.  Efficient imlementation relies on the fact that the *k*-step λ-return can be written exactly as 
 
@@ -1027,7 +1036,7 @@ G_{t:t+k}^\lambda = \hat v(S_t, \mathbf{w}_{t-1}) + \sum_{i=t}^{t+k-1} (\gamma \
 
 where 
 
-$\delta_i ^\prime \dot = R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_{t-1})$
+$\delta_i ^\prime \doteq R_{t+1} + \gamma \hat v (S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_{t-1})$
 
 """
 
@@ -1039,9 +1048,9 @@ md"""
 To prove (12.10) let's return to the definition of $G_{t:k}^\lambda$ given in (12.9) and compare it to (12.10)
 
 $\begin{flalign}
-G_{t:h}^\lambda &\dot = (1-\lambda) \sum_{n=1}^{h-t-1} \lambda ^{n-1} G_{t:t+n} + \lambda^{h-t-1} G_{t:h}, \hspace{5mm} 0 \leq t < h \leq T \tag{12.9} \\
+G_{t:h}^\lambda &\doteq (1-\lambda) \sum_{n=1}^{h-t-1} \lambda ^{n-1} G_{t:t+n} + \lambda^{h-t-1} G_{t:h}, \hspace{5mm} 0 \leq t < h \leq T \tag{12.9} \\
 G_{t:k}^\lambda &= \hat v(S_t, \mathbf{w}_{t-1}) + \sum_{i=t}^{t+k-1} (\gamma \lambda)^{i-t} \delta_i ^\prime \tag{12.10}\\
-\delta_t & \dot = R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_{t-1})
+\delta_t^\prime & \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}_t) - \hat v(S_t, \mathbf{w}_{t-1})
 \end{flalign}$
 
 Also note that from (12.9) we can conclude:
@@ -1104,52 +1113,243 @@ If we compare to the expression we have $h = t+k$, the sum terminates at $h-1=t+
 
 """
 
-# ╔═╡ 2c664592-eddf-4438-b153-075282f6e491
+# ╔═╡ 8f211c8d-6b20-48de-ae91-435a977c930c
 md"""
 ## 12.4 Redoing Updates: Online λ-return Algorithm
-## 12.5 True Online TD(λ)
-The online λ-return algorithm just presented is currently the best performing temporal-difference algorithm. It is an ideal which online TD(λ) only approximates.  (why is this the case?  I thought TD(λ) was equivalent to the full λ return, they mentioned in figures that at higher learning rates it can be unstable though.  True online TD(λ) doesn't have that problem.  In the plot there isn't even a horizon anymore but this was truncated.  So what happened to the cutoff point?)  So at each step in the episode, the target is the n-step λ return for that step so there is no selection of the horizon.  The largest possible horizon for every previous state is always being used in the update target.
 
-In the linear case for which $\hat v(s_\mathbf{w}) = \mathbf{w}^\top \mathbf{x}(s)$, then we arrive at the true online TD(λ) algorithm:
+Choosing the truncation parameter n in Truncated TD$(\lambda)$ involves a tradeoff.  n should be large so that hte method closely approximates the off-line λ-return algorithm, but it should also be small so that the updates can be made sooner and can influence behavior sooner.  Can we get the best of both?  Well, yes, in principle we can, albeit at the cost of computational complexity.
+
+The idea is that, on each time step as you gather a new increment of data, you go back and redo all the updates since the beginning of the current episode.  The new updates will be better than the ones you previously made because now they can take into account the time step's new data.  That is, the updates are always towards an n-step truncated λ-return target, but they always use the latest horizon.  In each pass over that episode you can use a slightly longer horizon and obtain slightly better results.  Recall that the truncated λ-return is defined in (12.9) as:
+
+
+"""
+
+# ╔═╡ 21df1418-8808-42f1-9fcd-26048705c5ce
+md"""
+## 12.5 True Online TD(λ)
+The online λ-return algorithm just presented is currently the best performing temporal-difference algorithm. It is an ideal which online TD$(λ)$ only approximates.  (why is this the case?  I thought TD$(λ)$ was equivalent to the full λ return, they mentioned in figures that at higher learning rates it can be unstable though.  True online TD$(λ)$ doesn't have that problem.  In the plot there isn't even a horizon anymore but this was truncated.  So what happened to the cutoff point?)  So at each step in the episode, the target is the n-step λ return for that step so there is no selection of the horizon.  The largest possible horizon for every previous state is always being used in the update target.
+
+In the linear case for which $\hat v(s_\mathbf{w}) = \mathbf{w}^\top \mathbf{x}(s)$, then we arrive at the true online TD$(λ)$ algorithm:
 
 $\begin{flalign}
-\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t + \alpha (\mathbf{w}_t^\top \mathbf{x}_t - \mathbf{w}_{t-1}^\top \mathbf{x}+t)(\mathbf{z}_t - \mathbf{x}_t) \\
-\mathbf{x}_t & \dot = \mathbf{x}(S_t) \\
-\mathbf{z}_t & \dot = \gamma \lambda \mathbf{z}_{t-1} + (1 - \alpha\gamma\lambda \mathbf{z}_{t-1}^\top \mathbf{x}_t)\mathbf{x}_t \tag{12.11}
+\mathbf{w}_{t+1} & \doteq \mathbf{w}_t + \alpha \delta_t \mathbf{z}_t + \alpha (\mathbf{w}_t^\top \mathbf{x}_t - \mathbf{w}_{t-1}^\top \mathbf{x}+t)(\mathbf{z}_t - \mathbf{x}_t) \\
+\mathbf{x}_t & \doteq \mathbf{x}(S_t) \\
+\mathbf{z}_t & \doteq \gamma \lambda \mathbf{z}_{t-1} + (1 - \alpha\gamma\lambda \mathbf{z}_{t-1}^\top \mathbf{x}_t)\mathbf{x}_t \tag{12.11}
 
 \end{flalign}$
 """
 
-# ╔═╡ 5324724c-93d1-4186-9dcf-55afd410aa72
-#=╠═╡
-function true_online_TDλ(π, x, w, states, sterm, step, λ, γ, α, numepisodes, s_init, Vtrue)
-	rmserr() = sqrt(mean((Vtrue[s] - w'*x(s))^2 for s in states))
-	rmserrs = zeros(numepisodes)
-	for ep in 1:numepisodes
-		s = s_init()
-		z = zeros(length(w))
-		function update!(s, v_old = 0.0)
-			s == sterm && return nothing
-			a = π(s)
-			(s′, r) = step(s, a)
-			v = w' * x(s)
-			v′ = w' * x(s′)
-			δ = r + γ*v′-v
-			z .= (γ*λ .* z) .+ (1-α*γ*λ*(z'*x(s)))*x(s)
-			w .+= α*(δ + v - v_old) .* z .- α*(v - v_old) 
-			update!(s′, v′)
+# ╔═╡ 7f8fb89d-1a2e-4acd-9118-2ce3d3874341
+begin
+	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
+	function true_online_TDλ!(parameters::P, state_representation::X, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; α = one(T)/10, calculate_error::Function = params -> zero(T), ∇v::P = copy(parameters), z::P = copy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where {P, X, T<:Real}
+		s = initialize_state()
+		update_state_representation!(state_representation, s)
+		v̂ = dot(state_representation, parameters)
+		∇v .= state_representation
+		(r, s′) = transition(s)
+		if isterm(s′)
+			v̂′ = zero(T)
+		else
+			update_state_representation!(state_representation, s′)
+			v̂′ = dot(state_representation, parameters)
 		end
-		update!(s)
-		rmserrs[ep] = rmserr()
+		ep = 1
+		step = 1
+		episode_error_history = Vector{T}()
+		step_error_history = Vector{T}()
+		
+		#initialize eligibility vector to 0
+		z .= zero(T)
+		v_old = zero(T)
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			z .= (γ*λ .* z) .+ (one(T) - α*γ*λ*dot(z, ∇v)) .* ∇v
+			δ = r + γ*v̂′ - v̂
+			a = v̂ - v_old
+			parameters .+= α .* ((δ + a) .* z .- (a .* ∇v))
+	
+			save_step_errors && push!(step_error_history, calculate_error(parameters))
+	
+			if isterm(s′)
+				s = initialize_state()
+				update_state_representation!(state_representation, s)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				v_old = zero(T)
+				ep += 1
+				save_episode_errors && push!(episode_error_history, calculate_error(parameters))
+			else
+				s = s′
+				v_old = v̂′
+			end
+
+			#note that the state representation here will be for s on the next step
+			v̂ = dot(state_representation, parameters)
+			∇v .= state_representation
+			
+			(r, s′) = transition(s)
+			
+			if isterm(s′)
+				v̂′ = zero(T)
+			else
+				update_state_representation!(state_representation, s′)
+				v̂′ = dot(state_representation, parameters)
+			end
+			step += 1
+		end
+		return (episode_errors = episode_error_history, step_errors = step_error_history)
 	end
-	return w, rmserrs
-end	
+
+	#when evaluating an MRP, there is no policy and the transition is just from the environment
+	true_online_TDλ!(parameters::P, state_representation::X, mrp::StateMRP, args...; kwargs...) where {P, X} = true_online_TDλ!(parameters, state_representation, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
+
+	#when evaluating an MDP, there is a policy and the transition uses it to select actions
+	true_online_TDλ!(parameters::P, state_representation::X, mdp::StateMDP, π::Function, args...; kwargs...) where {P, X} = true_online_TDλ!(parameters, state_representation, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
+end
+
+# ╔═╡ 34a28cfa-bf18-4dcf-8cf4-f6e9031d6fc2
+function true_online_TDλ(problem, state_representation::Vector{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; parameters::Vector{T} = zeros(T), kwargs...) where T<:Real
+	errors = true_online_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!)
+
+	function v!(x, s)
+		update_state_representation!(x, s)
+		dot(parameters, x)
+	end
+
+	v(s; x = copy(state_representation)) = v!(x, s)
+	return (value_function = v, error_history = errors)
+end
+
+# ╔═╡ 4dc03d69-c90c-4d64-bb8e-600ecfe30eb8
+begin
+	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
+	function true_online_tabular_TDλ!(parameters::Vector{T}, initialize_state::Function, transition::Function, termstates::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, calculate_error::Function = params -> zero(T), z::Vector{T} = copy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where T<:Real
+		i_s = initialize_state()
+		v̂ = parameters[i_s]
+		(r, i_s′) = transition(i_s)
+		if termstates[i_s′]
+			v̂′ = zero(T)
+		else
+			v̂′ = parameters[i_s′]
+		end
+		ep = 1
+		step = 1
+		episode_error_history = Vector{T}()
+		step_error_history = Vector{T}()
+		
+		#initialize eligibility vector to 0
+		z .= zero(T)
+		v_old = zero(T)
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			z .*= γ*λ
+			z[i_s] += one(T) - α*γ*λ*z[i_s] 
+			δ = r + γ*v̂′ - v̂
+			a = v̂ - v_old
+			parameters .+= α .* (δ + a) .* z
+			parameters[i_s] -= α*a
+	
+			save_step_errors && push!(step_error_history, calculate_error(parameters))
+	
+			if termstates[i_s′]
+				i_s = initialize_state()
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				v_old = zero(T)
+				ep += 1
+				save_episode_errors && push!(episode_error_history, calculate_error(parameters))
+			else
+				i_s = i_s′
+				v_old = v̂′
+			end
+
+			#note that the state representation here will be for s on the next step
+			v̂ = parameters[i_s]
+			(r, i_s′) = transition(i_s)
+			
+			if termstates[i_s′]
+				v̂′ = zero(T)
+			else
+				v̂′ = parameters[i_s′]
+			end
+			step += 1
+		end
+		return (episode_errors = episode_error_history, step_errors = step_error_history)
+	end
+
+	#when evaluating an MRP, there is no policy and the transition is just from the environment
+	true_online_tabular_TDλ!(parameters, mrp::TabularMRP, args...; kwargs...) = true_online_tabular_TDλ!(parameters, mrp.initialize_state_index, s -> mrp.ptf(s), mrp.terminal_states, args...; kwargs...)
+
+	#when evaluating an MDP, there is a policy and the transition uses it to select actions
+	true_online_tabular_TDλ!(parameters, mdp::TabularMDP, π, args...; kwargs...) = true_online_tabular_TDλ!(parameters, mdp.initialize_state_index, s -> mdp.ptf(s, π), mdp.terminal_states, args...; kwargs...)
+
+	function true_online_tabular_TDλ(env::Union{TabularMRP{T, S, P, F}, TabularMDP{T, S, A, P, F}}, args...; parameters = zeros(T, length(env.states)), kwargs...) where {T<:Real, S, A, P, F}
+		@assert length(parameters) == length(env.states)
+		errors = true_online_tabular_TDλ!(parameters, env, args...; kwargs...)
+		return (parameters = parameters, error_history = errors)
+	end
+end
+
+# ╔═╡ d9f89b2c-8df8-415a-a0a8-21744be88cec
+#=╠═╡
+function run_random_walk_true_online_TDλ_estimation(mrp::TabularMRP, calc_err::Function, α, λ; num_episodes = 10, kwargs...)
+	output = true_online_tabular_TDλ(mrp, 1f0, λ, num_episodes, typemax(Int64); save_episode_errors = true, α = α, calculate_error = calc_err, kwargs...)
+	return mean(output.error_history.episode_errors)
+end
   ╠═╡ =#
 
-# ╔═╡ 9123aa11-9187-4203-b671-d5f5feaf5813
-# ╠═╡ disabled = true
+# ╔═╡ 00015316-0d9d-41ce-a001-09aede10049c
 #=╠═╡
-random_walk_true_onlineTDλ(nruns = 100)
+run_random_walk_true_online_TDλ_estimation_trials(mrp::TabularMRP, calc_err, α, λ; num_trials = 100, kwargs...) = (1:num_trials |> Map(_ -> run_random_walk_true_online_TDλ_estimation(mrp, calc_err, α, λ; num_episodes = 10, kwargs...)) |> foldxt(+)) / num_trials
+  ╠═╡ =#
+
+# ╔═╡ 9c287f15-a78a-4e3f-a0b7-c901874b6cca
+#=╠═╡
+function true_online_tdλ_vs_offline_λ_error_random_walk(nstates, num_episodes; kwargs...)
+	α_vec = vcat(Float32.(0.0:0.02:0.1), 0.15f0, Float32.(0.2:0.1:1.0))
+	λ_vec = [0f0, 0.4f0, 0.8f0, 0.9f0, 0.95f0, 0.975f0, 0.99f0, 1f0]
+	tabular_mrp = TabularRL.create_random_walk_distribution(nstates, -1f0, 1f0)
+	mrp = StateMRP(tabular_mrp)
+	c = (nstates + 1)/2
+	v_true = [(s-c)/c for s in 1:nstates]
+	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, eachindex(v_true)))
+	get_α_line1(λ) = α_vec |> Map(α -> run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
+	get_α_line2(λ) = α_vec |> Map(α -> run_random_walk_true_online_TDλ_estimation_trials(tabular_mrp, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
+	lines1 = λ_vec |> Map(λ -> get_α_line1(λ)) |> collect
+	lines2 = λ_vec |> Map(λ -> get_α_line2(λ)) |> collect
+
+	yaxis_lims = [minimum(minimum(x) for x in lines1) - 0.05, first(first(lines1))]
+	
+	traces1 = [scatter(x = α_vec, y = lines1[i], name = "λ = $λ", mode = "lines", line_shape = "spline", showlegend = false) for (i, λ) in enumerate(λ_vec)]
+	p1 = plot(traces1, Layout(title = "Off-line λ-return algorithm", xaxis_title = L"α", yaxis_title = "Average RMS error over $nstates <br> states and first $num_episodes episodes", yaxis_range = yaxis_lims))
+
+	traces2 = [scatter(x = α_vec, y = lines2[i], name = "λ = $λ", mode = "lines", line_shape = "spline") for (i, λ) in enumerate(λ_vec)]
+	p2 = plot(traces2, Layout(title = "True Online TD(λ)", xaxis_title = L"α", yaxis_range = yaxis_lims))
+
+	@htl("""
+	<div style = "display: flex; height: 500px;">
+	$p1 
+	$p2
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ ccf903ab-1509-4c53-bfe0-435152ecea4b
+#=╠═╡
+@bind fig_12_8_params PlutoUI.combine() do Child
+md"""
+### Figure 12.8
+
+ $(Child(:n, NumberField(2:30, default = 19)))-state Random walk results: Performance of True Online TD$$(\lambda)$$ alongside that of the off-line λ-return algorithm.  The off-line algorithm should be an ideal but the online version outperforms it on this problem.  These results are for the first $(Child(:num_episodes, NumberField(1:1000, default = 10))) episodes and averaged over 100 trials.
+"""
+end
+  ╠═╡ =#
+
+# ╔═╡ f7cc35c5-c1ed-440d-8723-8c1b8b966b8f
+#=╠═╡
+true_online_tdλ_vs_offline_λ_error_random_walk(fig_12_8_params...)
   ╠═╡ =#
 
 # ╔═╡ b36896b1-6802-48e1-8cd3-f08bf3b99e3e
@@ -1161,7 +1361,7 @@ It can be shown that the linear MC algorithm can be used to drive an equivalent 
 The linear version of gradient Monte Carlo prediction algorithm makes the following sequence updates, one for each time step of the episode:
 
 $\begin{flalign}
-\mathbf{w}_{t+1} & \dot = \mathbf{w}_t + \alpha \left [ G - \mathbf{w}_t^\top \mathbf{x}_t \right ] \mathbf{x}_t, \hspace{4 mm} 0 \leq t < T \tag{12.13} \\
+\mathbf{w}_{t+1} & \doteq \mathbf{w}_t + \alpha \left [ G - \mathbf{w}_t^\top \mathbf{x}_t \right ] \mathbf{x}_t, \hspace{4 mm} 0 \leq t < T \tag{12.13} \\
 \end{flalign}$
 
 To simplify assume that the return $G$ is a single reward received at the end of teh episode and that there is no discounting.  In this case the update is also known as the Least Mean Square (LMS) rule.  As a Monte Carlo algirithm, all the updates depend on teh final reward/return, so none can be made until the end of the episode.  We seek an implementation of this algorithm with computational advantages by doing some computation during each step of the episode.
@@ -1179,6 +1379,471 @@ This computation uses the dutch trace for the case of $\gamma \lambda = 1$.  Thi
 # ╔═╡ 0086dc4a-e0ba-43f0-a721-296cd50e1a76
 md"""
 ## 12.7 Sarsa(λ)
+"""
+
+# ╔═╡ 21479229-c2ad-425f-98bb-77717ab40b02
+#given a state_action_value function, an exploration parameter ϵ, and a state index, produce a sampled action according to the ϵ-greedy policy
+function select_action!(action_values::Vector{T}, state_action_values::Matrix{T}, ϵ::T, i_s::Integer) where T<:Real
+	for i_a in eachindex(action_values)
+		action_values[i_a] = state_action_values[i_a, i_s]
+	end
+	make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+	sample_action(action_values)
+end
+
+# ╔═╡ cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
+begin
+	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
+	function sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+		#set the state action values of all terminal states to 0
+		for i_s in eachindex(mdp.states)
+			if mdp.terminal_states[i_s]
+				state_action_values[:, i_s] .= zero(T)
+			end
+		end
+
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		#initialize episode
+		i_s = mdp.initialize_state_index()
+		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+		z .= zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			#take action and observe transition
+			(r, i_s′) = mdp.ptf(i_s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+			
+			δ = r - state_action_values[i_a, i_s]
+			z[i_a, i_s] = one(T) + use_accumulating_traces*!use_dutch_traces*z[i_a, i_s] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i_a, i_s]
+
+			if !mdp.terminal_states[i_s′]
+				i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
+				δ += γ*state_action_values[i_a′, i_s′]
+			end
+
+			state_action_values .+= α*δ .* z
+
+			if mdp.terminal_states[i_s′]
+				i_s = mdp.initialize_state_index()
+				i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				i_s = i_s′
+				i_a = i_a′
+				z .*= γ*λ
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+
+	#add a version of this where only state values are learned and the transition output is a distribution function, also can add expected sarsa versions of both where the value at the future time step gets weighted by the action selection of all the possible actions
+	#non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
+	function sarsa_λ!(parameters::Matrix{T}, active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		function select_action!(action_values, parameters, ϵ, active_features)
+			for i_a in eachindex(action_values)
+				q = zero(T)
+				for i in active_features
+					q += parameters[i, i_a]
+				end
+				action_values[i_a] = q
+			end
+			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+			sample_action(action_values)
+		end
+			
+
+		#initialize episode
+		s = mdp.initialize_state()
+		i_a = select_action!(action_values, parameters, ϵ, active_features(s))
+		z .= zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			δ = r
+			
+			for i in active_features(i_s)
+				δ -= parameters[i, i_a]
+				z[i, i_a] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i, i_a] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i, i_a]
+			end
+
+			if !mdp.isterm(s′)
+				i_a′ = select_action!(action_values, state_action_values, ϵ, active_features(s′))
+				for i in active_features(s′)
+					δ += γ*parameters[i, i_a′]
+				end
+			end
+
+			parameters .+= α*δ .* z
+
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				i_a = select_action!(action_values, state_action_values, ϵ, active_features(s))
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				z .*= γ*λ
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+
+	#non-tabular problem with general function approximation. 
+	function sarsa_λ!(parameters::Vector{P}, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, update_gradient!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, gradient::Vector{P} = deepcopy(parameters), z::Vector{P} = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real, P}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		function select_action!(action_values, parameters, ϵ, x)
+			for i_a in eachindex(action_values)
+				action_values[i_a] = value_function(x, parameters[i_a])
+			end
+			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+			sample_action(action_values)
+		end
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		update_feature_vector!(feature_vector, s)
+		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+		z .= zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+			δ = r - value_function(feature_vector, parameters[i_a])
+
+			update_gradient!(gradient[i_a], feature_vector, parameters[i_a])
+			
+			if use_dutch
+				d = dot(z[i_a], feature_vector)
+			end
+			
+			z[i_a] .= gradient[i_a] .+ (!use_dutch_traces * use_accumulating_traces) .* z[i_a]
+			if use_dutch_traces * !use_accumulating_traces
+				z[i_a] .-= α*λ*γ*d .* feature_vector
+			end
+
+			if !mdp.isterm(s′)
+				update_feature_vector!(feature_vector, s′)
+				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
+				δ += γ*value_function(feature_vector, parameters[i_a′])
+			end
+
+			for i_a in eachindex(mdp.actions)
+				parameters[i_a] .+= α*δ .* z[i_a]
+			end
+
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				update_feature_vector!(feature_vector, s)
+				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+				#reset eligibility vector to 0 at the start of a new episode
+				for i_a in eachindex(mdp.actions) z[i_a] .= zero(T) end
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				for i_a in eachindex(mdp.actions) z[i_a] .*= γ*λ end
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+end
+
+# ╔═╡ 51274911-2eaa-4b18-b977-d0f735746bec
+md"""
+### *Example: Sarsa(λ) Gridworld Solution*
+"""
+
+# ╔═╡ afa6843b-9852-42c0-9ecd-06c408262334
+md"""
+#### Wind Values
+"""
+
+# ╔═╡ 078eecc3-05b3-4a58-91c8-fc8c28c9b144
+md"""
+#### Exact Solution
+"""
+
+# ╔═╡ b3c83ae6-9f3a-49a5-b726-872ef3a15853
+md"""
+#### Sarsa λ Parameter Study
+"""
+
+# ╔═╡ a4e10d47-2d41-4586-a328-11ea7234d7bd
+#=╠═╡
+@bind gridworld_λ_params PlutoUI.combine() do Child
+	md"""
+	|$λ$|Training Episodes|Learning Rate|
+	|:--|:--|:--|
+	|$(Child(:λ, Slider(0f0:0.01f0:1f0; default = 0.5f0, show_value=true)))|$(Child(:num_episodes, Slider(1:100; default = 50, show_value = true)))|$(Child(:α, Slider(0f0:0.01f0:1f0; default = 0.5f0, show_value = true)))|
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 4fa824ba-51a3-4f5a-a990-dd05bbf2526a
+md"""
+### True Online Sarsa(λ) for Tabular Problems or Linear Approximation
+"""
+
+# ╔═╡ 771cca22-d61d-498a-98be-90fa59e09571
+begin
+	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
+	function true_online_sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, epkwargs...) where {T<:Real}
+		#set the state action values of all terminal states to 0
+		for i_s in eachindex(mdp.states)
+			if mdp.terminal_states[i_s]
+				state_action_values[:, i_s] .= zero(T)
+			end
+		end
+
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		#initialize episode
+		i_s = mdp.initialize_state_index()
+		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+		z .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			#take action and observe transition
+			(r, i_s′) = mdp.ptf(i_s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
+
+			q = state_action_values[i_a, i_s]
+			q′ = state_action_values[i_a′, i_s′]
+			
+			δ = r + γ*q′ - q
+
+			dt = z[i_a, i_s]
+			z .*= γ*λ
+
+			z[i_a, i_s] += one(T) - α*γ*λ*dt
+
+			state_action_values .+= α*(δ + q - q_old) .* z
+			state_action_values[i_a, i_s] -= α*(q - q_old)
+
+			if mdp.terminal_states[i_s′]
+				i_s = mdp.initialize_state_index()
+				i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				i_s = i_s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+
+	#non-tabular problem with linear function approximation. 
+	function sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		function select_action!(action_values, parameters, ϵ, x)
+			for i_a in eachindex(action_values)
+				action_values[i_a] = dot(x, parameters[i_a])
+			end
+			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+			sample_action(action_values)
+		end
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		update_feature_vector!(feature_vector, s)
+		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+		z .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			q = dot(feature_vector, parameters[i_a])
+			dt = dot(z[i_a], feature_vector)
+			x2 .= one(T) .+ α*γ*λ*dt .* feature_vector
+
+			parameters[i_a] .-= α*(q - q_old) .* feature_vector
+			
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			
+			if mdp.isterm(s′)
+				q′ = zero(T)
+			else
+				update_feature_vector!(feature_vector, s′)
+				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
+				q′ = dot(feature_vector, parameters[i_a′])
+			end
+			
+			δ = r + γ*q′ - q
+			
+			z .*= γ*λ .+ x2
+
+			for i_a in eachindex(mdp.actions)
+				parameters[i_a] .+= α*(δ + q - q_old) .* z[i_a]
+			end
+			
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				update_feature_vector!(feature_vector, s)
+				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+				#reset eligibility vector to 0 at the start of a new episode
+				for i_a in eachindex(mdp.actions) z .= zero(T) end
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+end
+
+# ╔═╡ c5edfcbf-8d31-4dc4-b9d0-1a5439540710
+begin
+	function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
+		history = sarsa_λ!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+		greedy_policy_lookup = [argmax(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+		
+		greedy_policy(s::S) = greedy_policy_lookup[mdp.state_index[s]]
+		greedy_state_values = [maximum(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+	
+		(state_action_values = state_action_values, state_values = greedy_state_values, greedy_policy_lookup = greedy_policy_lookup, greedy_policy_function = greedy_policy, history = history)
+	end
+end
+
+# ╔═╡ a36d205c-9a77-4b24-8e57-7bfceee9f4af
+#=╠═╡
+function gridworld_sarsaλ_parameter_study(mdp, steps; nruns = 50, λ_list = [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.04f0, 0.8f0, 10), kwargs...)
+	value_iteration_output = value_iteration_v(mdp, 1f0)
+	best_steps = abs(value_iteration_output.final_value[mdp.initialize_state_index()])
+	traces = [begin 
+		output = [begin
+			1:nruns |> Map() do _ 
+				output = sarsa_λ(mdp, 1f0, λ, typemax(Int64), steps; save_episode_steps=true, α = α, kwargs...)
+				step_history = output.history.episode_steps
+				isempty(step_history) && return NaN
+				step_history[end]/length(step_history)
+			end |> foldxt(+) |> a -> a/nruns 
+		end for α in α_list]
+		scatter(x = α_list, y = output, name = "λ = $λ")
+	end for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Steps per Episode <br> Averaged Over $steps Steps & $nruns Runs", yaxis_range = [1.5*best_steps, best_steps*3]))
+end
+  ╠═╡ =#
+
+# ╔═╡ c57219cc-00ce-441d-a944-03c79c554708
+begin
+	function true_online_sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
+		history = true_online_sarsa_λ!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+		greedy_policy_lookup = [argmax(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+		
+		greedy_policy(s::S) = greedy_policy_lookup[mdp.state_index[s]]
+		greedy_state_values = [maximum(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+	
+		(state_action_values = state_action_values, state_values = greedy_state_values, greedy_policy_lookup = greedy_policy_lookup, greedy_policy_function = greedy_policy, history = history)
+	end
+
+	function true_online_sarsa_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function; parameters::Vector{Vector{T}} = [zeros(T, length(feature_vector)) for i_a in eachindex(mdp.actions)], kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+		history = true_online_sarsa_λ!(parameters, feature_vector, update_feature_vector!, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+		
+		function value_function(s::S)
+			x = copy(feature_vector)
+			update_feature_vector!(x, s)
+			action_values = [dot(x, parameters[i_a]) for i_a in eachindex(mdp.actions)]
+		end
+	
+		function greedy_policy(s::S)
+			action_values = value_function(s)
+			argmax(action_values)
+		end
+	
+		(value_function = value_function, greedy_policy = greedy_policy, history = history)
+	end
+end
+
+# ╔═╡ d5bf43e7-07de-49c4-a2f2-39af6301d4b2
+#=╠═╡
+function gridworld_true_online_sarsaλ_parameter_study(mdp, steps; nruns = 50, λ_list = [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
+	value_iteration_output = value_iteration_v(mdp, 1f0)
+	best_steps = abs(value_iteration_output.final_value[mdp.initialize_state_index()])
+	traces = [begin 
+		output = [begin
+			1:nruns |> Map() do _ 
+				output = true_online_sarsa_λ(mdp, 1f0, λ, typemax(Int64), steps; save_episode_steps=true, α = α, kwargs...)
+				step_history = output.history.episode_steps
+				isempty(step_history) && return NaN
+				step_history[end]/length(step_history)
+			end |> foldxt(+) |> a -> a/nruns 
+		end for α in α_list]
+		scatter(x = α_list, y = output, name = "λ = $λ")
+	end for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Steps per Episode <br> Averaged Over $steps Steps & $nruns Runs", yaxis_range = [1.5*best_steps, best_steps*3]))
+end
+  ╠═╡ =#
+
+# ╔═╡ 8b6b5084-3972-4bd4-9ca2-423f1c627788
+md"""
+### *Example: Mountain Car Sarsa(λ) Variations*
+
+Show similar parameter study for sarsa(λ) with different methods of traces and the true online version.  Can also add implementations of Sarsa(λ) that use q-learning and use the distribution function over output to bypass the action value estimation
 """
 
 # ╔═╡ e7b274c5-4f0c-4e5f-8a4a-b574130e64c0
@@ -1369,6 +2034,7 @@ See the above function `sarsaλ_linear`.  In the step where $z_i$ is updated an 
 """
 
 # ╔═╡ b1d56779-9a06-4b25-9a1b-09a12923e646
+# ╠═╡ disabled = true
 #=╠═╡
 function true_online_sarsaλ_binary(ℱ, w, states, actions, sterm, step, λ, γ, α, numepisodes, s_init, ϵ, usedutch=true)
 	function ϵ_greedy(s, ϵ)
@@ -1428,6 +2094,223 @@ end
 plot_grid(10, 10, (5, 8), f = true_online_sarsaλ_binary, λlist = [0.0, 0.01, 0.02], αlist = [0.00001, 0.0001, 0.001, 0.002, 0.004])
   ╠═╡ =#
 
+# ╔═╡ 5a88de5e-5837-41c8-8150-b8d65ffc2fdf
+function update_action_values!(action_values::Vector{T}, x::Vector{T}, parameters::Vector{Vector{T}}) where T<:Real
+	i_a_best = 1
+	q_max = typemin(T)
+	for (i_a, p) in enumerate(parameters)
+		q = dot(p, x)
+		action_values[i_a] = q
+		newmax = q > q_max
+		i_a_best = newmax*i_a + !newmax*i_a_best
+		q_max = newmax*q + !newmax*q_max
+	end
+	return i_a_best, q_max
+end
+
+# ╔═╡ d5366fcf-39ee-48dc-8ee6-ca5c3141418a
+function update_action_values!(action_values::Vector{T}, i_s::Integer, parameters::Vector{Vector{T}}) where T<:Real
+	i_a_best = 1
+	q_max = typemin(T)
+	for (i_a, p) in enumerate(parameters)
+		q = p[i_s]
+		action_values[i_a] = q
+		newmax = q > q_max
+		i_a_best = newmax*i_a + !newmax*i_a_best
+		q_max = newmax*q + !newmax*q_max
+	end
+	return i_a_best, q_max
+end
+
+# ╔═╡ 8f158e95-a308-430e-b0a5-265a3c1ea643
+function true_online_sarsa_λ2(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::Vector{T}, update_state_representation!::Function; parameters = [zeros(T, length(state_representation)) for i_a in eachindex(mdp.actions)], kwargs...) where T<:Real
+	reward_history = true_online_sarsa_λ!(parameters, state_representation, mdp, γ, λ, max_episodes, max_steps, update_state_representation!; kwargs...)
+
+	function action_values(s)
+		x = copy(state_representation)
+		update_state_representation!(x, s)
+		action_values = zeros(T, length(mdp.actions))
+		i_a_best, q_max = update_action_values!(action_values, x, parameters)
+		return action_values, i_a_best, q_max
+	end
+
+	greedy_policy(s) = action_values(s)[2]
+
+	return (reward_history = reward_history, greedy_policy = greedy_policy, action_values = action_values)
+end
+
+# ╔═╡ 21e8ecc5-fe50-4cdf-8402-fe02db5dc13a
+#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
+function true_online_sarsa_λ2!(parameters::Vector{Vector{T}}, state_representation::X, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; α = one(T)/10, ϵ = one(T)/10, ∇v::P = copy(parameters), z::P = copy(parameters), save_step_rewards::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_rewards::Bool = false, epkwargs...) where {P, X, T<:Real}
+	@assert length(parameters) == length(mdp.actions)
+	@assert length(z) == length(parameters)
+	@assert length(action_values) = length(mdp.actions)
+
+	s = mdp.initialize_state()
+	update_state_representation!(state_representation, s)
+	i_a = rand(eachindex(mdp.actions))
+	v̂ = dot(state_representation, parameters[i_a])
+	∇v .= state_representation
+	(r, s′) = mdp.ptf(s, i_a)
+	if mdp.isterm(s′)
+		v̂′ = zero(T)
+	else
+		update_state_representation!(state_representation, s′)
+		i_a′ = rand(eachindex(mdp.actions))
+		v̂′ = dot(state_representation, parameters[i_a′])
+	end
+	ep = 1
+	step = 1
+	episode_reward_history = Vector{T}()
+	step_reward_history = Vector{T}()
+	
+	#initialize eligibility vector to 0
+	for i_a in eachindex(z) z[i_a] .= zero(T) end
+	v_old = zero(T)
+	rtot = r
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		δ = r + γ*v̂′ - v̂
+		for i_a in eachindex(z)
+			z[i_a] .= (γ*λ .* z[i_a]) .+ (one(T) - α*γ*λ*dot(z[i_a], ∇v)) .* ∇v
+		end
+		a = v̂ - v_old
+		for i_a in eachindex(parameters)
+			parameters[i_a] .+= α .* ((δ + a) .* z[i_a])
+		end
+		parameters[i_a] .-= α .* a .* ∇v
+
+		save_step_rewards && push!(step_reward_history, r)
+
+		if mdp.isterm(s′)
+			s = mdp.initialize_state()
+			update_state_representation!(state_representation, s)
+			#reset eligibility vector to 0 at the start of a new episode
+			for i_a in eachindex(z) z[i_a] .= zero(T) end
+			v_old = zero(T)
+			rtot = zero(T)
+			ep += 1
+			save_episode_rewards && push!(episode_reward_history, rtot)
+		else
+			s = s′
+			v_old = v̂′
+		end
+		
+		#note that the state representation here will be for s on the next step
+		v̂ = dot(state_representation, parameters[i_a′])
+		∇v .= state_representation
+		
+		(r, s′) = mdp.ptf(s, i_a′)
+		rtot += r
+		
+		if isterm(s′)
+			v̂′ = zero(T)
+		else
+			update_state_representation!(state_representation, s′)
+			i_a_best, q_best = update_action_values!(action_values, state_representation)
+			#select ϵ greedy action
+			i_a′ = rand() < ϵ ? rand(eachindex(action_values)) : i_a_best
+			v̂′ = action_values[i_a′]
+		end
+		step += 1
+	end
+	return (episode_rewards = episode_reward_history, step_rewards = step_reward_history)
+end
+
+# ╔═╡ 2d7b4d32-d571-42eb-b31f-90a3bfe8a8c5
+true_online_sarsa_λ(make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0), 1f0, .5f0, 1000, 1_000_000; α = .001f0, ϵ = 1f0, save_episode_rewards = true)
+
+# ╔═╡ a9b96979-0c20-4f94-9903-34630af55668
+function true_online_sarsa_λ2(mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters = [zeros(T, length(mdp.states)) for i_a in eachindex(mdp.actions)], kwargs...) where T<:Real
+	reward_history = true_online_sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+
+	function action_values(i_s)
+		action_values = zeros(T, length(mdp.actions))
+		i_a_best, q_max = update_action_values!(action_values, i_s, parameters)
+		return action_values, i_a_best, q_max
+	end
+
+	greedy_policy(s) = action_values(s)[2]
+
+	return (reward_history = reward_history, greedy_policy = greedy_policy, action_values = action_values, parameters = parameters)
+end
+
+# ╔═╡ e199d7ed-4a99-4eff-a936-e8b860e73f2f
+#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
+function true_online_sarsa_λ2!(parameters::Vector{Vector{T}}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T)/10, ∇v::P = copy(parameters), z::P = copy(parameters), save_step_rewards::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_rewards::Bool = false, epkwargs...) where {P, T<:Real}
+	# @assert length(parameters) == length(mdp.actions)
+	# @assert length(z) == length(parameters)
+	# @assert length(action_values) = length(mdp.actions)
+
+	i_s = mdp.initialize_state_index()
+	i_a = rand(eachindex(mdp.actions))
+	v̂ = parameters[i_a][i_s]
+	(r, i_s′) = mdp.ptf(i_s, i_a)
+	if mdp.terminal_states[i_s′]
+		v̂′ = zero(T)
+	else
+		i_a′ = rand(eachindex(mdp.actions))
+		v̂′ = parameters[i_a′][i_s′]
+	end
+	ep = 1
+	step = 1
+	episode_reward_history = Vector{T}()
+	step_reward_history = Vector{T}()
+	
+	#initialize eligibility vector to 0
+	for i_a in eachindex(z) z[i_a] .= zero(T) end
+	v_old = zero(T)
+	rtot = r
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		δ = r + γ*v̂′ - v̂
+		for i_a in eachindex(z)
+			z[i_a] .*= γ*λ 
+			z[i_a][i_s] += one(T) - α*γ*λ*z[i_a][i_s]
+		end
+		a = v̂ - v_old
+		for i_a in eachindex(parameters)
+			parameters[i_a] .+= α .* ((δ + a) .* z[i_a])
+		end
+		parameters[i_a][i_s] -= α * a
+
+		save_step_rewards && push!(step_reward_history, r)
+
+		if mdp.terminal_states[i_s′]
+			i_s = mdp.initialize_state_index()
+			#reset eligibility vector to 0 at the start of a new episode
+			for i_a in eachindex(z) z[i_a] .= zero(T) end
+			v_old = zero(T)
+			i_a_best, q_best = update_action_values!(action_values, i_s′, parameters) 
+			i_a′ = rand() < ϵ ? rand(eachindex(action_values)) : i_a_best
+			ep += 1
+			save_episode_rewards && push!(episode_reward_history, rtot)
+			rtot = zero(T)
+		else
+			i_s = i_s′
+			v_old = v̂′
+		end
+		
+		#note that the state representation here will be for s on the next step
+		v̂ = parameters[i_a′][i_s]
+		
+		(r, i_s′) = mdp.ptf(i_s, i_a′)
+		rtot += r
+		i_a = i_a′
+		if mdp.terminal_states[i_s′]
+			v̂′ = zero(T)
+		else
+			i_a_best, q_best = update_action_values!(action_values, i_s′, parameters)
+			#select ϵ greedy action
+			i_a′ = rand() < ϵ ? rand(eachindex(action_values)) : i_a_best
+			v̂′ = action_values[i_a′]
+		end
+		
+		step += 1
+	end
+	return (episode_rewards = episode_reward_history, step_rewards = step_reward_history)
+end
+
 # ╔═╡ 862026e9-ebe6-4f2e-8832-086bbba8db17
 md"""
 ## 12.8 Variable λ and γ
@@ -1437,10 +2320,10 @@ md"""
 md"""
 $\begin{flalign}
 G_t &= \sum_{k=t}^\infty \left ( \prod_{i=t+1}^k \gamma_i \right ) R_{k+1} \tag{12.17}\\
-G_t^{\lambda_s} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat v (S_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_s} \right ) \tag{12.18}\\
-G_t^{\lambda_a} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat q (S_{t+1}, A_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_a} \right ) \tag{12.19}\\
-G_t^{\lambda_a} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \overline V_t(S_{t+1}) + \lambda_{t+1}G_{t+1}^{\lambda_a} \right ) \tag{12.19}\\
-\overline V_t(s) & \dot = \sum_a \pi(a|s)\hat q(s, a, \mathbf{w}_t) \tag{12.21}
+G_t^{\lambda_s} &\doteq R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat v (S_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_s} \right ) \tag{12.18}\\
+G_t^{\lambda_a} &\doteq R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat q (S_{t+1}, A_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_a} \right ) \tag{12.19}\\
+G_t^{\lambda_a} &\doteq R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \overline V_t(S_{t+1}) + \lambda_{t+1}G_{t+1}^{\lambda_a} \right ) \tag{12.19}\\
+\overline V_t(s) & \doteq \sum_a \pi(a|s)\hat q(s, a, \mathbf{w}_t) \tag{12.21}
 \end{flalign}$
 """
 
@@ -1452,9 +2335,9 @@ md"""
 Starting with (12.18) we want to get a truncated version $G_{t:h}^{\lambda_s}$.  We can also use as a model the truncated λ-return
 
 $\begin{flalign}
-G_t^{\lambda_s} &\dot = R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat v (S_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_s} \right )\\
-G_{t:h}^\lambda &\dot = (1-\lambda) \sum_{n=1}^{h-t-1}\lambda^{n-1} G_{t:t+n} + \lambda^{h-t-1}G_{t:h}\\
-G_{t:h}^{\lambda_s} &\dot = (1-\lambda) \sum_{n=1}^{h-t-1} \left ( \prod_{i=t}^{t+n-1} \lambda_i \right ) G_{t:t+n} + \left ( \prod_{i=h-t-1}^{\infty} \lambda_i \right ) G_{t:h}
+G_t^{\lambda_s} &\doteq R_{t+1} + \gamma_{t+1} \left ( (1-\lambda_{t+1}) \hat v (S_{t+1}, \mathbf{w}_t) + \lambda_{t+1}G_{t+1}^{\lambda_s} \right )\\
+G_{t:h}^\lambda &\doteq (1-\lambda) \sum_{n=1}^{h-t-1}\lambda^{n-1} G_{t:t+n} + \lambda^{h-t-1}G_{t:h}\\
+G_{t:h}^{\lambda_s} &\doteq (1-\lambda) \sum_{n=1}^{h-t-1} \left ( \prod_{i=t}^{t+n-1} \lambda_i \right ) G_{t:t+n} + \left ( \prod_{i=h-t-1}^{\infty} \lambda_i \right ) G_{t:h}
 \end{flalign}$
 
 """
@@ -1537,47 +2420,6 @@ function create_random_walk(n::Int64)
 	(states, sterm, step)
 end
 
-# ╔═╡ 2336e059-34a5-4c81-be53-fa3f66733bd9
-#=╠═╡
-function random_walk_true_onlineTDλ(nstates = 19; numepisodes = 10, nruns = 10)
-	#estimate random policy
-	π(s) = rand([Left(), Right()])
-
-	c = (nstates + 1)/2
-	Vtrue = [(s-c)/c for s in 1:nstates]
-
-	maxerr = sqrt(mean(Vtrue .^2))
-
-	(states, sterm, step) = create_random_walk(nstates)
-
-	make_w() = zeros(nstates) #using weight vector that keeps a value for each state
-
-	statevectors = [[i == s ? 1.0 : 0.0 for i in 1:nstates] for s in 1:nstates]
-	zerovec = zeros(nstates)
-	
-	function x(s)
-		s == sterm && return zerovec
-		statevectors[s]
-	end
-
-	s_init() = rand(1:nstates)
-	
-	function get_λ_error(α, λ)
-		w, rmserrs = true_online_TDλ(π, x, make_w(), states, sterm, step, λ, 1.0, α, numepisodes, s_init, Vtrue)
-		mean(rmserrs)
-	end
-
-	α_vec = 1.1 .^ (-30:0)
-	λ_vec = [0.0, 0.4, 0.8, 0.9, 0.95, 0.975, 0.99, 1.0]
-	rmsvecs = [[mean(get_λ_error(α, λ) for _ in 1:nruns) for α in α_vec] for λ in λ_vec]
-
-	traces = [scatter(x = α_vec, y = rmsvecs[i], name = "λ=$(λ_vec[i])") for i in eachindex(rmsvecs)]
-	ymin = minimum(minimum(filter(!isnan, v)) for v in rmsvecs) * 0.9
-	ymax = maxerr
-	plot(traces, Layout(yaxis_title="RMS Error for $nstates State Chain with Random Policy Over the First $numepisodes Episodes", title = "True online TD(λ) Estimator", xaxis_title = "α", yaxis_range = [ymin, ymax]))
-end
-  ╠═╡ =#
-
 # ╔═╡ 2cafed7d-22c6-420f-9c8e-8ae734bfbad2
 #=╠═╡
 function nsteptd_error_random_walk(nstates, estimator; v0=0.0, nruns = 10)
@@ -1641,6 +2483,527 @@ html"""
 	</style>
 	"""
 
+# ╔═╡ 5616d294-892a-40bc-a35f-35e9e0ee55e2
+md"""
+## Visualization Tools
+"""
+
+# ╔═╡ 2b047cbe-4da3-4e40-8897-8ea83e70a84d
+#=╠═╡
+function addelements(e1, e2)
+	@htl("""
+	$e1
+	$e2
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 4b1d86d8-e6b9-4d09-b2a1-8c297414094c
+#=╠═╡
+@bind wind_values PlutoUI.combine() do Child
+	@htl("""
+	$(mapreduce(addelements, 1:10) do i
+	Child(NumberField(0:5))
+	end)
+	""")
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ 6d671599-f635-4e1d-bef5-707891a756cc
+#=╠═╡
+const gridworld_mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0, wind = wind_values)
+  ╠═╡ =#
+
+# ╔═╡ 8d52f740-e1bf-4ac7-a299-38e7767a0831
+#=╠═╡
+gridworld_sarsaλ_parameter_study(gridworld_mdp, 50_000; use_dutch_traces = false)
+  ╠═╡ =#
+
+# ╔═╡ e047cce1-11a5-4bcb-8668-a767628da140
+#=╠═╡
+gridworld_true_online_sarsaλ_parameter_study(gridworld_mdp, 50_000)
+  ╠═╡ =#
+
+# ╔═╡ 9db3ed98-a94d-4adc-a45f-75eca432a1e9
+show_grid_value(mdp::TabularMDP, Q, name; kwargs...) = show_grid_value(mdp.states, mdp.terminal_states, mdp.initialize_state_index, Q, name; kwargs...)
+
+# ╔═╡ 4a8bc15c-8f4d-4017-915f-d2b27c1a6bd0
+show_grid_probabilities(mdp::TabularMDP, Q, name; kwargs...) = show_grid_probabilities(mdp.states, mdp.terminal_states, mdp.initialize_state_index, Q, name; kwargs...)
+
+# ╔═╡ 4160de31-3c8e-4051-b618-24112bbcc70e
+HTML("""
+<style>
+	.windcell {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		border: 0px rgba(0, 0, 0, 0);
+		color: black;
+		background-color: white;
+	}
+</style>
+""")
+
+# ╔═╡ 359a682a-add2-4fe2-af09-f67ffbd985a8
+#=╠═╡
+function show_grid_probabilities(states, terminds::BitVector, state_init, μ::Vector, name; scale = 1.0, title = "", sigdigits = 2, square_pixels = 20, highlight_state_index = 0)
+	width = maximum(s.x for s in states)
+	height = maximum(s.y for s in states)
+	start = states[state_init()]
+	sterms = any(terminds) ? states[terminds] : [GridworldState(0, 0)]
+	ngrid = width*height
+
+	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
+	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
+	
+	maxp = maximum(μ)
+	function calculate_color(p::Real) 
+		v = round(Int64, 255*p/maxp)
+		"rgb($v, $v, $v)"
+	end
+
+	highlight_style = if iszero(highlight_state_index)
+		@htl("""""")
+	else
+		@htl("""
+		.$name.value[x="$(states[highlight_state_index].x)"][y="$(states[highlight_state_index].y)"] {
+			border: 3px solid black;
+		}
+		""")
+	end
+	@htl("""
+		Maximum probability $maxp shown in white
+		<div style = "display: flex; transform: scale($scale); background-color: rgba(0, 0, 0, 0); color: black; font-size: 16px; justify-content: center;">
+			<div>
+				$title
+				<div class = "gridworld $name value">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(states[i].x)" y = "$(states[i].y)" style = "grid-row: $(height - states[i].y + 1); grid-column: $(states[i].x); background-color: $(calculate_color(μ[i])); font-size: 12px; color: black;">$(displayvalue(μ, i))</div>""", *, eachindex(states))))
+				</div>
+			</div>
+		</div>
+	
+		<style>
+			.$name.value.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, $(square_pixels)px);
+				grid-template-rows: repeat($height, $(square_pixels)px);
+				background-color: white;
+			}
+
+			.$name.value[x="$(start.x)"][y="$(start.y)"] {
+				content: '';
+				background-color: rgba(0, 255, 0, 0.5);
+			}
+
+			$(mapreduce(addelements, sterms) do sterm
+				@htl("""
+				.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
+					content: '';
+					background-color: rgba(255, 215, 0, 0.5);
+				}
+				""")
+			end)
+
+			$highlight_style
+			
+		</style>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ f22355c6-1b48-4a8d-b5b0-b851f3dadd52
+#=╠═╡
+function show_grid_value(states, terminds::BitVector, state_init, Q, name; scale = 1.0, title = "", sigdigits = 2, square_pixels = 20, highlight_state_index = 0)
+	width = maximum(s.x for s in states)
+	height = maximum(s.y for s in states)
+	start = states[state_init()]
+	sterms = any(terminds) ? states[terminds] : [GridworldState(0, 0)]
+	ngrid = width*height
+
+	displayvalue(Q::Matrix, i) = round(maximum(Q[:, i]), sigdigits = sigdigits)
+	displayvalue(V::Vector, i) = round(V[i], sigdigits = sigdigits)
+
+	highlight_style = if iszero(highlight_state_index)
+		@htl("""""")
+	else
+		@htl("""
+		.$name.value[x="$(states[highlight_state_index].x)"][y="$(states[highlight_state_index].y)"] {
+			border: 3px solid black;
+		}
+		""")
+	end
+	@htl("""
+		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px; justify-content: center;">
+			<div>
+				$title
+				<div class = "gridworld $name value">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(states[i].x)" y = "$(states[i].y)" style = "grid-row: $(height - states[i].y + 1); grid-column: $(states[i].x); font-size: 12px; color: black;">$(displayvalue(Q, i))</div>""", *, eachindex(states))))
+				</div>
+			</div>
+		</div>
+	
+		<style>
+			.$name.value.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, $(square_pixels)px);
+				grid-template-rows: repeat($height, $(square_pixels)px);
+				background-color: white;
+			}
+
+			.$name.value[x="$(start.x)"][y="$(start.y)"] {
+				content: '';
+				background-color: rgba(0, 255, 0, 0.5);
+			}
+
+			$(mapreduce(addelements, sterms) do sterm
+				@htl("""
+				.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
+					content: '';
+					background-color: rgba(255, 215, 0, 0.5);
+				}
+				""")
+			end)
+
+			$highlight_style
+			
+		</style>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ c8be71e0-c82a-4260-9dcf-944962947ca2
+show_grid_policy(mdp::TabularMDP, π, name; kwargs...) = show_grid_policy(mdp.states, mdp.initialize_state_index, mdp.terminal_states, π, name; kwargs...)
+
+# ╔═╡ c231090d-6faf-46a8-ae08-fd8715ade241
+#=╠═╡
+function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
+	@htl("""
+		<div style = "display: flex; align-items: center; justify-content: center; transform: scale($scale);">
+		<div class = "downarrow" style = "position: absolute; transform: rotate(180deg); opacity: $(v[1]);"></div>	
+		<div class = "downarrow" style = "position: absolute; opacity: $(v[2])"></div>
+		<div class = "downarrow" style = "position: absolute; transform: rotate(90deg); opacity: $(v[3])"></div>
+		<div class = "downarrow" style = "transform: rotate(-90deg); opacity: $(v[4])"></div>
+		</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 962ff704-5d43-4ecb-8e2d-4538c6ee71c5
+#=╠═╡
+function show_selected_action(i)
+	v = zeros(4)
+	v[i] = 1
+	display_rook_policy(v)
+end
+  ╠═╡ =#
+
+# ╔═╡ afa7fa78-283c-4053-9dff-7cc2adc0cc0e
+#=╠═╡
+const rook_action_display = @htl("""
+<div style = "display: flex; flex-direction: column; align-items: center; justify-content: center; color: black; background-color: rgba(100, 100, 100, 0.1);">
+	<div style = "display: flex; align-items: center; justify-content: center;">
+	<div class = "downarrow" style = "transform: rotate(90deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(180deg);"></div>
+	<div class = "downarrow" style = "position: absolute; transform: rotate(270deg);"></div>
+	<div class = "downarrow" style = "position: absolute;"></div>
+	</div>
+	<div>Actions</div>
+</div>
+""")
+  ╠═╡ =#
+
+# ╔═╡ 55727cd1-ebb0-4e5c-80e5-c6d047c4b1ba
+#=╠═╡
+function show_grid_transitions(states, terminds, state_init, name; scale = 1.0, title = "", action_display = rook_action_display, highlight_state = GridworldState(1, 1), transition_states::Dict{GridworldState, Float32} = Dict([GridworldState(1, 2) => 1f0]), reward_values = [(p = 1f0, r = 0f0)], width = maximum(s.x for s in states), wind = zeros(Int64, width), square_pixels = 30)
+	height = maximum(s.y for s in states)
+	start = states[state_init()]
+	sterms = states[terminds]
+	ngrid = width*height
+
+	@htl("""
+		<div style = "background-color: white; color: black;">
+		Selected Action with Reward Distribution: $reward_values
+		$action_display
+		State Transitions
+		<div style = "display: flex; transform: scale($scale); background-color: white; color: black; font-size: 16px; justify-content: center;">
+			<div>
+				$title
+				<div class = "gridworld $name value">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name value" x = "$(states[i].x)" y = "$(states[i].y)" style = "grid-row: $(height - states[i].y + 1); grid-column: $(states[i].x); font-size: 12px; color: black;"></div>""", *, eachindex(states))))
+					$(HTML(mapreduce(i -> """<div class = "windcell $name" style = "grid-row: 0; grid-column: $i; font-size: 12px;">$(wind[i])</div>""", *, 1:width)))
+					Wind Values
+				</div>
+			</div>
+		</div>
+		</div>
+	
+		<style>
+			.$name.value.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, $(square_pixels)px);
+				grid-template-rows: repeat($height, $(square_pixels)px);
+				background-color: white;
+				margin: 20px;
+			}
+
+			.$name.value[x="$(start.x)"][y="$(start.y)"] {
+				background-color: rgba(0, 255, 0, 0.5);
+				
+			}
+
+			.$name.value[x="$(highlight_state.x)"][y="$(highlight_state.y)"] {
+				background-color: rgba(0, 0, 255, 0.5);
+			}
+
+
+			$(mapreduce(addelements, transition_states) do transition_state
+				@htl("""
+				.$name.value[x="$(transition_state[1].x)"][y="$(transition_state[1].y)"] {
+					border: 4px solid black;
+				}
+				.$name.value[x="$(transition_state[1].x)"][y="$(transition_state[1].y)"]::before {
+					content: '$(round(transition_state[2] |> Float64, sigdigits = 2))';
+				}
+				""")
+			end)
+
+			$(mapreduce(addelements, sterms) do sterm
+				@htl("""
+				.$name.value[x="$(sterm.x)"][y="$(sterm.y)"] {
+					background-color: rgba(255, 215, 0, 0.5);
+				}
+				""")
+			end)
+			
+		</style>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ f9137b59-24cc-4636-8a42-3a751309f42b
+#=╠═╡
+function show_grid_policy(states, state_init, terminds, π, name; display_function = display_rook_policy, action_display = rook_action_display, scale = 1.0)
+	width = maximum(s.x for s in states)
+	height = maximum(s.y for s in states)
+	start = states[state_init()]
+	sterms = any(terminds) ? states[terminds] : [GridworldState(0, 0)]
+	ngrid = width*height
+	@htl("""
+		<div style = "display: flex; transform: scale($scale); background-color: white;">
+			<div>
+				<div class = "gridworld $name">
+					$(HTML(mapreduce(i -> """<div class = "gridcell $name" x = "$(states[i].x)" y = "$(states[i].y)" style = "grid-row: $(height - states[i].y + 1); grid-column: $(states[i].x);">$(display_function(π[:, i], scale =0.8))</div>""", *, eachindex(states))))
+				</div>
+			</div>
+			<div style = "display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; color: black; font-size: 18px; width: 5em; margin-left: 1em;">
+				$(action_display)
+			</div>
+		</div>
+	
+		<style>
+			.$name.gridworld {
+				display: grid;
+				grid-template-columns: repeat($width, 40px);
+				grid-template-rows: repeat($height, 40px);
+				background-color: white;
+
+			.$name[x="$(start.x)"][y="$(start.y)"]::before {
+				content: 'S';
+				position: absolute;
+				color: green;
+				opacity: 1.0;
+			}
+
+			$(mapreduce(addelements, sterms) do sterm
+				@htl("""
+				.$name[x="$(sterm.x)"][y="$(sterm.y)"]::before {
+					content: 'G';
+					position: absolute;
+					color: red;
+					opacity: 1.0;
+				}
+				""")
+			end)
+
+		</style>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ f9ef6328-06f0-47a5-9de3-9b00d02af7f6
+HTML("""
+<style>
+	.downarrow {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		flex-direction: column;
+	}
+
+	.downarrow::before {
+		content: '';
+		width: 2px;
+		height: 40px;
+		background-color: black;
+	}
+	.downarrow::after {
+		content: '';
+		width: 0px;
+		height: 0px;
+		border-left: 5px solid transparent;
+		border-right: 5px solid transparent;
+		border-top: 10px solid black;
+	}
+
+	.gridcell {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			border: 1px solid black;
+		}
+
+	.windbox {
+		height: 40px;
+		width: 40px;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		transform: rotate(180deg);
+		background-color: green;
+	}
+
+	.windbox * {
+		background-color: green;
+		color: green;
+	}
+
+	.windbox[w="0"] {
+		opacity: 0.0; 
+	}
+
+	.windbox[w="1"] {
+		opacity: 0.5;
+	}
+
+	.windbox[w="2"] {
+		opacity: 1.0;
+	}
+</style>
+""")
+
+# ╔═╡ e89b2c6f-7433-434f-8e46-836870f272b6
+#=╠═╡
+function plot_path(episode_states::Vector{S}, goal::S, start::S; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path", xmax = maximum([s.x for s in episode_states]), ymax = maximum([s.y for s in episode_states])) where S <: GridworldState
+	start_trace = scatter(x = [start.x + 0.5], y = [start.y + 0.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
+	finish_trace = scatter(x = [goal.x + .5], y = [goal.y + .5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+	
+	path_traces = [scatter(x = [episode_states[i].x + 0.5, episode_states[i+1].x + 0.5], y = [episode_states[i].y + 0.5, episode_states[i+1].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname) for i in 1:length(episode_states)-1]
+	finalpath = scatter(x = [episode_states[end].x + 0.5, goal.x + .5], y = [episode_states[end].y + 0.5, goal.y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname)
+
+	h1 = 30*ymax
+	traces = [start_trace; finish_trace; path_traces; finalpath]
+
+	cliff_squares = filter(iscliff, episode_states)
+	for s in cliff_squares
+		push!(traces, scatter(x = [s.x + 0.6], y = [s.y+0.5], mode = "text", text = ["C"], textposition = "left", showlegend = false))
+	end
+
+
+	wall_squares = filter(iswall, episode_states)
+	for s in wall_squares
+		push!(traces, scatter(x = [s.x + 0.8], y = [s.y+0.5], mode = "text", text = ["W"], textposition = "left", showlegend = false))
+	end
+
+	plot(traces, Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = fill("", 10), range = [1, xmax+1]), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(30*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
+end
+  ╠═╡ =#
+
+# ╔═╡ b39b1b8e-b70e-4860-b75c-86506433efa7
+#=╠═╡
+function plot_path(episode_states::Vector{Int64}, i_sterm::Integer, gridworld_states::Vector{S}, i_s0::Integer, terminal_states::BitVector; title = "Policy <br> path example", iscliff = s -> false, iswall = s -> false, pathname = "Policy Path", square_pixels = 30) where S <: GridworldState
+	xmax = maximum([s.x for s in gridworld_states])
+	ymax = maximum([s.y for s in gridworld_states])
+	start = gridworld_states[i_s0]
+	goal = gridworld_states[findlast(terminal_states)]
+	start_trace = scatter(x = [start.x + 0.5], y = [start.y + 0.5], mode = "text", text = ["S"], textposition = "left", showlegend=false)
+	finish_trace = scatter(x = [goal.x + .5], y = [goal.y + .5], mode = "text", text = ["G"], textposition = "left", showlegend=false)
+	
+	path_traces = [scatter(x = [gridworld_states[episode_states[i]].x + 0.5, gridworld_states[episode_states[i+1]].x + 0.5], y = [gridworld_states[episode_states[i]].y + 0.5, gridworld_states[episode_states[i+1]].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname) for i in 1:length(episode_states)-1]
+	finalpath = scatter(x = [gridworld_states[episode_states[end]].x + 0.5, gridworld_states[i_sterm].x + .5], y = [gridworld_states[episode_states[end]].y + 0.5, gridworld_states[i_sterm].y + 0.5], line_color = "blue", mode = "lines", showlegend=false, name = pathname)
+
+	h1 = square_pixels*ymax
+	traces = [start_trace; finish_trace; path_traces; finalpath]
+
+	cliff_squares = filter(iscliff, gridworld_states)
+	for s in cliff_squares
+		push!(traces, scatter(x = [s.x + 0.6], y = [s.y+0.5], mode = "text", text = ["C"], textposition = "left", showlegend = false))
+	end
+
+
+	wall_squares = filter(iswall, gridworld_states)
+	for s in wall_squares
+		push!(traces, scatter(x = [s.x + 0.8], y = [s.y+0.5], mode = "text", text = ["W"], textposition = "left", showlegend = false))
+	end
+
+	plot(traces, Layout(xaxis = attr(showgrid = true, showline = true, gridwith = 1, gridcolor = "black", zeroline = true, linecolor = "black", mirror=true, tickvals = 1:xmax, ticktext = fill("", 10), range = [1, xmax+1]), yaxis = attr(linecolor="black", mirror = true, gridcolor = "black", showgrid = true, gridwidth = 1, showline = true, tickvals = 1:ymax, ticktext = fill("", ymax), range = [1, ymax+1]), width = max(square_pixels*xmax, 200), height = max(h1, 200), autosize = false, padding=0, paper_bgcolor = "rgba(0, 0, 0, 0)", title = attr(text = title, font_size = 14, x = 0.5)))
+end
+  ╠═╡ =#
+
+# ╔═╡ 0e3ae279-be7e-4e13-b1ea-2c0efced3162
+function plot_path(mdp::TabularMDP, π; i_s0 = mdp.initialize_state_index(), max_steps = 100, kwargs...)
+	(states, actions, rewards, sterm) = runepisode(mdp; i_s0 = i_s0, π = π, max_steps = max_steps)
+	plot_path(states, sterm, mdp.states, i_s0, mdp.terminal_states; kwargs...)
+end
+
+# ╔═╡ 82adce34-923c-46b9-a1ed-f1c06be09e0f
+plot_path(mdp::TabularMDP; title = "Random policy <br> path example", kwargs...) = plot_path(mdp, make_random_policy(mdp); title = title, kwargs...)
+
+# ╔═╡ 1441e34f-e8c5-46b5-b04c-31ea7f9f605a
+#=╠═╡
+function show_gridworld_exact_solution(mdp)
+	output = value_iteration_v(mdp, 1f0)
+	@htl("""
+	<div style = "display: flex">
+	<div>
+	Optimal Policy
+	$(show_grid_policy(mdp, output.optimal_policy, "value_iteration_gridworld"))
+	</div>
+	<div>
+	Optimal Value Function (-1 reward per step)
+	$(show_grid_value(mdp, output.final_value, "value_iteration_values"; square_pixels = 40))
+	</div>
+	$(plot_path(mdp, output.optimal_policy; square_pixels = 40))
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ d08aaab5-4065-41ef-867d-ea689c87a4f6
+#=╠═╡
+show_gridworld_exact_solution(gridworld_mdp)
+  ╠═╡ =#
+
+# ╔═╡ bb71215f-fa97-4eca-a950-be4cb037bb00
+#=╠═╡
+function show_gridworld_sarsaλ_solution(mdp, λ, episodes; kwargs...)
+	output = sarsa_λ(mdp, 1f0, λ, episodes, typemax(Int64); kwargs...)
+	greedy_policy = TabularRL.make_greedy_policy(output.state_action_values)
+	
+	@htl("""
+	<div style = "display: flex">
+	$(show_grid_policy(mdp, greedy_policy, "sarsa_λ_policy"))
+	$(show_grid_value(mdp, output.state_values, "sarsa_λ_values"; square_pixels = 40))
+	$(plot_path(mdp, greedy_policy; square_pixels = 40))
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 26a64c5d-6c21-4e3b-af75-e8682e8d5ea1
+#=╠═╡
+show_gridworld_sarsaλ_solution(gridworld_mdp, gridworld_λ_params.λ, gridworld_λ_params.num_episodes; α = gridworld_λ_params.α)
+  ╠═╡ =#
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -1676,7 +3039,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.2"
+julia_version = "1.11.3"
 manifest_format = "2.0"
 project_hash = "eeaf5e83f39dc2c9adbdb2cb6d84b3370de6d0e8"
 
@@ -2445,6 +3808,7 @@ version = "17.4.0+2"
 # ╟─2c3b163d-b4cd-4b40-a597-cbd103e135b6
 # ╠═36d87b2a-6e1a-47b7-8af5-825d47e55eec
 # ╠═b68f1171-6274-4d93-bf68-05b95cb5b2f8
+# ╠═8b67e90f-3305-4702-b7a3-393055d15e46
 # ╠═da8c5f8b-5ab6-4a2b-93e8-18be4284b932
 # ╟─83a645f8-f806-4828-bc42-d24cfd26bad3
 # ╟─9a75dc05-883b-47a6-b8f0-ae0799c5fc19
@@ -2459,12 +3823,40 @@ version = "17.4.0+2"
 # ╟─0df08e27-18d3-4f2c-a7e1-75674418ba01
 # ╟─c65dc168-9fa4-4e1b-af39-02f80c9ec0e3
 # ╟─8d41a846-3a12-4e32-bc1a-50be12629eb2
-# ╟─2c664592-eddf-4438-b153-075282f6e491
-# ╠═5324724c-93d1-4186-9dcf-55afd410aa72
-# ╠═2336e059-34a5-4c81-be53-fa3f66733bd9
-# ╠═9123aa11-9187-4203-b671-d5f5feaf5813
+# ╟─8f211c8d-6b20-48de-ae91-435a977c930c
+# ╟─21df1418-8808-42f1-9fcd-26048705c5ce
+# ╠═7f8fb89d-1a2e-4acd-9118-2ce3d3874341
+# ╠═34a28cfa-bf18-4dcf-8cf4-f6e9031d6fc2
+# ╠═4dc03d69-c90c-4d64-bb8e-600ecfe30eb8
+# ╠═d9f89b2c-8df8-415a-a0a8-21744be88cec
+# ╠═00015316-0d9d-41ce-a001-09aede10049c
+# ╠═9c287f15-a78a-4e3f-a0b7-c901874b6cca
+# ╟─ccf903ab-1509-4c53-bfe0-435152ecea4b
+# ╟─f7cc35c5-c1ed-440d-8723-8c1b8b966b8f
 # ╟─b36896b1-6802-48e1-8cd3-f08bf3b99e3e
 # ╟─0086dc4a-e0ba-43f0-a721-296cd50e1a76
+# ╠═21479229-c2ad-425f-98bb-77717ab40b02
+# ╠═c5edfcbf-8d31-4dc4-b9d0-1a5439540710
+# ╠═cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
+# ╟─51274911-2eaa-4b18-b977-d0f735746bec
+# ╟─afa6843b-9852-42c0-9ecd-06c408262334
+# ╟─4b1d86d8-e6b9-4d09-b2a1-8c297414094c
+# ╟─078eecc3-05b3-4a58-91c8-fc8c28c9b144
+# ╟─d08aaab5-4065-41ef-867d-ea689c87a4f6
+# ╟─b3c83ae6-9f3a-49a5-b726-872ef3a15853
+# ╠═8d52f740-e1bf-4ac7-a299-38e7767a0831
+# ╟─a4e10d47-2d41-4586-a328-11ea7234d7bd
+# ╟─26a64c5d-6c21-4e3b-af75-e8682e8d5ea1
+# ╠═6d671599-f635-4e1d-bef5-707891a756cc
+# ╠═1441e34f-e8c5-46b5-b04c-31ea7f9f605a
+# ╠═a36d205c-9a77-4b24-8e57-7bfceee9f4af
+# ╠═bb71215f-fa97-4eca-a950-be4cb037bb00
+# ╟─4fa824ba-51a3-4f5a-a990-dd05bbf2526a
+# ╠═e047cce1-11a5-4bcb-8668-a767628da140
+# ╠═d5bf43e7-07de-49c4-a2f2-39af6301d4b2
+# ╠═c57219cc-00ce-441d-a944-03c79c554708
+# ╠═771cca22-d61d-498a-98be-90fa59e09571
+# ╟─8b6b5084-3972-4bd4-9ca2-423f1c627788
 # ╠═e7b274c5-4f0c-4e5f-8a4a-b574130e64c0
 # ╠═2fbdb817-da15-4011-bb1c-126f1f311e7a
 # ╠═72895891-9212-4722-b2a1-0e13c30a8ecf
@@ -2475,6 +3867,13 @@ version = "17.4.0+2"
 # ╟─fbe8691b-6d71-4cba-90e4-5de63421f634
 # ╠═b1d56779-9a06-4b25-9a1b-09a12923e646
 # ╠═f3c3f934-6601-4383-8204-55d04c973881
+# ╠═8f158e95-a308-430e-b0a5-265a3c1ea643
+# ╠═5a88de5e-5837-41c8-8150-b8d65ffc2fdf
+# ╠═d5366fcf-39ee-48dc-8ee6-ca5c3141418a
+# ╠═21e8ecc5-fe50-4cdf-8402-fe02db5dc13a
+# ╠═2d7b4d32-d571-42eb-b31f-90a3bfe8a8c5
+# ╠═a9b96979-0c20-4f94-9903-34630af55668
+# ╠═e199d7ed-4a99-4eff-a936-e8b860e73f2f
 # ╟─862026e9-ebe6-4f2e-8832-086bbba8db17
 # ╟─8f894492-260e-4ab0-87b6-c02216a631e6
 # ╟─c80256a7-be4f-4407-b0bf-7a13415482ad
@@ -2490,5 +3889,23 @@ version = "17.4.0+2"
 # ╠═062f756b-6640-4928-9216-c54316503944
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═326b3355-7941-403b-bf1e-3031f585f666
+# ╟─5616d294-892a-40bc-a35f-35e9e0ee55e2
+# ╠═2b047cbe-4da3-4e40-8897-8ea83e70a84d
+# ╠═9db3ed98-a94d-4adc-a45f-75eca432a1e9
+# ╠═4a8bc15c-8f4d-4017-915f-d2b27c1a6bd0
+# ╠═962ff704-5d43-4ecb-8e2d-4538c6ee71c5
+# ╠═55727cd1-ebb0-4e5c-80e5-c6d047c4b1ba
+# ╠═4160de31-3c8e-4051-b618-24112bbcc70e
+# ╠═359a682a-add2-4fe2-af09-f67ffbd985a8
+# ╠═f22355c6-1b48-4a8d-b5b0-b851f3dadd52
+# ╠═c8be71e0-c82a-4260-9dcf-944962947ca2
+# ╠═f9137b59-24cc-4636-8a42-3a751309f42b
+# ╠═c231090d-6faf-46a8-ae08-fd8715ade241
+# ╠═afa7fa78-283c-4053-9dff-7cc2adc0cc0e
+# ╠═f9ef6328-06f0-47a5-9de3-9b00d02af7f6
+# ╠═e89b2c6f-7433-434f-8e46-836870f272b6
+# ╠═b39b1b8e-b70e-4860-b75c-86506433efa7
+# ╠═0e3ae279-be7e-4e13-b1ea-2c0efced3162
+# ╠═82adce34-923c-46b9-a1ed-f1c06be09e0f
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
