@@ -1449,7 +1449,7 @@ begin
 
 	#add a version of this where only state values are learned and the transition output is a distribution function, also can add expected sarsa versions of both where the value at the future time step gets weighted by the action selection of all the possible actions
 	#non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
-	function sarsa_λ!(parameters::Matrix{T}, active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real}
+	function sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real}
 		#initialize records
 		episode_step_history = Vector{T}()
 		step_rewards = Vector{T}()
@@ -1469,7 +1469,8 @@ begin
 
 		#initialize episode
 		s = mdp.initialize_state()
-		i_a = select_action!(action_values, parameters, ϵ, active_features(s))
+		active_features = get_active_features(s) 
+		i_a = select_action!(action_values, parameters, ϵ, active_features)
 		z .= zero(T)
 		ep = 1
 		step = 1
@@ -1482,14 +1483,15 @@ begin
 
 			δ = r
 			
-			for i in active_features(i_s)
+			for i in active_features
 				δ -= parameters[i, i_a]
 				z[i, i_a] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i, i_a] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i, i_a]
 			end
 
 			if !mdp.isterm(s′)
-				i_a′ = select_action!(action_values, state_action_values, ϵ, active_features(s′))
-				for i in active_features(s′)
+				active_features = get_active_features(s′)
+				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
+				for i in active_features
 					δ += γ*parameters[i, i_a′]
 				end
 			end
@@ -1498,7 +1500,8 @@ begin
 
 			if mdp.isterm(s′)
 				s = mdp.initialize_state()
-				i_a = select_action!(action_values, state_action_values, ϵ, active_features(s))
+				active_features = get_active_features(s)
+				i_a = select_action!(action_values, parameters, ϵ, active_features)
 				#reset eligibility vector to 0 at the start of a new episode
 				z .= zero(T)
 				ep += 1
@@ -1581,6 +1584,19 @@ begin
 		end
 		
 		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+end
+
+# ╔═╡ c5edfcbf-8d31-4dc4-b9d0-1a5439540710
+begin
+	function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
+		history = sarsa_λ!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+		greedy_policy_lookup = [argmax(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+		
+		greedy_policy(s::S) = greedy_policy_lookup[mdp.state_index[s]]
+		greedy_state_values = [maximum(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+	
+		(state_action_values = state_action_values, state_values = greedy_state_values, greedy_policy_lookup = greedy_policy_lookup, greedy_policy_function = greedy_policy, history = history)
 	end
 end
 
@@ -1684,7 +1700,7 @@ begin
 	end
 
 	#non-tabular problem with linear function approximation. 
-	function sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+	function true_online_sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
 		#initialize records
 		episode_step_history = Vector{T}()
 		step_rewards = Vector{T}()
@@ -1756,39 +1772,6 @@ begin
 	end
 end
 
-# ╔═╡ c5edfcbf-8d31-4dc4-b9d0-1a5439540710
-begin
-	function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
-		history = sarsa_λ!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
-		greedy_policy_lookup = [argmax(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
-		
-		greedy_policy(s::S) = greedy_policy_lookup[mdp.state_index[s]]
-		greedy_state_values = [maximum(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
-	
-		(state_action_values = state_action_values, state_values = greedy_state_values, greedy_policy_lookup = greedy_policy_lookup, greedy_policy_function = greedy_policy, history = history)
-	end
-end
-
-# ╔═╡ a36d205c-9a77-4b24-8e57-7bfceee9f4af
-#=╠═╡
-function gridworld_sarsaλ_parameter_study(mdp, steps; nruns = 50, λ_list = [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.04f0, 0.8f0, 10), kwargs...)
-	value_iteration_output = value_iteration_v(mdp, 1f0)
-	best_steps = abs(value_iteration_output.final_value[mdp.initialize_state_index()])
-	traces = [begin 
-		output = [begin
-			1:nruns |> Map() do _ 
-				output = sarsa_λ(mdp, 1f0, λ, typemax(Int64), steps; save_episode_steps=true, α = α, kwargs...)
-				step_history = output.history.episode_steps
-				isempty(step_history) && return NaN
-				step_history[end]/length(step_history)
-			end |> foldxt(+) |> a -> a/nruns 
-		end for α in α_list]
-		scatter(x = α_list, y = output, name = "λ = $λ")
-	end for λ in λ_list]
-	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Steps per Episode <br> Averaged Over $steps Steps & $nruns Runs", yaxis_range = [1.5*best_steps, best_steps*3]))
-end
-  ╠═╡ =#
-
 # ╔═╡ c57219cc-00ce-441d-a944-03c79c554708
 begin
 	function true_online_sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
@@ -1845,6 +1828,161 @@ md"""
 
 Show similar parameter study for sarsa(λ) with different methods of traces and the true online version.  Can also add implementations of Sarsa(λ) that use q-learning and use the distribution function over output to bypass the action value estimation
 """
+
+# ╔═╡ 3ac75a88-6894-4c48-ae2a-30c822814888
+#this version of sarsa_λ assumes binary features so the only information needed is the number of features and a function that returns something that can iterate over active features
+function sarsa_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, num_features::Integer, get_active_features::Function; parameters::Matrix{T} = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	history = sarsa_λ!(parameters, get_active_features, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+
+	function get_action_values(active_features)
+		for i_a in eachindex(mdp.actions)
+			for i in active_features
+				action_values[i_a] += parameters[i, i_a]
+			end
+		end
+		return action_values
+	end
+
+	function value_function(s::S)
+		action_values = get_action_values(get_active_features(s))
+		q = maximum_action_values
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+		(value = q, action = i_a)
+	end
+
+	greedy_policy(s::S) = value_function(s).action
+	(value_function = value_function, greedy_policy = greedy_policy, history = history)
+end
+
+# ╔═╡ a36d205c-9a77-4b24-8e57-7bfceee9f4af
+#=╠═╡
+function gridworld_sarsaλ_parameter_study(mdp, steps; nruns = 50, λ_list = [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.04f0, 0.8f0, 10), kwargs...)
+	value_iteration_output = value_iteration_v(mdp, 1f0)
+	best_steps = abs(value_iteration_output.final_value[mdp.initialize_state_index()])
+	traces = [begin 
+		output = [begin
+			1:nruns |> Map() do _ 
+				output = sarsa_λ(mdp, 1f0, λ, typemax(Int64), steps; save_episode_steps=true, α = α, kwargs...)
+				step_history = output.history.episode_steps
+				isempty(step_history) && return NaN
+				step_history[end]/length(step_history)
+			end |> foldxt(+) |> a -> a/nruns 
+		end for α in α_list]
+		scatter(x = α_list, y = output, name = "λ = $λ")
+	end for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Steps per Episode <br> Averaged Over $steps Steps & $nruns Runs", yaxis_range = [1.5*best_steps, best_steps*3]))
+end
+  ╠═╡ =#
+
+# ╔═╡ 4e2da299-a78c-4836-97a1-919678045e7f
+MountainCarTask.mdp
+
+# ╔═╡ a7d6239c-b7d2-41f0-a474-02c607448183
+begin
+	#calculates which tile a state is in for the tiling represented by one offset
+	function get_active_features(num_features::Integer, state::T, offset::T, displacement::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where T<:Real
+		[begin
+			i = max(1, ceil(Int64, (scale_state(state, min_value, range) + offset*displacement*(tiling-1)) / tile_size))
+			min(i + (tiling - 1)*num_tiles, num_features)
+		end
+		for tiling in 1:num_tilings]
+	end
+
+	function get_active_features(num_features::Integer, state::NTuple{N, T}, offset::NTuple{N, T}, displacement::NTuple{N, Int64}, num_tilings::Integer, tile_size::NTuple{N, T}, num_tiles::NTuple{N, Int64}, min_values::NTuple{N, T}, ranges::NTuple{N, T}) where {N, T<:Real}
+		total_tiles = prod(num_tiles)
+		(begin
+			base = 1
+			index = 0
+			for d in 1:N
+				i = max(1, ceil(Int64, (scale_state(state[d], min_values[d], ranges[d]) + offset[d]*displacement[d]*(tiling - 1)) / tile_size[d]))
+				index += i * base
+				base *= num_tiles[d]
+			end
+			min(index + (tiling - 1)*total_tiles, num_features)
+		end
+		for tiling in 1:num_tilings)
+	end
+end
+
+# ╔═╡ a51c4911-8878-4eef-9ed4-4402d380dc4d
+#this version of tile coding setup just produces a function that returns the active indices as a generator rather than actually update the feature vector
+function tile_coding_setup(min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}}
+	#states must be tuples with k elements or some number value
+	k = S == T ? 1 : N
+
+	#ensure that all tile sizes are some percentage of the total state space
+	@assert all(0 < l < 1 for l in tile_size)
+
+	max_d = k == 1 ? displacement_vector : maximum(displacement_vector)
+
+	s_range = if k == 1
+		max_value - min_value
+	else
+		Tuple(max_value[i] - min_value[i] for i in 1:k)
+	end
+
+	#number of tiles in each direction of the state space
+	num_tiles = if k == 1
+		x = inv(tile_size)
+		if isinteger(x)
+			Int64(x) + 1
+		else
+			ceil(Int64, x)
+		end
+	else
+		Tuple(begin
+			x = inv(l)
+			if isinteger(x)
+				Int64(x) + 1
+			else
+				ceil(Int64, x)
+			end
+		end
+		for l in tile_size)
+	end
+
+	features_per_tiling = prod(num_tiles)
+
+
+	num_features = features_per_tiling*num_tilings
+
+	#the vector representing how much each offset is shifted from the base for single unit shifts
+	offset = k == 1 ? tile_size/num_tilings/max_d : Tuple(T(l/num_tilings/max_d) for l in tile_size)
+
+	f(s::S) = get_active_features(num_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+
+	(num_features = num_features, get_active_features = f)
+end
+
+# ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
+#=╠═╡
+function run_mountaincar_sarsa_λ(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list)
+	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
+	traces = [begin
+		y = [begin
+			1:num_trials |> Map() do _
+				output = sarsa_λ(MountainCarTask.mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, save_episode_steps = true)
+				step_history = output.history.episode_steps
+				isempty(step_history) && return NaN
+				step_history[end] / length(step_history)
+			end |> foldxt(+) |> x -> x/num_trials
+		end
+		for α in α_list]
+		scatter(x = α_list, y = y, name = "λ = $λ")
+	end
+	for λ in λ_list]
+	plot(traces)
+end
+  ╠═╡ =#
+
+# ╔═╡ 2fcbe12b-aed2-4815-ac20-307f23e41465
+#=╠═╡
+run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0])
+  ╠═╡ =#
+
+# ╔═╡ 4f32a180-4d34-430f-86fb-a0916a15eaaa
+const tile_test = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (0.08f0, 0.08f0), 8, (1, 3))
 
 # ╔═╡ e7b274c5-4f0c-4e5f-8a4a-b574130e64c0
 function getmaxinds(v::AbstractVector)
@@ -2342,6 +2480,16 @@ G_{t:h}^{\lambda_s} &\doteq (1-\lambda) \sum_{n=1}^{h-t-1} \left ( \prod_{i=t}^{
 
 """
 
+# ╔═╡ 4a474bb7-c932-4cbb-8442-2c0972a7da6c
+md"""
+## 12.11 Stable Off-policy Methods with Traces
+"""
+
+# ╔═╡ a063dd11-7734-4c3c-bd4b-c510ed8df817
+#hybrid state-value algorithm
+function htd_λ()
+end
+
 # ╔═╡ e6782d51-175c-4de7-9c75-1fc3f75a92f0
 md"""
 ## Chapter 7 Code For Random Walk Comparison
@@ -2516,12 +2664,12 @@ const gridworld_mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward =
 
 # ╔═╡ 8d52f740-e1bf-4ac7-a299-38e7767a0831
 #=╠═╡
-gridworld_sarsaλ_parameter_study(gridworld_mdp, 50_000; use_dutch_traces = false)
+gridworld_sarsaλ_parameter_study(gridworld_mdp, 5_000; use_dutch_traces = false)
   ╠═╡ =#
 
 # ╔═╡ e047cce1-11a5-4bcb-8668-a767628da140
 #=╠═╡
-gridworld_true_online_sarsaλ_parameter_study(gridworld_mdp, 50_000)
+gridworld_true_online_sarsaλ_parameter_study(gridworld_mdp, 5_000)
   ╠═╡ =#
 
 # ╔═╡ 9db3ed98-a94d-4adc-a45f-75eca432a1e9
@@ -3857,6 +4005,13 @@ version = "17.4.0+2"
 # ╠═c57219cc-00ce-441d-a944-03c79c554708
 # ╠═771cca22-d61d-498a-98be-90fa59e09571
 # ╟─8b6b5084-3972-4bd4-9ca2-423f1c627788
+# ╠═2fcbe12b-aed2-4815-ac20-307f23e41465
+# ╠═0324b4e2-2544-4bd6-b310-8a330b5a92c5
+# ╠═3ac75a88-6894-4c48-ae2a-30c822814888
+# ╠═4e2da299-a78c-4836-97a1-919678045e7f
+# ╠═4f32a180-4d34-430f-86fb-a0916a15eaaa
+# ╠═a51c4911-8878-4eef-9ed4-4402d380dc4d
+# ╠═a7d6239c-b7d2-41f0-a474-02c607448183
 # ╠═e7b274c5-4f0c-4e5f-8a4a-b574130e64c0
 # ╠═2fbdb817-da15-4011-bb1c-126f1f311e7a
 # ╠═72895891-9212-4722-b2a1-0e13c30a8ecf
@@ -3877,6 +4032,8 @@ version = "17.4.0+2"
 # ╟─862026e9-ebe6-4f2e-8832-086bbba8db17
 # ╟─8f894492-260e-4ab0-87b6-c02216a631e6
 # ╟─c80256a7-be4f-4407-b0bf-7a13415482ad
+# ╟─4a474bb7-c932-4cbb-8442-2c0972a7da6c
+# ╠═a063dd11-7734-4c3c-bd4b-c510ed8df817
 # ╟─e6782d51-175c-4de7-9c75-1fc3f75a92f0
 # ╠═013c2268-6ab8-441a-9fb4-5118dc3ae18a
 # ╠═44a16c0a-9d0d-4e9b-9ae5-aef791c4f544

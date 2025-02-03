@@ -970,7 +970,7 @@ md"""
 
 # ╔═╡ 742100ba-c38e-4840-8988-40990039b527
 #=╠═╡
-setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), tile_size, num_tilings, (1, 3))
+setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_setup(mountain_car_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), tile_size, num_tilings, (1, 3))
   ╠═╡ =#
 
 # ╔═╡ af97f222-08d1-4200-a10b-8da178182175
