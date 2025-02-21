@@ -1398,6 +1398,11 @@ function select_action!(action_values::Vector{T}, state_action_values::Matrix{T}
 	sample_action(action_values)
 end
 
+# ╔═╡ 0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
+md"""
+### *Vanilla Implementation*
+"""
+
 # ╔═╡ cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
 begin
 	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature, since the tabular version is the simplest, consider adding expected sarsa and double expected sarsa versions here in a format that can accomodate q-learning even though it isn't guaranteed to be stable
@@ -1606,6 +1611,11 @@ begin
 	end
 end
 
+# ╔═╡ 31926565-8c2f-42a9-bc73-4f3001a38bf4
+md"""
+### *Dynamic Programming Implementation*
+"""
+
 # ╔═╡ 8c95178c-8e75-4036-b0cb-bec936dcbd28
 begin
 	#dp λ with binary features
@@ -1725,7 +1735,7 @@ end
 
 # ╔═╡ 26e09ca1-bda0-457a-903a-4b1683ea2bd1
 md"""
-### *Implementation of Expected Sarsa(λ)*
+### *Expected Sarsa(λ) Implementation*
 """
 
 # ╔═╡ 2aa76caf-a448-4570-9e86-6c4d22bb21d0
@@ -1897,6 +1907,25 @@ md"""
 Notice that here a slightly lower value of $\lambda$ is optimal which increases the degree of bootstrapping compared to Sarsa$(\lambda)$
 """
 
+# ╔═╡ e7beffa8-cea1-497f-80d5-278c3be17802
+md"""
+##### True Online Expected Sarsa$(λ)$ with $ϵ = 0.01$
+
+Similar results to above as we'd expect for such a small value of $\epsilon$
+"""
+
+# ╔═╡ 0385d4b6-9e60-4e0a-83dd-a9989bdb5cc8
+md"""
+##### True Online DP$(λ)$ with $ϵ = 0.01$
+
+Bests results so far which also favor a higher value of $\lambda$ which indicates less reliance on bootstrapping.
+"""
+
+# ╔═╡ 0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
+md"""
+##### Results Visualization for Best Training Parameters
+"""
+
 # ╔═╡ 3ac75a88-6894-4c48-ae2a-30c822814888
 #this version of sarsa_λ assumes binary features so the only information needed is the number of features and a function that returns something that can iterate over active features
 function sarsa_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, num_features::Integer, get_active_features::Function; parameters::Matrix{T} = zeros(T, num_features, length(mdp.actions)), algo! = sarsa_λ!, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
@@ -2063,6 +2092,12 @@ function tile_coding_setup(min_value::S, max_value::S, tile_size::S, num_tilings
 	(num_features = num_features, get_active_features = f)
 end
 
+# ╔═╡ 66112956-63a3-4629-8fba-958ff04f59e2
+function run_mountaincar_dp_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs...)
+	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
+	output = dp_λ(MountainCarTask.dist_mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, kwargs...)
+end
+
 # ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
 #=╠═╡
 function run_mountaincar_sarsa_λ(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list; kwargs...)
@@ -2120,6 +2155,11 @@ run_mountaincar_dp_λ(50_000, 12, 8, 40, Base.LogRange(0.005f0, 0.05f0, 8), [0f0
 run_mountaincar_dp_λ(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.02f0, 8), [0f0, 0.5f0, 0.8f0, 0.90f0, 0.96f0, 0.98f0, 0.99f0]; ϵ = 0.01f0, algo! = true_online_dp_λ!)
   ╠═╡ =#
 
+# ╔═╡ 7a0f8a69-467b-4059-b717-97d8e7a7a5fd
+#=╠═╡
+const mountaincar_test_output = run_mountaincar_dp_λ(1_000_000, 12, 8, 0.003f0, 0.98f0, ϵ = 0.01f0, algo! = true_online_dp_λ!)
+  ╠═╡ =#
+
 # ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
 md"""
 > ### *Exercise 12.6* 
@@ -2159,7 +2199,7 @@ end
 # ╔═╡ 21d23d80-49d0-4edf-854a-5489eb7d75d0
 begin
 	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
-	function expected_sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, target_ϵ = ϵ, epkwargs...) where {T<:Real}
+	function expected_sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, use_TB = false, target_ϵ = ϵ, epkwargs...) where {T<:Real}
 		#set the state action values of all terminal states to 0
 		for i_s in eachindex(mdp.states)
 			if mdp.terminal_states[i_s]
@@ -2200,6 +2240,10 @@ begin
 				#select action based on ϵ greedy policy
 				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
 				i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
+				ρ = action_values2[i_a′] 
+				if !use_TB
+					ρ /= action_values[i_a′] #uses tree backup if selected which just ignores eligibility traces for non greedy actions
+				end
 			end
 
 			state_action_values .+= α*δ .* z
@@ -2214,7 +2258,7 @@ begin
 			else
 				i_s = i_s′
 				i_a = i_a′
-				z .*= γ*λ
+				z .*= γ*λ*ρ
 			end
 			step += 1
 		end
@@ -2223,7 +2267,7 @@ begin
 	end
 
 	#non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
-	function expected_sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α::T = one(T)/10, ϵ::T = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), target_ϵ::T = ϵ, save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real}
+	function expected_sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α::T = one(T)/10, ϵ::T = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), target_ϵ::T = ϵ, save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, use_TB::Bool = false, epkwargs...) where {T<:Real}
 		#initialize records
 		episode_step_history = Vector{T}()
 		step_rewards = Vector{T}()
@@ -2278,6 +2322,10 @@ begin
 				#select action according to behavior policy
 				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
 				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
+				ρ = action_values2[i_a′] 
+				if !use_TB
+					ρ /= action_values[i_a′]
+				end
 			end
 
 			parameters .+= α*δ .* z
@@ -2293,7 +2341,7 @@ begin
 			else
 				s = s′
 				i_a = i_a′
-				z .*= γ*λ
+				z .*= γ*λ*ρ
 			end
 			step += 1
 		end
@@ -2767,14 +2815,250 @@ G_{t:h}^{\lambda_s} &\doteq (1-\lambda) \sum_{n=1}^{h-t-1} \left ( \prod_{i=t}^{
 
 """
 
+# ╔═╡ ba274806-6e16-447d-8c70-259787941495
+md"""
+## 12.9 Off-policy Traces with Control Variates
+"""
+
+# ╔═╡ bc0073ab-fc41-4333-aecc-41501d89f15b
+md"""
+$\mathbf{z}_t \doteq \rho_t \left ( \gamma_t \lambda_t \mathbf{z}_{t-1} + \nabla\hat v (S_t, \mathbf{w}_t)\right ) \tag{12.25}$
+$\delta_t^a = R_{t+1} + \gamma_{t+1} \bar V_t(S_{t+1}) - \hat q(S_t, A_t, \mathbf{w}_t) \tag{12.28}$
+$\mathbf{z}_t \doteq \gamma_t \lambda_t \rho_t \mathbf{z}_{t-1} + \nabla\hat q (S_t, A_t, \mathbf{w}_t) \tag{12.29}$
+"""
+
+# ╔═╡ 1f3de2ad-65c5-4aaf-9c12-623de2257619
+
+
+# ╔═╡ b6123560-90fd-4cd5-83ff-f73234d8a897
+md"""
+## 12.10 Watkins's $Q(\lambda)$ to Tree-Backup$(\lambda)$
+
+This eligibility trace update along with the usual semi-gradient parameter-update rule defines the TB $(\lambda)$ algorithm.  It is not guaranteed to be stable when used with off-policy data and function approximation.  For that we need the techniques in the next section. 
+
+$\mathbf{z}_t \doteq \gamma_t \lambda_t \pi(A_t \vert S_t)\mathbf{z}_{t-1} + \nabla \hat q (S_t, A_t, \mathbf{w}_t)$
+"""
+
+# ╔═╡ bcd35714-d664-4347-af27-4bdf131bad89
+
+
 # ╔═╡ 4a474bb7-c932-4cbb-8442-2c0972a7da6c
 md"""
 ## 12.11 Stable Off-policy Methods with Traces
 """
 
-# ╔═╡ a063dd11-7734-4c3c-bd4b-c510ed8df817
-#hybrid state-value algorithm
-function htd_λ()
+# ╔═╡ cacab854-8b62-4e45-bc88-85038461e667
+md"""
+$GTD(\lambda)$ is the eligibility-trace algorithm analogous to TDC discussed in Chapter 11 which is stable under off-policy learning.  Its goal is to learn a parameter $\mathbf{w}_t$ such that $\hat v(s, \mathbf{w}) \doteq \mathbf{w}_t ^\top \mathbf{x}(s) \approx v_\pi (s)$, even from data that is due to another policy $b$.  Its update is
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \delta_t^s \mathbf{z}_t - \alpha \gamma_{t+1} (1- \lambda_{t+1}) (\mathbf{z}_t ^\top \mathbf{v}_t) \mathbf{x}_{t+1}$
+
+and
+
+$\mathbf{v}_{t+1} \doteq \mathbf{v}_t + \beta \delta_t^s \mathbf{z}_t - \beta (\mathbf{v}_t^\top \mathbf{x}_t) \mathbf{x}_t \tag{12.30}$
+
+where, as in Section 11.7, $\mathbf{v} \in \mathbb{R}^d$ is a vector of the same dimension as $\mathbf{w}$, initialized to $\mathbf{v}_0 = \mathbf{0}$, and $\beta > 0$ is a second step-size parameter.
+
+ $GQ(\lambda)$ is the Gradient-TD algorithm for action values with eligibility traces.  Its goal is to learn a parameter $\mathbf{w}_t$ such that $\hat q (s, a, \mathbf{w}_t) \doteq \mathbf{w}_t^\top \mathbf{x}(s, a) \approx q_\pi (s, a)$ from off-policy data.  If the target policy is $\epsilon$-greedy, or otherwise biased toward the greedy policy for $\hat q$, then GQ$(\lambda)$ can be used as a control algorithm.  Its update is
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \delta_t^s \mathbf{z}_t - \alpha \gamma_{t+1} (1- \lambda_{t+1}) (\mathbf{z}_t ^\top \mathbf{v}_t) \overline{\mathbf{x}}_{t+1}$
+
+where $\overline{\mathbf{x}_t}$ is the average eature vector for $S_t$ under the target policy,
+
+$\overline{\mathbf{x}}_t \doteq \sum_a \pi(a \mid S_t) \mathbf{x}(S_t, a)$,
+
+ $\delta_t^a$ is the expectation form of the TD error, which can be written 
+
+$\delta_t^a \doteq R_{t+1} + \gamma_{t+1} \mathbf{w}_t^\top \overline{\mathbf{x}}_{t+1} - \mathbf{w}_t^\top \mathbf{x}_t$,
+
+ $\mathbf{z}_t$ is defined in the usual way for action values (12.29), and the rest is as in GTD$(\lambda)$, including hte update for $\mathbf{v}_t$ (12.30).
+
+ $HTD(\lambda)$ is a hygrid state-value algorithm combining aspects of GTD$(\lambda)$ and TD$(\lambda)$.  Its most appealing feature is that it is a strict generalization of TD$(\lambda)$ to off-policy learning, meaning that if the behavior policy happens to be the same as the target policy, then HTD$(\lambda)$ becomes the same as TD$(\lambda)$, which is not true for GTD$(\lambda)$.  This is appealing because TD$(\lambda)$ is often faster than GTD$(\lambda)$ when both algorithms converge, and TD$(\lambda)$ requires setting only a single step size.  HTD$(\lambda)$ is defined by:
+
+$\begin{flalign}
+\mathbf{w}_{t+1} &\doteq \mathbf{w}_t \dots \\
+\mathbf{v}_{t+1} &\doteq \mathbf{v}_t \dots \\
+\mathbf{z}_t &\doteq \rho_t \dots \\
+\mathbf{z}_t^b &\doteq \gamma_t \lambda_t \dots
+\end{flalign}$
+
+where $\beta > 0$ again is a second step-size parameter.  In addition to the second set of weights, $\mathbf{v}_t$, HTD$(\lambda)$ also has a second set of eligibility traces, $\mathbf{z}_t^b$.  These are conventional accumulating eligibility traces for the behavior policy and become equal to $\mathbf{z}_t$ if all the $rho_t$ are 1, which causes the last term in the $\mathbf{w}_t$ update to be zero and the overall update to reduce to TD$(\lambda)$.
+"""
+
+# ╔═╡ 44100481-4e66-4b38-8262-87e337148bfc
+md"""
+### *HTD$(\lambda)$ Implementation*
+"""
+
+# ╔═╡ b525e0c8-e673-448d-8143-2a9a8be342f5
+begin
+	#htdλ for binary features, WORK IN PROGRESS
+	function htd_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z_target::Matrix{T} = copy(parameters), z_behavior::Matrix{T} = copy(parameters), v::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		active_features = get_active_features(s)
+		update_action_values!(action_values, parameters, active_features)
+		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+		i_a = sample_action(action_values)
+		p_b = action_values[i_a]
+		make_greedy_policy!(action_values)
+		p_t = action_values[i_a]
+		ρ = p_t / p_b
+		z_target .= zero(T)
+		z_behavior .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+
+		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
+		function get_feature_values(m::Matrix{T}, i_a::Integer, active_features)
+			x = zero(T)
+			for i in active_features
+				x += m[i, i_a]
+			end
+			return x
+		end
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			q = get_feature_values(parameters, i_a, active_features)
+
+			c = dot(z_target - z_behavior, v)
+			
+			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
+			for i in active_features
+				parameters[i, i_a] += α * c
+			end
+
+			z .*= γ*λ
+
+			
+			
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			if mdp.isterm(s′)
+				q′ = zero(T)
+				active_features = []
+			else
+				active_features = get_active_features(s′)
+				update_action_values!(action_values, parameters, active_features)
+				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+				i_a′ = sample_action(action_values)
+				q′ = get_feature_values(parameters, i_a′, active_features)
+			end
+			
+			δ = r + γ*q′ - q
+
+			for i in active_features
+				parameters[i, i_a′] -= γ*c
+			end
+			
+			parameters .+= α*δ .* z_target
+
+			v .+= β*δ *. z_target .- β*dot(z_behavior, v)
+			
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				active_features = get_active_features(s)
+				update_action_values!(action_values, parameters, active_features)
+				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+				i_a = sample_action(action_values)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+
+	#non-tabular problem with linear function approximation. 
+	function true_online_sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		function select_action!(action_values, parameters, ϵ, x)
+			for i_a in eachindex(action_values)
+				action_values[i_a] = dot(x, parameters[i_a])
+			end
+			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+			sample_action(action_values)
+		end
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		update_feature_vector!(feature_vector, s)
+		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+		z .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			q = dot(feature_vector, parameters[i_a])
+			dt = dot(z[i_a], feature_vector)
+			x2 .= one(T) .+ α*γ*λ*dt .* feature_vector
+
+			parameters[i_a] .-= α*(q - q_old) .* feature_vector
+			
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			
+			if mdp.isterm(s′)
+				q′ = zero(T)
+			else
+				update_feature_vector!(feature_vector, s′)
+				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
+				q′ = dot(feature_vector, parameters[i_a′])
+			end
+			
+			δ = r + γ*q′ - q
+			
+			for i_a in eachindex(mdp.actions)
+				z .*= γ*λ
+			end
+			z[i_a] .+ x2
+
+			for i_a in eachindex(mdp.actions)
+				parameters[i_a] .+= α*(δ + q - q_old) .* z[i_a]
+			end
+			
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				update_feature_vector!(feature_vector, s)
+				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+				#reset eligibility vector to 0 at the start of a new episode
+				for i_a in eachindex(mdp.actions) z .= zero(T) end
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
 end
 
 # ╔═╡ 9c9c5f0a-4079-4848-a822-ea9dcc460660
@@ -2782,201 +3066,460 @@ md"""
 ## Cart Pole Simulation Environment
 """
 
-# ╔═╡ e55dfceb-b14d-483a-a6bd-85cc0ce1894f
+# ╔═╡ 560fa6a4-ac3a-43ae-931e-6699294b304a
 md"""
-### Cart Pole Episode Visualization
+### Data Structures
 """
 
-# ╔═╡ 86c8efc2-970a-45a7-bc5e-10010cb39086
+# ╔═╡ 33a36f03-959d-4921-a476-68a75234f47c
 md"""
-### Cart Pole Tile Coding
+The problem is defined by the properties of the vehicle which includes the mass of the cart and the point mass balanced atop it.  This struct contains all the relevant properties to determinte the physics of the problem.
 """
 
-# ╔═╡ 7faa0ec6-acb0-445e-b53c-ddc86db48bfd
+# ╔═╡ 6630a9a0-2ec9-4c18-b9eb-e263ddc5d18c
+struct CartPoleVehicle{T <: Real}
+	m::T 	#point mass
+	m_c::T 	#cart mass
+	l::T 	#length of pendulum
+	k::T 	#inertia constant
+	m_f::T  #moment of friction between cart and pole
+	μ_c::T  #coefficient of friction between cart and track
+end
+
+# ╔═╡ 7cdc5c62-ddae-41fe-9ea2-aba25ac0ac3f
 md"""
-Typically the cart pole problem is set up with a failure condition when the pole reaches horizontal.  The goal is to balance the pole without it falling for as long as possible.  As such, either a reward can be assigned for every step that isn't a failure which could be an undiscounted episodic task.  Alternatively, a failure reward could be assigned when the pole drops in which case the task could be discounted.  Any discount rate would produce an optimal policy that keeps the rod up as long as possible.  As either an episodic or continuing task, the pole is reset to some fixed position after each failure or at the start of the episode.
+To simulate the movement of the cart, each time step requires knowledge of the position and velocity of the horizontal position of the cart as well as the angle of the pole.  The angle is defined to be 0 when the pole is vertical.
 """
 
-# ╔═╡ d8f538a2-8123-4587-8007-8a8acb00dbc1
-module CartPoleEnvironment
-	import TabularRL
-
-	ẍ(m, m_c, l, g, θ, f, μ_c, m_f, k, ẋ, θ̇) = (m*g*sin(θ)*cos(θ) - (1+k)*(f+ m*l*θ̇^2 * sin(θ) - μ_c*ẋ) - m_f *cos(θ)/l) / (m*cos(θ)^2 - (1+k)*(m + m_c))
-	θ̈(m, l, k, m_f, g, θ, ẍ) = (g*sin(θ) - ẍ*cos(θ) - m_f / (m*l)) / ((1+k)*l)
-
-	struct CartPoleVehicle{T <: Real}
-		m::T 	#point mass
-		m_c::T 	#cart mass
-		l::T 	#length of pendulum
-		k::T 	#inertia constant
-		m_f::T  #moment of friction between cart and pole
-		μ_c::T  #coefficient of friction between cart and track
-	end
-
+# ╔═╡ 1fa542f3-1e0e-41fc-ab09-e7eb0bd22483
+begin
 	struct CartPoleState{T <: Real}
 		x::T 	#horizontal position on track
 		θ::T 	#Angle of pendulum in radians measured as deviation from the vertical, 90° is horizontal and to the right
 		ẋ::T 	#horizontal velocity on track
 		θ̇::T 	#Range of change of pendulum angle
-		t::Int64#Number of timesteps in simulation
+		t::T 	#Time in seconds
 	end
-
 	function CartPoleState(x::A, θ::B, ẋ::C, θ̇::D) where {A<:Real, B<:Real, C<:Real, D<:Real}
 		T = promote_type(A, B, C, D)
-		CartPoleState(T(x), T(θ), T(ẋ), T(θ̇), 0)
+		CartPoleState(T(x), T(θ), T(ẋ), T(θ̇), zero(T))
 	end
 
-	ẍ(cart::CartPoleVehicle{T}, state::CartPoleState{T}, g::T, f::T) where T<:Real = ẍ(cart.m, cart.m_c, cart.l, g, state.θ, f, cart.μ_c, cart.m_f, cart.k, state.ẋ, state.θ̇)
-	θ̈(cart::CartPoleVehicle{T}, state::CartPoleState{T}, g::T, ẍ::T) where T<:Real = θ̈(cart.m, cart.l, cart.k, cart.m_f, g, state.θ, ẍ)
-
-	function euler_step(cart::CartPoleVehicle{T}, state::CartPoleState{T}, g::T, f::T, h::T) where T<:Real
-		slope1 = ẍ(cart, state, g, f)
-		slope2 = θ̈(cart, state, g, slope1)
-
-		ẋ′ = state.ẋ + h*slope1
-		θ̇′ = state.θ̇ + h*slope2
-		x′ = state.x + h*state.ẋ
-		θ′ = state.θ + h*state.θ̇
-
-		CartPoleState(x′, θ′, ẋ′, θ̇′)
-	end
-
-	function runge_kutta_step(cart::CartPoleVehicle{T}, state::CartPoleState{T}, g::T, f::T, h::T) where T<:Real
-		# acceleration of x and θ at the beginning of the interval
-		k1_ẍ = ẍ(cart, state, g, f)
-		k1_θ̈ = θ̈(cart, state, g, k1_ẍ)
-
-		#acceleration of x and θ at the midpoint of the interval using the initial acceleration
-		midpoint_state1 = CartPoleState(state.x + state.ẋ*h/2, state.θ + state.θ̇*h/2, state.ẋ + k1_ẍ*h/2, state.θ̇ + k1_θ̈*h/2)
-		k2_ẍ = ẍ(cart, midpoint_state1, g, f)
-		k2_θ̈ = θ̈(cart, midpoint_state1, g, k2_ẍ)
-
-		#acceleration of x and θ at midpoint using k2
-		midpoint_state2 = CartPoleState(state.x + midpoint_state1.ẋ*h/2, state.θ + midpoint_state1.θ̇*h/2, state.ẋ + k2_ẍ*h/2, state.θ̇ + k2_θ̈*h/2)
-		k3_ẍ = ẍ(cart, midpoint_state2, g, f)
-		k3_θ̈ = θ̈(cart, midpoint_state2, g, k3_ẍ)
-
-		#acceleration of x and θ at end of interval using k3
-		endpoint_state = CartPoleState(state.x + midpoint_state2.ẋ*h, state.θ + midpoint_state2.θ̇*h, state.ẋ + k3_ẍ*h, state.θ̇ + k3_θ̈*h)
-		k4_ẍ = ẍ(cart, endpoint_state, g, f)
-		k4_θ̈ = θ̈(cart, endpoint_state, g, k4_ẍ)
-
-		#final state estimation
-		x′ = state.x + (h/6) * (state.ẋ + 2*midpoint_state1.ẋ + 2*midpoint_state2.ẋ + endpoint_state.ẋ)
-		θ′ = state.θ + (h/6) * (state.θ̇ + 2*midpoint_state1.θ̇ + 2*midpoint_state2.θ̇ + endpoint_state.θ̇)
-		ẋ′ = state.ẋ + (h/6) * (k1_ẍ + 2*k2_ẍ + 2*k3_ẍ + k4_ẍ)
-		θ̇′ = state.θ̇ + (h/6) * (k1_θ̈ + 2*k2_θ̈ + 2*k3_θ̈ + k4_θ̈)
-		CartPoleState(x′, θ′, ẋ′, θ̇′, state.t + 1)
-	end
-
-	initialize_state(θ_min::T, θ_max::T) where T<:Real = CartPoleState(zero(T), rand(T) * (θ_max - θ_min) + θ_min, zero(T), zero(T), 0)
-
-	function create_mdp(m::T, m_c::T, l::T; g::T = 9.8f0, h::T = 1f-3, k::T = one(T), m_f::T = zero(T), μ_c::T = zero(T), actions::Vector{T} = [-one(T), zero(T), one(T)], initialization_kwargs::NamedTuple = NamedTuple(), maximum_x = 100f0, maximum_θ::T = Float32(π/2), maximum_ẋ = 100f0, maximum_θ̇ = 20f0, reward_angle::T = 0f0, θ_min::T = Float32(π/4), θ_max::T = Float32(π/4)) where T<:Real
-		vehicle = CartPoleVehicle(m, m_c, l, k, m_f, μ_c)
-		
-		function failure(s::CartPoleState)
-			(abs(s.x) > maximum_x) || (abs(s.θ) > maximum_θ) || (abs(s.ẋ) > maximum_ẋ) || (abs(s.θ̇) > maximum_θ̇)
-		end
-
-		# function isterm(s::CartPoleState)
-		# 	(s.t == episode_steps) ||
-		# 	(abs(s.ẋ) > maximum_ẋ) ||
-		# 	(abs(s.θ̇) > maximum_θ̇)
-		# end
-
-		# function calculate_reward(θ::T, reward_angle::T) where T<:Real
-		# 	δ = θ - reward_angle
-		# 	δ += δ>π ? -2*π : (δ<-π) ? 2*π : 0
-
-		# 	one(T) + T(-abs(δ) / π)
-		# end
-
-		function step(s::CartPoleState{T}, f::T)
-			s′ = runge_kutta_step(vehicle, s, g, f, h)
-			# r = calculate_reward(s.θ, reward_angle)
-			if failure(s′)
-				s′ = initialize_state(θ_min, θ_max)
-				r = -one(T)
-			else
-				r = zero(T)
-			end
-			# if (abs(s′.ẋ) > maximum_ẋ) || (abs(s′.θ̇) > maximum_θ̇)
-			# 	r = -one(T) * s.t
-			# else
-			# 	r = calculate_reward(s.θ, reward_angle)
-			# end
-			# s′.θ > π && return (r, CartPoleState(s′.x, s′.θ - 2*one(T)*π, s′.ẋ, s′.θ̇, s′.t))
-			# s′.θ <= -π && return (r, CartPoleState(s′.x, 2*one(T)*π + s′.θ, s′.ẋ, s′.θ̇, s′.t))
-			# failure(s′) && return (failure_reward, initialize_state(; initialization_kwargs...))
-			return (r, s′)
-		end
-
-		function dist_step(s::CartPoleState{T}, i_a::Integer)
-			(r, s′) = step(s, actions[i_a])
-			([r], [s′], [1f0])
-		end
-
-		ptf = TabularRL.StateMDPTransitionSampler((s, i_a) -> step(s, actions[i_a]), initialize_state(0f0, 0f0))
-
-		
-		ptf_dist = TabularRL.StateMDPTransitionDistribution(dist_step, initialize_state(0f0, 0f0))
-	
-		
-		mdp = TabularRL.StateMDP(actions, ptf, () -> initialize_state(θ_min, θ_max), s -> false)
-		mdp_dist = TabularRL.StateMDP(actions, ptf_dist, () -> initialize_state(θ_min, θ_max), s -> false)
-		(mdp = mdp, mdp_dist = mdp_dist)
-	end
+	CartPoleState() = CartPoleState(0f0, 0f0, 0f0, 0f0)
 end
 
-# ╔═╡ 93501b03-3851-43c1-a318-4cf7ed7f67cf
+# ╔═╡ 88e61bb4-fd6e-4363-be94-4166a7a39983
+md"""
+### Physics Simulation
+
+To simulate the vehicle, we will choose a step size and calculate the state of the vehicle one step forward in time based on the initial positions and velocities.  The only external force on the vehicle will be a horizontal force representing force applied by some motor on the wheels to move the cart forward or backwards.  The following functions calculate the acceleration for both the horizontal position and the angular position of the pole.
+"""
+
+# ╔═╡ 1442dda6-f5a9-4a23-9075-39a9c7fcb899
+md"""
+#### Accelerations
+"""
+
+# ╔═╡ a566cd6b-19b6-4cfb-80e3-c74ed58705ba
+cartpole_ẍ(m, m_c, l, g, θ, f, μ_c, m_f, k, ẋ, θ̇) = (m*g*sin(θ)*cos(θ) - (1+k)*(f+ m*l*θ̇^2 * sin(θ) - μ_c*ẋ) - m_f *cos(θ)/l) / (m*cos(θ)^2 - (1+k)*(m + m_c))
+
+# ╔═╡ 7f83988f-6e2c-4d90-899f-b4f5cdb1de48
+cartpole_θ̈(m, l, k, m_f, g, θ, ẍ) = (g*sin(θ) - ẍ*cos(θ) - m_f / (m*l)) / ((1+k)*l)
+
+# ╔═╡ 006fc67d-c3f9-46d3-b631-3002d9e50dd6
+cartpole_ẍ(cart::CartPoleVehicle{T}, state::CartPoleState{T}, g::T, f::T) where T<:Real = cartpole_ẍ(cart.m, cart.m_c, cart.l, g, state.θ, f, cart.μ_c, cart.m_f, cart.k, state.ẋ, state.θ̇)
+
+# ╔═╡ f4e54d48-e2b6-45e7-b672-279cc3b2a3f0
+cartpole_θ̈(cart::CartPoleVehicle{T}, state::CartPoleState{T}, g::T, ẍ::T) where T<:Real = cartpole_θ̈(cart.m, cart.l, cart.k, cart.m_f, g, state.θ, ẍ)
+
+# ╔═╡ fd9c8373-90f9-4c1a-8c85-5e280311d381
+md"""
+#### Numerical Integration Step
+
+Using the acceration functions, we can perform a multi-part integration step method known as the Runge Kutta method.  Unlike a simple Euler step, this approach calculates the accelerations at the halfway point of a step as well as the endpoints and uses all of the values together to reduce the error from a finite step size.  Using this method should enable more stable results even at larger step sizes.
+"""
+
+# ╔═╡ e820833d-db94-4a74-a637-5c3356b07906
+function cartpole_runge_kutta_step(cart::CartPoleVehicle{T}, state::CartPoleState{T}, g::T, f::T, h::T) where T<:Real
+	# acceleration of x and θ at the beginning of the interval
+	k1_ẍ = cartpole_ẍ(cart, state, g, f)
+	k1_θ̈ = cartpole_θ̈(cart, state, g, k1_ẍ)
+
+	#acceleration of x and θ at the midpoint of the interval using the initial acceleration
+	midpoint_state1 = CartPoleState(state.x + state.ẋ*h/2, state.θ + state.θ̇*h/2, state.ẋ + k1_ẍ*h/2, state.θ̇ + k1_θ̈*h/2)
+	k2_ẍ = cartpole_ẍ(cart, midpoint_state1, g, f)
+	k2_θ̈ = cartpole_θ̈(cart, midpoint_state1, g, k2_ẍ)
+
+	#acceleration of x and θ at midpoint using k2
+	midpoint_state2 = CartPoleState(state.x + midpoint_state1.ẋ*h/2, state.θ + midpoint_state1.θ̇*h/2, state.ẋ + k2_ẍ*h/2, state.θ̇ + k2_θ̈*h/2)
+	k3_ẍ = cartpole_ẍ(cart, midpoint_state2, g, f)
+	k3_θ̈ = cartpole_θ̈(cart, midpoint_state2, g, k3_ẍ)
+
+	#acceleration of x and θ at end of interval using k3
+	endpoint_state = CartPoleState(state.x + midpoint_state2.ẋ*h, state.θ + midpoint_state2.θ̇*h, state.ẋ + k3_ẍ*h, state.θ̇ + k3_θ̈*h)
+	k4_ẍ = cartpole_ẍ(cart, endpoint_state, g, f)
+	k4_θ̈ = cartpole_θ̈(cart, endpoint_state, g, k4_ẍ)
+
+	#final state estimation
+	x′ = state.x + (h/6) * (state.ẋ + 2*midpoint_state1.ẋ + 2*midpoint_state2.ẋ + endpoint_state.ẋ)
+	θ′ = state.θ + (h/6) * (state.θ̇ + 2*midpoint_state1.θ̇ + 2*midpoint_state2.θ̇ + endpoint_state.θ̇)
+	ẋ′ = state.ẋ + (h/6) * (k1_ẍ + 2*k2_ẍ + 2*k3_ẍ + k4_ẍ)
+	θ̇′ = state.θ̇ + (h/6) * (k1_θ̈ + 2*k2_θ̈ + 2*k3_θ̈ + k4_θ̈)
+	CartPoleState(x′, θ′, ẋ′, θ̇′, state.t + h)
+end
+
+# ╔═╡ d746e585-a734-4fea-a534-ab366c12a87f
+md"""
+### MDP Creation
+
+In order to turn this into an MDP environment, we need to define a few other constraints on the problem including the reward function and whether or not the problem is episodic.  The goal of the environment is to keep the pole balanced vertically for as long as possible.  The equilibrium point at the top is unstable to any small perturbation will require intervention in order to prevent it from toppling.  Given this goal, one natural choice is to create an episodic task with a reward of +1 for every step.  Episodes will terminate when the angle of the pole exceeds a certain value such as horizontal.  The total reward at the end of an episode will be the number of steps survived, and the training process will incentivize an agent to balance the pole for as long as possible.  The following function will create an MDP based on the cart pole physics simulation but with the additional constraints described here to make it an MDP task.
+"""
+
+# ╔═╡ 2776aeba-4d0f-49c9-8395-d0f7242f2429
+#create a cart pole MDP environment
+function create_cartpole_mdp(;
+	m::T = 1f0, 		#mass at the end of the pole in kg
+	m_c::T = 10f0,  	#mass of the cart in kg
+	l::T = 1f0, 		#length of the pole in meters
+	g::T = 9.8f0, 		#gravitational constant in meters per second squared
+	h::T = 1f-3, 		#step size parameter of simulation in seconds
+	k::T = 1f0, 		#inertial constant of pendulum,
+	m_f::T = 0f0, 		#friction of the rotating pole
+	μ_c::T = 0f0, 		#friction of the cart wheels against the track
+	f::T = 100f0, 		#force applied by throttle
+	x_max::T = Inf32,  	#maximum horizontal position
+    θ_max::T = π/2f0,   #maximum pole angle
+	init_x::Function = () -> 0f0,  #initialize each of the 4 state variables
+	init_θ::Function = () -> 0f0,
+	init_ẋ::Function = () -> 0f0,
+	init_θ̇::Function = () -> 0f0) where T<:Real
+
+	#the action space is full throttle forward or backwards or idle
+	actions = [-f, zero(T), f]
+
+	#create a vehicle to use in simulation steps
+	vehicle = CartPoleVehicle(m, m_c, l, k, m_f, μ_c)
+	
+	function failure(s::CartPoleState)
+		(abs(s.x) > x_max) || (abs(s.θ) > θ_max)
+	end
+
+	function step(s::CartPoleState{T}, f::T)
+		s′ = cartpole_runge_kutta_step(vehicle, s, g, f, h)
+		return (one(T), s′)
+	end
+
+	function dist_step(s::CartPoleState{T}, i_a::Integer)
+		(r, s′) = step(s, actions[i_a])
+		([r], [s′], [1f0])
+	end
+
+	initialize_state() = CartPoleState(init_x(), init_θ(), init_ẋ(), init_θ̇())
+
+	ptf = StateMDPTransitionSampler((s, i_a) -> step(s, actions[i_a]), initialize_state())
+
+	ptf_dist = StateMDPTransitionDistribution(dist_step, initialize_state())
+
+	mdp = TabularRL.StateMDP(actions, ptf, initialize_state, failure)
+	mdp_dist = TabularRL.StateMDP(actions, ptf_dist, initialize_state, failure)
+	(mdp = mdp, mdp_dist = mdp_dist)
+end
+
+# ╔═╡ a81603a0-34ee-4a9e-a8f8-7994c4d09cee
+md"""
+### Episode Testing and Visualizaiton
+
+Now that we have the ability to create MDPs with different constraints, we can test different parameters and see what makes the most sense for our problem.  As a starting point, we can test the behavior of the cart under simple single action policies and see the behavior.  Once we have a trajectory, we can also decide how to display the data to get the most insight.
+"""
+
+# ╔═╡ 7356e02e-7445-439d-a386-0b244541a443
+# ╠═╡ skip_as_script = true
 #=╠═╡
-function test_cartpole_episode(m, m_c, l; π = s -> 2, max_steps = 1_000, kwargs...)
-	mdp = CartPoleEnvironment.create_mdp(m, m_c, l; kwargs...).mdp
-	output = runepisode(mdp; π = π, max_steps = max_steps)
-	state_history = output[1]
-	position_history = [s.x for s in state_history]
-	angle_history = [s.θ for s in state_history]
-	t1 = scatter(y = position_history, name = "x")
-	t2 = scatter(y = angle_history, name = "θ")
-	t3 = scatter(y = [s.ẋ for s in state_history], name = "ẋ")
-	t4 = scatter(y = [s.θ̇ for s in state_history], name = "θ̇")
-	t5 = scatter(y = output[2], name = "action history")
-	plot([t1, t2, t3, t4, t5], Layout(title = "Total Reward = $(sum(output[3]))"))
+const test_cartpole_mdps = create_cartpole_mdp()
+  ╠═╡ =#
+
+# ╔═╡ 116bac12-7406-4f6d-9dab-ef4a75a98495
+md"""
+Notice that this function creates two MDPs, one that provides a distribution of transition states and one that samples them.  Since the problem is deterministic right now, both forms are equivalent but in the future that could be changed.  We can use either MDP to run an episode.  By default this will run an episode with the random policy.
+"""
+
+# ╔═╡ ab796133-dd92-4535-ab8a-7ebc8875eb45
+#=╠═╡
+const cartpole_episode_sample = runepisode(test_cartpole_mdps.mdp)
+  ╠═╡ =#
+
+# ╔═╡ 8b3c3da4-0ab2-4294-a6f6-84470669a5d9
+md"""
+From this episode we get the usual sequence of states which represent the positions and velocities of $x$ and $\theta$ for the vehicle.  As a starting point we can simply plot each of these values through time along with the action taken.
+"""
+
+# ╔═╡ 91a7b6c3-17aa-43cf-93aa-4ecc5f5019dc
+#=╠═╡
+function display_cartpole_episode(states::Vector{S}, actions::Vector{Int64}) where S<:CartPoleState
+	fields = [:x, :θ, :ẋ, :θ̇]
+	names = ["x", "θ", "ẋ", "θ̇"]
+	yaxes = ["y", "y2", "y", "y2"]
+	x = [s.t for s in states] #time history in seconds
+	state_traces = [begin
+		y = [getfield(s, f) for s in states]
+		scatter(x = x, y = y, name = names[i], yaxis = yaxes[i])
+	end
+	for (i, f) in enumerate(fields)]
+	plot(state_traces, Layout(xaxis_title = "Time(s)", yaxis_title = "Horizontal Position", yaxis2 = attr(title = "Pole Angle (Radians)", overlaying = "y", side = "right"), legend_orientation = "h"))
 end
   ╠═╡ =#
 
+# ╔═╡ 7fa7d6f4-87ac-4e7b-b09f-588800c97664
+#=╠═╡
+display_cartpole_episode(cartpole_episode_sample[1], [1])
+  ╠═╡ =#
+
+# ╔═╡ cb5f26a2-cca2-4450-ae84-3cebd702a086
+#=╠═╡
+@bind display_step Slider(1:length(cartpole_episode_sample[1]); show_value=true)
+  ╠═╡ =#
+
+# ╔═╡ b45914c8-766b-4509-a6e6-92b093fa83b8
+md"""
+Running this repeatedly we see that after some initial movement, the pole eventually falls to one side or the other in a little over 2 seconds.  This MDP was initialized with the default values so the step size is 0.001 seconds.  Now that we have a working simulator, we can test different step sizes with the same initial conditions to see how accurate the simulation is.
+"""
+
+# ╔═╡ c308859b-7f95-461b-b9d8-98249aa92111
+#=╠═╡
+function evaluate_cartpole_stepsize(step_size_multiples::Vector{Int64}; θ_init = 0.00001f0, reference_step = 1f-3)
+	make_mdp(h) = create_cartpole_mdp(h = h, init_θ = () -> θ_init).mdp
+	π(s) = 2 #idle action
+	reference_episode = runepisode(make_mdp(reference_step); π = π)
+	comparison_episodes = [begin
+		mdp = make_mdp(reference_step*m)
+		output = runepisode(mdp; π = π)
+	end
+	for m in step_size_multiples]
+
+	error_traces = [begin
+		reference_θs = [s.θ for s in reference_episode[1]][1:step_size_multiples[i]:end]
+		θs = [s.θ for s in comparison_episodes[i][1]]
+		times = [s.t for s in comparison_episodes[i][1]]
+		deltas = θs .- reference_θs
+		rmse = sqrt(mean((deltas) .^2))
+		h = comparison_episodes[i][1][2].t
+		scatter(x = times, y = deltas, name = "Step Size = $h, RMSE = $rmse")
+	end
+	for i in eachindex(step_size_multiples)]
+	
+	traces = [begin
+		states = output[1]
+		sterm = output[4]
+		times = vcat([s.t for s in states], sterm.t)
+		angles = vcat([s.θ for s in states], sterm.θ)
+		h = states[2].t
+		scatter(x = times, y = angles, name = "Step Size = $h")
+	end
+	for output in [reference_episode; comparison_episodes]]
+	
+	p1 = plot(traces, Layout(xaxis_title = "Time(s)", yaxis_title = "Pole Angle in Radians", title = "Idle Policy with Initial Angle of $θ_init Radians"))
+	p2 = plot(error_traces, Layout(xaxis_title = "Time(s)", yaxis_title = "Angle Difference from Reference"))
+	md"""
+	$p1 $p2
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 6d61cc94-9578-4232-848f-8a74ec42daae
+#=╠═╡
+evaluate_cartpole_stepsize([10, 100, 1000, 2000, 4000, 5000, 8000, 10000]; reference_step = 1f-5, θ_init = 0.1f0)
+  ╠═╡ =#
+
+# ╔═╡ a0df5198-62e1-47bb-86dc-82fb501e24eb
+md"""
+The errors are all within numerical noise limits up to a step size of 0.04.  Beyond that we start to see an increase in the RMSE, so choosing 0.04 should ensure accurate simulations.  Next we can consider the behavior under force.
+"""
+
+# ╔═╡ 2d28b4af-0302-4dc4-9462-1ac6a083375f
+md"""
+#### Choosing Force and Angle Limits
+
+Given a maximum horizontal force we can apply to the vehicle, there is always some angle beyond which the pole will necessarily fall.  We can explore what this limit is by initializing the pole at a given angle and applying the maximum throttle.
+"""
+
+# ╔═╡ fbfdf045-e627-442e-8ecf-81e9c8007679
+function test_cartpole_throttle(θ_init, throttle)
+	mdp = create_cartpole_mdp(h = 4f-2, init_θ = () -> θ_init, f = throttle).mdp
+	π(s) = 3 #maximum throttle forward
+	output = runepisode(mdp; π = π, max_steps = 25_000)
+end
+
+# ╔═╡ c03d9058-25f0-49a1-9283-9d7d7492afd2
+#=╠═╡
+@bind throttle_params PlutoUI.combine() do Child
+	md"""
+	Initial Pole Angle in Degrees: $(Child(NumberField(0f0:90f0, default = 70f0)))
+	Throttle Force: $(Child(NumberField(1f0:10_000f0, default = 300)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ b2277d3b-7bc3-42ec-a685-bf45c4285caf
+#=╠═╡
+const throttle_episode = test_cartpole_throttle(deg2rad(throttle_params[1]), throttle_params[2])[1]
+  ╠═╡ =#
+
+# ╔═╡ 38d20b01-e6a2-46fa-8d92-a1725565a7d8
+#=╠═╡
+display_cartpole_episode(throttle_episode, [1])
+  ╠═╡ =#
+
+# ╔═╡ 798635bb-baf7-4069-8f40-a80f04d372ab
+md"""
+For an angle of 70°, we see that the inflection point is 296 to 297 throttle below which the pole falls to the right and above which the pole falls to the left.  Therefore we can set a failure angle of 70° and a throttle force value of 300 which will give it plenty of force to save the pole at any angle shy of 70° (assuming it doesn't already have velocity in the falling direction there).  We can also test here how far the cart moves under this force with different starting positions.  Under the full acceleration starting at 70° the cart reaches a position of 50.4, a horizontal velocity of 52.4, and an angular velocity of -7.44.  We can use these ranges to think about encoding the state into something like tile coding.
+"""
+
+# ╔═╡ b762a7f7-0a84-47e8-9425-f8982665ab7c
+#=╠═╡
+@bind display_step2 Slider(1:length(throttle_episode))
+  ╠═╡ =#
+
+# ╔═╡ 86c8efc2-970a-45a7-bc5e-10010cb39086
+md"""
+### Cart Pole Tile Coding
+
+To use tile coding with this type of state, we need to define the range of each relevant variable for the state, which is the 4 non-time parameters.  By default, we will use a throttle value of 300 and a step size of 0.04.  Based on the analysis above, we can constrain the other variables to x = [-50, 50], ẋ = [-50, 50], θ̇ = [-10, 10] with a failure angle of 70°.
+"""
+
 # ╔═╡ dda1399e-d232-478d-9a38-6891430b8755
-function setup_cartpole_problem(;m = 1f0, m_c = 10f0, l = 1f0, h = 1f-2, actions = [-1000f0, 0f0, 1000f0], maximum_x = 1000f0, maximum_ẋ = 100f0, maximum_θ̇ = 20f0, num_tiles = (5, 10, 5, 10), num_tilings = 8, kwargs...)
+function setup_cartpole_problem(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max = deg2rad(70f0), ẋ_max = 50f0, θ̇_max = 10f0, num_tiles = (8, 8, 8, 8), num_tilings = 8, kwargs...)
 	tile_size = Tuple(1f0 / n for n in num_tiles)
-	setup = tile_coding_setup((-maximum_x, -Float32(π/2), -maximum_ẋ, -maximum_θ̇), (maximum_x, Float32(π/2), maximum_ẋ, maximum_θ̇), tile_size, num_tilings, (1, 3, 5, 7))
-	mdp, mdp_dist = CartPoleEnvironment.create_mdp(m, m_c, l; h = h, actions = actions, maximum_x = maximum_x, maximum_ẋ = maximum_ẋ, maximum_θ̇ = maximum_θ̇, kwargs...)
+	setup = tile_coding_setup((-x_max, -θ_max, -ẋ_max, -θ̇_max), (x_max, θ_max, ẋ_max, θ̇_max), tile_size, num_tilings, (1, 3, 5, 7))
+	init_θ() = rand([-0.02f0, 0.02f0])
+	mdp, mdp_dist = create_cartpole_mdp(h = h, f = f, x_max = x_max, θ_max = θ_max, init_θ = init_θ, kwargs...)
 	(mdp = mdp, mdp_dist = mdp_dist, num_features = setup.num_features, get_active_features = s -> setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)))
 end
 
-# ╔═╡ 162c6d0c-c8ef-4058-8c9a-79400db2e07b
-cartpole_setup = setup_cartpole_problem(;θ_min = 0.05f0*π, θ_max = 0.35f0*π)
-
-# ╔═╡ 37cde527-3e9d-4910-a05d-75c470a3ca03
-cartpole_train_test = dp_λ(cartpole_setup.mdp_dist, 0.99f0, 0.1f0, 1, 10_000, cartpole_setup.num_features, cartpole_setup.get_active_features; save_step_rewards = true, α = 0.0001f0, algo! = true_online_dp_λ!, ϵ = 0.01f0)
-
-# ╔═╡ 042ef299-f5c5-4d9c-8e59-64900ef23aa0
+# ╔═╡ ca515bd9-6ff9-4642-b0ac-f7cfd522e7f6
+# ╠═╡ skip_as_script = true
 #=╠═╡
-test_cartpole_episode(1f0, 10f0, 1f0; h = 1f-2, π = cartpole_train_test.greedy_policy, actions = [-1000f0, 0f0, 1000f0], maximum_x = 1000f0, maximum_ẋ = 100f0, maximum_θ̇ = 20f0, max_steps = 10000, θ_min = Float32(.05*π), θ_max = Float32(0.35*π))
+const cartpole_tile_setup = setup_cartpole_problem()
   ╠═╡ =#
 
-# ╔═╡ 52b4ebaa-0f40-49e8-abc6-0f33b605926e
+# ╔═╡ 59766450-1f4d-451a-9fe9-bca26596d955
+md"""
+### Eligibility Trace Control Solutions
+"""
+
+# ╔═╡ 75871e7e-2834-4e81-940b-9dd063733e1e
+md"""
+#### Sarsa(λ)
+"""
+
+# ╔═╡ bee67ec3-98b8-41b9-895c-7d2db4cebfab
 #=╠═╡
-cartpole_train_test.history.step_rewards |> mean |> x -> -inv(x)
+function solve_cartpole_tilecoding_sarsa_λ(α, λ, max_steps; ϵ = 0.01f0, algo! = sarsa_λ!, kwargs...)
+	setup = setup_cartpole_problem()
+	solution = sarsa_λ(setup.mdp, 1f0, λ, typemax(Int64), max_steps, setup.num_features, setup.get_active_features; α = α, algo! = algo!, save_episode_steps = true, ϵ = ϵ, kwargs...)
+
+	episode_steps = solution.history.episode_steps[2:end] .- solution.history.episode_steps[1:end-1]
+
+	episode = runepisode(setup.mdp; π = solution.greedy_policy, max_steps = 25_000)
+	p1 = display_cartpole_episode(episode[1], [1])
+	p2 = plot(scatter(y = 0.04*cumsum(episode_steps) ./ (1:length(episode_steps))), Layout(xaxis_title = "Episode", yaxis_title = "Seconds Per Episode"))
+	md"""
+	$p1 $p2
+	"""
+end
   ╠═╡ =#
 
-# ╔═╡ bce2149e-238f-4d9b-bfc9-ef45f8f8bed6
+# ╔═╡ 193e034f-1278-436f-b534-defc870cd36b
 #=╠═╡
-plot(cartpole_train_test.history.step_rewards |> v -> inv.(-cumsum(v) ./ (1:length(v))))
+solve_cartpole_tilecoding_sarsa_λ(1f-1, 0.9f0, 25_000; algo! = sarsa_λ!, ϵ = 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ d7cc1ac9-f457-4665-a230-6458fc03664e
+#=╠═╡
+solve_cartpole_tilecoding_sarsa_λ(2f-1, 0.9f0, 25_000; algo! = expected_sarsa_λ!, ϵ = 0.01f0, target_ϵ = 0f0, use_TB = true)
+  ╠═╡ =#
+
+# ╔═╡ 8621eeab-2c9e-4228-a150-d7792b5ebccb
+md"""
+#### DP(λ)
+"""
+
+# ╔═╡ 8612ce94-9933-4a60-ae62-3fc164748d3f
+#=╠═╡
+function solve_cartpole_tilecoding_dp_λ(α, λ, max_steps; ϵ = 0.01f0, algo! = dp_λ!, kwargs...)
+	setup = setup_cartpole_problem(;kwargs...)
+	solution = dp_λ(setup.mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.num_features, setup.get_active_features; α = α, algo! = algo!, save_episode_steps = true, ϵ = ϵ)
+
+	episode_steps = solution.history.episode_steps[2:end] .- solution.history.episode_steps[1:end-1]
+
+	episode = runepisode(setup.mdp; π = solution.greedy_policy, max_steps = 25_000)
+	p1 = display_cartpole_episode(episode[1], [1])
+	p2 = plot(scatter(y = 0.04*cumsum(episode_steps) ./ (1:length(episode_steps))), Layout(xaxis_title = "Episode", yaxis_title = "Seconds Per Episode"))
+	md"""
+	$p1 $p2
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 2bead4bf-0b97-4503-8971-c7c3ed1f8fff
+#=╠═╡
+solve_cartpole_tilecoding_dp_λ(1f-2, 0.25f0, 250_000; algo! = dp_λ!, ϵ = 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ 3795d653-f0ba-4191-a361-f41e8423e628
+#=╠═╡
+function cartpole_tilecoding_dp_λ_parameter_study(α_list, λ_list, max_steps; num_trials = 100, ϵ = 0.01f0, algo! = dp_λ!, kwargs...)
+	setup = setup_cartpole_problem(;kwargs...)
+	
+	traces = [begin
+		steps = [begin
+			1:num_trials |> Map() do i
+				solution = dp_λ(setup.mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.num_features, setup.get_active_features; α = α, algo! = algo!, save_episode_steps = true, ϵ = ϵ)
+				steps = solution.history.episode_steps
+				isempty(steps) && return max_steps
+				steps[end]/length(steps)
+			end |> foldxt(+) |> x -> x / num_trials
+		end
+		for α in α_list]
+		scatter(x = α_list, y = steps, name = "λ = $λ")
+	end
+	for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate α", yaxis_title = "Average Episode Duration Over First $max_steps Steps", xaxis_type = "log"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 69d81c18-41bd-4088-a7ea-9f99f6d5d3ae
+#=╠═╡
+cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-4, 1f0, 8), [0f0, 0.5f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = dp_λ!)
+  ╠═╡ =#
+
+# ╔═╡ f0250661-45b9-4c0b-a441-f2d22707bb07
+#=╠═╡
+cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-4, 1f0, 8), [0.1f0, 0.2f0, 0.3f0, 0.4f0], 10_000; algo! = dp_λ!)
+  ╠═╡ =#
+
+# ╔═╡ 38f9cd59-34ec-4e5a-8e39-bdd44183f8a8
+#=╠═╡
+cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-5, 1f-1, 8), [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = true_online_dp_λ!)
+  ╠═╡ =#
+
+# ╔═╡ 20c1dc55-aaae-40de-87e0-db86f7a4d460
+#=╠═╡
+cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-5, 1f-1, 8), [0.1f0, 0.2f0, 0.3f0, 0.4f0], 10_000; algo! = true_online_dp_λ!)
   ╠═╡ =#
 
 # ╔═╡ 0358288e-be4e-46c2-ac4c-16ace6f50187
 md"""
 # Dependencies
+"""
+
+# ╔═╡ 2fb6e491-be69-44e8-ae2d-9cb13ec0b66f
+md"""
+## MDP Tools
+"""
+
+# ╔═╡ 2394cac9-3349-4684-9f08-506e4fe77a0d
+md"""
+## Notebook Only
 """
 
 # ╔═╡ 326b3355-7941-403b-bf1e-3031f585f666
@@ -2995,6 +3538,11 @@ html"""
 # ╔═╡ 5616d294-892a-40bc-a35f-35e9e0ee55e2
 md"""
 ## Visualization Tools
+"""
+
+# ╔═╡ e4112acf-af6b-4cd7-be24-cff2ed77200d
+md"""
+### Gridworld
 """
 
 # ╔═╡ 2b047cbe-4da3-4e40-8897-8ea83e70a84d
@@ -3521,6 +4069,200 @@ end
 # ╔═╡ 26a64c5d-6c21-4e3b-af75-e8682e8d5ea1
 #=╠═╡
 show_gridworld_sarsaλ_solution(gridworld_mdp, gridworld_λ_params.λ, gridworld_λ_params.num_episodes; α = gridworld_λ_params.α, ϵ = 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ f0fa43fc-6221-469d-accc-fff87b005a17
+md"""
+### Mountaincar
+"""
+
+# ╔═╡ 17083d16-6a9c-47e8-99f5-099067210029
+#=╠═╡
+function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
+	xvals = LinRange(-1.2f0, 0.5f0, n1)
+	vvals = LinRange(-0.07f0, 0.07f0, n2)
+	values = zeros(Float32, n1, n2)
+	actions = zeros(Float32, n1, n2)
+	for (i, x) in enumerate(xvals)
+		for (j, v) in enumerate(vvals)
+			v̂ = v̂_mountain_car((x, v))
+			values[j, i] = v̂
+			actions[j, i] = π((x, v))
+		end
+	end
+	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Learned Value Function"))
+	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)"))
+	@htl("""
+	<div style = "display:flex;">
+	$p1 
+	$p2
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 798544c9-215c-4516-a196-b00350512d48
+#=╠═╡
+plot_mountaincar_values(mountaincar_test_output.value_function, mountaincar_test_output.greedy_policy)
+  ╠═╡ =#
+
+# ╔═╡ 2e6c8ff9-4710-410d-b7e9-80563cc2af21
+#=╠═╡
+function show_mountaincar_trajectory(π::Function, max_steps::Integer, name)
+	states, actions, rewards, sterm, nsteps = runepisode(MountainCarTask.mdp; π = π, max_steps = max_steps)
+	positions = [s[1] for s in states]
+	velocities = [s[2] for s in states]
+	tr1 = scatter(x = positions, y = velocities, mode = "markers", showlegend = false)
+	tr2 = scatter(y = positions, showlegend = false)
+	tr3 = scatter(y = [MountainCarTask.actions[i] for i in actions], showlegend = false)
+	p1 = plot(tr1, Layout(xaxis_title = "position", yaxis_title = "velocity", xaxis_range = [-1.2, 0.5], yaxis_range = [-0.07, 0.07]))
+	p2 = plot(tr2, Layout(xaxis_title = "time", yaxis_title = "position"))
+	p3 = plot(tr3, Layout(xaxis_title = "time", yaxis_title = "action"))
+	mdname = Markdown.parse(name)
+	@htl("""
+	$mdname
+	Total Reward: $(sum(rewards))
+	<div style = "display:flex;">
+	$p1 
+	$p2 
+	$p3
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ d4cd0741-1c01-407f-867c-2c804151c6fb
+#=╠═╡
+show_mountaincar_trajectory(mountaincar_test_output.greedy_policy, 1000, "")
+  ╠═╡ =#
+
+# ╔═╡ 214ceb34-7e31-4c89-a328-a492244fd4cf
+md"""
+### Cart Pole
+"""
+
+# ╔═╡ 909104f3-44c2-44ae-8186-11fd74b3ba4e
+#=╠═╡
+function plot_cart(s::CartPoleState; xmin = -50, xmax = 50, θ̇_min = -10, θ̇_max = 10)
+	s.x
+	s.θ
+	t1 = scatter(x = [0, sin(s.θ)], y = [0, cos(s.θ)], mode = "lines", color = "black")
+	t2 = scatter(x = [sin(s.θ)], y = [cos(s.θ)], mode = "markers", color = "black")
+	p1 = plot([t1, t2], Layout(yaxis_range = [-.1, 1.2], xaxis_range = [-1.2, 1.2], xaxis_scaleanchor = "y"))
+	p2 = plot(scatter(x = [s.x], y = [0]), Layout(xaxis_range = [xmin, xmax]))
+	p3 = plot(indicator(mode = "gauge+number+delta", value = s.θ̇, title_text = "Angular Speed in Radians per Second", delta_reference = 0, gauge_axis_range = [-10, 10]))
+	@htl("""
+	<div style = "display: flex;">
+	$p1 
+	$p2 
+	$p3
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 61e6b0a3-a344-4fc6-b77c-36ef7cd138cd
+#=╠═╡
+plot_cart(cartpole_episode_sample[1][display_step])
+  ╠═╡ =#
+
+# ╔═╡ d1eef08b-60b5-4475-bb48-d8e8cb52235f
+#=╠═╡
+plot_cart(throttle_episode[display_step2])
+  ╠═╡ =#
+
+# ╔═╡ b9178bb8-bc09-4ebd-bdde-99f892d3cbec
+#=╠═╡
+plot(indicator(mode = "gauge+number+delta", value = 800, delta = attr(reference = 300), title = attr(text = "Speed"), gauge_axis = attr(range = [200, 1000]), domain = attr(x = [0, 1], y = [0, 1])))
+  ╠═╡ =#
+
+# ╔═╡ 52921345-ac7d-474a-aeef-eaff100f16e3
+DT = 1000
+
+# ╔═╡ c8aff973-f8da-48e5-b95e-26c8628212c6
+#=╠═╡
+buttons_attr = [attr(
+        label="Play",
+        method="animate",
+        args=[nothing, 
+            attr(
+              fromcurrent=true,
+              transition=(
+                duration=DT,
+              ),
+          frame=attr(
+            duration=DT,
+            redraw=true
+          )
+        )],
+          ),
+        attr(
+        label="Pause",
+        method="animate",
+        args=[
+          [nothing],
+          attr(
+            mode="immediate",
+            fromcurrent=true,
+            transition=attr(
+              duration=DT
+            ),
+            frame=attr(
+              duration=DT,
+              redraw=true
+            )
+          )
+        ],
+      )]
+  ╠═╡ =#
+
+# ╔═╡ 89b9731c-27ef-4b24-912d-b4fd092a4b28
+#=╠═╡
+@bind clock_tick Clock(max_value = 10)
+  ╠═╡ =#
+
+# ╔═╡ 7c6559e8-ca83-465a-8ed7-234e01f2ffbd
+#=╠═╡
+clock_tick
+  ╠═╡ =#
+
+# ╔═╡ b9a3e653-609e-432d-8132-b89d203da104
+#=╠═╡
+function animation_test(;n = 10)
+	x_points = [rand(-5:5) for i in 1:n]
+	y_points = [rand(-5:5) for i in 1:n]
+	traces = [scatter(x = [x_points[i]], y = [y_points[i]]) for i in 1:n]
+	# frames = PlotlyFrame[frame(name = "trace $i", traces = [0], data = (attr(x = [x_points[i]], y = [y_points[i]]))) for i in eachindex(traces)]
+	# layout = Layout(
+ #        width=400, 
+ #        height=400, 
+ #        margin_b=90,
+ #    # add buttons to play the animation
+ #    updatemenus=[
+ #    attr(
+ #      x=0.5,
+ #      y=0,
+ #      yanchor="top",
+ #      xanchor="center",
+ #      showactive=true,
+ #      direction="left",
+ #      type="buttons",
+ #      pad=attr(t=87, r=10),
+ #      buttons=buttons_attr
+ #    )]
+ #    ) #end layout
+	# plotdata = Plot(traces[1], layout, frames)
+end
+  ╠═╡ =#
+
+# ╔═╡ f9e1a29d-1f6b-41fa-b5f7-6d8b08954c5a
+#=╠═╡
+traces = animation_test()
+  ╠═╡ =#
+
+# ╔═╡ d6cc216a-2a5d-41b9-84e8-1a074dba08a6
+#=╠═╡
+plot(traces[clock_tick])
   ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -4354,8 +5096,10 @@ version = "17.4.0+2"
 # ╟─b36896b1-6802-48e1-8cd3-f08bf3b99e3e
 # ╟─0086dc4a-e0ba-43f0-a721-296cd50e1a76
 # ╠═21479229-c2ad-425f-98bb-77717ab40b02
+# ╟─0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
 # ╠═c5edfcbf-8d31-4dc4-b9d0-1a5439540710
 # ╠═cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
+# ╟─31926565-8c2f-42a9-bc73-4f3001a38bf4
 # ╠═8c95178c-8e75-4036-b0cb-bec936dcbd28
 # ╟─51274911-2eaa-4b18-b977-d0f735746bec
 # ╟─afa6843b-9852-42c0-9ecd-06c408262334
@@ -4392,8 +5136,15 @@ version = "17.4.0+2"
 # ╠═73d4314e-e34e-4f80-a800-9198a375465e
 # ╟─978bb3cd-2b9f-4c73-9d1e-897efbc56f9d
 # ╠═46fb8d4f-ec4a-49e7-b2c1-7b21feda4df1
+# ╟─e7beffa8-cea1-497f-80d5-278c3be17802
 # ╠═6dd6d055-8882-48a8-a0a6-e5d36405e587
+# ╟─0385d4b6-9e60-4e0a-83dd-a9989bdb5cc8
 # ╠═c3a8fe6b-ed40-42dd-9cfd-bd9d857682a8
+# ╟─0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
+# ╠═66112956-63a3-4629-8fba-958ff04f59e2
+# ╠═7a0f8a69-467b-4059-b717-97d8e7a7a5fd
+# ╠═798544c9-215c-4516-a196-b00350512d48
+# ╠═d4cd0741-1c01-407f-867c-2c804151c6fb
 # ╠═0324b4e2-2544-4bd6-b310-8a330b5a92c5
 # ╠═890e46ac-7cf5-43a9-8bb6-db3ee308212a
 # ╠═3ac75a88-6894-4c48-ae2a-30c822814888
@@ -4407,27 +5158,78 @@ version = "17.4.0+2"
 # ╟─862026e9-ebe6-4f2e-8832-086bbba8db17
 # ╟─8f894492-260e-4ab0-87b6-c02216a631e6
 # ╟─c80256a7-be4f-4407-b0bf-7a13415482ad
+# ╟─ba274806-6e16-447d-8c70-259787941495
+# ╟─bc0073ab-fc41-4333-aecc-41501d89f15b
+# ╠═1f3de2ad-65c5-4aaf-9c12-623de2257619
+# ╟─b6123560-90fd-4cd5-83ff-f73234d8a897
+# ╠═bcd35714-d664-4347-af27-4bdf131bad89
 # ╟─4a474bb7-c932-4cbb-8442-2c0972a7da6c
-# ╠═a063dd11-7734-4c3c-bd4b-c510ed8df817
+# ╟─cacab854-8b62-4e45-bc88-85038461e667
+# ╟─44100481-4e66-4b38-8262-87e337148bfc
+# ╠═b525e0c8-e673-448d-8143-2a9a8be342f5
 # ╟─9c9c5f0a-4079-4848-a822-ea9dcc460660
-# ╟─e55dfceb-b14d-483a-a6bd-85cc0ce1894f
-# ╠═042ef299-f5c5-4d9c-8e59-64900ef23aa0
-# ╠═93501b03-3851-43c1-a318-4cf7ed7f67cf
+# ╟─560fa6a4-ac3a-43ae-931e-6699294b304a
+# ╟─33a36f03-959d-4921-a476-68a75234f47c
+# ╠═6630a9a0-2ec9-4c18-b9eb-e263ddc5d18c
+# ╟─7cdc5c62-ddae-41fe-9ea2-aba25ac0ac3f
+# ╠═1fa542f3-1e0e-41fc-ab09-e7eb0bd22483
+# ╟─88e61bb4-fd6e-4363-be94-4166a7a39983
+# ╟─1442dda6-f5a9-4a23-9075-39a9c7fcb899
+# ╠═a566cd6b-19b6-4cfb-80e3-c74ed58705ba
+# ╠═7f83988f-6e2c-4d90-899f-b4f5cdb1de48
+# ╠═006fc67d-c3f9-46d3-b631-3002d9e50dd6
+# ╠═f4e54d48-e2b6-45e7-b672-279cc3b2a3f0
+# ╟─fd9c8373-90f9-4c1a-8c85-5e280311d381
+# ╠═e820833d-db94-4a74-a637-5c3356b07906
+# ╟─d746e585-a734-4fea-a534-ab366c12a87f
+# ╠═2776aeba-4d0f-49c9-8395-d0f7242f2429
+# ╟─a81603a0-34ee-4a9e-a8f8-7994c4d09cee
+# ╠═7356e02e-7445-439d-a386-0b244541a443
+# ╟─116bac12-7406-4f6d-9dab-ef4a75a98495
+# ╠═ab796133-dd92-4535-ab8a-7ebc8875eb45
+# ╟─8b3c3da4-0ab2-4294-a6f6-84470669a5d9
+# ╠═91a7b6c3-17aa-43cf-93aa-4ecc5f5019dc
+# ╟─7fa7d6f4-87ac-4e7b-b09f-588800c97664
+# ╟─cb5f26a2-cca2-4450-ae84-3cebd702a086
+# ╠═61e6b0a3-a344-4fc6-b77c-36ef7cd138cd
+# ╟─b45914c8-766b-4509-a6e6-92b093fa83b8
+# ╠═c308859b-7f95-461b-b9d8-98249aa92111
+# ╠═6d61cc94-9578-4232-848f-8a74ec42daae
+# ╟─a0df5198-62e1-47bb-86dc-82fb501e24eb
+# ╟─2d28b4af-0302-4dc4-9462-1ac6a083375f
+# ╠═fbfdf045-e627-442e-8ecf-81e9c8007679
+# ╟─c03d9058-25f0-49a1-9283-9d7d7492afd2
+# ╠═38d20b01-e6a2-46fa-8d92-a1725565a7d8
+# ╠═b2277d3b-7bc3-42ec-a685-bf45c4285caf
+# ╟─798635bb-baf7-4069-8f40-a80f04d372ab
+# ╟─b762a7f7-0a84-47e8-9425-f8982665ab7c
+# ╠═d1eef08b-60b5-4475-bb48-d8e8cb52235f
 # ╟─86c8efc2-970a-45a7-bc5e-10010cb39086
-# ╠═37cde527-3e9d-4910-a05d-75c470a3ca03
-# ╠═52b4ebaa-0f40-49e8-abc6-0f33b605926e
-# ╠═bce2149e-238f-4d9b-bfc9-ef45f8f8bed6
-# ╠═162c6d0c-c8ef-4058-8c9a-79400db2e07b
 # ╠═dda1399e-d232-478d-9a38-6891430b8755
-# ╟─7faa0ec6-acb0-445e-b53c-ddc86db48bfd
-# ╠═d8f538a2-8123-4587-8007-8a8acb00dbc1
+# ╠═ca515bd9-6ff9-4642-b0ac-f7cfd522e7f6
+# ╟─59766450-1f4d-451a-9fe9-bca26596d955
+# ╟─75871e7e-2834-4e81-940b-9dd063733e1e
+# ╠═bee67ec3-98b8-41b9-895c-7d2db4cebfab
+# ╠═193e034f-1278-436f-b534-defc870cd36b
+# ╠═d7cc1ac9-f457-4665-a230-6458fc03664e
+# ╟─8621eeab-2c9e-4228-a150-d7792b5ebccb
+# ╠═8612ce94-9933-4a60-ae62-3fc164748d3f
+# ╠═2bead4bf-0b97-4503-8971-c7c3ed1f8fff
+# ╠═3795d653-f0ba-4191-a361-f41e8423e628
+# ╠═69d81c18-41bd-4088-a7ea-9f99f6d5d3ae
+# ╠═f0250661-45b9-4c0b-a441-f2d22707bb07
+# ╠═38f9cd59-34ec-4e5a-8e39-bdd44183f8a8
+# ╠═20c1dc55-aaae-40de-87e0-db86f7a4d460
 # ╟─0358288e-be4e-46c2-ac4c-16ace6f50187
+# ╟─2fb6e491-be69-44e8-ae2d-9cb13ec0b66f
 # ╠═67f08f89-698c-4aa4-80d5-1ebcb830fc0c
 # ╠═8a581882-c97d-4a3b-873a-212024a529a9
 # ╠═062f756b-6640-4928-9216-c54316503944
+# ╟─2394cac9-3349-4684-9f08-506e4fe77a0d
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═326b3355-7941-403b-bf1e-3031f585f666
 # ╟─5616d294-892a-40bc-a35f-35e9e0ee55e2
+# ╟─e4112acf-af6b-4cd7-be24-cff2ed77200d
 # ╠═2b047cbe-4da3-4e40-8897-8ea83e70a84d
 # ╠═9db3ed98-a94d-4adc-a45f-75eca432a1e9
 # ╠═4a8bc15c-8f4d-4017-915f-d2b27c1a6bd0
@@ -4445,5 +5247,18 @@ version = "17.4.0+2"
 # ╠═b39b1b8e-b70e-4860-b75c-86506433efa7
 # ╠═0e3ae279-be7e-4e13-b1ea-2c0efced3162
 # ╠═82adce34-923c-46b9-a1ed-f1c06be09e0f
+# ╟─f0fa43fc-6221-469d-accc-fff87b005a17
+# ╠═17083d16-6a9c-47e8-99f5-099067210029
+# ╠═2e6c8ff9-4710-410d-b7e9-80563cc2af21
+# ╟─214ceb34-7e31-4c89-a328-a492244fd4cf
+# ╠═909104f3-44c2-44ae-8186-11fd74b3ba4e
+# ╠═b9178bb8-bc09-4ebd-bdde-99f892d3cbec
+# ╠═52921345-ac7d-474a-aeef-eaff100f16e3
+# ╠═c8aff973-f8da-48e5-b95e-26c8628212c6
+# ╠═f9e1a29d-1f6b-41fa-b5f7-6d8b08954c5a
+# ╠═89b9731c-27ef-4b24-912d-b4fd092a4b28
+# ╠═d6cc216a-2a5d-41b9-84e8-1a074dba08a6
+# ╠═7c6559e8-ca83-465a-8ed7-234e01f2ffbd
+# ╠═b9a3e653-609e-432d-8132-b89d203da104
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
