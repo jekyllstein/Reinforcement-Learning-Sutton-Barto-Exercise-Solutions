@@ -653,10 +653,54 @@ md"""
 ### *Semi-gradient TD(λ) for estimating $\hat v \approx v_\pi$*
 """
 
+# ╔═╡ dc6ad0ac-f92c-4ed8-a0a6-9eeb2641c709
+const FCANNParams = Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}}
+
+# ╔═╡ 5542897d-eb37-4e96-ac33-d36fc8adb603
+begin
+	function update_trace!(z, γ, λ, ∇v) 
+		z .= (γ*λ .* z) .+ ∇v
+	end
+
+	function update_trace!(z::FCANNParams, γ::Float32, λ::Float32, ∇v::FCANNParams)
+		for i in eachindex(z[1])
+			update_trace!(z[1][i], γ, λ, ∇v[1][i])
+			update_trace!(z[2][i], γ, λ, ∇v[2][i])
+		end
+	end
+end
+
+# ╔═╡ f8d65b5b-9e9d-43d9-948d-d1a65a7666c8
+begin
+	function update_parameters!(parameters, α, δ, z)
+		parameters .+= α*δ .* z
+	end
+	
+	function update_parameters!(parameters::FCANNParams, α::Float32, δ::Float32, z::FCANNParams)
+		for i in eachindex(z[1])
+			update_parameters!(parameters[1][i], α, δ, z[1][i])
+			update_parameters!(parameters[2][i], α, δ, z[2][i])
+		end
+	end
+end
+
+# ╔═╡ 9ec58129-a14f-40a9-9c41-809500181bdd
+begin
+	function zero_trace!(z::AbstractArray{T, N}) where {T<:Real, N}
+		z .= zero(T)
+	end
+	function zero_trace!(z::FCANNParams)
+		for i in eachindex(first(z))
+			zero_trace!(z[1][i])
+			zero_trace!(z[2][i])
+		end
+	end
+end
+
 # ╔═╡ 5610a0ba-60a8-4da6-8f68-50b1c5e82686
 begin
 	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function semi_gradient_TDλ!(parameters::P, state_representation::X, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function, estimate_value::Function, update_gradient!::Function; α = one(T)/10, calculate_error::Function = params -> zero(T), ∇v::P = copy(parameters), z::P = copy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where {P, X, T<:Real}
+	function semi_gradient_TDλ!(parameters::P, state_representation::X, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function, estimate_value::Function, update_gradient!::Function; α = one(T)/10, calculate_error::Function = params -> zero(T), ∇v::P = deepcopy(parameters), z::P = deepcopy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where {P, X, T<:Real}
 		s = initialize_state()
 		update_state_representation!(state_representation, s)
 		v̂ = estimate_value(state_representation, parameters)
@@ -677,17 +721,21 @@ begin
 		z .= zero(T)
 		
 		while (ep <= max_episodes) && (step <= max_steps)
-			z .= (γ*λ .* z) .+ ∇v
+			update_trace!(z, γ, λ, ∇v)
+			#by default does: 
+			# z .= (γ*λ .* z) .+ ∇v
 			δ = r + γ*v̂′ - v̂
-			parameters .+= α*δ .* z
-	
+			update_parameters!(parameters, α, δ, z)
+			#by default does: 
+			# parameters .+= α*δ .* z
 			save_step_errors && push!(step_error_history, calculate_error(parameters))
 	
 			if isterm(s′)
 				s = initialize_state()
 				update_state_representation!(state_representation, s)
 				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
+				zero_trace!(z)
+				# z .= zero(T)
 				ep += 1
 				save_episode_errors && push!(episode_error_history, calculate_error(parameters))
 			else
@@ -695,8 +743,8 @@ begin
 			end
 
 			#note that the state representation here will be for s on the next step
-			v̂ = estimate_value(state_representation, parameters)
-			update_gradient!(∇v, state_representation, parameters)
+			# v̂ = estimate_value(state_representation, parameters)
+			v̂ = update_gradient!(∇v, state_representation, parameters)
 			
 			(r, s′) = transition(s)
 			
@@ -730,6 +778,11 @@ $\begin{flalign}
 So to implement this algorithm in the linear case, the only function that requires definition is $\mathbf{x}(s)$.  To use the linear version of the algorithm defined below, one need only specify the number of parameters $d$ and `update_state_representation!(x, s)` which updates a vector x given state s.
 """
 
+# ╔═╡ 1d3144f8-fecf-4c8f-8e47-626ad94ed15a
+md"""
+#### Linear Verison of TD$(\lambda)$
+"""
+
 # ╔═╡ 24468748-009d-42a3-918d-4ba18b23c9ed
 #for linear function approximation the number of parameters also define the size of the state representation.  the function that updates the state representation is all that is required to calculate the updates.  problem will either be an MRP or and MDP plus a policy to evaluate
 function run_linear_semi_gradient_TDλ(problem, num_params::Integer, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; parameters::Vector{T} = zeros(T, num_params), state_representation::Vector{T} = zeros(T, num_params), kwargs...) where {T<:Real}
@@ -741,9 +794,10 @@ function run_linear_semi_gradient_TDλ(problem, num_params::Integer, γ::T, λ::
 	#the gradient is just identical to the state representation
 	function update_gradient!(∇v, x, w)
 		∇v .= x
+		return dot(x, w)
 	end
 
-	error_history = semi_gradient_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!; kwargs...)
+	error_history = semi_gradient_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!, estimate_value, update_gradient!; kwargs...)
 
 	#once the learning is done we can estimate values with the final version of the parameters.  these versions of the value function allow the computation to occur with a passed state representation vector and set of parameters or to use the existing parameters and define a new state vector each time
 	function v!(x::Vector{T}, s, w::Vector{T})
@@ -760,6 +814,139 @@ function run_linear_semi_gradient_TDλ(problem, num_params::Integer, γ::T, λ::
 	
 	return (value_function = v, error_history = error_history)
 end
+
+# ╔═╡ be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
+md"""
+#### Non-Linear Version of TD$(\lambda)$ with Neural Network
+"""
+
+# ╔═╡ aa7cde6f-a723-4088-bada-edbc7085ce23
+#also need to extend the Broadcast function to handle the neural net parameters which are Vectors of Matrices
+
+# ╔═╡ cfb775b2-ecd8-4518-854f-384bf35ba9af
+begin
+	import Base.copyto!
+	function copyto!(dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, src::Base.Broadcast.Broadcasted) where {T<:Real}
+		copyto!(dest[1], src[1])
+		copyto!(dest[2], src[2])
+		return dest
+	end
+
+	function copyto!(dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, src::Real) where {T<:Real}
+		copyto!(dest[1], src)
+		copyto!(dest[2], src)
+		return dest
+	end
+	function copyto!(dest::Vector{Array{T, N}}, src::Vector{Array{T, N}}) where {T<:Real, N}
+		for i in eachindex(dest)
+			copyto!(dest[i], src[i])
+		end
+		return dest
+	end
+	function copyto!(dest::Vector{Array{T, N}}, c::Real) where {T<:Real, N}
+		for i in eachindex(dest)
+			copyto!(dest[i], c)
+		end
+		return dest
+	end
+	
+end
+
+# ╔═╡ 3c1fdc9c-42ad-4eae-9103-e834a1056878
+begin
+	import Base.broadcast!
+	function broadcast!(f, dest::Vector{Array{T, N}}, x::Vector{Array{T, N}}, y::Vector{Array{T, N}}) where {T<:Real, N}
+		for i in eachindex(x)
+			broadcast!(f, dest[i], x[i], y[i])
+		end
+		return dest
+	end
+	
+	function broadcast!(f, dest::Vector{Array{T, N}}, x::Vector{Array{T, N}}, y::Real) where {T<:Real, N}
+		for i in eachindex(x)
+			broadcast!(f, dest[i], x[i], y)
+		end
+		return dest
+	end
+
+	broadcast!(f, dest::Vector{Array{T, N}}, y::Real, x::Vector{Array{T, N}}) where {T<:Real, N} = broadcast!(f, dest, x, y)
+
+	function broadcast!(f, dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, y::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}) where T<:Real
+		broadcast!(f, dest[1], x[1], y[1])
+		broadcast!(f, dest[2], x[2], y[2])
+		return dest
+	end
+
+	function broadcast!(f, dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, c::Real) where T<:Real
+		broadcast!(f, dest[1], x[1], c)
+		broadcast!(f, dest[2], x[2], c)
+		return dest
+	end
+
+	broadcast!(f, dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, c::Real, x::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}) where T<:Real = broadcast!(f, dest, x, c)
+end
+
+# ╔═╡ 43675f77-a930-424a-bf60-6362354317ed
+#for non-linear function approximation the state representation can be uncoupled from the number of parameters as long as the output size of the network is 1.  the FCANN package is used to calculate the gradient of the output but a number of memory arguments must be instantiated to run the function without allocating new memory each time.  The size of the network also must be specified in terms of hidden layers.
+function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, input_size::Integer, hidden_layers::AbstractVector{I}, update_state_representation!::Function; res_layers = 1, parameters::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}} = FCANN.initializeparams_saxe(input_size, hidden_layers, 1, res_layers; use_μP = true), l2 = zero(T), kwargs...) where {T<:Real, I<:Integer}
+	
+	#additional allocations needed to run NN gradient
+	activations = FCANN.form_prep_activations(hidden_layers, 1, parameters[1])
+	onesvec = [one(T)]
+	
+	#estimate the state value of a state represented by the vector x
+	function estimate_value!(activations, x, params::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}})
+		FCANN.predict!(params..., x, activations, res_layers)
+		return activations[end][1]
+	end
+
+	estimate_value(x, params) = estimate_value!(activations[2], x, params)
+
+	#update the gradient of the state value output with respect to the parameters
+	function update_gradient!(∇v::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x, params::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}})
+		FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v..., activations..., onesvec)
+		return activations[2][end][1]
+	end
+
+	state_representation = zeros(T, 1, input_size)
+
+	error_history = semi_gradient_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!, estimate_value, update_gradient!; kwargs...)
+
+	#once the learning is done we can estimate values with the final version of the parameters.
+	function v(s)
+		x = zeros(T, 1, input_size)
+		update_state_representation!(x, s)
+		new_activations = deepcopy(activations[2])
+		estimate_value!(new_activations, x, parameters)
+	end
+	
+	return (value_function = v, error_history = error_history)
+end
+
+# ╔═╡ f92b8423-b05f-4058-ac91-4b3c6d447820
+md"""
+### *Continuous Random Walk Example*
+"""
+
+# ╔═╡ 3839f146-107c-45e9-bb94-b707982f4ce1
+#=╠═╡
+function test_fcann_tdλ_random_walk(λ::Float32, hidden_layers::Vector{Int64}; nstates = 1000, max_episodes = 100, max_steps = typemax(Int64), kwargs...)
+	mrp = create_continuous_random_walk(1000)
+	xmin = 1
+	xmax = nstates
+	scalex(x) = (2f0*(x - 1f0) / (nstates - 1)) - 1f0 #scale x to between -1 and 1
+	function update_state_representation!(x::Matrix{Float32}, s::Float32) 
+		x[1] = scalex(s)
+	end
+	output = run_fcann_semi_gradient_TDλ((mrp,), 1f0, λ, max_episodes, max_steps, 1, hidden_layers, update_state_representation!; kwargs...)
+	plot(output.value_function.(1f0:1000f0), Layout(yaxis_range = [-1, 1]))
+end
+  ╠═╡ =#
+
+# ╔═╡ 3ab94b9e-4f50-4162-8b27-f6a81595f42f
+#=╠═╡
+test_fcann_tdλ_random_walk(0.25f0, [2]; res_layers = 0, max_episodes = 1_000, α = 0.004f0)
+  ╠═╡ =#
 
 # ╔═╡ e99caf5c-7c13-4edd-b55b-dce93cc850c6
 md"""
@@ -5060,9 +5247,22 @@ version = "17.4.0+2"
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
+# ╠═dc6ad0ac-f92c-4ed8-a0a6-9eeb2641c709
+# ╠═5542897d-eb37-4e96-ac33-d36fc8adb603
+# ╠═f8d65b5b-9e9d-43d9-948d-d1a65a7666c8
+# ╠═9ec58129-a14f-40a9-9c41-809500181bdd
 # ╠═5610a0ba-60a8-4da6-8f68-50b1c5e82686
 # ╟─5e5fdcee-356e-46d4-a5b0-3c433aee989d
+# ╟─1d3144f8-fecf-4c8f-8e47-626ad94ed15a
 # ╠═24468748-009d-42a3-918d-4ba18b23c9ed
+# ╟─be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
+# ╠═aa7cde6f-a723-4088-bada-edbc7085ce23
+# ╠═cfb775b2-ecd8-4518-854f-384bf35ba9af
+# ╠═3c1fdc9c-42ad-4eae-9103-e834a1056878
+# ╠═43675f77-a930-424a-bf60-6362354317ed
+# ╟─f92b8423-b05f-4058-ac91-4b3c6d447820
+# ╠═3839f146-107c-45e9-bb94-b707982f4ce1
+# ╠═3ab94b9e-4f50-4162-8b27-f6a81595f42f
 # ╟─e99caf5c-7c13-4edd-b55b-dce93cc850c6
 # ╠═900760f0-b253-4db7-8c4f-4ca34777198d
 # ╟─373a89e3-0b8d-49a0-982e-8bb300538429
