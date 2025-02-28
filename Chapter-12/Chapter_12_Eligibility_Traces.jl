@@ -888,7 +888,7 @@ end
 
 # ╔═╡ 43675f77-a930-424a-bf60-6362354317ed
 #for non-linear function approximation the state representation can be uncoupled from the number of parameters as long as the output size of the network is 1.  the FCANN package is used to calculate the gradient of the output but a number of memory arguments must be instantiated to run the function without allocating new memory each time.  The size of the network also must be specified in terms of hidden layers.
-function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, input_size::Integer, hidden_layers::AbstractVector{I}, update_state_representation!::Function; res_layers = 1, parameters::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}} = FCANN.initializeparams_saxe(input_size, hidden_layers, 1, res_layers; use_μP = true), l2 = zero(T), kwargs...) where {T<:Real, I<:Integer}
+function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, input_size::Integer, hidden_layers::AbstractVector{I}, update_state_representation!::Function; res_layers = 1, dropout = zero(T), parameters::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}} = FCANN.initializeparams_saxe(input_size, hidden_layers, 1, res_layers; use_μP = true), l2 = zero(T), maxnorm = typemax(T), kwargs...) where {T<:Real, I<:Integer}
 	
 	#additional allocations needed to run NN gradient
 	activations = FCANN.form_prep_activations(hidden_layers, 1, parameters[1])
@@ -896,7 +896,7 @@ function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integ
 	
 	#estimate the state value of a state represented by the vector x
 	function estimate_value!(activations, x, params::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}})
-		FCANN.predict!(params..., x, activations, res_layers)
+		FCANN.forwardNOGRAD_base!(activations, params..., x, res_layers)
 		return activations[end][1]
 	end
 
@@ -904,7 +904,8 @@ function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integ
 
 	#update the gradient of the state value output with respect to the parameters
 	function update_gradient!(∇v::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x, params::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}})
-		FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v..., activations..., onesvec)
+		FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v..., activations..., onesvec, dropout, res_layers)
+		!isinf(maxnorm) && FCANN.scaleParams!(∇v..., maxnorm)
 		return activations[2][end][1]
 	end
 
@@ -945,8 +946,12 @@ end
 
 # ╔═╡ 3ab94b9e-4f50-4162-8b27-f6a81595f42f
 #=╠═╡
-test_fcann_tdλ_random_walk(0.25f0, [2]; res_layers = 0, max_episodes = 1_000, α = 0.004f0)
+test_fcann_tdλ_random_walk(0.01f0, [10, 10]; res_layers = 1, max_episodes = 1000_000, α = 0.001f0)
   ╠═╡ =#
+
+# ╔═╡ 1f0108ab-6d04-4378-866b-123b1fe080db
+#add parameter study for this with different values of λ and α
+#add comparison to tabular solution which is exact and from the other chapter
 
 # ╔═╡ e99caf5c-7c13-4edd-b55b-dce93cc850c6
 md"""
@@ -5263,6 +5268,7 @@ version = "17.4.0+2"
 # ╟─f92b8423-b05f-4058-ac91-4b3c6d447820
 # ╠═3839f146-107c-45e9-bb94-b707982f4ce1
 # ╠═3ab94b9e-4f50-4162-8b27-f6a81595f42f
+# ╠═1f0108ab-6d04-4378-866b-123b1fe080db
 # ╟─e99caf5c-7c13-4edd-b55b-dce93cc850c6
 # ╠═900760f0-b253-4db7-8c4f-4ca34777198d
 # ╟─373a89e3-0b8d-49a0-982e-8bb300538429

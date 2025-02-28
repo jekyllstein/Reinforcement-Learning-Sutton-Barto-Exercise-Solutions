@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.3
+# v0.20.4
 
 using Markdown
 using InteractiveUtils
@@ -32,7 +32,7 @@ Consider a repeated choice among *k* different options.  A numerical reward is c
 
 We denote the action selected on time step *t* as $$A_t,$$ and the corresponding reward as $$R_t.$$  The value then of an arbitrary action $$a$$, denoted $$q_*(a),$$ is the expected reward given that $a$ is selected:
 
-$$q_*(a) \dot = \mathbf{E}[R_t|A_t=a]$$
+$$q_*(a) \doteq \mathbf{E}[R_t \vert A_t=a]$$
 
 If we know the values, then the problem is trivial, but we assume that we only have estimates of the values at a time step $a$ which we will denote $$Q_t(a).$$  At any given time step the greedy action is the one with the highest value estimate.  If we take non-greedy actions then we can improve our value estimate for other states.  To solve the problem in general we must balance *exploiting* the action estimated to be the best with *exploring* the values of other candidate actions.  What follows are various methods to balance these two choices.
 """
@@ -43,13 +43,13 @@ md"""
 
 The true value is the mean reward when that action is selected.  One way to estimate this is by averaging the rewards actually received:
 
-$$Q_t(a) \dot = \frac{\text{sum of rewards when } a \text{ taken prior to } t}{\text{number of times } a \text{ taken prior to } t} = \frac{\sum_{i=1}^{t-1}R_i \cdot \mathbf{1}_{A_i=a}}{\sum_{i=1}^{t-1} \mathbf{1}_{A_i=a}} \tag{2.1}$$
+$$Q_t(a) \doteq \frac{\text{sum of rewards when } a \text{ taken prior to } t}{\text{number of times } a \text{ taken prior to } t} = \frac{\sum_{i=1}^{t-1}R_i \cdot \mathbf{1}_{A_i=a}}{\sum_{i=1}^{t-1} \mathbf{1}_{A_i=a}} \tag{2.1}$$
 
 If the denominator is zero then we instead define $$Q_t(a)$$ by some default value such as 0.  We call this the *sample-average* method for estimating action values because each estmiate is an average of the sample of relevant rewards.
 
 The simplest action selection rule is to select one of the actions with the higest estimated value.  This is the *greedy* action.
 
-$$A_t \dot = \operatorname*{argmax}_a Q_t(a)$$
+$$A_t \doteq \operatorname*{argmax}_a Q_t(a)$$
 """
 
 # ╔═╡ 1e4ac085-7b72-4bad-ad87-21635930a6f7
@@ -347,7 +347,7 @@ md"""
 md"""
 In the case of a non-stationary problem, the sample-average method is not ideal because it weights samples from the past equally to the present.  We can change the incremental implementation of the average to weight more recent rewards higher than past ones.  A constant step-size parameter is one way of doing this.  In this case we will change the update rule (2.3) to:
 
-$$Q_{n+1} \dot = Q_n + \alpha [R_n - Q_n] \tag{2.5}$$
+$$Q_{n+1} \doteq Q_n + \alpha [R_n - Q_n] \tag{2.5}$$
 
 By writing this as an explicite sum over all rewards, one can observe that this update rule computes a weights average whose weights exponentially decay into the past.  See a similar derivation in exercise 2.4.  In order to guarantee that Q converges to the true expected value, the step size parameter must obey the following relationships:
 
@@ -639,7 +639,7 @@ md"""
 
 We can choose to explore non-greedy actions based on the probability that they are better than optimal.  This probability always exists due to the uncertainty inherent in our value estimates.  One way to implement this concept is to select actions according to:
 
-$$A_t \dot = \operatorname*{argmax}_a \left [ Q_t(a) + c \sqrt{\frac{\ln{t}}{N_t(a)}}\right ] \tag{2.10}$$
+$$A_t \doteq \operatorname*{argmax}_a \left [ Q_t(a) + c \sqrt{\frac{\ln{t}}{N_t(a)}}\right ] \tag{2.10}$$
 
 where $$N_t(a)$$ is the number of times that action $a$ has been selected prior to time t and $$c>0$$ controls the degree of exploration.  This idea is called *upper confidence bound* (UCB) action selection.  Note that is $$N_t(a)=0$$ then that action will be selected or a random selection will be made among all actions with zero counts.  See below for a comparison between the ϵ-greedy exploration method and the UCB method with the ability to change parameters for both methods.
 """
@@ -684,7 +684,7 @@ md"""
 
 As an alternative to estimating action values, we can attempt to learn a numerical *preference* for each action $a$ which we will denote $$H_t(a) \in \mathbf{R}.$$  This vector of preferences will be converted in a probability distribution using the *soft-max distribution*.
 
-$$\Pr\{A_t = a\} \dot = \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \dot = \pi_t(a) \tag{2.11}$$
+$$\Pr\{A_t = a\} \doteq \frac{e^{H_t(a)}}{\sum_{b=1}^k e^{H_t(b)}} \doteq \pi_t(a) \tag{2.11}$$
 
  $$\pi_t(a)$$ is the probability for this agent to select action $$a$$ at time $$t.$$  All action preferences are initialized at the same value.
 """
@@ -706,8 +706,8 @@ md"""
 One natural update rule for the action preferences is to use stochastic gradient ascent.  Using this technique we perform the following update on step $$t+1$$ after selecting action $$A_t$$ and receiving reward $$R_t$$ on step $$t$$.
 
 $$\begin{flalign}
-H_{t+1}(A_t) &\dot = H_t(A_t) + \alpha (R_t - \overline R_t)(1-\pi_t (A_t)) \\
-H_{t+1}(a) & \dot = H_t(a) - \alpha(R_t - \overline R_t)\pi_t(a) \quad \forall a \neq A_t
+H_{t+1}(A_t) &\doteq H_t(A_t) + \alpha (R_t - \overline R_t)(1-\pi_t (A_t)) \\
+H_{t+1}(a) & \doteq H_t(a) - \alpha(R_t - \overline R_t)\pi_t(a) \quad \forall a \neq A_t
 \end{flalign} \tag{2.12}$$
 
 where $$\alpha > 0$$ is a step-size parameter and $$\overline R_t \in \mathbf{R}$$ is the average rewards up to but not including time $$t.$$  This average can be computed by any of the techniques mentioned earlier.
@@ -1959,7 +1959,7 @@ StatsBase = "~0.34.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.2"
+julia_version = "1.11.3"
 manifest_format = "2.0"
 project_hash = "e132e3e69367953a11779eec4e0da33f117bf4f7"
 
