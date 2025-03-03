@@ -2765,11 +2765,6 @@ eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
 # ╔═╡ c6781d81-6497-41b0-ad4b-1248b7212d21
 #next step is to implement the HTML program for adding moves to the state and updating a board object.  Ideally we could recompute the policy as well but another cell could actually update the style for these grid elements which would change the appearance.  Yeah so I can make the HTML where the bound variable is the board and then another cell styles that board with the correct policy.  But then I would need to just stick with one policy per board.  Also wanna implement the reset button.
 
-# ╔═╡ 262c8cad-ff83-42ea-a6fc-b763611d8688
-#=╠═╡
-(value = minimaxvalues[state_symmetry_lookup[mapboard(board4)][1]], actions =  show_policy(board4, s -> apply_sym_π(minimax_policy, board4)))
-  ╠═╡ =#
-
 # ╔═╡ 44d6a906-2966-4342-8b24-48682dfc4db7
 show_policy(board, f) = heatmap_board(hash(f), board, f(board))
 
@@ -2823,6 +2818,11 @@ end
 
 # ╔═╡ 811fcaed-fcbb-4109-bf79-05cf1bfec645
 (baseval, minimaxvalues, minimax_policy) = run_minimax(ttt_environment.init_board)
+
+# ╔═╡ 262c8cad-ff83-42ea-a6fc-b763611d8688
+#=╠═╡
+(value = minimaxvalues[state_symmetry_lookup[mapboard(board4)][1]], actions =  show_policy(board4, s -> apply_sym_π(minimax_policy, board4)))
+  ╠═╡ =#
 
 # ╔═╡ 915f17a0-dfb7-46fe-8a01-73a1a739210d
 md"""
