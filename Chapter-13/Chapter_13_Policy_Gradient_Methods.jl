@@ -19,10 +19,27 @@ end
 # ╔═╡ 28c8ac96-a114-42b7-b864-b4a2577f15c0
 using HTTP
 
+# ╔═╡ df7f84e8-b42a-4001-9dbf-6bc3ced94207
+using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threads, Random, Distributions, Statistics, StatsBase, StaticArrays
+
+# ╔═╡ d963ff6d-f1b6-4799-aa0e-1ae100310d84
+PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
+# ╠═╡ skip_as_script = true
+#=╠═╡
 begin
-	using PlutoUI, PlutoPlotly, Random, Distributions, StatsBase, LinearAlgebra, LaTeXStrings, Base.Threads, ProfileCanvas, HypertextLiteral, ProgressLogging, BenchmarkTools, Transducers, StaticArrays
+	using PlutoUI, PlutoPlotly, LaTeXStrings, PlutoProfile, HypertextLiteral, ProgressLogging, BenchmarkTools
 	TableOfContents()
+end
+  ╠═╡ =#
+
+# ╔═╡ 7cf26604-9c2b-4a77-9674-7d4dac2f99f0
+begin
+	include(joinpath(@__DIR__, "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
+	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
+	include(joinpath(@__DIR__, "..", "Chapter-11", "Chapter_11_Off_policy_Methods_with_Approximation.jl"))
+	include(joinpath(@__DIR__, "..", "Chapter-12", "Chapter_12_Eligibility_Traces.jl"))
 end
 
 # ╔═╡ 36a6e43f-6bcf-4c27-bfbb-047760e77ada
@@ -62,7 +79,7 @@ e^{x_2} \\
 e^{x_n}
 \end{pmatrix}$
 
-Using this notation, we can write down the policy function under this new parameterization: $\mathbf{\pi}(s, \mathbf{\theta}) = \mathbf{\sigma}(\mathbf{h}(s, \mathbf{\theta}))$.  What do linear preferences look like with this parameterization?  Instead of a parameter vector $\mathbf{\theta} \in \mathbb{R}^{d^\prime}$, we have a parameter matrix $\mathbf{\theta} \in \mathbb{R}^{d \times N_a}$ and the vector of preferences is the result of a matrix vector multiplication: $\mathbf{h}(s, \mathbf{\theta}) = \theta^\top \mathbf{x}(s) \in \mathbb{R^{N_a}}$.  Subscript notation is used to refer to single preference values so $\mathbf{h}_i$ would be the $ith$ index of $\mathbf{h}$ for the $ith$ action preference equivalent to $h_i$.
+Using this notation, we can write down the policy function under this new parameterization: $\mathbf{\pi}(s, \mathbf{\theta}) = \mathbf{\sigma}(\mathbf{h}(s, \mathbf{\theta}))$.  What do linear preferences look like with this parameterization?  Instead of a parameter vector $\mathbf{\theta} \in \mathbb{R}^{d^\prime}$, we have a parameter matrix $\mathbf{\theta} \in \mathbb{R}^{d \times N_a}$ and the vector of preferences is the result of a matrix vector multiplication: $\mathbf{h}(s, \mathbf{\theta}) = \theta^\top \mathbf{x}(s) \in \mathbb{R}^{N_a}$.  Subscript notation is used to refer to single preference values so $\mathbf{h}_i$ would be the $ith$ index of $\mathbf{h}$ for the $ith$ action preference equivalent to $h_i$.
 """
 
 # ╔═╡ d95f75b5-21d8-4862-baa7-50b58d9725b8
@@ -101,56 +118,110 @@ $\frac{\partial{h_a}}{\partial{\theta_{i, j}}} = \begin{cases}
 \end{cases}$ 
 """
 
+# ╔═╡ dcb306ae-a1b1-43d6-ba6e-e38668838689
+md"""
+### *Soft-max Implementation*
+"""
+
+# ╔═╡ 33c99850-67cd-4754-94b9-6df97b238e27
+function soft_max!(x::AbstractVector{T}) where T<:Real
+	minx, maxx = extrema(x)
+	if minx == maxx
+		x .= one(T) / length(x)
+		return x
+	end
+	s = zero(T)
+	@inbounds @simd for i in eachindex(x)
+		h = exp(x[i] - maxx)
+		s += h
+		x[i] = h
+	end
+	x ./= s
+end
+
 # ╔═╡ 7a6fb1f0-fc3c-4c29-a6d9-769d32ca98a9
 md"""
 ### Example 13.1 Short corridor gridworld
 """
 
-# ╔═╡ 1b89a5be-d4f6-43b6-b778-0895d77d0962
-abstract type LinearMove end
-
-# ╔═╡ 759afa53-2b01-4d9b-b398-80120626634f
-struct Left <: LinearMove end
-
-# ╔═╡ 97046258-7753-4edb-b0c9-0981d587ad35
-struct Right <: LinearMove end
-
-# ╔═╡ 423321cc-1c8c-44a0-bd8e-a4d3cb68962b
-function make_corridor()
-	function step(s::Integer, a::LinearMove)
-		f(s) = ifelse(s == 2, -1, 1) #reverse actions for 2nd state
-		move(s::Integer, ::Left) = s - f(s)
-		move(s::Integer, ::Right) = s + f(s) 
-		s′ = max(1, move(s, a))
-		(s′, -1.0)
+# ╔═╡ 5cc4d12d-b537-47e2-8109-4e7a234fdf25
+function make_corridor_mdp()
+	function step(s::Integer, i_a::Integer)
+		δ = 2*i_a - 3 #calculates the s change -1 for left (1) and 1 for right (2)
+		switch = iseven(s) #returns true in state 2 which is where actions are switched, when switch is true, multiply δ by -1, otherwise by 1
+		c = 1 - 2*switch
+		s′ = max(1, s + c*δ)
+		(-1f0, s′)
 	end
-	(states = 1:3, sterm = 4, actions = [Left(), Right()], step = step)
-end	
 
-# ╔═╡ 980af3e7-2f1c-49be-8f6b-fc61271dff52
-function run_corridor_episode(π; cor = make_corridor())
-	s = first(cor.states)
-	G = 0.0
-	state_history = [s]
-	rewardhistory = Vector{Float64}()
-	select_action(vec) = wsample(eachindex(vec), vec)
-	action_history = []
-	while s != cor.sterm
-		a = cor.actions[select_action(π(s))]
-		(s, r) = cor.step(s, a)
-		s != cor.sterm && push!(state_history, s)
-		push!(rewardhistory, r)
-		push!(action_history, a)
-	end
-	return state_history, rewardhistory, action_history
+	actions = [:left, :right]
+
+	ptf = StateMDPTransitionSampler(step, 1)
+	StateMDP(actions, ptf, () -> 1, s -> s == 4)
 end
 
-# ╔═╡ edb145d7-95e0-44c9-a60f-57d517edb0c7
-reduce(hcat, run_corridor_episode(s -> [0.5, 0.5])) #this policy chooses randomly between both actions
+# ╔═╡ ff76ef94-fdf5-41f3-a31a-21c4629efabe
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const corridor_mdp = make_corridor_mdp()
+  ╠═╡ =#
 
-# ╔═╡ 23291878-b49d-4626-8313-1e7b2d1f8d44
-#statistics on time to exit corridor for random policy
-summarystats([run_corridor_episode(s -> [0.5, 0.5]) |> first |> length for _ in 1:10_000])
+# ╔═╡ f7433324-acc3-49a5-b5b3-ada0c8f09d52
+#=╠═╡
+runepisode(corridor_mdp)
+  ╠═╡ =#
+
+# ╔═╡ fb8904a9-ae64-41cc-93b6-5a25855edad0
+#=╠═╡
+function get_corridor_episode_stats(p::Real; ntrials=10_000)
+	1:ntrials |> Map(_ -> runepisode(corridor_mdp; π = s -> (rand() < p) + 1) |> first |> length) |> foldxt(+) |> a -> a / ntrials
+end
+  ╠═╡ =#
+
+# ╔═╡ cecc2a35-3850-4f66-84e8-e29da4f3d4b0
+#=╠═╡
+function get_corridor_episode_stats(π::Function; ntrials=10_000, kwargs...)
+	1:ntrials |> Map(_ -> runepisode(corridor_mdp; π = π, kwargs...) |> first |> length) |> foldxt(+) |> a -> a / ntrials
+end
+  ╠═╡ =#
+
+# ╔═╡ a019925a-460a-410e-a54b-50a4cfe0e90e
+#=╠═╡
+plot(scatter(x = 1 .- LinRange(0.01, 0.99, 100), y = -[get_corridor_episode_stats(p) for p in 1 .- LinRange(0.01, 0.99, 100)]), Layout(xaxis_title = "probability of right action", yaxis_title = "sample mean value of starting state", width = 800))
+  ╠═╡ =#
+
+# ╔═╡ f2f2dd1d-180c-4d36-b515-5079d129f93a
+#=╠═╡
+sarsa_λ(corridor_mdp, 1f0, 0.9f0, typemax(Int64), 100_000, 1, s -> [1]; ϵ = 0.0001f0, α = 0.000001f0, save_episode_steps = true).history.episode_steps |> a -> a ./ (1:length(a)) |> plot
+  ╠═╡ =#
+
+# ╔═╡ e1493cea-19c4-475d-98a0-86d27fb04af1
+#=╠═╡
+sarsa_λ(corridor_mdp, 1f0, 0.9f0, typemax(Int64), 100_000, 1, s -> [1]; ϵ = 0.001f0, α = 0.000001f0).greedy_policy |> get_corridor_episode_stats
+  ╠═╡ =#
+
+# ╔═╡ 3e5fc75b-61a5-49d5-b5bd-3d2847f5f72c
+#=╠═╡
+corridor_train = sarsa_λ(corridor_mdp, 1f0, 0.99f0, typemax(Int64), 1_000_000, 1, s -> [1]; ϵ = 0.5f0, α = 0.0001f0)
+  ╠═╡ =#
+
+# ╔═╡ 5334064b-5a16-4135-afa0-86a48291725b
+#=╠═╡
+corridor_train.value_function(1)
+  ╠═╡ =#
+
+# ╔═╡ 9fc4e716-a663-437b-907c-089b311bc28a
+isapprox(-21.7675f0, -21.7712f0)
+
+# ╔═╡ 5981f52b-d829-4c7d-b47b-33310f7d64a2
+#=╠═╡
+make_ϵ_greedy_policy!(corridor_train.value_function(1).action_values; ϵ = 0.0f0)
+  ╠═╡ =#
+
+# ╔═╡ 573878bb-020d-40f6-9329-3d5f91843010
+#=╠═╡
+get_corridor_episode_stats(corridor_train.greedy_policy; max_steps = 100, ntrials = 1_000_000)
+  ╠═╡ =#
 
 # ╔═╡ 8019bec9-1228-407b-9199-2fe29f26a981
 md"""
@@ -236,11 +307,14 @@ The value of the state at this probability is: $v_2 = - \frac{2+p}{p(1-p)} = -\f
 """
 
 # ╔═╡ 9c342958-1971-48ec-b919-5dfdcbc915a4
+#=╠═╡
 md"""
 #### Change Plot Background Color $(@bind bgcolor ColorStringPicker(default = "#121212"))
 """
+  ╠═╡ =#
 
 # ╔═╡ e5faaa1b-88cb-43e2-8d04-8972b58b4bda
+#=╠═╡
 begin
 	v1(p) = -2*(1+p)/((1-p)*p)
 	v2(p) = -(p+2)/((1-p)*p)
@@ -249,6 +323,7 @@ begin
 	traces = [scatter(x = plist, y = f.(1 .- plist), name = n) for (f, n) in zip([v1, v2, v3], ["V(S1)", "V(S2)", "V(S3)"])]
 	plot(traces, Layout(font_color = "LightGray", plot_bgcolor = bgcolor, paper_bgcolor = "rgb(40, 40, 40)", yaxis_range = [-100, 0], xaxis_title = "probability of right action", yaxis_title = "State Value", width = 900, height = 600))
 end
+  ╠═╡ =#
 
 # ╔═╡ 406638af-1e08-44d2-9ee4-97aa9294a94b
 md"""
@@ -377,136 +452,131 @@ function select_action(prbs::Dict)
 end
 
 # ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
-"""
-	reinforce_monte_carlo_control(π, ∇lnπ, d, s0, α, step, sterm, actions; 
-                             	γ = 1.0, max_episodes = 1000, maxsteps = Inf,
-								baseline = 0.0, θ = zeros(d))
-
-Implements the REINFORCE algorithm for Monte Carlo control, which is a policy gradient method for reinforcement learning. Given a function π that maps states to probability distributions over actions, and a function ∇lnπ that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ, this function learns the optimal policy for a given Markov decision process (MDP).
-
-Required arguments:
-- π: A function that maps a state to a probability distribution over actions. This function must take two arguments: the current state and the policy parameters θ.
-- ∇lnπ: A function that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ. This function must take three arguments: the action, the current state, and the policy parameters θ.
-- d: An integer representing the number of policy parameters to be learned.
-- s0: The initial state of the MDP.
-- α: The learning rate for the policy gradient update.
-- step: A function that takes a state and an action and returns the next state and the reward received. This function must take two arguments: the current state and the chosen action.
-- sterm: A state representing the terminal state of the MDP.
-- actions: A collection of all possible actions in the MDP.
-
-Optional keyword arguments:
-- γ: The discount factor for future rewards. Default value is 1.0.
-- max_episodes: The maximum number of episodes to run the algorithm. Default value is 1000.
-- maxsteps: The maximum number of steps to take in each episode. Default value is Inf.
-- baseline: The baseline value for the policy gradient update. Default value is 0.0.
-- θ: The initial policy parameters. Default value is a vector of zeros with length d.
-"""
-function reinforce_monte_carlo_control(π::Function, ∇lnπ::Function, d::Int64, s0, α, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), maxsteps = Inf, baseline = 0.0)
-	rewards = zeros(max_episodes)
-	
-	function run_episode(maxsteps)
-		state_history = [s0]
-		a = select_action(π(s0, θ))
-		action_history = [a]
-		(s, r) = step(s0, actions[a])
-		reward_history = [r]
-		while s != sterm && length(state_history) < maxsteps
-			a = select_action(π(s, θ))
-			push!(action_history, a)
-			(s, r) = step(s, actions[a])
-			push!(reward_history, r)
-			push!(state_history, s)
+begin
+	#version of reinforce for general function approximation
+	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, V, T<:Real, S, A, PTF, F1, F2, F3}
+		rewards = zeros(T, max_episodes)
+		action_preferences = zeros(T, length(mdp.actions))
+		function π(s)
+			update_feature_vector!(x, s)
+			update_preferences!(action_preferences, x, params)
+			# @info "Action preferences are $action_preferences"
+			soft_max!(action_preferences)
+			sample_action(action_preferences)
 		end
-		return state_history, action_history, reward_history
-	end	
-	for i in eachindex(rewards)
-		state_history, action_history, reward_history = run_episode(maxsteps)
-		G = 0.0
-		#iterate through episode beginning at the end
-		for i in reverse(eachindex(reward_history))
-			G = (γ * G) + reward_history[i]
-			θ .+= α * γ^(i-1) * (G - baseline) .* ∇lnπ(action_history[i], state_history[i], θ)
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		for i in eachindex(rewards)
+			# @info "On episode $i of $max_episodes"
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				update_feature_vector!(x, state_history[i])
+				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], params)
+				params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
 		end
-		rewards[i] = sum(reward_history)
+		return (episode_rewards = rewards, π = π, parameters = params)
 	end
-	return rewards, θ
+
+	#version of reinforce with binary feature vectors
+	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, T<:Real, S, A, PTF, F1, F2, F3}
+		rewards = zeros(T, max_episodes)
+		action_preferences = zeros(T, length(mdp.actions))
+		function update_preferences!(action_preferences, active_features, params)
+			@inbounds for i_a in eachindex(mdp.actions)
+				action_preferences[i_a] = zero(T)
+				@simd for i in active_features
+					action_preferences[i_a] += params[i, i_a]
+				end
+			end
+			return action_preferences
+		end
+		
+		function π(s)
+			active_features = get_active_features(s)
+			update_preferences!(action_preferences, active_features, params)
+			# @info "Action preferences are $action_preferences"
+			soft_max!(action_preferences)
+			sample_action(action_preferences)
+		end
+		
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		for i in eachindex(rewards)
+			# @info "On episode $i of $max_episodes"
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				active_features = get_active_features(state_history[i])
+				# update_eligibility_vector!(∇lnπ, action_preferences, active_features, action_history[i], params)
+				c = α * γ^(i-1) * (g - baseline)
+				update_preferences!(action_preferences, active_features, params)
+				soft_max!(action_preferences)
+				for i_a in eachindex(action_preferences)
+					@inbounds @simd for j in active_features
+						params[j, i_a] -= c*action_preferences[i_a]
+					end
+				end
+				@inbounds @simd for j in active_features
+					params[j, action_history[i]] += c*one(T)
+				end
+				# params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
+		end
+		return (episode_rewards = rewards, π = π, parameters = params)
+	end
 end
 
-# ╔═╡ 71973c41-5fbb-40bf-8cc9-e063c7372a1c
-"""
-    soft_max!(v::AbstractVector, out::AbstractVector)
+# ╔═╡ fda8d86c-de1e-4e5e-86de-77c3c670a5e5
+begin
+	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+		# function update_feature_vector!(x, s)
+		# 	x .= zero(T)
+		# 	for i in get_active_features(s)
+		# 		x .= one(T)
+		# 	end
+		# end
 
-Calculate the softmax of a vector `v` and store the result in another vector `out` of equal length.
+		# function update_preferences!(action_preferences, x, params)
+		# 	BLAS.gemv!('T', one(T), params, x, zero(T), action_preferences)
+		# 	# action_preferences .= params' * x
+		# end
 
-# Arguments
-- `v::AbstractVector`: The input vector.
-- `out::AbstractVector`: The output vector of equal length as `v`.
+		# function update_eligibility_vector!(∇lnπ, action_preferences, x, i_a, params)
+		# 	update_preferences!(action_preferences, x, params)
+		# 	soft_max!(action_preferences)
+		# 	BLAS.gemm!('N', 'T', -one(T), x, action_preferences, zero(T), ∇lnπ)
+		# 	# ∇lnπ .= -x * action_preferences'
+		# 	for i in eachindex(x)
+		# 		∇lnπ[i, i_a] += x[i]
+		# 	end
+		# end
 
-# Output
-- `out` is modified in-place to contain the softmax of `v`.
+		# x = zeros(T, num_features)
 
-# Examples
-```julia
-julia> v = [1.0, 2.0, 3.0]
-3-element Vector{Float64}:
- 1.0
- 2.0
- 3.0
-
-julia> out = similar(v)
-3-element Vector{Float64}:
- 0.0
- 0.0
- 0.0
-
-julia> soft_max!(v, out)
-3-element Vector{Float64}:
- 0.09003057317038046
- 0.24472847105479767
- 0.6652409557748219
-```
-"""
-function soft_max!(v::AbstractVector, out::AbstractVector)
-	out .= exp.(v)
-	s = sum(out)
-	out .= out ./ s
+		# reinforce_monte_carlo_control!(params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
+		reinforce_monte_carlo_control!(params, mdp, num_features, get_active_features, max_episodes; kwargs...)
+	end
 end
 
-# ╔═╡ cb83e57f-3b3b-44ae-8c75-69b9b12ec6f5
-function soft_max!(v::AbstractVector)
-	v .= exp.(v)
-	s = sum(v)
-	v .= v ./ s
-end
+# ╔═╡ de4c4e5a-52d6-42f6-a529-29b340f3233f
+#=╠═╡
+@btime reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000; params = [0f0 4f0], α = 1f-4, max_steps = 1_000)
+  ╠═╡ =#
 
-# ╔═╡ 49a1d508-b491-4d3a-8415-f5def06884e9
-"""
-    soft_max(v::AbstractVector) -> AbstractVector
-
-Calculate the softmax of a vector `v` and return the result in a new vector.
-
-# Arguments
-- `v::AbstractVector`: The input vector.
-
-# Output
-- A new vector of the same length as `v`, containing the softmax of `v`.
-
-# Examples
-```julia
-julia> v = [1.0, 2.0, 3.0]
-3-element Vector{Float64}:
- 1.0
- 2.0
- 3.0
-
-julia> out = soft_max(v)
-3-element Vector{Float64}:
- 0.09003057317038046
- 0.24472847105479767
- 0.6652409557748219
-```
-"""
-soft_max(v::AbstractVector) = soft_max!(v, similar(v))
+# ╔═╡ 24ed414e-1f2e-4db9-828f-bdbd3ac371af
+#=╠═╡
+1:100 |> Map(_ -> reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000; params = [0f0 3.7f0], α = 3f-4, max_steps = 1_000).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ 100 |> plot
+  ╠═╡ =#
 
 # ╔═╡ c6b61679-8a06-47ae-abab-6997ad5cbfea
 md"""
@@ -558,6 +628,7 @@ function run_corridor_reinforce(;α = 0.0002, θ_0 = [0.0, 0.0], kwargs...)
 end
 
 # ╔═╡ 5f91ce14-c9d4-4818-8955-8e7381b4943b
+#=╠═╡
 function average_runs(f, n; kwargs...) 
 	runs = Vector{Any}(undef, n)
 	# for i in 1:n
@@ -579,8 +650,10 @@ function average_runs(f, n; kwargs...)
 	
 	# reduce(+, runs) ./ n
 end
+  ╠═╡ =#
 
 # ╔═╡ a45c1930-ad70-44f4-a6bc-10ccb03f65ab
+#=╠═╡
 function figure_13_1(αlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
 	Random.seed!(seed)
 	traces = [begin
@@ -593,10 +666,13 @@ function figure_13_1(αlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs
 
 	plot([traces; baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld", width = 900, height = 600))
 end
+  ╠═╡ =#
 
 # ╔═╡ 71c8d422-8177-4324-b048-98dd39198fee
+#=╠═╡
 #in the source code used to generate this for the book found here: http://incompleteideas.net/book/code/figure_13_1.py-remove the episodes start with poor performace because the parameter vector is initialized to prefer left with 95% probability
 figure_13_1(2.0 .^ [-12, -13, -14]; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+  ╠═╡ =#
 
 # ╔═╡ a206c759-3f6e-4003-8cba-5f6ce6742646
 md"""
@@ -823,6 +899,7 @@ function run_corridor_critic(;αθ = 0.0002, αw = 0.0002, θ_0 = [0.0, 0.0], w_
 end
 
 # ╔═╡ 5f042c7e-45ad-4f8f-94d8-9133e67dd0f6
+#=╠═╡
 function figure_13_2(α, αθ, αw; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
 	Random.seed!(seed)
 	trace1 = begin
@@ -839,6 +916,7 @@ function figure_13_2(α, αθ, αw; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234,
 
 	plot([trace1, trace2, baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld",  height = 500))
 end
+  ╠═╡ =#
 
 # ╔═╡ b72e030f-7d52-481f-b4f7-2b16b227e547
 md"""
@@ -846,7 +924,9 @@ md"""
 """
 
 # ╔═╡ 87876de4-ca40-4736-81a8-bb26bc273d89
+#=╠═╡
 figure_13_2(2.0 ^-13, 2.0 .^ -9, 2.0 ^-3; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+  ╠═╡ =#
 
 # ╔═╡ ce33f710-fd9d-4dfa-acda-40204e54d518
 md"""
@@ -946,6 +1026,7 @@ md"""
 """
 
 # ╔═╡ 58ad84b0-f9c9-424e-8c05-0b15fbe7b349
+#=╠═╡
 function actor_critic_eligibility(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; λθ = 0.0, λw = 0.0, γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf, termination_threshold = (episode = Inf, reward = -Inf), zθ = zeros(size(θ)...), zw = zeros(size(w)...), showprogress = false, get_s0 = () -> s0)
 	rewards = zeros(max_episodes)
 	#initialize trace vectors
@@ -1012,8 +1093,10 @@ function actor_critic_eligibility(π::Function, ∇lnπ::Function, v̂::Function
 		
 	return rewards, θ, w
 end
+  ╠═╡ =#
 
 # ╔═╡ 8f11b8dc-2c3e-41a5-8dbb-9af06235fe85
+#=╠═╡
 function corridor_actor_critic(α, αθ, αw; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
 	Random.seed!(seed)
 	trace1 = begin
@@ -1036,11 +1119,15 @@ function corridor_actor_critic(α, αθ, αw; θ_0 = [2.0, 0.0], nruns = 100, se
 
 	plot([trace1, trace2, trace3, baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld",  height = 500))
 end
+  ╠═╡ =#
 
 # ╔═╡ 70d4e199-2941-46dd-99c0-0f0520bf976b
+#=╠═╡
 corridor_actor_critic(2.0 ^ -13, 2.0 ^ -9, 2.0 ^-3; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+  ╠═╡ =#
 
 # ╔═╡ 72900e88-98f4-4879-b005-d79ef6c7ee7f
+#=╠═╡
 function corridor_actor_critic_λ(αθ, αw, λlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
 	Random.seed!(seed)
 	traces = [begin
@@ -1054,6 +1141,7 @@ function corridor_actor_critic_λ(αθ, αw, λlist; θ_0 = [2.0, 0.0], nruns = 
 
 	plot([traces; baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "Actor-Critic λ Comparison short-Corridor gridworld",  height = 500))
 end
+  ╠═╡ =#
 
 # ╔═╡ 511a847f-234c-465e-8f4a-688e79d9b975
 md"""
@@ -1119,10 +1207,12 @@ $p(x) \hspace{5px} \dot = \hspace{5px} \frac{1}{\sigma \sqrt{2\pi}} \exp \left (
 """
 
 # ╔═╡ 79c85707-ea09-4f6b-ad51-a2683c3923c0
+#=╠═╡
 let x = LinRange(-5, 5, 10_000)
 	traces = [scatter(x = x, y = pdf.(Normal(0.0, σ), x), name = latexstring("\\sigma^2 = $(round(σ^2, sigdigits = 2))")) for σ in sqrt.([0.2, 1.0, 0.5, 5.0])]
 	plot(traces, Layout(xaxis_title = "x", title = "Normal Distribution N(μ, σ)"))
 end
+  ╠═╡ =#
 
 # ╔═╡ 7ccadf01-fbba-4dfd-a5ad-770dab9946f9
 md"""
@@ -1332,6 +1422,8 @@ function get_sa_keys(p::Dict{Tuple{A, B, A, C}, T}) where {T <: Real, A, B, C}
 end	
 
 # ╔═╡ ac43b613-5c74-45bd-a49e-5b30bb19f52d
+# ╠═╡ disabled = true
+#=╠═╡
 function bellman_optimal_value!(V::Dict{S, Float64}, p::Dict{Tuple{S, Float64, S, A}, Float64}, sa_keys::Tuple{Dict{S, Set{A}}, Dict{Tuple{S, A}, Set{Tuple{S, Float64}}}}, γ::Float64; invert_state = s -> 1.0) where {S, A}
 	delt = 0.0
 	calcvalue(s′, r, s, a) = p[(s′,r,s,a)] * (r + γ*V[s′])
@@ -1349,6 +1441,7 @@ function bellman_optimal_value!(V::Dict{S, Float64}, p::Dict{Tuple{S, Float64, S
 	end
 	return delt
 end
+  ╠═╡ =#
 
 # ╔═╡ 25dc6e02-dc77-4e7b-8639-ee39fee5d87e
 #struct to hold results of value iteration which consists of 1) the state value function either as a list for each iteration or a final value and 2) the optimal policy represented by a dictionary mapping states to action probability lookups
@@ -1356,6 +1449,40 @@ struct ValueIterationResults{V, S}
 	state_values::V
 	πstar::Dict{S, Dict{Int64, Float64}}
 end
+
+# ╔═╡ 1683b216-d310-4c66-81ba-0329898d90dd
+# ╠═╡ disabled = true
+#=╠═╡
+#perform value iteration accumulating the value function calculated at each step
+function value_iteration_v(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real, valuelist::AbstractVector{T}; kwargs...) where T <: Dict
+	(p, sa_keys) = mdp
+	if nmax <= 0 || delt <= θ
+		πstar = calculatepolicy(mdp, γ, V; kwargs...)
+		return ValueIterationResults(valuelist, πstar)
+	else 
+		newV = copy(V)
+		delt = bellman_optimal_value!(newV, p, sa_keys, γ; kwargs...)
+		newlist = [valuelist; [newV]]
+		value_iteration_v(θ, mdp, γ, newV, delt, nmax - 1, newlist; kwargs...)	
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ d538939d-df32-4766-b3c7-f9fc5af564df
+# ╠═╡ disabled = true
+#=╠═╡
+#perform value iteration updating a given value function in place
+function value_iteration_v!(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real; kwargs...) where T <: Dict
+	(p, sa_keys) = mdp
+	if nmax <= 0 || delt <= θ
+		πstar = calculatepolicy(mdp, γ, V; kwargs...)
+		return ValueIterationResults(V, πstar)
+	else 
+		delt = bellman_optimal_value!(V, p, sa_keys, γ; kwargs...)
+		value_iteration_v!(θ, mdp, γ, V, delt, nmax - 1; kwargs...)	
+	end
+end
+  ╠═╡ =#
 
 # ╔═╡ ee23064b-499a-4061-bfed-242ccbcbf25e
 #take a policy calculation over values for a given state and return a probability distribution for the greedy policy
@@ -1384,50 +1511,30 @@ function calculatepolicy(mdp::NamedTuple, γ::Float64, V::Dict; invert_state = s
 	convertπ(Dict(getpair(s) for s in keys(sa_keys[1])))
 end 
 
-# ╔═╡ 1683b216-d310-4c66-81ba-0329898d90dd
-#perform value iteration accumulating the value function calculated at each step
-function value_iteration_v(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real, valuelist::AbstractVector{T}; kwargs...) where T <: Dict
-	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		πstar = calculatepolicy(mdp, γ, V; kwargs...)
-		return ValueIterationResults(valuelist, πstar)
-	else 
-		newV = copy(V)
-		delt = bellman_optimal_value!(newV, p, sa_keys, γ; kwargs...)
-		newlist = [valuelist; [newV]]
-		value_iteration_v(θ, mdp, γ, newV, delt, nmax - 1, newlist; kwargs...)	
-	end
-end
-
-# ╔═╡ d538939d-df32-4766-b3c7-f9fc5af564df
-#perform value iteration updating a given value function in place
-function value_iteration_v!(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real; kwargs...) where T <: Dict
-	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		πstar = calculatepolicy(mdp, γ, V; kwargs...)
-		return ValueIterationResults(V, πstar)
-	else 
-		delt = bellman_optimal_value!(V, p, sa_keys, γ; kwargs...)
-		value_iteration_v!(θ, mdp, γ, V, delt, nmax - 1; kwargs...)	
-	end
-end
-
 # ╔═╡ ed2785a8-0fed-4052-8371-0e34982e8800
+# ╠═╡ disabled = true
+#=╠═╡
 function begin_value_iteration_v(θ, γ, mdp, V, nmax; kwargs...)
 	(p, sa_keys) = mdp
 	newV = copy(V)
 	delt = bellman_optimal_value!(newV, p, sa_keys, γ; kwargs...)
 	value_iteration_v(θ, mdp, γ, newV, delt, nmax-1, [V, newV]; kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ f5745c5a-8dd9-4827-a222-df4036498a0e
+# ╠═╡ disabled = true
+#=╠═╡
 function begin_value_iteration_v!(θ, γ, mdp, V, nmax; kwargs...)
 	(p, sa_keys) = mdp
 	delt = bellman_optimal_value!(V, p, sa_keys, γ; kwargs...)
 	value_iteration_v!(θ, mdp, γ, V, delt, nmax-1; kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ a81d2380-b853-432e-9592-d5461daad7b2
+# ╠═╡ disabled = true
+#=╠═╡
 function begin_value_iteration_v(mdp::NamedTuple, γ; θ = eps(0.0), nmax=Inf, Vinit = 0.0, savelist = true, kwargs...)
 	#initialize value at a constant
 	V = Dict(s => Vinit for s in keys(mdp[2][1]))
@@ -1438,8 +1545,11 @@ function begin_value_iteration_v(mdp::NamedTuple, γ; θ = eps(0.0), nmax=Inf, V
 	end
 	f(θ, γ, mdp, V, nmax; kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ fc68dd3e-e42d-4642-a5ba-bac9ba1b432d
+# ╠═╡ disabled = true
+#=╠═╡
 #for an episodic task add a terminal state that will remain at 0 value
 function begin_value_iteration_v(mdp::NamedTuple, sterm, γ::Real; θ = eps(0.0), nmax=Inf, Vinit = 0.0, savelist = true, kwargs...)
 	#initialize value at a constant
@@ -1452,10 +1562,14 @@ function begin_value_iteration_v(mdp::NamedTuple, sterm, γ::Real; θ = eps(0.0)
 	end
 	f(θ, γ, mdp, V, nmax; kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ a7316ca6-28ae-4ee0-b0be-e8d451beb17f
+# ╠═╡ disabled = true
+#=╠═╡
 # this is for continuing value iteration from some existing value function
 begin_value_iteration_v(mdp::NamedTuple, γ::Real, V; θ = eps(0.0), nmax=Inf, kwargs...) = begin_value_iteration_v(θ, γ, mdp, V, nmax; kwargs...)
+  ╠═╡ =#
 
 # ╔═╡ 5ce1af6b-847c-47f0-a6ca-867c35948caa
 md"""
@@ -1620,6 +1734,7 @@ end
 track1_setup = setup_racetrack_actor_critic(track1)
 
 # ╔═╡ e5a0a3fc-2eb3-4f31-8ab6-4a3130c70932
+#=╠═╡
 function execute_racetrack_actor_critic(track, setup, αθ, αw; kwargs...)
 	(π!, ∇lnπ!, v̂, ∇v̂, s0, step, states, sterm, actions, θ, w) = setup
 	#parameters
@@ -1632,9 +1747,11 @@ function execute_racetrack_actor_critic(track, setup, αθ, αw; kwargs...)
 
 	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ 85fc29c9-e5ca-4bc8-b607-51d75906a1f2
 # ╠═╡ show_logs = false
+#=╠═╡
 function eval_racetrack(track; nruns = nthreads(), αlist = 2. .^(-3:-1), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, 1.0], kwargs...)
 	opt_setup = setup_racetrack_actor_critic(track)
 	params = [(α, λ) for α in αlist for λ in λlist]
@@ -1647,11 +1764,15 @@ function eval_racetrack(track; nruns = nthreads(), αlist = 2. .^(-3:-1), λlist
 	for p in params]
 	plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "Cumulative Average Steps to Finish So Far", yaxis_type="log", width = 900, height = 600))
 end
+  ╠═╡ =#
 
 # ╔═╡ 6e2e9c99-8664-40f2-a1df-bd182db9859e
+#=╠═╡
 @bind run_eval_racetrack CounterButton("Click to run `eval_racetrack` and plot rewards per episode for different α and λ")
+  ╠═╡ =#
 
 # ╔═╡ b50282ed-e599-4687-bfbc-0ac9c4f30c84
+#=╠═╡
 function racetrack_optimize_λ(track, αθlist, αwlist; epavg = 100, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
 	opt_setup = setup_racetrack_actor_critic(track)
 	function maketrace(αθ, αw) 
@@ -1668,9 +1789,12 @@ function racetrack_optimize_λ(track, αθlist, αwlist; epavg = 100, nruns = nt
 	@progress traces = [maketrace(p...) for p in params]
 	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", width = 900, height = 600))
 end
+  ╠═╡ =#
 
 # ╔═╡ aeffb168-06d2-484e-beea-b507f329e4b8
+#=╠═╡
 @bind run_racetrack_optimize CounterButton("Click to run racetrack optimize λ")
+  ╠═╡ =#
 
 # ╔═╡ 80e40d2b-a67b-46eb-86fd-294c0a87a80f
 md"""
@@ -1812,6 +1936,7 @@ function blackjack_step(state, action)
 end			
 
 # ╔═╡ 097b8fc1-b4a4-4b93-bc08-2ceebd5d759a
+#=╠═╡
 function execute_blackjack_actor_critic(αθ, αw, statelookup; kwargs...)
 	nstates = length(statelookup)
 	
@@ -1869,8 +1994,10 @@ function execute_blackjack_actor_critic(αθ, αw, statelookup; kwargs...)
 
 	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ 519e6da0-efbf-4b0a-a61c-5849ba403389
+#=╠═╡
 function plotblackjackwinrate(αθ, αw, max_episodes; kwargs...)
 	y = cumsum(execute_blackjack_actor_critic(αθ, αw, blackjackstatelookup; max_episodes = max_episodes, kwargs...)[1])[100:end]
 	x = (100:max_episodes)
@@ -1880,11 +2007,15 @@ function plotblackjackwinrate(αθ, αw, max_episodes; kwargs...)
 	i = ceil(Int64, l / 10_000)
 	plot(scatter(x = x, y = y[1:i:l] ./ x[1:i:l]), Layout(xaxis_title = "Episode", yaxis_title = "Average Cumulative Reward", width = 800, height = 500))
 end
+  ╠═╡ =#
 
 # ╔═╡ 4c4ba58e-e3b7-4d02-81ae-b8d753487caa
+#=╠═╡
 plotblackjackwinrate(0.3, 0.3, 100_000; λθ = 0.5, λw = 0.5)
+  ╠═╡ =#
 
 # ╔═╡ 06d508ea-640d-4e55-b3b6-05c929f82c3b
+#=╠═╡
 function blackjack_optimize_λ(αθlist, αwlist; epavg = 1000, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
 	function maketrace(αθ, αw) 
 		@info "running for αθ = $αθ and αw = $αw"
@@ -1901,14 +2032,26 @@ function blackjack_optimize_λ(αθlist, αwlist; epavg = 1000, nruns = nthreads
 	@progress traces = [maketrace(p...) for p in paramlist]
 	plot(traces, Layout(font_color = "white", plot_bgcolor = "black", paper_bgcolor="rgb(40, 40, 40)", xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", height = 600))
 end
+  ╠═╡ =#
 
 # ╔═╡ 0c3714fd-821a-4dae-8d1e-1db35ebef315
+#=╠═╡
 @bind blackjackruncount CounterButton("Click to run Blackjack Optimize λ")
+  ╠═╡ =#
 
 # ╔═╡ 8cb58177-cc29-4bf0-af2f-704bebb9871f
+# ╠═╡ disabled = true
+#=╠═╡
 _, blackjackθ, blackjackw = execute_blackjack_actor_critic(0.25, 0.25, blackjackstatelookup; max_episodes = 500_000, λθ = 0.2, λw = 0.2)
+  ╠═╡ =#
+
+# ╔═╡ 7550213b-8174-4623-9abc-9dcbdc0351a8
+#=╠═╡
+plot_blackjack_policy(blackjackθ, blackjackw)
+  ╠═╡ =#
 
 # ╔═╡ 0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
+#=╠═╡
 function plot_blackjack_policy(θ, w)
 	πstargridua = zeros(10, 10)
 	πstargridnua = zeros(10, 10)
@@ -1954,9 +2097,7 @@ function plot_blackjack_policy(θ, w)
 	plot(p)
 end
 	
-
-# ╔═╡ 7550213b-8174-4623-9abc-9dcbdc0351a8
-plot_blackjack_policy(blackjackθ, blackjackw)
+  ╠═╡ =#
 
 # ╔═╡ 2b964c13-c961-4ed9-8b66-a6715ff7d0ef
 md"""
@@ -2338,13 +2479,104 @@ end
 # ╔═╡ 959e4a18-fe6e-4c9c-b9bf-f752108fd2dd
 x_step_vs_random(board, move) = ttt_step(board, move, get_random_move)
 
+# ╔═╡ b6f3d5b6-74b7-4211-b236-203881a97c38
+# ╠═╡ disabled = true
+#=╠═╡
+x_step_vs_random_results = execute_ttt_actor_critic(active_x_boards, x_step_vs_random, () -> rand() < 0.1 ? ttt_environment.init_board : rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
+  ╠═╡ =#
+
 # ╔═╡ 8731821b-d82a-4697-be21-522583d7dbab
+#=╠═╡
 @bind avgeps Slider(100:10000, show_value=true)
+  ╠═╡ =#
+
+# ╔═╡ 892df402-df32-4344-9201-0458b90fed26
+#=╠═╡
+plot_tttresults(x_step_vs_random_results, avgeps)
+  ╠═╡ =#
+
+# ╔═╡ f2fc13ac-6eff-43a0-bec9-f1d14f89cf91
+#=╠═╡
+style_value_policy(x_step_vs_random_results.eval_board, xplayboard...)
+  ╠═╡ =#
+
+# ╔═╡ 3728a916-a502-48ec-9c84-5b2e7e4df61c
+#=╠═╡
+#train O-player vs the first X policy
+o_step_vs_x1(board, move) = ttt_step(board, move, b -> select_action(x_step_vs_random_results.eval_board(b)[1]))
+  ╠═╡ =#
+
+# ╔═╡ e6cd6459-6e50-4c5c-b6d3-a55706bbb257
+# ╠═╡ disabled = true
+#=╠═╡
+o_vs_x1_results = execute_ttt_actor_critic(active_o_boards, o_step_vs_x1, () -> rand(active_o_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
+  ╠═╡ =#
+
+# ╔═╡ f88a0889-f3d5-4d75-a745-c734e4420802
+#=╠═╡
+plot_tttresults(o_vs_x1_results, avgeps)
+  ╠═╡ =#
+
+# ╔═╡ d219a48b-a491-44cc-b746-6c5282537855
+#=╠═╡
+style_value_policy(o_vs_x1_results.eval_board, oplayboard...)
+  ╠═╡ =#
+
+# ╔═╡ 4a999b16-1427-4b30-a2be-1919b0ad2caf
+#=╠═╡
+x_vs_o1(board, move) = ttt_step(board, move, b -> select_action(o_vs_x1_results.eval_board(b)[1]))
+  ╠═╡ =#
+
+# ╔═╡ aea8317c-fb5f-4817-b927-1c6d48072ea7
+# ╠═╡ disabled = true
+#=╠═╡
+x_vs_o1_results = execute_ttt_actor_critic(active_x_boards, x_vs_o1, () -> rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
+  ╠═╡ =#
+
+# ╔═╡ 73693dd6-f07c-4625-9d84-f356c91f5735
+#=╠═╡
+plot_tttresults(x_vs_o1_results, avgeps)
+  ╠═╡ =#
+
+# ╔═╡ 30090262-67a1-430a-b1fc-74fb59432def
+#=╠═╡
+style_value_policy(x_vs_o1_results.eval_board, xplayboard2...)
+  ╠═╡ =#
 
 # ╔═╡ 9e32d0d4-bdbb-46a7-ad3c-34184cea0b92
 md"""
 Compare these three policies on a single board state
 """
+
+# ╔═╡ 31112289-6978-49a9-a0ec-acba4289b0c8
+#=╠═╡
+displayboards(compdisplayboards1.htmlboards)
+  ╠═╡ =#
+
+# ╔═╡ ec60c197-e940-465d-ae13-20f1fa6f449b
+#=╠═╡
+compdisplayboards1 = makecompboard_display(compboard1[1], [x_step_vs_random_results, o_vs_x1_results, x_vs_o1_results], ["x vs random", "o vs x1", "x vs o1"]; cellsize = 70)
+  ╠═╡ =#
+
+# ╔═╡ b8612417-77da-489c-bf66-fb99a3e0ab25
+#=╠═╡
+displayexamplegame(x_step_vs_random_results, get_random_move)
+  ╠═╡ =#
+
+# ╔═╡ 0f18d16f-bfd3-4fb6-b8cf-34e76fe5ee0a
+#=╠═╡
+displayexamplegame(x_step_vs_random_results, o_vs_x1_results)
+  ╠═╡ =#
+
+# ╔═╡ 09768139-1c6c-4c69-99a1-b40f35505302
+#=╠═╡
+displayexamplegame(x_vs_o1_results, o_vs_x1_results)
+  ╠═╡ =#
+
+# ╔═╡ 2dd430db-1bfd-4f39-876b-0983b1c0fada
+#=╠═╡
+displayexamplegame(get_random_move, o_vs_x1_results)
+  ╠═╡ =#
 
 # ╔═╡ 9e9d1b3a-d8a5-45f2-87b1-20f7edf56793
 run_ttt_game(πx, πo) = run_ttt_game(πx, πo, [ttt_environment.init_board], Vector{UInt8}(), Vector{UInt8}())
@@ -2382,7 +2614,20 @@ compare_ttt_policies(p1::Function, p2::Function; kwargs...) = get_ttt_matchup_st
 # ╔═╡ 1d0fe433-0bca-4083-842b-dc209298af13
 nrounds = 10
 
+# ╔═╡ a0740d6d-d034-4037-b410-f31f76b207f5
+# ╠═╡ disabled = true
+#=╠═╡
+ttt_rounds_results = execute_actor_critic_selfplay(0.5, 0.5, nrounds; λθ = 0.5, λw = 0.5, max_episodes = 30_000)
+  ╠═╡ =#
+
+# ╔═╡ 87fd6b09-fd43-454c-a589-38dab5ccf71a
+# ╠═╡ disabled = true
+#=╠═╡
+plot_ttt_rounds(ttt_rounds_results; trials = 10_000)
+  ╠═╡ =#
+
 # ╔═╡ 124a38c0-dd7a-43b2-9f86-5a41261736e0
+#=╠═╡
 md"""
 Round:
 $(@bind roundcount Slider(1:nrounds, show_value=true))
@@ -2390,11 +2635,122 @@ $(@bind roundcount Slider(1:nrounds, show_value=true))
 Player:
 $(@bind playerselect Select([1 => "X", 2 => "O"]))
 """
+  ╠═╡ =#
+
+# ╔═╡ 90385599-9db0-4463-8063-81a41266712f
+#=╠═╡
+plot_tttresults(ttt_rounds_results[playerselect][roundcount], 100)
+  ╠═╡ =#
+
+# ╔═╡ 3c6243f6-973c-4521-9881-c66f94de83a0
+#=╠═╡
+function plot_ttt_rounds(round_results; trials = 1000)
+	xrounds = first(ttt_rounds_results) |> Map(x_results -> compare_ttt_policies(x_results, get_random_move, trials = trials)) |> tcollect
+	x_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in xrounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
+	p1 = Plot(x_traces, Layout(title = "X Player vs Random Policy", xaxis_title = "Rounds"))
+	orounds = last(ttt_rounds_results) |> Map(o_results -> compare_ttt_policies(get_random_move, o_results, trials = trials)) |> tcollect
+	o_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in orounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
+	p2 = Plot(o_traces, Layout(title = "O Player vs Random Policy", xaxis_title = "Rounds"))
+	plot([p1 p2])
+end
+  ╠═╡ =#
+
+# ╔═╡ a45949bc-878b-47fc-a239-cb8bb110046b
+#=╠═╡
+compare_ttt_policies(x_step_vs_random_results, get_random_move)
+  ╠═╡ =#
+
+# ╔═╡ afb19bfb-0e0d-4d3b-8db5-c9f1a91b61ae
+#=╠═╡
+compare_ttt_policies(get_random_move, o_vs_x1_results)
+  ╠═╡ =#
+
+# ╔═╡ 72025689-c50d-4f74-8ddb-5709b43b39ed
+#=╠═╡
+compare_ttt_policies(x_vs_o1_results, get_random_move)
+  ╠═╡ =#
+
+# ╔═╡ 2616cfe3-c66a-4d00-8caa-1b92e8bcfa6d
+#=╠═╡
+get_ttt_matchup_statistics(get_ttt_move(x_step_vs_random_results), get_ttt_move(o_vs_x1_results))
+  ╠═╡ =#
+
+# ╔═╡ eef60b59-8595-454c-89a3-f02729fbd1d5
+#=╠═╡
+get_ttt_matchup_statistics(get_ttt_move(x_vs_o1_results), get_ttt_move(o_vs_x1_results))
+  ╠═╡ =#
 
 # ╔═╡ 2900dc4e-eed2-4a5c-a026-d1d1bdaf62b9
 get_ttt_matchup_statistics(get_random_move, get_random_move)
 
+# ╔═╡ 2ec47c25-ec71-4cd9-b1b7-14ae8ee3492a
+# ╠═╡ disabled = true
+#=╠═╡
+ttt_selfplay_results = execute_ttt_actor_critic(active_ttt_boards, ttt_step, () -> rand() < 0.75 ? ttt_environment.init_board : rand(active_ttt_boards), 0.5, 0.1; λθ = 0.5, λw = 0.5, γ = 0.9, max_episodes = 100_000, showprogress=true)
+  ╠═╡ =#
+
+# ╔═╡ 8464adca-a780-4da1-bb1c-05db6277634c
+#=╠═╡
+plot_tttresults(ttt_selfplay_results, avgeps)
+  ╠═╡ =#
+
+# ╔═╡ 063e0ba3-69b0-4c77-8ecd-e8b70c64f7ba
+#=╠═╡
+style_value_policy(ttt_selfplay_results.eval_board, selfplayboard...)
+  ╠═╡ =#
+
+# ╔═╡ e431002a-e31a-42ed-9f98-2e766d8e3fa8
+#=╠═╡
+displayexamplegame(ttt_selfplay_results, o_vs_x1_results)
+  ╠═╡ =#
+
+# ╔═╡ 3153b4fc-1c2c-47d0-84ab-f40344df4794
+#=╠═╡
+displayexamplegame(ttt_selfplay_results, ttt_selfplay_results)
+  ╠═╡ =#
+
+# ╔═╡ 46277863-5e64-4e23-87e3-7980110a8742
+#=╠═╡
+compare_ttt_policies(ttt_selfplay_results, o_vs_x1_results)
+  ╠═╡ =#
+
+# ╔═╡ fe2d0874-ac60-421d-9632-9310af0b8d1f
+#=╠═╡
+compare_ttt_policies(ttt_selfplay_results, ttt_rounds_results[end][2])
+  ╠═╡ =#
+
+# ╔═╡ 9a7619e4-b6a6-4285-b7dc-0172b8fdafb1
+#=╠═╡
+displayexamplegame(ttt_selfplay_results, get_random_move)
+  ╠═╡ =#
+
+# ╔═╡ cf7dd9c3-6c51-40c9-bbea-08ccf4d3a8b1
+#=╠═╡
+compare_ttt_policies(ttt_selfplay_results, get_random_move)
+  ╠═╡ =#
+
+# ╔═╡ f17cc08e-e0e8-4bad-8f81-08eb1d03d827
+#=╠═╡
+compare_ttt_policies(x_vs_o1_results, o_vs_x1_results)
+  ╠═╡ =#
+
+# ╔═╡ f70dcbbd-e871-4f6d-9287-b468d511dc7b
+#=╠═╡
+compare_ttt_policies(x_vs_o1_results, get_random_move)
+  ╠═╡ =#
+
+# ╔═╡ c5502e6e-751a-4e24-851d-6cc1ed119c3f
+#=╠═╡
+compare_ttt_policies(x_step_vs_random_results, get_random_move)
+  ╠═╡ =#
+
+# ╔═╡ b72f2485-e9a9-4b2c-a126-d7a42a3d6ba6
+#=╠═╡
+compare_ttt_policies(ttt_selfplay_results, ttt_selfplay_results)
+  ╠═╡ =#
+
 # ╔═╡ 0d234b25-994f-4649-ac05-0df2dcf12264
+#=╠═╡
 function optimize_λ(αθlist, αwlist, opt_setup; epavg = 100, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
 	function maketrace(αθ, αw) 
 		@info "running for αθ = $αθ and αw = $αw"
@@ -2410,6 +2766,7 @@ function optimize_λ(αθlist, αwlist, opt_setup; epavg = 100, nruns = nthreads
 	@progress traces = [maketrace(p...) for p in params]
 	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", width = 900, height = 600))
 end
+  ╠═╡ =#
 
 # ╔═╡ 506a7c77-0d48-47a1-b3fd-d203101b9106
 function showboard(board::AbstractVector)
@@ -2493,6 +2850,7 @@ struct PolicyResultsTTT{T} <: ResultsTTT
 end
 
 # ╔═╡ 11d113f1-c1f0-4a58-a3b2-44c70b21cdac
+#=╠═╡
 function execute_ttt_actor_critic(states, step, get_s0, αθ, αw; kwargs...)
 	agent = setup_ttt_player(states)
 	s0 = ttt_environment.init_board
@@ -2511,27 +2869,10 @@ function execute_ttt_actor_critic(states, step, get_s0, αθ, αw; kwargs...)
 	end
 	PolicyResultsTTT(rewards, θout, wout, eval_board)
 end
-
-# ╔═╡ b6f3d5b6-74b7-4211-b236-203881a97c38
-x_step_vs_random_results = execute_ttt_actor_critic(active_x_boards, x_step_vs_random, () -> rand() < 0.1 ? ttt_environment.init_board : rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
-
-# ╔═╡ 3728a916-a502-48ec-9c84-5b2e7e4df61c
-#train O-player vs the first X policy
-o_step_vs_x1(board, move) = ttt_step(board, move, b -> select_action(x_step_vs_random_results.eval_board(b)[1]))
-
-# ╔═╡ e6cd6459-6e50-4c5c-b6d3-a55706bbb257
-o_vs_x1_results = execute_ttt_actor_critic(active_o_boards, o_step_vs_x1, () -> rand(active_o_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
-
-# ╔═╡ 4a999b16-1427-4b30-a2be-1919b0ad2caf
-x_vs_o1(board, move) = ttt_step(board, move, b -> select_action(o_vs_x1_results.eval_board(b)[1]))
-
-# ╔═╡ aea8317c-fb5f-4817-b927-1c6d48072ea7
-x_vs_o1_results = execute_ttt_actor_critic(active_x_boards, x_vs_o1, () -> rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
-
-# ╔═╡ 2ec47c25-ec71-4cd9-b1b7-14ae8ee3492a
-ttt_selfplay_results = execute_ttt_actor_critic(active_ttt_boards, ttt_step, () -> rand() < 0.75 ? ttt_environment.init_board : rand(active_ttt_boards), 0.5, 0.1; λθ = 0.5, λw = 0.5, γ = 0.9, max_episodes = 100_000, showprogress=true)
+  ╠═╡ =#
 
 # ╔═╡ 75377f64-9b4b-47ec-b25e-b17d42407fad
+#=╠═╡
 #modify this so that it uses the new functions and plots progress per round by showing the victory rate over the previous opponent
 function execute_actor_critic_selfplay(αθ, αw, rounds; kwargs...)
 	form_opponent(results) = (board, move) -> ttt_step(board, move, b -> select_action(results.eval_board(b)[1]))
@@ -2550,38 +2891,17 @@ function execute_actor_critic_selfplay(αθ, αw, rounds; kwargs...)
 	
 	return x_results, o_results
 end
-
-# ╔═╡ a0740d6d-d034-4037-b410-f31f76b207f5
-ttt_rounds_results = execute_actor_critic_selfplay(0.5, 0.5, nrounds; λθ = 0.5, λw = 0.5, max_episodes = 30_000)
+  ╠═╡ =#
 
 # ╔═╡ 83ccd36d-96c8-4665-9148-bdf95eb8dda1
+#=╠═╡
 function plot_tttresults(ttt_results::PolicyResultsTTT, avgeps = 100)
 	plot([mean(ttt_results.rewards[i:avgeps+i-1]) for i in 1:lastindex(ttt_results.rewards)-avgeps])
 end
-
-# ╔═╡ 892df402-df32-4344-9201-0458b90fed26
-plot_tttresults(x_step_vs_random_results, avgeps)
-
-# ╔═╡ f88a0889-f3d5-4d75-a745-c734e4420802
-plot_tttresults(o_vs_x1_results, avgeps)
-
-# ╔═╡ 73693dd6-f07c-4625-9d84-f356c91f5735
-plot_tttresults(x_vs_o1_results, avgeps)
-
-# ╔═╡ 90385599-9db0-4463-8063-81a41266712f
-plot_tttresults(ttt_rounds_results[playerselect][roundcount], 100)
-
-# ╔═╡ 8464adca-a780-4da1-bb1c-05db6277634c
-plot_tttresults(ttt_selfplay_results, avgeps)
+  ╠═╡ =#
 
 # ╔═╡ 938e33dd-c129-40d0-a72e-b7d1f3f770ff
 get_ttt_move(results::ResultsTTT) = b -> select_action(results.eval_board(b) |> first)
-
-# ╔═╡ 2616cfe3-c66a-4d00-8caa-1b92e8bcfa6d
-get_ttt_matchup_statistics(get_ttt_move(x_step_vs_random_results), get_ttt_move(o_vs_x1_results))
-
-# ╔═╡ eef60b59-8595-454c-89a3-f02729fbd1d5
-get_ttt_matchup_statistics(get_ttt_move(x_vs_o1_results), get_ttt_move(o_vs_x1_results))
 
 # ╔═╡ a278e854-e230-42aa-97a2-0f5b7d1815af
 function compare_ttt_policies(results1::ResultsTTT, results2::ResultsTTT; kwargs...)
@@ -2596,50 +2916,6 @@ compare_ttt_policies(results::ResultsTTT, p::Function; kwargs...) = get_ttt_matc
 # ╔═╡ 088c2166-17ab-4c22-b621-6421316ebd52
 compare_ttt_policies(p::Function, results::ResultsTTT; kwargs...) = get_ttt_matchup_statistics(p, get_ttt_move(results); kwargs...)
 
-# ╔═╡ 3c6243f6-973c-4521-9881-c66f94de83a0
-function plot_ttt_rounds(round_results; trials = 1000)
-	xrounds = first(ttt_rounds_results) |> Map(x_results -> compare_ttt_policies(x_results, get_random_move, trials = trials)) |> tcollect
-	x_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in xrounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
-	p1 = Plot(x_traces, Layout(title = "X Player vs Random Policy", xaxis_title = "Rounds"))
-	orounds = last(ttt_rounds_results) |> Map(o_results -> compare_ttt_policies(get_random_move, o_results, trials = trials)) |> tcollect
-	o_traces = [scatter(x = eachindex(round_results[1]), y = [a[sym] for a in orounds], name = String(sym)) for sym in (:x_win, :o_win, :is_draw)] 
-	p2 = Plot(o_traces, Layout(title = "O Player vs Random Policy", xaxis_title = "Rounds"))
-	plot([p1 p2])
-end
-
-# ╔═╡ 87fd6b09-fd43-454c-a589-38dab5ccf71a
-plot_ttt_rounds(ttt_rounds_results; trials = 10_000)
-
-# ╔═╡ a45949bc-878b-47fc-a239-cb8bb110046b
-compare_ttt_policies(x_step_vs_random_results, get_random_move)
-
-# ╔═╡ afb19bfb-0e0d-4d3b-8db5-c9f1a91b61ae
-compare_ttt_policies(get_random_move, o_vs_x1_results)
-
-# ╔═╡ 72025689-c50d-4f74-8ddb-5709b43b39ed
-compare_ttt_policies(x_vs_o1_results, get_random_move)
-
-# ╔═╡ 46277863-5e64-4e23-87e3-7980110a8742
-compare_ttt_policies(ttt_selfplay_results, o_vs_x1_results)
-
-# ╔═╡ fe2d0874-ac60-421d-9632-9310af0b8d1f
-compare_ttt_policies(ttt_selfplay_results, ttt_rounds_results[end][2])
-
-# ╔═╡ cf7dd9c3-6c51-40c9-bbea-08ccf4d3a8b1
-compare_ttt_policies(ttt_selfplay_results, get_random_move)
-
-# ╔═╡ f17cc08e-e0e8-4bad-8f81-08eb1d03d827
-compare_ttt_policies(x_vs_o1_results, o_vs_x1_results)
-
-# ╔═╡ f70dcbbd-e871-4f6d-9287-b468d511dc7b
-compare_ttt_policies(x_vs_o1_results, get_random_move)
-
-# ╔═╡ c5502e6e-751a-4e24-851d-6cc1ed119c3f
-compare_ttt_policies(x_step_vs_random_results, get_random_move)
-
-# ╔═╡ b72f2485-e9a9-4b2c-a126-d7a42a3d6ba6
-compare_ttt_policies(ttt_selfplay_results, ttt_selfplay_results)
-
 # ╔═╡ d4058d19-3c4d-48b9-9f65-f408fe79ce94
 struct ValueResultsTTT{V, S, T} <: ResultsTTT
 	state_values::V
@@ -2648,16 +2924,114 @@ struct ValueResultsTTT{V, S, T} <: ResultsTTT
 end
 
 # ╔═╡ 2c2275fc-7b61-4734-859e-3e01b1dfc0ca
+#=╠═╡
 function run_ttt_value_iteration(ptf; γ=1.0, savelist = false, kwargs...) 
 	results = begin_value_iteration_v(ptf, ttt_environment.term_board, γ; θ = 0.0, nmax=Inf, Vinit=0.0, savelist=savelist, kwargs...)
 	eval_board(b) = value_policy_output(results, b)
 	ValueResultsTTT(results.state_values, results.πstar, eval_board)
 end
+  ╠═╡ =#
+
+# ╔═╡ 9b726b74-0e54-4031-b48b-f99248363962
+#=╠═╡
+x_vs_random_value_results = run_ttt_value_iteration(x_vs_random_ptf; γ = 0.9)
+  ╠═╡ =#
+
+# ╔═╡ a4261098-17d6-47e4-9649-42e09d21d1ad
+#=╠═╡
+style_value_policy(x_vs_random_value_results.eval_board, base_board1...)
+  ╠═╡ =#
+
+# ╔═╡ 19fbb0b8-bc03-4203-a65d-0b1516b73174
+#=╠═╡
+o_vs_random_value_results = run_ttt_value_iteration(o_vs_random_ptf; invert_state = s -> -1.0)
+  ╠═╡ =#
 
 # ╔═╡ b81f3149-8cff-4639-9ba7-d96b062decc4
 md"""
 #### Visualize O Player Policy Against Random Opponent
 """
+
+# ╔═╡ c772ae36-3023-444f-a6f6-3b4c159541b8
+#=╠═╡
+style_value_policy(o_vs_random_value_results.eval_board, o_vs_random_value_board...)
+  ╠═╡ =#
+
+# ╔═╡ f9063856-b2bf-4b01-90cf-2420d53405d2
+#=╠═╡
+o_vs_x1_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_random_value_results.πstar[b])
+  ╠═╡ =#
+
+# ╔═╡ 540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
+#=╠═╡
+o_vs_x1_value_results = run_ttt_value_iteration(o_vs_x1_ptf, invert_state = s -> -1.0)
+  ╠═╡ =#
+
+# ╔═╡ e7a2e7df-f7fd-49db-8339-95fe96376ab6
+#=╠═╡
+style_value_policy(o_vs_x1_value_results.eval_board, o_vs_x1_value_board...)
+  ╠═╡ =#
+
+# ╔═╡ f6bb82e1-9274-425c-901a-35ced8c32f87
+#=╠═╡
+x_vs_o_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x1_value_results.πstar[b])
+  ╠═╡ =#
+
+# ╔═╡ c325fcc9-28a5-45ab-9517-b1f48b169664
+#=╠═╡
+x_vs_o_value_results = run_ttt_value_iteration(x_vs_o_ptf)
+  ╠═╡ =#
+
+# ╔═╡ 19163ab8-e3b8-4978-8968-48dd1aea6eed
+#=╠═╡
+style_value_policy(x_vs_o_value_results.eval_board, x_vs_o_value_board...)
+  ╠═╡ =#
+
+# ╔═╡ eaa953a0-6281-4dc8-9a93-fc8da3779fb6
+#=╠═╡
+o_vs_x2_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_o_value_results.πstar[b])
+  ╠═╡ =#
+
+# ╔═╡ a9c7a7e4-093b-4bc3-bf81-7ab8343994cc
+#=╠═╡
+o_vs_x2_value_results = run_ttt_value_iteration(o_vs_x2_ptf, invert_state = s -> -1.0)
+  ╠═╡ =#
+
+# ╔═╡ eecf7438-5e47-489d-bbb8-7b9dd524c540
+#=╠═╡
+style_value_policy(o_vs_x2_value_results.eval_board, o_vs_x2_value_board...)
+  ╠═╡ =#
+
+# ╔═╡ 47f54710-10e9-4f25-b122-595f33b9b37f
+#=╠═╡
+x_vs_o2_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x2_value_results.πstar[b])
+  ╠═╡ =#
+
+# ╔═╡ 4c44dcde-c390-4bdf-9d31-7f4e376112d3
+#=╠═╡
+x_vs_o2_value_results = run_ttt_value_iteration(x_vs_o2_ptf)
+  ╠═╡ =#
+
+# ╔═╡ 1ad20faa-caea-4de9-9897-9425f10d4b4b
+#=╠═╡
+style_value_policy(x_vs_o2_value_results.eval_board, x_vs_o2_value_board...)
+  ╠═╡ =#
+
+# ╔═╡ 839ba147-f695-4ba6-922e-c700db120ab3
+#=╠═╡
+#so these two policies are equivalent
+x_vs_o_value_results.πstar == x_vs_o2_value_results.πstar
+  ╠═╡ =#
+
+# ╔═╡ b1db9fd1-b276-4b12-a0d6-a20361265b2f
+#=╠═╡
+o_policy_comp = compare_actions(o_vs_x2_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards)
+  ╠═╡ =#
+
+# ╔═╡ a25e11f3-7e97-42ed-b1b5-fec72663001b
+#=╠═╡
+compare_actions(o_vs_random_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards) |> length #this is how many states that have a different policy
+  ╠═╡ =#
 
 # ╔═╡ 985cc4f8-80b9-4562-91c7-c962accdeb4d
 #add a function to show boards where the policies differ
@@ -2694,59 +3068,36 @@ end
 # ╔═╡ 8568dd44-ad15-42a6-9aff-62c41d2ff739
 const x_vs_random_ptf = make_ttt_ptf(active_x_boards, π_random_ttt)
 
-# ╔═╡ 9b726b74-0e54-4031-b48b-f99248363962
-x_vs_random_value_results = run_ttt_value_iteration(x_vs_random_ptf; γ = 0.9)
-
 # ╔═╡ 47492b1f-2ff4-4f98-9489-68b2d8bc45ac
 const o_vs_random_ptf = make_ttt_ptf(active_o_boards, π_random_ttt)
-
-# ╔═╡ 19fbb0b8-bc03-4203-a65d-0b1516b73174
-o_vs_random_value_results = run_ttt_value_iteration(o_vs_random_ptf; invert_state = s -> -1.0)
-
-# ╔═╡ f9063856-b2bf-4b01-90cf-2420d53405d2
-o_vs_x1_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_random_value_results.πstar[b])
-
-# ╔═╡ 540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
-o_vs_x1_value_results = run_ttt_value_iteration(o_vs_x1_ptf, invert_state = s -> -1.0)
-
-# ╔═╡ a25e11f3-7e97-42ed-b1b5-fec72663001b
-compare_actions(o_vs_random_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards) |> length #this is how many states that have a different policy
-
-# ╔═╡ f6bb82e1-9274-425c-901a-35ced8c32f87
-x_vs_o_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x1_value_results.πstar[b])
-
-# ╔═╡ c325fcc9-28a5-45ab-9517-b1f48b169664
-x_vs_o_value_results = run_ttt_value_iteration(x_vs_o_ptf)
-
-# ╔═╡ eaa953a0-6281-4dc8-9a93-fc8da3779fb6
-o_vs_x2_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_o_value_results.πstar[b])
-
-# ╔═╡ a9c7a7e4-093b-4bc3-bf81-7ab8343994cc
-o_vs_x2_value_results = run_ttt_value_iteration(o_vs_x2_ptf, invert_state = s -> -1.0)
-
-# ╔═╡ b1db9fd1-b276-4b12-a0d6-a20361265b2f
-o_policy_comp = compare_actions(o_vs_x2_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards)
-
-# ╔═╡ 47f54710-10e9-4f25-b122-595f33b9b37f
-x_vs_o2_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x2_value_results.πstar[b])
-
-# ╔═╡ 4c44dcde-c390-4bdf-9d31-7f4e376112d3
-x_vs_o2_value_results = run_ttt_value_iteration(x_vs_o2_ptf)
-
-# ╔═╡ 839ba147-f695-4ba6-922e-c700db120ab3
-#so these two policies are equivalent
-x_vs_o_value_results.πstar == x_vs_o2_value_results.πstar
 
 # ╔═╡ 28729f3c-2f68-4399-afe6-2c56a76cb3cc
 const selfplay_ptf = make_ttt_ptf()
 
 # ╔═╡ 1539ff60-3082-4e5c-ad52-dbb93299bac2
+#=╠═╡
 selfplay_value_results = run_ttt_value_iteration(selfplay_ptf, invert_state = s -> is_o_move(s) ? -1.0 : 1.0)
+  ╠═╡ =#
+
+# ╔═╡ 3afd97de-fa10-4458-a272-ede2fea04118
+#=╠═╡
+style_value_policy(selfplay_value_results.eval_board, selfplay_value_board...)
+  ╠═╡ =#
 
 # ╔═╡ 9f1d9b18-d5cc-4c91-85ae-b60f617e8d09
 md"""
 ### Compare Learned Policies
 """
+
+# ╔═╡ d8a17ed4-ce58-4495-8bb6-a84974d78977
+#=╠═╡
+displayboards(comp1displayboards.htmlboards)
+  ╠═╡ =#
+
+# ╔═╡ 034cf1e9-7408-4360-9338-d5aa00c25eec
+#=╠═╡
+comp1displayboards = makecompboard_display(policycompboard[1], [selfplay_value_results, ttt_selfplay_results, x_vs_random_value_results, x_step_vs_random_results, o_vs_random_value_results, o_vs_x1_value_results, x_vs_o_value_results], ["value iteration selfplay", "actor/critic selfplay", "value iteration x vs random", "actor critic vs random", "value iteration o vs random", "value iteration o vs x1", "value iteration x vs o1"]; cellsize = 70)
+  ╠═╡ =#
 
 # ╔═╡ 35761e33-0319-4d8c-aeea-263ddc752626
 function makepolicycomptable(xplayers, oplayers)
@@ -2762,7 +3113,14 @@ function makepolicycomptable(xplayers, oplayers)
 end
 
 # ╔═╡ 1d1269e2-a175-4fee-b43b-999dd9d6e061
+#=╠═╡
 matchup_tables = makepolicycomptable([selfplay_value_results, x_vs_random_value_results, x_vs_o_value_results, get_random_move], [selfplay_value_results, o_vs_random_value_results, o_vs_x1_value_results, get_random_move])
+  ╠═╡ =#
+
+# ╔═╡ 6f4db010-7738-435d-8338-1353e8e40f39
+#=╠═╡
+display_matchup_comps(matchup_tables, ["selfplay value", "x vs random", "x vs o1 value", "random"], ["selfplay value", "o vs random", "o vs x1 value", "random"]; title = "Value Iteration Outcome Probabilities")
+  ╠═╡ =#
 
 # ╔═╡ 5636cc70-c885-4b57-9f9a-d1848d285735
 joinrow(a, b) = "$a|$b"
@@ -2806,29 +3164,40 @@ function display_matchup_comps(tables, xnames, onames; title = "Outcome Probabil
 	Markdown.parse(out)
 end
 
-# ╔═╡ 6f4db010-7738-435d-8338-1353e8e40f39
-display_matchup_comps(matchup_tables, ["selfplay value", "x vs random", "x vs o1 value", "random"], ["selfplay value", "o vs random", "o vs x1 value", "random"]; title = "Value Iteration Outcome Probabilities")
-
 # ╔═╡ bebc22d1-ccdb-4a60-90e2-7574aa6fc74b
+#=╠═╡
 compare_ttt_policies(selfplay_value_results, o_vs_x1_results)
+  ╠═╡ =#
 
 # ╔═╡ 88faed7e-9e0d-48a2-8992-72f20854157f
+#=╠═╡
 compare_ttt_policies(selfplay_value_results, get_random_move)
+  ╠═╡ =#
 
 # ╔═╡ cdf467f0-1dec-46cb-a354-8fde5eb22e09
+#=╠═╡
 compare_ttt_policies(x_vs_random_value_results, get_random_move)
+  ╠═╡ =#
 
 # ╔═╡ d2abed56-7b34-4885-96ed-9c295870d061
+#=╠═╡
 compare_ttt_policies(x_vs_random_value_results, selfplay_value_results)
+  ╠═╡ =#
 
 # ╔═╡ b771489e-7bd8-4977-bc26-f667bb036b82
+#=╠═╡
 compare_ttt_policies(selfplay_value_results, selfplay_value_results)
+  ╠═╡ =#
 
 # ╔═╡ 49de73c3-dcbe-4012-a997-924e06e6f912
+#=╠═╡
 compare_ttt_policies(get_random_move, selfplay_value_results)
+  ╠═╡ =#
 
 # ╔═╡ 737d4566-a737-46d1-87f0-c691c7a12525
+#=╠═╡
 compare_ttt_policies(get_random_move, o_vs_random_value_results)
+  ╠═╡ =#
 
 # ╔═╡ 3b403f52-c12e-4477-9597-b1ba89096738
 const boardnodes = Dict(begin
@@ -2950,16 +3319,27 @@ wordlist = split(word_data, "\n") |> Filter(!isempty) |> Map(String) |> collect
   ╠═╡ =#
 
 # ╔═╡ 7863fa1c-1dad-4f4c-8927-5be4c6535820
+# ╠═╡ disabled = true
+#=╠═╡
 const letters = collect('a':'z')
+  ╠═╡ =#
 
 # ╔═╡ 8783f033-895c-4442-b054-1bcb92e36df9
+#=╠═╡
 const letter_lookup = Dict(zip(letters, UInt8.(eachindex(letters))))
+  ╠═╡ =#
 
 # ╔═╡ 95c290c2-c622-431a-bb91-570183cb1385
+# ╠═╡ disabled = true
+#=╠═╡
 const MISSING = 0x00
+  ╠═╡ =#
 
 # ╔═╡ 3c505317-95b2-4216-a3fe-6f7e2a858e80
+# ╠═╡ disabled = true
+#=╠═╡
 const EXACT = 0x02
+  ╠═╡ =#
 
 # ╔═╡ 79283854-9816-489e-88fb-d4d1adf2b208
 const MISPLACED = 0x01
@@ -2973,10 +3353,14 @@ const WORDLETERM = BitVector(zeros(length(wordlist)))
   ╠═╡ =#
 
 # ╔═╡ bd5e1f4e-6c9b-4abc-a0c1-89a3993d8210
+#=╠═╡
 word2num(word) = SVector{5, UInt8}(letter_lookup[c] for c in word)
+  ╠═╡ =#
 
 # ╔═╡ ea44fb9c-2faa-4c0b-888b-7eac95b9e19c
+#=╠═╡
 num2word(vec) = String([letters[i] for i in vec])
+  ╠═╡ =#
 
 # ╔═╡ 39bb639c-6719-4da7-8726-c3c8621e5fb4
 #=╠═╡
@@ -2989,21 +3373,37 @@ const word_arrays = [word2num(w) for w in wordlist]
   ╠═╡ =#
 
 # ╔═╡ fd0c6dda-90b5-43ec-bdc0-df875212d9f1
+# ╠═╡ disabled = true
+#=╠═╡
 const feedback_index = SVector{243}(SVector{5, UInt8}(digits(n; base=3, pad=5)) for n in 0:242)
+  ╠═╡ =#
 
 # ╔═╡ 4307c04c-9440-4991-9455-7b7d959ac656
+# ╠═╡ disabled = true
+#=╠═╡
 get_feedback(n::Integer) = feedback_index[n+1]
+  ╠═╡ =#
 
 # ╔═╡ edc5a1e2-a1e0-495a-8153-0398df9cf2b5
+# ╠═╡ disabled = true
+#=╠═╡
 convert_bytes(v) = eachindex(v) |> Map(i -> v[i] * (3 ^ (i-1))) |> sum |> UInt8
+  ╠═╡ =#
 
 # ╔═╡ c96dd818-96aa-4493-b8fb-77c51a72194f
+# ╠═╡ disabled = true
+#=╠═╡
 const char_counts = MVector{26}(zeros(UInt8, 26))
+  ╠═╡ =#
 
 # ╔═╡ c6f31993-0cf0-4da4-82e1-3a2b28874f77
+# ╠═╡ disabled = true
+#=╠═╡
 const checkinds = BitVector(zeros(5))
+  ╠═╡ =#
 
 # ╔═╡ a8e77437-596f-45db-9773-14f9fe953259
+#=╠═╡
 function get_feedback(guess::SVector{5, UInt8}, answer::SVector{5, UInt8}, counts::MVector{26, UInt8} = MVector{26, UInt8}(zeros(26)), checkinds = checkinds)
 	output::UInt8 = 0x00
 	counts .= 0x00
@@ -3033,6 +3433,7 @@ function get_feedback(guess::SVector{5, UInt8}, answer::SVector{5, UInt8}, count
 	end
 	return output
 end
+  ╠═╡ =#
 
 # ╔═╡ a4d820f6-f6a9-4988-8c0e-d18967d305e3
 #=╠═╡
@@ -3162,13 +3563,19 @@ function show_or_lookup_plot(buttoncounter::Integer, args::Tuple, kwargs::NamedT
 end
 
 # ╔═╡ 617dba19-2819-4317-a652-e39235030aa9
+#=╠═╡
 show_or_lookup_plot(run_eval_racetrack, (track1,), (max_episodes = 1000, maxsteps = 10_000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8]), eval_racetrack_plots, eval_racetrack, "racetrack episode progress")
+  ╠═╡ =#
 
 # ╔═╡ 8e10be80-6902-46df-ab72-1a999dd44d2e
+#=╠═╡
 show_or_lookup_plot(run_racetrack_optimize, (track1, [0.3, 0.5, 0.8], [0.3, 0.5]), (max_episodes = 1000, maxsteps = 10_000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8]), racetrack_optimize_λ_plots, racetrack_optimize_λ, "racetrack optimize λ plot")
+  ╠═╡ =#
 
 # ╔═╡ 6046893f-2f7a-40cc-8844-22c62f2e2660
+#=╠═╡
 show_or_lookup_plot(blackjackruncount, (2. .^ (-3:-1), 2. .^ (-3:-1)), (max_episodes = 1_000_000, λlist = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0]), blackjack_optimize_λ_plots, blackjack_optimize_λ, "blackjack optimize λ plot")
+  ╠═╡ =#
 
 # ╔═╡ 1227cfdb-19ea-4df8-80ae-724ef403d5c9
 md"""
@@ -3592,27 +3999,6 @@ function displayexamplegame(xplayer::PolicyResultsTTT, oplayer::PolicyResultsTTT
 	joinelements(base, annotate_value(gameboards[end][2][2], outcomestr)) |> HTML
 end
 
-# ╔═╡ b8612417-77da-489c-bf66-fb99a3e0ab25
-displayexamplegame(x_step_vs_random_results, get_random_move)
-
-# ╔═╡ 0f18d16f-bfd3-4fb6-b8cf-34e76fe5ee0a
-displayexamplegame(x_step_vs_random_results, o_vs_x1_results)
-
-# ╔═╡ 09768139-1c6c-4c69-99a1-b40f35505302
-displayexamplegame(x_vs_o1_results, o_vs_x1_results)
-
-# ╔═╡ 2dd430db-1bfd-4f39-876b-0983b1c0fada
-displayexamplegame(get_random_move, o_vs_x1_results)
-
-# ╔═╡ e431002a-e31a-42ed-9f98-2e766d8e3fa8
-displayexamplegame(ttt_selfplay_results, o_vs_x1_results)
-
-# ╔═╡ 3153b4fc-1c2c-47d0-84ab-f40344df4794
-displayexamplegame(ttt_selfplay_results, ttt_selfplay_results)
-
-# ╔═╡ 9a7619e4-b6a6-4285-b7dc-0172b8fdafb1
-displayexamplegame(ttt_selfplay_results, get_random_move)
-
 # ╔═╡ 2ec09938-55c8-4259-adb7-0d35ef6a6b42
 #create interactive board that works with @bind
 function TTTBoard(;cellsize = 100, alignment = "flex-start")
@@ -3645,35 +4031,17 @@ get_board_status(testboard[1]), get_reward(testboard[1]), isvalid(testboard[1])
 # ╔═╡ 6c9a1063-29d7-45ab-84d0-475d806ccec7
 @bind xplayboard TTTBoard()
 
-# ╔═╡ f2fc13ac-6eff-43a0-bec9-f1d14f89cf91
-style_value_policy(x_step_vs_random_results.eval_board, xplayboard...)
-
 # ╔═╡ a9efdd1c-fb11-45f4-9ef1-da5a7298b504
 @bind oplayboard TTTBoard()
-
-# ╔═╡ d219a48b-a491-44cc-b746-6c5282537855
-style_value_policy(o_vs_x1_results.eval_board, oplayboard...)
 
 # ╔═╡ f2e33f78-d61c-4337-9430-f75ab01e2d36
 @bind xplayboard2 TTTBoard()
 
-# ╔═╡ 30090262-67a1-430a-b1fc-74fb59432def
-style_value_policy(x_vs_o1_results.eval_board, xplayboard2...)
-
 # ╔═╡ 21a726ef-48f3-4e69-870c-549add227181
 @bind compboard1 TTTBoard(cellsize = 70)
 
-# ╔═╡ ec60c197-e940-465d-ae13-20f1fa6f449b
-compdisplayboards1 = makecompboard_display(compboard1[1], [x_step_vs_random_results, o_vs_x1_results, x_vs_o1_results], ["x vs random", "o vs x1", "x vs o1"]; cellsize = 70)
-
-# ╔═╡ 31112289-6978-49a9-a0ec-acba4289b0c8
-displayboards(compdisplayboards1.htmlboards)
-
 # ╔═╡ 2224d20f-c8dc-4ef6-af81-d1f832bee5ea
 @bind selfplayboard TTTBoard()
-
-# ╔═╡ 063e0ba3-69b0-4c77-8ecd-e8b70c64f7ba
-style_value_policy(ttt_selfplay_results.eval_board, selfplayboard...)
 
 # ╔═╡ f27dbf3c-df30-453c-8764-879df3b93694
 md"""
@@ -3684,63 +4052,37 @@ Higher probability moves appear more green.  Click on board to change state by a
 $(@bind base_board1 TTTBoard())
 """
 
-# ╔═╡ a4261098-17d6-47e4-9649-42e09d21d1ad
-style_value_policy(x_vs_random_value_results.eval_board, base_board1...)
-
 # ╔═╡ 3efbbb22-1e34-4924-8a16-7289210437af
 @bind o_vs_random_value_board TTTBoard()
-
-# ╔═╡ c772ae36-3023-444f-a6f6-3b4c159541b8
-style_value_policy(o_vs_random_value_results.eval_board, o_vs_random_value_board...)
 
 # ╔═╡ 3f305df4-8419-42a0-b4c8-3990248aa0ce
 @bind o_vs_x1_value_board TTTBoard()
 
-# ╔═╡ e7a2e7df-f7fd-49db-8339-95fe96376ab6
-style_value_policy(o_vs_x1_value_results.eval_board, o_vs_x1_value_board...)
-
 # ╔═╡ dd17568a-4529-4fed-a84a-19b7207719e6
 @bind x_vs_o_value_board TTTBoard()
-
-# ╔═╡ 19163ab8-e3b8-4978-8968-48dd1aea6eed
-style_value_policy(x_vs_o_value_results.eval_board, x_vs_o_value_board...)
 
 # ╔═╡ 632fe679-d8e3-4555-9664-e655363b960a
 @bind o_vs_x2_value_board TTTBoard()
 
-# ╔═╡ eecf7438-5e47-489d-bbb8-7b9dd524c540
-style_value_policy(o_vs_x2_value_results.eval_board, o_vs_x2_value_board...)
-
 # ╔═╡ 03aabd5b-ada4-4a3a-96f1-e9cfc76e37a9
 @bind x_vs_o2_value_board TTTBoard()
-
-# ╔═╡ 1ad20faa-caea-4de9-9897-9425f10d4b4b
-style_value_policy(x_vs_o2_value_results.eval_board, x_vs_o2_value_board...)
 
 # ╔═╡ 3b466d93-fb32-4081-87db-e69d8e580af4
 @bind selfplay_value_board TTTBoard()
 
-# ╔═╡ 3afd97de-fa10-4458-a272-ede2fea04118
-style_value_policy(selfplay_value_results.eval_board, selfplay_value_board...)
-
 # ╔═╡ 15db7b51-0e5a-4356-9eff-8807b0666132
 @bind policycompboard TTTBoard(cellsize = 80)
 
-# ╔═╡ 034cf1e9-7408-4360-9338-d5aa00c25eec
-comp1displayboards = makecompboard_display(policycompboard[1], [selfplay_value_results, ttt_selfplay_results, x_vs_random_value_results, x_step_vs_random_results, o_vs_random_value_results, o_vs_x1_value_results, x_vs_o_value_results], ["value iteration selfplay", "actor/critic selfplay", "value iteration x vs random", "actor critic vs random", "value iteration o vs random", "value iteration o vs x1", "value iteration x vs o1"]; cellsize = 70)
-
-# ╔═╡ d8a17ed4-ce58-4495-8bb6-a84974d78977
-displayboards(comp1displayboards.htmlboards)
-
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
-# Dependencies and Settings
+# Dependencies
 """
 
 # ╔═╡ 16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
 import HypertextLiteral.@htl
 
 # ╔═╡ 92b62688-2cff-4286-958f-9f4e32de52ee
+#=╠═╡
 function makeboardselector() 
 	PlutoUI.combine() do Child
 		makechild() = @htl("""<div>$(Child(Select([0x00 => "", 0x01 => "X", 0x02 => "O", ])))</div>""")
@@ -3761,15 +4103,17 @@ function makeboardselector()
 		""")
 	end
 end
+  ╠═╡ =#
 
 # ╔═╡ f59a5dcd-9f4a-4336-a391-e64af35ef799
 html"""
 	<style>
 		main {
 			margin: 0 auto;
-			max-width: 2000px;
-	    	padding-left: max(80px, 10%);
-	    	padding-right: max(80px, 15%);
+			max-width: min(1600px, 90%);
+			padding-left: max(10px, 5%);
+			padding-right: max(10px, 5%);
+			font-size: max(10px, min(24px, 2vw));
 		}
 	</style>
 	"""
@@ -3783,12 +4127,14 @@ HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
+PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-ProfileCanvas = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
@@ -3798,11 +4144,13 @@ Distributions = "~0.25.87"
 HTTP = "~1.9.4"
 HypertextLiteral = "~0.9.4"
 LaTeXStrings = "~1.3.0"
+PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.3.6"
+PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.50"
-ProfileCanvas = "~0.1.6"
 ProgressLogging = "~0.1.4"
 StaticArrays = "~1.5.21"
+Statistics = "~1.11.1"
 StatsBase = "~0.33.21"
 Transducers = "~0.4.75"
 """
@@ -3813,13 +4161,18 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "df4c662820daeb9a2de8ed46e32479dd62deb7ba"
+project_hash = "8d6b2af847155e76742766ce1a37969a1d8366e3"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.3.2"
+
+[[deps.AbstractTrees]]
+git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.3.4"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -3906,6 +4259,12 @@ version = "1.3.2"
 git-tree-sha1 = "0691e34b3bb8be9307330f88d1a3c3f25466c24d"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
 version = "0.1.9"
+
+[[deps.CodeTracking]]
+deps = ["InteractiveUtils", "UUIDs"]
+git-tree-sha1 = "7eee164f122511d3e4e1ebadb7956939ea7e1c77"
+uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
+version = "1.3.6"
 
 [[deps.CodecZlib]]
 deps = ["TranscodingStreams", "Zlib_jll"]
@@ -4056,6 +4415,16 @@ git-tree-sha1 = "d36f682e590a83d63d1c7dbd287573764682d12a"
 uuid = "460bff9d-24e4-43bc-9d9f-a8973cb893f4"
 version = "0.1.11"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "2dd20384bf8c6d411b5c7370865b1e9b26cb2ea3"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.16.6"
+weakdeps = ["HTTP"]
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
@@ -4077,6 +4446,12 @@ deps = ["Statistics"]
 git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.5"
+
+[[deps.FlameGraphs]]
+deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
+git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
+uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
+version = "0.2.10"
 
 [[deps.Future]]
 deps = ["Random"]
@@ -4112,6 +4487,11 @@ deps = ["Logging", "Random"]
 git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.5"
+
+[[deps.IndirectArrays]]
+git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
+uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
+version = "1.0.0"
 
 [[deps.InitialValues]]
 git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
@@ -4155,10 +4535,22 @@ git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.4"
 
+[[deps.JuliaInterpreter]]
+deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
+git-tree-sha1 = "4bf4b400a8234cff0f177da4a160a90296159ce9"
+uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
+version = "0.9.41"
+
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.3.1"
+
+[[deps.LeftChildRightSiblingTrees]]
+deps = ["AbstractTrees"]
+git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
+uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
+version = "0.1.3"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -4354,6 +4746,12 @@ version = "0.8.20"
     IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
     JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 
+[[deps.PlutoDevMacros]]
+deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
+git-tree-sha1 = "72f65885168722413c7b9a9debc504c7e7df7709"
+uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
+version = "0.9.0"
+
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "Colors", "Dates", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "PackageExtensionCompat", "PlotlyBase", "PlutoUI", "Reexport"]
 git-tree-sha1 = "9a77654cdb96e8c8a0f1e56a053235a739d453fe"
@@ -4365,6 +4763,12 @@ version = "0.3.9"
 
     [deps.PlutoPlotly.weakdeps]
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
+
+[[deps.PlutoProfile]]
+deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
+git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
+uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
+version = "0.4.0"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
@@ -4394,10 +4798,10 @@ uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 version = "1.11.0"
 
 [[deps.ProfileCanvas]]
-deps = ["Base64", "JSON", "Pkg", "Profile", "REPL"]
-git-tree-sha1 = "e42571ce9a614c2fbebcaa8aab23bbf8865c624e"
+deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
-version = "0.1.6"
+version = "0.1.0"
 
 [[deps.ProgressLogging]]
 deps = ["Logging", "SHA", "UUIDs"]
@@ -4678,14 +5082,22 @@ version = "17.4.0+2"
 # ╟─48dcd2d0-a940-41da-a097-90c780f2ec4d
 # ╟─d95f75b5-21d8-4862-baa7-50b58d9725b8
 # ╟─fc3dcd26-c5cf-4141-bf6c-eaed5fc9bb1d
+# ╟─dcb306ae-a1b1-43d6-ba6e-e38668838689
+# ╠═33c99850-67cd-4754-94b9-6df97b238e27
 # ╟─7a6fb1f0-fc3c-4c29-a6d9-769d32ca98a9
-# ╠═1b89a5be-d4f6-43b6-b778-0895d77d0962
-# ╠═759afa53-2b01-4d9b-b398-80120626634f
-# ╠═97046258-7753-4edb-b0c9-0981d587ad35
-# ╠═423321cc-1c8c-44a0-bd8e-a4d3cb68962b
-# ╠═980af3e7-2f1c-49be-8f6b-fc61271dff52
-# ╠═edb145d7-95e0-44c9-a60f-57d517edb0c7
-# ╠═23291878-b49d-4626-8313-1e7b2d1f8d44
+# ╠═5cc4d12d-b537-47e2-8109-4e7a234fdf25
+# ╠═ff76ef94-fdf5-41f3-a31a-21c4629efabe
+# ╠═f7433324-acc3-49a5-b5b3-ada0c8f09d52
+# ╠═fb8904a9-ae64-41cc-93b6-5a25855edad0
+# ╠═cecc2a35-3850-4f66-84e8-e29da4f3d4b0
+# ╠═a019925a-460a-410e-a54b-50a4cfe0e90e
+# ╠═f2f2dd1d-180c-4d36-b515-5079d129f93a
+# ╠═e1493cea-19c4-475d-98a0-86d27fb04af1
+# ╠═3e5fc75b-61a5-49d5-b5bd-3d2847f5f72c
+# ╠═5334064b-5a16-4135-afa0-86a48291725b
+# ╠═9fc4e716-a663-437b-907c-089b311bc28a
+# ╠═5981f52b-d829-4c7d-b47b-33310f7d64a2
+# ╠═573878bb-020d-40f6-9329-3d5f91843010
 # ╟─8019bec9-1228-407b-9199-2fe29f26a981
 # ╟─38e5d800-4d43-40d2-87ea-f7d4b4283dab
 # ╟─b94fc99c-f439-4df2-8da3-c01718a136c4
@@ -4701,9 +5113,9 @@ version = "17.4.0+2"
 # ╠═b406577a-5478-42fd-8ed0-e36b5574cfc6
 # ╠═385600b4-2bf2-43b9-88dd-18f2227bc8e3
 # ╠═2b11ef08-288f-4110-b741-ba580782b6a7
-# ╠═71973c41-5fbb-40bf-8cc9-e063c7372a1c
-# ╠═cb83e57f-3b3b-44ae-8c75-69b9b12ec6f5
-# ╟─49a1d508-b491-4d3a-8415-f5def06884e9
+# ╠═fda8d86c-de1e-4e5e-86de-77c3c670a5e5
+# ╠═de4c4e5a-52d6-42f6-a529-29b340f3233f
+# ╠═24ed414e-1f2e-4db9-828f-bdbd3ac371af
 # ╟─c6b61679-8a06-47ae-abab-6997ad5cbfea
 # ╠═c2d8a622-b8f9-454b-9fd1-dc940280624c
 # ╠═5f91ce14-c9d4-4818-8955-8e7381b4943b
@@ -5072,6 +5484,9 @@ version = "17.4.0+2"
 # ╠═d3abee1c-21ec-4e24-be88-996324991d2e
 # ╠═92b62688-2cff-4286-958f-9f4e32de52ee
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
+# ╠═df7f84e8-b42a-4001-9dbf-6bc3ced94207
+# ╠═d963ff6d-f1b6-4799-aa0e-1ae100310d84
+# ╠═7cf26604-9c2b-4a77-9674-7d4dac2f99f0
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
 # ╠═f59a5dcd-9f4a-4336-a391-e64af35ef799
