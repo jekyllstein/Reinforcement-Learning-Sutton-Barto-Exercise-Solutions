@@ -440,245 +440,6 @@ Because it uses all future returns after step t, REINFORCE is a Monte Carlo algo
 With the alternative parameterization, the eligibility vector is $\nabla \ln \pi(S_t, \theta_t)_{A_t}$ where $\pi$ is a vector and the $A_t$ subscript takes the value of that vector at the index corresponding to the action $A_t$.
 """
 
-# ╔═╡ b406577a-5478-42fd-8ed0-e36b5574cfc6
-#select action from a vector of action probabilities where each index is supposed to be that action
-select_action(vec::AbstractVector) = wsample(eachindex(vec), vec)
-
-# ╔═╡ 385600b4-2bf2-43b9-88dd-18f2227bc8e3
-#select action from an action probability dictionary where each key is an action and the corresponding value is the probability of selection
-function select_action(prbs::Dict) 
-	actions = collect(keys(prbs))
-	wsample(actions, [prbs[a] for a in actions])
-end
-
-# ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
-begin
-	#version of reinforce for general function approximation
-	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, V, T<:Real, S, A, PTF, F1, F2, F3}
-		rewards = zeros(T, max_episodes)
-		action_preferences = zeros(T, length(mdp.actions))
-		function π(s)
-			update_feature_vector!(x, s)
-			update_preferences!(action_preferences, x, params)
-			# @info "Action preferences are $action_preferences"
-			soft_max!(action_preferences)
-			sample_action(action_preferences)
-		end
-		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
-		for i in eachindex(rewards)
-			# @info "On episode $i of $max_episodes"
-			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
-			g = zero(T)
-			rtotal = zero(T)
-			#iterate through episode beginning at the end
-			for i in nsteps:-1:1
-				g = (γ * g) + reward_history[i]
-				update_feature_vector!(x, state_history[i])
-				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], params)
-				params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
-				rtotal += reward_history[i]
-			end
-			rewards[i] = rtotal
-		end
-		return (episode_rewards = rewards, π = π, parameters = params)
-	end
-
-	#version of reinforce with binary feature vectors
-	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, T<:Real, S, A, PTF, F1, F2, F3}
-		rewards = zeros(T, max_episodes)
-		action_preferences = zeros(T, length(mdp.actions))
-		function update_preferences!(action_preferences, active_features, params)
-			@inbounds for i_a in eachindex(mdp.actions)
-				action_preferences[i_a] = zero(T)
-				@simd for i in active_features
-					action_preferences[i_a] += params[i, i_a]
-				end
-			end
-			return action_preferences
-		end
-		
-		function π(s)
-			active_features = get_active_features(s)
-			update_preferences!(action_preferences, active_features, params)
-			# @info "Action preferences are $action_preferences"
-			soft_max!(action_preferences)
-			sample_action(action_preferences)
-		end
-		
-		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
-		for i in eachindex(rewards)
-			# @info "On episode $i of $max_episodes"
-			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
-			g = zero(T)
-			rtotal = zero(T)
-			#iterate through episode beginning at the end
-			for i in nsteps:-1:1
-				g = (γ * g) + reward_history[i]
-				active_features = get_active_features(state_history[i])
-				# update_eligibility_vector!(∇lnπ, action_preferences, active_features, action_history[i], params)
-				c = α * γ^(i-1) * (g - baseline)
-				update_preferences!(action_preferences, active_features, params)
-				soft_max!(action_preferences)
-				for i_a in eachindex(action_preferences)
-					@inbounds @simd for j in active_features
-						params[j, i_a] -= c*action_preferences[i_a]
-					end
-				end
-				@inbounds @simd for j in active_features
-					params[j, action_history[i]] += c*one(T)
-				end
-				# params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
-				rtotal += reward_history[i]
-			end
-			rewards[i] = rtotal
-		end
-		return (episode_rewards = rewards, π = π, parameters = params)
-	end
-end
-
-# ╔═╡ fda8d86c-de1e-4e5e-86de-77c3c670a5e5
-begin
-	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-		# function update_feature_vector!(x, s)
-		# 	x .= zero(T)
-		# 	for i in get_active_features(s)
-		# 		x .= one(T)
-		# 	end
-		# end
-
-		# function update_preferences!(action_preferences, x, params)
-		# 	BLAS.gemv!('T', one(T), params, x, zero(T), action_preferences)
-		# 	# action_preferences .= params' * x
-		# end
-
-		# function update_eligibility_vector!(∇lnπ, action_preferences, x, i_a, params)
-		# 	update_preferences!(action_preferences, x, params)
-		# 	soft_max!(action_preferences)
-		# 	BLAS.gemm!('N', 'T', -one(T), x, action_preferences, zero(T), ∇lnπ)
-		# 	# ∇lnπ .= -x * action_preferences'
-		# 	for i in eachindex(x)
-		# 		∇lnπ[i, i_a] += x[i]
-		# 	end
-		# end
-
-		# x = zeros(T, num_features)
-
-		# reinforce_monte_carlo_control!(params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
-		reinforce_monte_carlo_control!(params, mdp, num_features, get_active_features, max_episodes; kwargs...)
-	end
-end
-
-# ╔═╡ de4c4e5a-52d6-42f6-a529-29b340f3233f
-#=╠═╡
-@btime reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000; params = [0f0 4f0], α = 1f-4, max_steps = 1_000)
-  ╠═╡ =#
-
-# ╔═╡ 24ed414e-1f2e-4db9-828f-bdbd3ac371af
-#=╠═╡
-1:100 |> Map(_ -> reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000; params = [0f0 3.7f0], α = 3f-4, max_steps = 1_000).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ 100 |> plot
-  ╠═╡ =#
-
-# ╔═╡ c6b61679-8a06-47ae-abab-6997ad5cbfea
-md"""
-Using one hot encoding feature vectors each parameter θ simply represents each state preference, so the policy just takes a softmax of the feature vector to get the action distribution.
-
-$\pi(a | s, \theta) = \sigma(\mathbf{\theta}_{a, s}) = \frac{e^{\theta_{a, s}}}{\sum_{j \in \mathcal{A}}{e^{\theta_{j, s}}}} \forall a \in \mathcal{A}$
-
-The components of the gradient of the softmax function σ is given by:
-
-$\frac{\partial \sigma(\theta_{a, s})}{\partial \theta_{j, s}} = \sigma(\theta)_i(\delta_{ij} - \sigma(\theta)_j)$ 
-
-We can use this expression to get the gradient of the policy output with respect to the parameters:
-
-$\nabla\pi(a| s, \theta) = \sigma(\theta)_a(\delta_{a
-j} - \sigma(\theta)_j)$ where we overload the notation for a to also be the index of the selected action
-
-Combining these the *eligibility vector* for one hot encoding and action a is:
-$\frac{\nabla \pi(a|s, \mathbf{\theta})}{\pi(a|s, \mathbf{\theta})} = (\delta_{aj} - \sigma(\theta)_j) \forall j$
-
-To calculate this practically, we can use the columns of a one hot matrix who's dimension is dxd and subtract from that the policy vector for state s.
-"""
-
-# ╔═╡ c2d8a622-b8f9-454b-9fd1-dc940280624c
-function run_corridor_reinforce(;α = 0.0002, θ_0 = [0.0, 0.0], kwargs...)
-	features = [1.0 0.0; 0.0 1.0] #feature vectors of length 2 for each action
-	avec = zeros(2) #vector to store action output distribution
-	e_vec = zeros(2) #storage for eligibility vector
-
-	corridor = make_corridor()
-
-	#we have one parameter for each action
-	d = length(corridor.actions)
-
-	#starting state is always 1
-	s0 = 1
-	
-	#policy does not distinguish between states and updates the distribution vector
-	π!(s, θ) = soft_max!(θ, avec)
-	function ∇lnπ!(a, s, θ)
-		π!(s, θ) #fill avec with the appropriate softmax
-		#softmax derivative
-		for i in eachindex(e_vec)
-			e_vec[i] = features[a, i] - avec[i]
-		end
-		return e_vec
-	end
-
-	reinforce_monte_carlo_control(π!, ∇lnπ!, d, s0, α, corridor.step, corridor.sterm, corridor.actions; θ = copy(θ_0), kwargs...)
-end
-
-# ╔═╡ 5f91ce14-c9d4-4818-8955-8e7381b4943b
-#=╠═╡
-function average_runs(f, n; kwargs...) 
-	runs = Vector{Any}(undef, n)
-	# for i in 1:n
-	@threads for i in 1:n
-		Random.seed!(i)
-		runs[i] = f(;kwargs...)[1]
-	end
-
-	[begin
-		v = [r[i] for r in runs]
-		cleanv = filter(x -> !isnan(x) && !isinf(x), v)
-		if isempty(v)
-			-Inf
-		else
-			mean(cleanv)
-		end
-	end
-	for i in eachindex(first(runs))]
-	
-	# reduce(+, runs) ./ n
-end
-  ╠═╡ =#
-
-# ╔═╡ a45c1930-ad70-44f4-a6bc-10ccb03f65ab
-#=╠═╡
-function figure_13_1(αlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
-	Random.seed!(seed)
-	traces = [begin
-		v = average_runs(run_corridor_reinforce, nruns; α = α, θ_0 = θ_0, kwargs...)
-		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("α = 2^{$(log2(α))}"))
-	end
-	for α in αlist]
-
-	baselinetrace = scatter(x = 1:1000, y = fill(-6 - 4*sqrt(2), 1000), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
-
-	plot([traces; baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld", width = 900, height = 600))
-end
-  ╠═╡ =#
-
-# ╔═╡ 71c8d422-8177-4324-b048-98dd39198fee
-#=╠═╡
-#in the source code used to generate this for the book found here: http://incompleteideas.net/book/code/figure_13_1.py-remove the episodes start with poor performace because the parameter vector is initialized to prefer left with 95% probability
-figure_13_1(2.0 .^ [-12, -13, -14]; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
-  ╠═╡ =#
-
-# ╔═╡ a206c759-3f6e-4003-8cba-5f6ce6742646
-md"""
-### Figure 13.1
-"""
-
 # ╔═╡ 189798b3-ec6b-48b9-918c-ee0f65935ab3
 md"""
 > ### *Exercise 13.3* 
@@ -778,6 +539,243 @@ Let's denote $\mathbf{p}(s)$ as the vector of true probabilities for an example 
 $\mathcal{L}(\mathbf{p}, \mathbf{\pi}) = -\sum_i \mathbf{p}_i \ln \mathbf{\pi}_i$ omitting $s$ and $\theta$.  
 
 In a typical situation with a dataset, $\mathbf{p}(s)$ will be a one-hot vector representing the index of label of the example in the dataset.  Let's call that index $a$ such that $p_a = 1$ and $p_i = 0 \: \forall i \neq a$.  The loss then simplifies to $\mathcal{L}(a, \mathbf{\pi}) = -\ln \mathbf{\pi}_a$.  When we train with gradient descent on such a dataset, we must compute the gradient of this loss with respect to the parameters or $-\nabla \ln \pi_a$ which is just negative one times the eligibility vector for general paramaterized approximation.  So if we have a function that computes the gradient of the cross entropy loss of the soft-max output for a vector function and a label index, we can replace the label index of the dataset with the desired action index $a$ and then that gradient will match our desired gradient after multiplying by negative one. 
+"""
+
+# ╔═╡ 73b90260-d57a-449a-8db6-47f91e6a4e4f
+md"""
+### Eligibility Vector with Binary Features
+"""
+
+# ╔═╡ ee72af8d-3cb8-4314-82df-580f068e1252
+md"""
+One common form of linear feature vector is one that selects active features per state.  Tile coding is an example of this where a state is assigned a tile in each tiling used and the number of tilings control how many active features a given state will have.  Because the only possible feature vector values are 1 or 0, this style of encoding need not be as complex as other methods.  We can see by the form of the gradients an abbreviated algorithm that need not compute the eligibility vector explicitely.
+
+We can define a binary feature encoding by the function $\mathcal{F}(s)$ which returns the indices of active features for a state $s$ as well as the knowledge of how many total features there are, $d$.  All of the values of $\mathbf{x}(s)$ are zero except for the indices in $\mathcal{F}(s)$ whose values are 1.  That simplifies the expression we have before for the linear feature eligibility vector:
+
+$\begin{flalign}
+\nabla \left ( \ln \pi_a \right )_{i, j} &= \frac{\nabla \left ( \pi_a \right )_{i, j}}{\pi_a} \\
+&= \begin{cases}
+\mathbf{x}(s)_i (1 - \pi_j), & \text{ if } j = a \\
+-\pi_j \mathbf{x}(s)_i, & \text{ else }\\
+\end{cases} \\
+&= \begin{cases}
+(1 - \pi_j), & \text{ if } j = a \text{, } i \in \mathcal{F}(s) \\
+-\pi_j, & \text{ if } j \neq a \text{, } i \in \mathcal{F}(s) \\
+0, & \text{ otherwise}
+\end{cases}
+\end{flalign}$
+
+We can see from this form of the eligibility vector that it need not be computed explicitely.  Rather we can simply go through the active feature indices and subtract the policy output for the column index at each row and then add 1 to the column corresponding to the selected action:
+
+Loop for each step of the episode $t = 0, 1, \cdots, T-1$
+
+$G \leftarrow \sum_{k=t+1} \gamma^{k-t-1}R_k$
+
+$c = \alpha * \gamma^t * G$
+
+Loop for each action index j 
+
+Loop for each feature i
+
+$\theta_{i, j} \leftarrow \theta_{i, j} - c \times \pi(a_j, S_t, \mathbf{\theta})$
+
+Define $j_a$ as the column index corresponding to action $A_t$
+Loop for each feature i
+
+$\theta_{i, j_a} \leftarrow \theta_{i, j_a} + c$
+
+Specialized versions of REINFORCE that use binary features and linear features can be found below as well as the general case that works for any type of parameterized function approximation.
+"""
+
+# ╔═╡ 89901156-b874-416b-89c1-6dc434a4eb17
+md"""
+### *REINFORCE Implementation*
+"""
+
+# ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
+begin
+	#version of reinforce for general function approximation
+	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, V, T<:Real, S, A, PTF, F1, F2, F3}
+		rewards = zeros(T, max_episodes)
+		action_preferences = zeros(T, length(mdp.actions))
+		function π(s)
+			update_feature_vector!(x, s)
+			update_preferences!(action_preferences, x, params)
+			# @info "Action preferences are $action_preferences"
+			soft_max!(action_preferences)
+			sample_action(action_preferences)
+		end
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		for i in eachindex(rewards)
+			# @info "On episode $i of $max_episodes"
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				update_feature_vector!(x, state_history[i])
+				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], params)
+				params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
+		end
+		return (episode_rewards = rewards, π = π, parameters = params)
+	end
+
+	#version of reinforce with binary feature vectors
+	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, T<:Real, S, A, PTF, F1, F2, F3}
+		rewards = zeros(T, max_episodes)
+		action_preferences = zeros(T, length(mdp.actions))
+		function update_preferences!(action_preferences, active_features, params)
+			@inbounds for i_a in eachindex(mdp.actions)
+				action_preferences[i_a] = zero(T)
+				@simd for i in active_features
+					action_preferences[i_a] += params[i, i_a]
+				end
+			end
+			return action_preferences
+		end
+		
+		function π(s)
+			active_features = get_active_features(s)
+			update_preferences!(action_preferences, active_features, params)
+			# @info "Action preferences are $action_preferences"
+			soft_max!(action_preferences)
+			sample_action(action_preferences)
+		end
+		
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		for i in eachindex(rewards)
+			# @info "On episode $i of $max_episodes"
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				active_features = get_active_features(state_history[i])
+				# update_eligibility_vector!(∇lnπ, action_preferences, active_features, action_history[i], params)
+				c = α * γ^(i-1) * (g - baseline)
+				update_preferences!(action_preferences, active_features, params)
+				soft_max!(action_preferences)
+				for i_a in eachindex(action_preferences)
+					@inbounds @simd for j in active_features
+						params[j, i_a] -= c*action_preferences[i_a]
+					end
+				end
+				@inbounds @simd for j in active_features
+					params[j, action_history[i]] += c*one(T)
+				end
+				# params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
+		end
+		return (episode_rewards = rewards, π = π, parameters = params)
+	end
+end
+
+# ╔═╡ fda8d86c-de1e-4e5e-86de-77c3c670a5e5
+begin
+	#run reinforce with binary features, only requires defining the number of features and a function that returns active features
+	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+		reinforce_monte_carlo_control!(params, mdp, num_features, get_active_features, max_episodes; kwargs...)
+	end
+
+	#run reinforce with linear features, only requires defining the length of the feature vector and a function to update it given a state
+	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+		#add function
+	end
+
+	#run reinforce with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers
+	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+		#add function
+	end
+end
+
+# ╔═╡ de4c4e5a-52d6-42f6-a529-29b340f3233f
+#=╠═╡
+reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000; params = [0f0 4f0], α = 1f-4, max_steps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ 24ed414e-1f2e-4db9-828f-bdbd3ac371af
+#=╠═╡
+1:100 |> Map(_ -> reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000; params = [0f0 3.7f0], α = 3f-4, max_steps = 1_000).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ 100 |> plot
+  ╠═╡ =#
+
+# ╔═╡ c6b61679-8a06-47ae-abab-6997ad5cbfea
+md"""
+Using one hot encoding feature vectors each parameter θ simply represents each state preference, so the policy just takes a softmax of the feature vector to get the action distribution.
+
+$\pi(a | s, \theta) = \sigma(\mathbf{\theta}_{a, s}) = \frac{e^{\theta_{a, s}}}{\sum_{j \in \mathcal{A}}{e^{\theta_{j, s}}}} \forall a \in \mathcal{A}$
+
+The components of the gradient of the softmax function σ is given by:
+
+$\frac{\partial \sigma(\theta_{a, s})}{\partial \theta_{j, s}} = \sigma(\theta)_i(\delta_{ij} - \sigma(\theta)_j)$ 
+
+We can use this expression to get the gradient of the policy output with respect to the parameters:
+
+$\nabla\pi(a| s, \theta) = \sigma(\theta)_a(\delta_{a
+j} - \sigma(\theta)_j)$ where we overload the notation for a to also be the index of the selected action
+
+Combining these the *eligibility vector* for one hot encoding and action a is:
+$\frac{\nabla \pi(a|s, \mathbf{\theta})}{\pi(a|s, \mathbf{\theta})} = (\delta_{aj} - \sigma(\theta)_j) \forall j$
+
+To calculate this practically, we can use the columns of a one hot matrix who's dimension is dxd and subtract from that the policy vector for state s.
+"""
+
+# ╔═╡ 5f91ce14-c9d4-4818-8955-8e7381b4943b
+#=╠═╡
+function average_runs(f, n; kwargs...) 
+	runs = Vector{Any}(undef, n)
+	# for i in 1:n
+	@threads for i in 1:n
+		Random.seed!(i)
+		runs[i] = f(;kwargs...)[1]
+	end
+
+	[begin
+		v = [r[i] for r in runs]
+		cleanv = filter(x -> !isnan(x) && !isinf(x), v)
+		if isempty(v)
+			-Inf
+		else
+			mean(cleanv)
+		end
+	end
+	for i in eachindex(first(runs))]
+	
+	# reduce(+, runs) ./ n
+end
+  ╠═╡ =#
+
+# ╔═╡ a45c1930-ad70-44f4-a6bc-10ccb03f65ab
+#=╠═╡
+function figure_13_1(αlist; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
+	Random.seed!(seed)
+	traces = [begin
+		v = average_runs(run_corridor_reinforce, nruns; α = α, θ_0 = θ_0, kwargs...)
+		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("α = 2^{$(log2(α))}"))
+	end
+	for α in αlist]
+
+	baselinetrace = scatter(x = 1:1000, y = fill(-6 - 4*sqrt(2), 1000), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+
+	plot([traces; baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld", width = 900, height = 600))
+end
+  ╠═╡ =#
+
+# ╔═╡ 71c8d422-8177-4324-b048-98dd39198fee
+#=╠═╡
+#in the source code used to generate this for the book found here: http://incompleteideas.net/book/code/figure_13_1.py-remove the episodes start with poor performace because the parameter vector is initialized to prefer left with 95% probability
+figure_13_1(2.0 .^ [-12, -13, -14]; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ a206c759-3f6e-4003-8cba-5f6ce6742646
+md"""
+### Figure 13.1
 """
 
 # ╔═╡ cc45091e-b889-4d5a-9eef-84d80f792046
@@ -5110,23 +5108,23 @@ version = "17.4.0+2"
 # ╟─05b0fcad-628b-48d2-aa24-f6f562dbb660
 # ╟─72bdfe84-6577-4fd7-bafe-66919411e263
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
-# ╠═b406577a-5478-42fd-8ed0-e36b5574cfc6
-# ╠═385600b4-2bf2-43b9-88dd-18f2227bc8e3
-# ╠═2b11ef08-288f-4110-b741-ba580782b6a7
-# ╠═fda8d86c-de1e-4e5e-86de-77c3c670a5e5
-# ╠═de4c4e5a-52d6-42f6-a529-29b340f3233f
-# ╠═24ed414e-1f2e-4db9-828f-bdbd3ac371af
-# ╟─c6b61679-8a06-47ae-abab-6997ad5cbfea
-# ╠═c2d8a622-b8f9-454b-9fd1-dc940280624c
-# ╠═5f91ce14-c9d4-4818-8955-8e7381b4943b
-# ╠═a45c1930-ad70-44f4-a6bc-10ccb03f65ab
-# ╟─71c8d422-8177-4324-b048-98dd39198fee
-# ╟─a206c759-3f6e-4003-8cba-5f6ce6742646
 # ╟─189798b3-ec6b-48b9-918c-ee0f65935ab3
 # ╟─70096b14-beab-4f71-9886-6355c749bb8a
 # ╟─1558cec1-c4fd-4bc0-85ed-ae22c6067d41
 # ╟─e3a2fb12-37ce-4c23-ad93-5fc89991aabb
 # ╟─58403c8e-0ee4-4466-ba25-ee0c86fb0b47
+# ╟─73b90260-d57a-449a-8db6-47f91e6a4e4f
+# ╟─ee72af8d-3cb8-4314-82df-580f068e1252
+# ╟─89901156-b874-416b-89c1-6dc434a4eb17
+# ╠═2b11ef08-288f-4110-b741-ba580782b6a7
+# ╠═fda8d86c-de1e-4e5e-86de-77c3c670a5e5
+# ╠═de4c4e5a-52d6-42f6-a529-29b340f3233f
+# ╠═24ed414e-1f2e-4db9-828f-bdbd3ac371af
+# ╟─c6b61679-8a06-47ae-abab-6997ad5cbfea
+# ╠═5f91ce14-c9d4-4818-8955-8e7381b4943b
+# ╠═a45c1930-ad70-44f4-a6bc-10ccb03f65ab
+# ╟─71c8d422-8177-4324-b048-98dd39198fee
+# ╟─a206c759-3f6e-4003-8cba-5f6ce6742646
 # ╟─cc45091e-b889-4d5a-9eef-84d80f792046
 # ╠═5bebef34-e266-4c18-95c3-28e1f1cb4b64
 # ╠═d26cd4cb-9a62-4a03-8b71-b415c9be79f6
