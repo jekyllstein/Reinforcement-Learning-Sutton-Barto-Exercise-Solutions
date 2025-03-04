@@ -4,18 +4,6 @@
 using Markdown
 using InteractiveUtils
 
-# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
-macro bind(def, element)
-    #! format: off
-    quote
-        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
-        local el = $(esc(element))
-        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
-        el
-    end
-    #! format: on
-end
-
 # ╔═╡ 31333ae3-615e-4587-80cf-d2716669af9e
 using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers
 
@@ -387,6 +375,7 @@ bairdπ(s::Int64) = [0.0, 1.0]
   ╠═╡ =#
 
 # ╔═╡ 2feb4657-3377-434f-bf8a-400cfcfe9fef
+#=╠═╡
 #run the baird example with a given policy for a set number of steps and keep track of visit statistics
 @tailrec function runbaird(s0::Int64, π, nsteps::Int64, counts::Vector{Int64})
 	counts[s0] += 1
@@ -395,11 +384,14 @@ bairdπ(s::Int64) = [0.0, 1.0]
 	(r, s) = baird_state_mdp.ptf(s0, a)
 	runbaird(s, π, nsteps-1, counts)
 end
+  ╠═╡ =#
 
 # ╔═╡ 3238aaa1-92aa-4d80-af22-4e237be9f0fc
+#=╠═╡
 function startbaird(π, nsteps)
 	runbaird(1, π, nsteps, zeros(Int64, 7))
 end
+  ╠═╡ =#
 
 # ╔═╡ 1e010e8e-2dde-4228-b914-fdc120fa91ca
 md"""
@@ -714,7 +706,9 @@ Indeed, in the plot below, when $\epsilon \ge \frac{1}{4}$ the $\gamma$ threshol
 """
 
 # ╔═╡ e39098da-a3df-47a0-867d-ccaf1a5a54f3
+#=╠═╡
 plot(scatter(x = 0:0.01:1, y = 5 ./(6 .- 4 .* (0:0.01:1))), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold", title = "γ above the blue line results in diverging weights for a given ϵ"))
+  ╠═╡ =#
 
 # ╔═╡ bd2abdf1-725a-491d-b6f3-5a15ae51762c
 md"""
@@ -745,6 +739,7 @@ Note that as $\epsilon \rightarrow 1$, the on policy distribution approaches the
 """
 
 # ╔═╡ c63b1e1c-db89-4d47-af39-e353dda0e50b
+#=╠═╡
 function plot_μ_11_1()
 	μ1(ϵ) = ϵ / (1 + ϵ)
 	μ2(ϵ) = 1 / (1 + ϵ)
@@ -753,11 +748,15 @@ function plot_μ_11_1()
 	tr2 = scatter(x = ϵs, y = μ2.(ϵs), name = "State 2")
 	plot([tr1, tr2], Layout(xaxis_title = "ϵ", yaxis_title = "Probability", title = "On-policy Distribution"))
 end;
+  ╠═╡ =#
 
 # ╔═╡ 40a966dd-d8c1-486e-bed7-5a0094778f31
+#=╠═╡
 plot_μ_11_1()
+  ╠═╡ =#
 
 # ╔═╡ f82090ed-8b6b-4b2e-89c9-26cc0ef4b30a
+#=╠═╡
 md"""
 Returning to the previous expression but including the on-policy distribution results in:
 
@@ -779,6 +778,7 @@ Since $0 \le \epsilon \le 1$ we know that $\epsilon + 4 \ge 4$ and $1 \le 2 - \e
 
 $(plot(scatter(x = collect(0.0:0.01:1.0), y = [0.5 * (x + 4) / (2 - x) for x in 0.0:0.01:1.0]), Layout(xaxis_title = "ϵ", yaxis_title = "γ threshold")))
 """
+  ╠═╡ =#
 
 # ╔═╡ 3dade251-ddf7-463e-8d55-1c37e6d8ac9a
 md"""
@@ -1045,9 +1045,12 @@ Select discount rate for MRP evaluation
 """
 
 # ╔═╡ 5a083034-5075-46fe-a988-4dab0011c9a4
+#=╠═╡
 @bind γ_mrp Slider(0:0.01f0:1; default = 0.5f0, show_value = true)
+  ╠═╡ =#
 
 # ╔═╡ 3560cece-1420-41e5-8590-54041d210996
+#=╠═╡
 function plot_mrp_values(γ, dp_values)
 	γs = 0:0.01:1
 	v1(γ) = γ / (1 - γ)
@@ -1058,6 +1061,7 @@ function plot_mrp_values(γ, dp_values)
 	tr4 = scatter(x = [γ], y = [dp_values[2]], name = "State 2 DP Value")
 	plot([tr1, tr2, tr3, tr4], Layout(xaxis_title = "Discount Rate", yaxis_title = "Value", yaxis_range = [-1, 40], xaxis_range = [0, 1]))
 end
+  ╠═╡ =#
 
 # ╔═╡ bfc7e5e3-2f2a-49f8-b1e8-c86e6d16b160
 #=╠═╡
@@ -1247,7 +1251,9 @@ w &= \frac{4(2c - \gamma(1+c))}{(2 - \gamma(1 + c))^2 + (2c - \gamma(1+c))^2} \\
 min_be(γ, c) = 2*(2*c - γ*(1+c)) / (2 + γ*(γ - 2)*(1+c)^2 + 2*c^2)
 
 # ╔═╡ bcace027-418c-4d2e-beb2-cb40a5f16c22
+#=╠═╡
 plot(min_be.(0.5, 0:0.01:2))
+  ╠═╡ =#
 
 # ╔═╡ 39ac140a-5e2b-41fe-93e1-3612b6dd0604
 md"""
@@ -1460,7 +1466,9 @@ md"""
 """
 
 # ╔═╡ c0e58f98-a52e-4742-a850-661faac4bbed
+#=╠═╡
 @bind wcompare_γ Slider(0.:0.01:.99999; default = 0.5, show_value=true)
+  ╠═╡ =#
 
 # ╔═╡ e37d1246-ccd6-481a-af2b-7d2d6acb8bbf
 md"""
@@ -1506,7 +1514,9 @@ Another option is let's say to simplify the problem, we just group two of the st
 """
 
 # ╔═╡ 6e6b9d64-2d90-40a4-abde-2fd0d6ab7d7a
+#=╠═╡
 plot([scatter(x = [0, 0], y = [0, 1], name = "x1"), scatter(x = [0, sqrt(3)/2], y = [0, -0.5], name = "x2"), scatter(x = [0, -sqrt(3)/2], y = [0, -0.5], name = "x3")], Layout(xaxis_range = [-1, 1], yaxis_range = [-1, 1], width = 500, height = 500, legend_orientation = "r", margin = attr(t = 60, l = 60, r = 0, b = 60)))
+  ╠═╡ =#
 
 # ╔═╡ d577b03d-bc68-4b32-9c6d-d92e0c4d7c99
 #=╠═╡
@@ -1556,6 +1566,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ aeca907a-ee07-4045-b98f-0c67b1734008
+#=╠═╡
 function plot_value_approximation(x1, x2, x3; n = 100, w = [1, 1])
 	v(w) = (x = dot(x1, w), y = dot(x2, w), z = dot(x3, w))
 	xs = []
@@ -1573,6 +1584,7 @@ function plot_value_approximation(x1, x2, x3; n = 100, w = [1, 1])
 	vtr = scatter3d(x = [0, v̂.x], y = [0, v̂.y], z = [0, v̂.z], name = "v̂($w)", mode = "lines+markers")
 	plot([tr, vtr], Layout(scene = attr(xaxis_range = [-1, 1], yaxis_range = [-1, 1], zaxis_range = [-1, 1])))
 end
+  ╠═╡ =#
 
 # ╔═╡ a780e90c-c6d1-44c8-9b55-d52cf4c20db4
 #=╠═╡
@@ -2737,6 +2749,7 @@ show_mountaincar_trajectory(π_greedy_dp, 1_000, "DP Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ 3d48d0e2-353c-44cf-a51b-1fad1b0002d2
+#=╠═╡
 function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
 	xvals = LinRange(-1.2f0, 0.5f0, n1)
 	vvals = LinRange(-0.07f0, 0.07f0, n2)
@@ -2753,6 +2766,7 @@ function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
 	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)"))
 	[p1 p2]
 end
+  ╠═╡ =#
 
 # ╔═╡ 38e6ef4c-63c1-4df5-9451-f40df4fe57e7
 #=╠═╡
@@ -2781,6 +2795,7 @@ html"""
   ╠═╡ =#
 
 # ╔═╡ 4c505f66-0c2c-4f59-858d-bd16c59f3397
+#=╠═╡
 @htl("""
 <div style="display: flex; align-items: center; background-color: lightgray; color: black; height: 70px">
 <div>0</div>
@@ -2823,6 +2838,7 @@ html"""
 	}
 </style>
 """)
+  ╠═╡ =#
 
 # ╔═╡ faba7178-bc20-4d93-87e3-26541851b1ad
 HTML("""
@@ -2926,7 +2942,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.2"
+julia_version = "1.11.3"
 manifest_format = "2.0"
 project_hash = "255f2ce5b77ba80892ed71be96febe8a241adad2"
 
