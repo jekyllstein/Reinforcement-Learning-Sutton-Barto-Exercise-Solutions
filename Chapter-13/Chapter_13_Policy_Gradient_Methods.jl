@@ -800,133 +800,206 @@ $\mathbf{\theta}_{t+1} \doteq \mathbf{\theta}_t+\alpha(G_t-b(S_t))\frac{\nabla\p
 Since the baseline could be uniformly zero, this is a strict generalization of REINFORCE.  To have an effective baseline that depends on state we can use a state value estimate that is also updated with gradient steps: $\hat v(S_t, \mathbf{w})$.  Using such an estimate we can revise the previous REINFORCE algorithm.
 """
 
-# ╔═╡ 5bebef34-e266-4c18-95c3-28e1f1cb4b64
+# ╔═╡ d83dc659-dce7-41dd-a8e7-2933ab39d15c
+md"""
+### *REINFORCE with baseline Implementation*
 """
-	reinforce_with_baseline_MC_control(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
 
-Implements the REINFORCE algorithm for Monte Carlo control, which is a policy gradient method for reinforcement learning. Given a function π that maps states to probability distributions over actions, and a function ∇lnπ that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ, this function learns the optimal policy for a given Markov decision process (MDP).  The baseline value is determined by a state value estimator function parametrized by w.
-
-Required arguments:
-- π: A function that maps a state to a probability distribution over actions. This function must take two arguments: the current state and the policy parameters θ.
-- ∇lnπ: A function that computes the gradient of the log-probability of an action under π with respect to the policy parameters θ. This function must take three arguments: the action, the current state, and the policy parameters θ.
-- d: An integer representing the number of policy parameters to be learned.
-- s0: The initial state of the MDP.
-- α: The learning rate for the policy gradient update.
-- step: A function that takes a state and an action and returns the next state and the reward received. This function must take two arguments: the current state and the chosen action.
-- sterm: A state representing the terminal state of the MDP.
-- actions: A collection of all possible actions in the MDP.
-
-Optional keyword arguments:
-- γ: The discount factor for future rewards. Default value is 1.0.
-- max_episodes: The maximum number of episodes to run the algorithm. Default value is 1000.
-- maxsteps: The maximum number of steps to take in each episode. Default value is Inf.
-- baseline: The baseline value for the policy gradient update. Default value is 0.0.
-- θ: The initial policy parameters. Default value is a vector of zeros with length d.
-"""
-function reinforce_with_baseline_MC_control(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
-	rewards = zeros(max_episodes)	
-	function run_episode(maxsteps)
-		s = s0
-		state_history = [s0]
-		a = select_action(π(s0, θ))
-		action_history = [a]
-		(s′, r) = step(s0, actions[a])
-		reward_history = [r]
-		while s′ != sterm && length(state_history) < maxsteps
-			s = s′
-			a = select_action(π(s, θ))
-			(s′, r) = step(s, actions[a])
-			push!(reward_history, r)
-			push!(state_history, s)
-			push!(action_history, a)
-		end
-		return state_history, action_history, reward_history
-	end	
-	for i in eachindex(rewards)
-		state_history, action_history, reward_history = run_episode(maxsteps)
-		#iterate through episode beginning at the end
-		G = 0.0
-		for i in reverse(eachindex(reward_history))
-			G = (γ * G) + reward_history[i]
-			s = state_history[i]
-			δ = G - v̂(s, w)
-			w .+= αw * δ .* ∇v̂(s, w)
-			θ .+= αθ * γ^(i-1) * δ .* ∇lnπ(action_history[i], s, θ)		
-		end
-		rewards[i] = sum(reward_history)
+# ╔═╡ 19e84898-09cf-4412-a194-1ee6ea86691f
+begin
+	function update_value_parameters!(value_params::Array{T, N}, c::T, ∇v̂::Array{T, N}) where {T<:Real, N}
+		value_params .+= c .* ∇v̂
 	end
-	return rewards, θ, w
 end
 
-# ╔═╡ d26cd4cb-9a62-4a03-8b71-b415c9be79f6
-function run_corridor_critic(;αθ = 0.0002, αw = 0.0002, θ_0 = [0.0, 0.0], w_0 = [0.0, 0.0, 0.0, 0.0], f = reinforce_with_baseline_MC_control, kwargs...)
-	features = [1.0 0.0; 0.0 1.0] #feature vectors of length 2 for each action
-	avec = zeros(2) #vector to store action output distribution
-	e_vec = zeros(2) #storage for eligibility vector
-
-	#one hot vectors for each state including 0 for terminal state
-	state_features = [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.], [0., 0., 0., 0.]]
-	
-	corridor = make_corridor()
-
-	#we have one parameter for each action
-	d = length(corridor.actions)
-	d′ = 4
-
-	#starting state is always 1
-	s0 = 1
-	
-	#policy does not distinguish between states and updates the distribution vector
-	π!(s, θ) = soft_max!(θ, avec)
-	function ∇lnπ!(a, s, θ)
-		π!(s, θ) #fill avec with the appropriate softmax
-		#softmax derivative
-		for i in eachindex(e_vec)
-			e_vec[i] = features[a, i] - avec[i]
-		end
-		return e_vec
+# ╔═╡ 16af5c05-2d21-482b-a7cd-1d1e6b3c2a54
+begin
+	function update_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
+		∇v̂ .= x
 	end
-
-	#linear model for state values simply returns the corresponding weight
-	v̂(s::Int64, w::AbstractVector) = w[s]
-	
-	#gradient with respect to weights is just the state vector
-	∇v̂(s::Int64, w::AbstractVector) = state_features[s]
-	
-
-	# reinforce_monte_carlo_control(π!, ∇lnπ!, d, s0, α, corridor.step, corridor.sterm, corridor.actions; θ = copy(θ_0), kwargs...)
-
-	f(π!, ∇lnπ!, v̂, ∇v̂, d, d′, s0, αθ, αw, corridor.step, corridor.sterm, corridor.actions; θ = copy(θ_0), w = copy(w_0), kwargs...)
 end
 
-# ╔═╡ 5f042c7e-45ad-4f8f-94d8-9133e67dd0f6
+# ╔═╡ 0bf3b988-b3fb-49d5-8dde-b25766596363
+begin
+	value_function(x::Vector{T}, w::Vector{T}) where {T<:Real} = dot(x, w)
+end
+
+# ╔═╡ 459579ab-0b48-4114-b730-7271f9d95876
 #=╠═╡
-function figure_13_2(α, αθ, αw; θ_0 = [2.0, 0.0], nruns = 100, seed = 1234, kwargs...)
-	Random.seed!(seed)
-	trace1 = begin
-		v = average_runs(run_corridor_critic, nruns; αθ = αθ, αw = αw, θ_0 = θ_0, kwargs...)
-		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("\\text{with baseline } α^θ = 2^{$(log2(αθ))}, α^w = 2^{$(log2(αw))}"))
-	end
-	Random.seed!(seed)
-	trace2 = begin
-		v = average_runs(run_corridor_reinforce, nruns; α = α, θ_0 = θ_0, kwargs...)
-		scatter(x = eachindex(v) |> collect, y = v, name = latexstring("\\text{no baseline } α = 2^{$(log2(α))}"))
+begin
+	#version of reinforce for general function approximation
+	function reinforce_with_baseline_monte_carlo_control!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer; α_w = one(T)/10, α_θ = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P1 = deepcopy(policy_params), ∇v̂::P2 = deepcopy(value_params), epkwargs...) where {P1, P2, V, T<:Real, S, A, PTF, F1, F2, F3}
+		rewards = zeros(T, max_episodes)
+		action_preferences = zeros(T, length(mdp.actions))
+		function π(s)
+			update_feature_vector!(x, s)
+			update_preferences!(action_preferences, x, policy_params)
+			# @info "Action preferences are $action_preferences"
+			soft_max!(action_preferences)
+			sample_action(action_preferences)
+		end
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		for i in eachindex(rewards)
+			# @info "On episode $i of $max_episodes"
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				update_feature_vector!(x, state_history[i])
+				v̂ = value_function(x, value_params)
+				δ = g - v̂
+				update_value_gradient!(∇v̂, x, value_params)
+				c = α_w*δ
+				update_value_parameters!(value_params, c, ∇v̂)
+				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], params)
+				c = α_θ * γ^(i-1) * δ
+				update_policy_params!(params, c, ∇lnπ)
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
+		end
+		return (episode_rewards = rewards, π = π, parameters = params)
 	end
 
-	baselinetrace = scatter(x = 1:1000, y = fill(-6 - 4*sqrt(2), 1000), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+	reinforce_with_baseline_monte_carlo_control!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, x::V, update_feature_vector!::Function, max_episodes::Integer; kwargs...) where {P1, P2, V, T<:Real, S, A, PTF, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, value_function, update_value_gradient!, max_episodes; kwargs...)
 
-	plot([trace1, trace2, baselinetrace], Layout(legend_orientation = "h", xaxis_title = "Episode", yaxis_title = "Total reward on episode ($nruns run average)", title = "REINFORCE on the short-Corridor gridworld",  height = 500))
+	#version of reinforce with binary feature vectors
+	function reinforce_with_baseline_monte_carlo_control!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ = one(T), baseline = zero(T), epkwargs...) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
+		rewards = zeros(T, max_episodes)
+		action_preferences = zeros(T, length(mdp.actions))
+		function update_preferences!(action_preferences, active_features, params)
+			@inbounds for i_a in eachindex(mdp.actions)
+				action_preferences[i_a] = zero(T)
+				@simd for i in active_features
+					action_preferences[i_a] += params[i, i_a]
+				end
+			end
+			return action_preferences
+		end
+		
+		function π(s)
+			active_features = get_active_features(s)
+			update_preferences!(action_preferences, active_features, policy_params)
+			# @info "Action preferences are $action_preferences"
+			soft_max!(action_preferences)
+			sample_action(action_preferences)
+		end
+
+		function estimate_value(active_features, params::Vector{T}) where {T<:Real}
+			v = zero(T)
+			@inbounds @simd for i in active_features
+				v += params[i]
+			end
+			return v
+		end
+		
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		for i in eachindex(rewards)
+			# @info "On episode $i of $max_episodes"
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				active_features = get_active_features(state_history[i])
+				v̂ = estimate_value(active_features, value_params)
+				δ = g - v̂
+				# update_eligibility_vector!(∇lnπ, action_preferences, active_features, action_history[i], params)
+				c = α_w*δ
+				@inbounds @simd for i in active_features
+					value_params[i] += c
+				end
+				
+				c = α_θ * γ^(i-1) * δ
+				update_preferences!(action_preferences, active_features, policy_params)
+				soft_max!(action_preferences)
+				for i_a in eachindex(action_preferences)
+					@inbounds @simd for j in active_features
+						policy_params[j, i_a] -= c*action_preferences[i_a]
+					end
+				end
+				@inbounds @simd for j in active_features
+					policy_params[j, action_history[i]] += c*one(T)
+				end
+				# params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
+		end
+
+		value_function(s::S) = estimate_value(get_active_features(s), value_params)
+		
+		return (episode_rewards = rewards, π = π, policy_parameters = policy_params, v̂ = value_function, value_parameters = value_params)
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ ff3d7b94-6422-4b4b-8e7c-de589563d575
+#=╠═╡
+begin
+	#run reinforce with binary features, only requires defining the number of features and a function that returns active features
+	reinforce_with_baseline_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; policy_params = zeros(T, num_features, length(mdp.actions)), value_params = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, num_features, get_active_features, max_episodes; kwargs...)
+
+	# #run reinforce with linear features, only requires defining the length of the feature vector and a function to update it given a state
+	# function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	# 	x = zeros(T, num_features)
+	# 	reinforce_monte_carlo_control!(params, mdp, x, update_feature_vector!, max_episodes; kwargs...)
+	# end
+
+	# #run reinforce with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers
+	# function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer; reslayers = 0, l2 = 0f0, dropout = 0f0, params = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = true), activations = FCANN.form_activations(params[1]), tanh_grad_z = deepcopy(activations), deltas = deepcopy(activations), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	# 	x = zeros(T, input_length)
+	# 	activation_list = fill(true, length(hidden_layers))
+	# 	update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_eligibility_vector_NN!(∇lnπ, action_preferences, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list)
+	# 	update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_preferences_NN!(action_preferences, x, params, activations, reslayers)
+	# 	reinforce_monte_carlo_control!(params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
+	# end
+end
+  ╠═╡ =#
+
+# ╔═╡ 83ca0577-15d7-4448-b597-c77810b812bf
+#=╠═╡
+function figure_13_2_test(α_list, α_pair_list; nruns = 100, num_episodes = 1_000, max_steps = 1_000)
+	Random.seed!(45)
+	function average_runs(α)
+		1:nruns |> Map(_ -> reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, num_episodes, params = [0f0 3.7f0], α = α, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+	end
+
+	function average_runs(α_θ, α_w)
+		1:nruns |> Map(_ -> reinforce_with_baseline_monte_carlo_control(corridor_mdp, s -> (1,), 1, num_episodes, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+	end
+
+	traces1 = [begin
+		out = average_runs(α)
+		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α = 2^{$(log2(α))}"))
+	end
+	for α in α_list]
+
+	traces2 = [begin
+		out = average_runs(αs...)
+		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α^{θ} = 2^{$(log2(αs[1]))} \\text{ and } α^w = 2^{$(log2(αs[2]))}"))
+	end
+	for αs in α_pair_list]
+
+	baselinetrace = scatter(x = 1:num_episodes, y = fill(-2*sqrt(2) / (3*sqrt(2) - 4), num_episodes), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+	
+	plot([baselinetrace; traces1; traces2], Layout(yaxis_range = [-90, -10], yaxis_title = "Total reward on episode <br> (averaged over $nruns runs)", xaxis_title = "Episode", width = 800))
 end
   ╠═╡ =#
 
 # ╔═╡ b72e030f-7d52-481f-b4f7-2b16b227e547
 md"""
 ### Figure 13.2
+
+Adding a baseline to REINFORCE can make it learn much faster as illustrated here on the short-corridor gridworld (Example 13.1).  Here the approximate state-value function used in the baseline is $\hat v(s, \mathbf{w}) = w$.  There is only one component of the feature vector and the state value approximation parameters.
 """
 
-# ╔═╡ 87876de4-ca40-4736-81a8-bb26bc273d89
+# ╔═╡ a7dcc8cd-04ec-48f2-a387-116330eaffb2
 #=╠═╡
-figure_13_2(2.0 ^-13, 2.0 .^ -9, 2.0 ^-3; θ_0 = [log(19), 0.0], seed = 43432, maxsteps = 1_000)
+figure_13_2_test([2f0^-13], vcat([(2f0^n, 2f0^-6) for n in -12:-10], [(2f0^n, 2f0^-4) for n in -11:-9]))
   ╠═╡ =#
 
 # ╔═╡ ce33f710-fd9d-4dfa-acda-40204e54d518
@@ -5129,11 +5202,15 @@ version = "17.4.0+2"
 # ╟─a206c759-3f6e-4003-8cba-5f6ce6742646
 # ╟─0c56b341-24eb-4c78-844e-182f44a7221a
 # ╟─cc45091e-b889-4d5a-9eef-84d80f792046
-# ╠═5bebef34-e266-4c18-95c3-28e1f1cb4b64
-# ╠═d26cd4cb-9a62-4a03-8b71-b415c9be79f6
-# ╠═5f042c7e-45ad-4f8f-94d8-9133e67dd0f6
+# ╟─d83dc659-dce7-41dd-a8e7-2933ab39d15c
+# ╠═19e84898-09cf-4412-a194-1ee6ea86691f
+# ╠═16af5c05-2d21-482b-a7cd-1d1e6b3c2a54
+# ╠═0bf3b988-b3fb-49d5-8dde-b25766596363
+# ╠═459579ab-0b48-4114-b730-7271f9d95876
+# ╠═ff3d7b94-6422-4b4b-8e7c-de589563d575
+# ╠═83ca0577-15d7-4448-b597-c77810b812bf
 # ╟─b72e030f-7d52-481f-b4f7-2b16b227e547
-# ╟─87876de4-ca40-4736-81a8-bb26bc273d89
+# ╠═a7dcc8cd-04ec-48f2-a387-116330eaffb2
 # ╟─ce33f710-fd9d-4dfa-acda-40204e54d518
 # ╟─f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
 # ╠═bf656d55-19cb-4052-baaa-0896ab6d23a0
