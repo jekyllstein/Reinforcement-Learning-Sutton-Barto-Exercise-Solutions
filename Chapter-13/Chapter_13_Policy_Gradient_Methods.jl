@@ -359,16 +359,16 @@ md"""
 $\begin{flalign}
 \nabla v_\pi(s) &= \nabla \left [ \sum_a \pi(a \vert s) q_\pi(s, a) \right ] \text{, } \forall s \in \mathcal{S} \tag{definitiong of value functions and expected value} \\
 &= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \nabla q_\pi(s, a) \right ] \tag{product rule} \\
-&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \nabla \sum_{s^\prime, r} p(s^\prime, r \vert s, a)(r + v_\pi(s^\prime) \right ] \tag{relationship between action and state values} \\
-&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) \right ] \tag{gradient independence}\\
+&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \nabla \sum_{s^\prime, r} p(s^\prime, r \vert s, a)(r + \gamma v_\pi(s^\prime) \right ] \tag{relationship between action and state values} \\
+&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \gamma \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) \right ] \tag{gradient independence}\\
 \end{flalign}$
 
 Note that the final term in the sum is the original expression evaluated at $s^\prime$ instead of $s$, so we have derived a recurssive expression which can be applied repeatedly:
 
 $\begin{flalign}
-\nabla v_\pi(s) &= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \left [ \nabla \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime) + \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \nabla v_\pi(s^{\prime \prime}) \right ] \right ] \tag{apply recursive expression once}\\
-&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) \right ] +  \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \left [ \nabla \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime) \right ] \right ] +  \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \nabla v_\pi(s^{\prime \prime}) \right ] \tag{grouping terms}\\
-&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) \right ] +  \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \left [ \nabla \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime) \right ] \right ] + \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime}  \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \sum_{a^{\prime \prime}} [ \nabla \pi(a^{\prime \prime} \vert s^{\prime \prime}) q_\pi(s^{\prime \prime}, a^{\prime \prime})\right ] + \cdots \tag{extend recursion}\\
+\nabla v_\pi(s) &= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \gamma \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \left [ \nabla \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime) + \pi(a^\prime \vert s^\prime) \gamma \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \nabla v_\pi(s^{\prime \prime}) \right ] \right ] \tag{apply recursive expression once}\\
+&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) \right ] +  \gamma \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \left [ \nabla \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime) \right ] \right ] +  \gamma^2 \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \nabla v_\pi(s^{\prime \prime}) \right ] \tag{grouping terms}\\
+&= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) \right ] +  \gamma \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime} \left [ \nabla \pi(a^\prime \vert s^\prime) q_\pi(s^\prime, a^\prime) \right ] \right ] + \gamma^2 \sum_a \left [ \pi(a \vert s)\sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime}  \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \sum_{a^{\prime \prime}} [ \nabla \pi(a^{\prime \prime} \vert s^{\prime \prime}) q_\pi(s^{\prime \prime}, a^{\prime \prime})\right ] + \cdots \tag{extend recursion}\\
 \end{flalign}$
 """
 
@@ -382,7 +382,7 @@ f(s) &\doteq \sum_a \nabla \pi(a \vert s) q_\pi(s, a) \\
 
 Then we can rewrite the second term as follows:
 
-$\sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) f(s^\prime) \right ] = \sum_{s^\prime} \Pr (s \rightarrow s^\prime, 1, \pi) f(s^\prime)$
+$\gamma \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) f(s^\prime) \right ] = \gamma \sum_{s^\prime} \Pr (s \rightarrow s^\prime, 1, \pi) f(s^\prime)$
 
 where the final expression uses the probability that the agent transitions from state $s$ to $s^\prime$ in one step under the policy $\pi$.  Using this same logic, we can rewrite the third expression as well.
 """
@@ -390,28 +390,31 @@ where the final expression uses the probability that the agent transitions from 
 # ╔═╡ 05b0fcad-628b-48d2-aa24-f6f562dbb660
 md"""
 $\begin{flalign}
-&\sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime}  \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \sum_{a^{\prime \prime}} [ \nabla \pi(a^{\prime \prime} \vert s^{\prime \prime}) q_\pi(s^{\prime \prime}, a^{\prime \prime})\right ] \\
-&\sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime}  \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) f(s^{\prime \prime}) \right ] \\
-&\sum_{s^{\prime \prime}} \Pr(s \rightarrow s^{\prime \prime}, 2, \pi) f(s^{\prime \prime})
+&\gamma^2 \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime}  \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) \sum_{a^{\prime \prime}} [ \nabla \pi(a^{\prime \prime} \vert s^{\prime \prime}) q_\pi(s^{\prime \prime}, a^{\prime \prime})\right ] \\
+&\gamma^2 \sum_a \left [ \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \sum_{a^\prime}  \pi(a^\prime \vert s^\prime) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, a^\prime) f(s^{\prime \prime}) \right ] \\
+&\gamma^2 \sum_{s^{\prime \prime}} \Pr(s \rightarrow s^{\prime \prime}, 2, \pi) f(s^{\prime \prime})
 \end{flalign}$
 """
 
-# ╔═╡ 72bdfe84-6577-4fd7-bafe-66919411e263
+# ╔═╡ efdaceb1-8dfd-4b39-823f-7a280f6234bb
 md"""
-Noticing this pattern, the kth term will be of the form $\sum_{x \in \mathcal{S}} \Pr(s \rightarrow x, k, \pi)f(x)$ and the total expression will just be a sum of all of these terms to infinity or the maximum length of an episode under the policy.  Now that we have this expression, we can continue with the gradient of the performance metric which is the value function at the starting state:
+Noticing this pattern, the kth term will be of the form $\gamma^k \sum_{x \in \mathcal{S}} \Pr(s \rightarrow x, k, \pi)f(x)$ and the total expression will just be a sum of all of these terms to infinity or the maximum length of an episode under the policy.  Note that these probabilities satisfy the property $\sum_x \Pr(s \rightarrow x, k, \pi) = 1$ for a specific $s, k, \pi$ and also that $\sum_k \Pr(s_0 \rightarrow s, k, \pi) = \eta(s)$ which is the expected number of visits to a state $s$ under the policy $\pi$ starting from state $s_0$.  What if we wanted to calculate the expected time step we would visit a specific state $s$, that is if we sampled from trajectories starting from state $s_0$ and every time we encountered a state $s$ we took note of what time step it was.  Over multiple episodes, the time steps would appear with a frequency that matched the probability distribution of $k$ where $k$ is the time step on which we visit state $s$.  We know that over all $k$, the probability we have is not normalized, so to get this type of probability we would need to normalize it with the denominator: $\Pr(k = t \mid s_0 \rightarrow s, k, \pi) = \frac{\Pr(s_0 \rightarrow s, k, \pi)}{\sum_{k^\prime} \Pr(s_0 \rightarrow s, k, \pi)}$ where this distribution is normalized over all $k$ for a given $s$ and the probabilities in the fraction are normalized over all states $s$ for a given $k$.
 
 $\begin{flalign}
 \nabla J(\mathbf{\theta}) &= \nabla v_\pi(s_0) \\
-&= \sum_s \sum_k \Pr(s_0 \rightarrow s, k, \pi) f(s) \\
-&= \sum_s \eta(s) f(s) \tag{expected visits to a state} \\
-&=  \sum_s \frac{\sum_{s^\prime} \eta(s^\prime) \eta(s)}{\sum_{s^\prime} \eta(s^\prime)} f(s) \tag{multiply by 1}\\
-&=  \sum_{s^\prime} \eta(s^\prime)  \sum_s \frac{\eta(s)}{\sum_{s^\prime} \eta(s^\prime)} f(s) \tag{factor out numerator term}\\
-&=  \sum_{s^\prime} \eta(s^\prime) \sum_s  \mu(s) f(s) \tag{on policy distribution}\\
-&\propto \sum_s \mu(s) f(s) \tag{first term is constant}\\
-&= \mathbb{E}_\pi \left [ \sum_a \nabla \pi(a \vert s) q_\pi(s, a) \right ] \tag{expected value under the policy}
+&= \sum_s \sum_k \gamma^k \Pr(s_0 \rightarrow s, k, \pi) f(s) \\
+&= \sum_s f(s) \sum_k \gamma^k \Pr(s_0 \rightarrow s, k, \pi) \\
+&= \sum_s f(s) \frac{\sum_{k^\prime} \Pr(s_0 \rightarrow s, k^\prime, \pi)}{\sum_{k^\prime} \Pr(s_0 \rightarrow s, k^\prime, \pi)} \sum_k \gamma^k \Pr(s_0 \rightarrow s, k, \pi) \tag{multiply by 1}\\
+&= \sum_s f(s) \sum_{k^\prime} \Pr(s_0 \rightarrow s, k^\prime, \pi) \sum_k \gamma^k \frac{\Pr(s_0 \rightarrow s, k, \pi)}{\sum_{k^\prime} \Pr(s_0 \rightarrow s, k^\prime, \pi)}\\
+&= \sum_s f(s) \sum_{k^\prime} \Pr(s_0 \rightarrow s, k^\prime, \pi) \sum_k \gamma^k \Pr(k^\prime = k \mid s_0 \rightarrow s, k^\prime, \pi)\\
+&= \sum_s \sum_{k^\prime} \Pr(s_0 \rightarrow s, k^\prime, \pi) f(s) \mathbb{E}_\pi[ \gamma^k \mid S_0 = s_0, S_k = s] \tag{expected value definition, see above}\\
+&= \sum_s \eta(s) f(s) \mathbb{E}_\pi[ \gamma^k \mid S_0 = s_0, S_k = s] \tag{expected visits to a state, see above}\\
+&=  \sum_s \frac{\sum_{s^\prime} \eta(s^\prime) \eta(s)}{\sum_{s^\prime} \eta(s^\prime)} f(s) \mathbb{E}_\pi[ \gamma^k \mid S_0 = s_0, S_k = s] \tag{multiply by 1}\\
+&=  \sum_{s^\prime} \eta(s^\prime)  \sum_s \frac{\eta(s)}{\sum_{s^\prime} \eta(s^\prime)} f(s) \mathbb{E}_\pi[ \gamma^k \mid S_0 = s_0, S_k = s] \tag{factor out numerator term}\\
+&=  \sum_{s^\prime} \eta(s^\prime) \sum_s  \mu(s) f(s) \mathbb{E}_\pi[ \gamma^k \mid S_0 = s_0, S_k = s] \tag{on policy distribution}\\
+&\propto \sum_s \mu(s) f(s) \mathbb{E}_\pi[ \gamma^k \mid S_0 = s_0, S_k = s] \tag{first term is constant across states}\\
+&= \mathbb{E}_\pi \left [ \gamma^k \sum_a \nabla \pi(a \vert s) q_\pi(s, a) \mid S_0 = s_0, S_k = s \right ] \\
 \end{flalign}$
-
-The final expression is something that can be sampled from the environment by using a policy to generate a trajectory and using an unbiased estimate of $q_\pi(s, a)$ at each step.
 """
 
 # ╔═╡ f924eb30-d1cc-4941-8fb5-ff70ad425ab9
@@ -423,16 +426,16 @@ If we replace the true action-value function in (13.5) with a learned approximat
 We can re-write (13.5) using an expected value under the policy and continue from there:
 
 $\begin{flalign}
-\nabla J(\mathbf{\theta}) & \propto \mathbb{E}_\pi \left [ \sum_a q_\pi (S_t, a) \nabla \pi(a|S_t, \mathbf{\theta}) \right ] \tag{13.6}\\
- &= \mathbb{E}_\pi \left [ \sum_a \pi(a|S_t, \mathbf{\theta}) q_\pi (S_t, a) \frac{\nabla \pi(a|S_t, \mathbf{\theta})}{\pi(a|S_t, \mathbf{\theta})} \right ] \tag{multiply and divide by policy} \\
- &= \mathbb{E}_\pi \left [ q_\pi (S_t, A_t) \frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})} \right ] \tag{replace a with sample under policy} \\
- &= \mathbb{E}_\pi \left [ G_t \frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})} \right ] \tag{replace value with sample return} \\
+\nabla J(\mathbf{\theta}) & \propto \mathbb{E}_\pi \left [ \gamma^t \sum_a q_\pi (S_t, a) \nabla \pi(a|S_t, \mathbf{\theta}) \right ] \tag{13.6}\\
+ &= \mathbb{E}_\pi \left [\gamma^t \sum_a \pi(a|S_t, \mathbf{\theta}) q_\pi (S_t, a) \frac{\nabla \pi(a|S_t, \mathbf{\theta})}{\pi(a|S_t, \mathbf{\theta})} \right ] \tag{multiply and divide by policy} \\
+ &= \mathbb{E}_\pi \left [ \gamma^t q_\pi (S_t, A_t) \frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})} \right ] \tag{replace a with sample under policy} \\
+ &= \mathbb{E}_\pi \left [ \gamma^t G_t \frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})} \right ] \tag{replace value with sample return} \\
 \end{flalign}$
 
 Using the expression in the brackets we can write down an update rule for the parameters that can be sampled on each time step.  This is the **REINFORCE update**:
 
 $\begin{align}
-\mathbf{\theta}_{t+1} \doteq \mathbf{\theta}_t + \alpha G_t \frac{\nabla \pi(A_t|S_t, \mathbf{\theta}_t)}{\pi(A_t|S_t, \mathbf{\theta}_t)} \tag{13.8}
+\mathbf{\theta}_{t+1} \doteq \mathbf{\theta}_t + \alpha \gamma^t G_t \frac{\nabla \pi(A_t|S_t, \mathbf{\theta}_t)}{\pi(A_t|S_t, \mathbf{\theta}_t)} \tag{13.8}
 \end{align}$
 
 Because it uses all future returns after step t, REINFORCE is a Monte Carlo algorithm and is well defined only for the episodic case.  For implementation purposes we can replace $\frac{\nabla \pi(A_t|S_t, \mathbf{\theta})}{\pi(A_t|S_t, \mathbf{\theta})}$ with $\nabla \ln \pi(A_t|S_t, \mathbf{\theta}_t)$ which is usually refered to as the *eligibility vector*.
@@ -571,7 +574,7 @@ Loop for each step of the episode $t = 0, 1, \cdots, T-1$
 
 $G \leftarrow \sum_{k=t+1} \gamma^{k-t-1}R_k$
 
-$c = \alpha * \gamma^t * G$
+$c = \alpha \times \gamma^t \times G$
 
 Loop for each action index j 
 
@@ -5347,7 +5350,7 @@ version = "17.4.0+2"
 # ╟─37a8ef7e-e859-4ef0-81e2-76c02a324031
 # ╟─339b4d2b-2237-46a3-9867-ecc3332856c1
 # ╟─05b0fcad-628b-48d2-aa24-f6f562dbb660
-# ╟─72bdfe84-6577-4fd7-bafe-66919411e263
+# ╟─efdaceb1-8dfd-4b39-823f-7a280f6234bb
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
 # ╟─189798b3-ec6b-48b9-918c-ee0f65935ab3
 # ╟─70096b14-beab-4f71-9886-6355c749bb8a
