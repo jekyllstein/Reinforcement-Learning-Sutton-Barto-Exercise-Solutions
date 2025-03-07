@@ -592,49 +592,49 @@ md"""
 ### *REINFORCE Implementation*
 """
 
-# ╔═╡ 8ae52de0-f229-40c7-95f6-46c3e61e8a97
-begin
-	function update_policy_params!(params::Array{T, N}, c::T, ∇lnπ::Array{T, N}) where {T<:Real, N}
-		params .+= c .* ∇lnπ
-	end
-
-	function update_policy_params!(params::FCANNParams, c::Float32, ∇lnπ::FCANNParams)
-		for i in eachindex(params[1])
-			params[1][i] .+= c .* ∇lnπ[1][i]
-			params[2][i] .+= c .* ∇lnπ[2][i]
-		end
-	end
-end
-
 # ╔═╡ 5c11a92d-7496-4aba-af15-2537eac49dd7
 const FCANNActivations{T} = Vector{Vector{T}} where T<:Real 
 
-# ╔═╡ 48904614-3247-41e2-b994-b6593c457b61
+# ╔═╡ b0a66a19-ee76-463b-a704-8fcee85444d0
 begin
-	update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::Matrix{T}) where T<:AbstractFloat = BLAS.gemv!('T', one(T), params, x, zero(T), action_preferences)
+	function update_params_with_gradient!(θ::Array{T, N}, α::T, ∇θ::Array{T, N}) where {T<:Real, N}
+		θ .+= α .* ∇θ
+	end
 
-	function update_preferences_NN!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams, activations::FCANNActivations{T}, reslayers::Integer) where T<:Float32
-		FCANN.forwardNOGRAD_base!(activations, params..., x, reslayers)
-		action_preferences .= activations[end]
+	function update_params_with_gradient!(params::FCANNParams, α::Float32, ∇::FCANNParams)
+		for i in eachindex(first(params))
+			for j in 1:2
+				update_params_with_gradient!(params[j][i], α, ∇[j][i])
+			end
+		end
 	end
 end
 
-# ╔═╡ 2b197502-e925-46df-b03e-44cb40fe9c1b
-begin
-	function update_eligibility_vector!(∇lnπ::Matrix{T}, action_preferences::Vector{T}, x::Vector{T}, i_a::Integer, params::Matrix{T}) where T<:AbstractFloat
-		update_preferences!(action_preferences, x, params)
-		soft_max!(action_preferences)
-		BLAS.gemm!('N', 'T', -one(T), x, action_preferences, zero(T), ∇lnπ)
-		@inbounds @simd for i in eachindex(x)
-			∇lnπ[i, i_a] += x[i]
-		end
-	end
+# ╔═╡ 581f7e9b-a5c2-4841-9605-85f9585b0274
+update_linear_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::Matrix{T}) where T<:AbstractFloat = BLAS.gemv!('T', one(T), params, x, zero(T), action_preferences)
 
-	function update_eligibility_vector_NN!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x::Vector{T}, i_a::Integer, params::FCANNParams, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list) where T<:Float32
-		FCANN.nnCostFunction(params..., hidden_layers, x, i_a, l2, ∇lnπ..., tanh_grad_z, activations, deltas, dropout; resLayers = reslayers, loss_type = CrossEntropyLoss(), activation_list = activation_list)
-		for i in eachindex(params[1])
-			∇lnπ[1][i] .*= -1f0
-			∇lnπ[2][i] .*= -1f0
+# ╔═╡ cc3ac95e-a398-438a-ba3d-62b6733f6342
+function update_fcann_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams, activations::FCANNActivations{T}, reslayers::Integer) where T<:Float32
+	FCANN.forwardNOGRAD_base!(activations, params..., x, reslayers)
+	action_preferences .= activations[end]
+end
+
+# ╔═╡ 4634267b-5dea-4164-8bb2-1eb2fd4d7954
+function update_linear_eligibility_vector!(∇lnπ::Matrix{T}, action_preferences::Vector{T}, x::Vector{T}, i_a::Integer, params::Matrix{T}) where T<:AbstractFloat
+	update_linear_action_preferences!(action_preferences, x, params)
+	soft_max!(action_preferences)
+	BLAS.gemm!('N', 'T', -one(T), x, action_preferences, zero(T), ∇lnπ)
+	@inbounds @simd for i in eachindex(x)
+		∇lnπ[i, i_a] += x[i]
+	end
+end
+
+# ╔═╡ 45f0a385-6465-4acc-8637-1b007a0fe215
+function update_fcann_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x::Vector{T}, i_a::Integer, params::FCANNParams, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales) where T<:Float32
+	FCANN.nnCostFunction(params..., hidden_layers, x, i_a, l2, ∇lnπ..., tanh_grad_z, activations, deltas, dropout; resLayers = reslayers, loss_type = CrossEntropyLoss(), activation_list = activation_list)
+	@inbounds for i in eachindex(params[1])
+		for j in 1:2
+			∇lnπ[j][i] .*= -1f0 * scales[i]
 		end
 	end
 end
@@ -642,20 +642,22 @@ end
 # ╔═╡ 2b11ef08-288f-4110-b741-ba580782b6a7
 begin
 	#version of reinforce for general function approximation
-	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, V, T<:Real, S, A, PTF, F1, F2, F3}
+	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_action_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, V, T<:Real, S, A, PTF, F1, F2, F3}
 		rewards = zeros(T, max_episodes)
 		action_preferences = zeros(T, length(mdp.actions))
 		function π(s)
 			update_feature_vector!(x, s)
-			update_preferences!(action_preferences, x, params)
+			update_action_preferences!(action_preferences, x, params)
 			# @info "Action preferences are $action_preferences"
 			soft_max!(action_preferences)
-			sample_action(action_preferences)
 		end
-		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+
+		π_sample(s) = sample_action(π(s))
+		
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π_sample)
 		for i in eachindex(rewards)
 			# @info "On episode $i of $max_episodes"
-			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π_sample, epkwargs...)
 			g = zero(T)
 			rtotal = zero(T)
 			#iterate through episode beginning at the end
@@ -664,19 +666,19 @@ begin
 				update_feature_vector!(x, state_history[i])
 				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], params)
 				c = α * γ^(i-1) * (g - baseline)
-				update_policy_params!(params, c, ∇lnπ)
+				update_params_with_gradient!(params, c, ∇lnπ)
 				# params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
 				rtotal += reward_history[i]
 			end
 			rewards[i] = rtotal
 		end
-		return (episode_rewards = rewards, π = π, parameters = params)
+		return (episode_rewards = rewards, policy_function = π, policy_sample_action = π_sample, parameters = params)
 	end
 
-	reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, x::V, update_feature_vector!::Function, max_episodes::Integer; kwargs...) where {P, V, T<:Real, S, A, PTF, F1, F2, F3} = reinforce_monte_carlo_control!(params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
+	reinforce_monte_carlo_control!(params::Matrix{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, x::Vector{T}, update_feature_vector!::Function, max_episodes::Integer; kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = reinforce_monte_carlo_control!(params, mdp, update_linear_action_preferences!, update_linear_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
 
 	#version of reinforce with binary feature vectors
-	function reinforce_monte_carlo_control!(params::P, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P = deepcopy(params), epkwargs...) where {P, T<:Real, S, A, PTF, F1, F2, F3}
+	function reinforce_monte_carlo_control!(params::Matrix{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::Matrix{T} = deepcopy(params), epkwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
 		rewards = zeros(T, max_episodes)
 		action_preferences = zeros(T, length(mdp.actions))
 		function update_preferences!(action_preferences, active_features, params)
@@ -688,26 +690,27 @@ begin
 			end
 			return action_preferences
 		end
-		
-		function π(s)
+
+		function π!(action_preferences, s)
 			active_features = get_active_features(s)
 			update_preferences!(action_preferences, active_features, params)
 			# @info "Action preferences are $action_preferences"
 			soft_max!(action_preferences)
-			sample_action(action_preferences)
 		end
 		
-		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		π(s) = π!(action_preferences, s)
+		π_sample(s) = sample_action(π(s))
+		
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π_sample)
 		for i in eachindex(rewards)
 			# @info "On episode $i of $max_episodes"
-			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π_sample, epkwargs...)
 			g = zero(T)
 			rtotal = zero(T)
 			#iterate through episode beginning at the end
 			for i in nsteps:-1:1
 				g = (γ * g) + reward_history[i]
 				active_features = get_active_features(state_history[i])
-				# update_eligibility_vector!(∇lnπ, action_preferences, active_features, action_history[i], params)
 				c = α * γ^(i-1) * (g - baseline)
 				update_preferences!(action_preferences, active_features, params)
 				soft_max!(action_preferences)
@@ -719,33 +722,33 @@ begin
 				@inbounds @simd for j in active_features
 					params[j, action_history[i]] += c*one(T)
 				end
-				# params .+= α * γ^(i-1) * (g - baseline) .* ∇lnπ
 				rtotal += reward_history[i]
 			end
 			rewards[i] = rtotal
 		end
-		return (episode_rewards = rewards, π = π, parameters = params)
+		return (episode_rewards = rewards, policy_function = π, policy_sample_action = π_sample, parameters = params)
 	end
 end
 
 # ╔═╡ fda8d86c-de1e-4e5e-86de-77c3c670a5e5
 begin
 	#run reinforce with binary features, only requires defining the number of features and a function that returns active features
-	reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_monte_carlo_control!(params, mdp, num_features, get_active_features, max_episodes; kwargs...)
+	reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_monte_carlo_control!(params, mdp, num_features, get_active_features, max_episodes; kwargs...)
 
 	#run reinforce with linear features, only requires defining the length of the feature vector and a function to update it given a state
-	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-		x = zeros(T, num_features)
-		reinforce_monte_carlo_control!(params, mdp, x, update_feature_vector!, max_episodes; kwargs...)
-	end
+	reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer; params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), x::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_monte_carlo_control!(params, mdp, x, update_feature_vector!, max_episodes; kwargs...)
 
 	#run reinforce with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers
-	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer; reslayers = 0, l2 = 0f0, dropout = 0f0, params = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = true), activations = FCANN.form_activations(params[1]), tanh_grad_z = deepcopy(activations), deltas = deepcopy(activations), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-		x = zeros(T, input_length)
-		activation_list = fill(true, length(hidden_layers))
-		update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_eligibility_vector_NN!(∇lnπ, action_preferences, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list)
-		update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_preferences_NN!(action_preferences, x, params, activations, reslayers)
-		reinforce_monte_carlo_control!(params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
+	function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer; reslayers = 0, l2 = 0f0, dropout = 0f0, use_μP = true, params::FCANNParams = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = use_μP), x::Vector{T} = zeros(T, input_length), activations = FCANN.form_activations(params[1]), tanh_grad_z = deepcopy(activations), deltas = deepcopy(activations), scales::Vector{T} = fill(one(T), length(params[1])), activation_list = fill(true, length(hidden_layers)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+		if use_μP
+			for i in eachindex(hidden_layers)
+				i′ = i + 1
+				scales[i′] /= size(params[1][i′], 2)
+			end
+		end	
+		update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales)
+		update_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_fcann_action_preferences!(action_preferences, x, params, activations, reslayers)
+		reinforce_monte_carlo_control!(params, mdp, update_action_preferences!, update_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
 	end
 end
 
@@ -759,7 +762,7 @@ function figure_13_1(α_list; nruns = 100, num_episodes = 1_000, max_steps = 1_0
 
 	traces = [begin
 		out = average_runs(α)
-		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α = 2^{$(log2(α))}"))
+		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α = 2^{$(round(Int64, log2(α)))}"))
 	end
 	for α in α_list]
 
@@ -802,46 +805,71 @@ Since the baseline could be uniformly zero, this is a strict generalization of R
 
 # ╔═╡ d83dc659-dce7-41dd-a8e7-2933ab39d15c
 md"""
-### *REINFORCE with baseline Implementation*
+### *REINFORCE with Baseline Implementation*
+
+These functions use two sets of parameters, one to calculate the policy function and another to calculate the state value function.  The state representation vector is shared between the two functions, but the policy function will return a distribution of preferences over actions while the value function will return a single value.  If linear approximation is used to estimate both functions, the the policy parameters $\mathbf{\theta}$ will be a $d \times N_a$ matrix where $d$ is the length of the state feature vector representation and the value function parameters $\mathbf{w}$ will be a length $d$ vector.  It is also possible to mix linear and non-linear approximation with this method.
 """
 
-# ╔═╡ 19e84898-09cf-4412-a194-1ee6ea86691f
-begin
-	function update_value_parameters!(value_params::Array{T, N}, c::T, ∇v̂::Array{T, N}) where {T<:Real, N}
-		value_params .+= c .* ∇v̂
-	end
+# ╔═╡ 1753b5ed-c00b-4b60-b492-822180778e8c
+function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
+	∇v̂ .= x
 end
 
-# ╔═╡ 16af5c05-2d21-482b-a7cd-1d1e6b3c2a54
-begin
-	function update_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
-		∇v̂ .= x
+# ╔═╡ 5c4a383f-fcf2-4f2b-819f-6d84471dda00
+function update_fcann_value_gradient!(∇v̂::FCANNParams, x::Vector{T}, params::FCANNParams, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivations{T}, activations::FCANNActivations{T}, deltas::FCANNActivations{T}, dropout::T, reslayers::Integer, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool}
+	FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v̂..., tanh_grad_z, activations, deltas, dropout; resLayers = reslayers, loss_type = OutputIndex(), activation_list = activation_list)
+end
+
+# ╔═╡ 77cf3a74-899f-4ade-99f2-5aaf7a98c02d
+function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
+	@inbounds for i in eachindex(scales)
+		for j in 1:2
+			params[j][i] ./= scales[i]
+		end
 	end
 end
 
 # ╔═╡ 0bf3b988-b3fb-49d5-8dde-b25766596363
-begin
-	value_function(x::Vector{T}, w::Vector{T}) where {T<:Real} = dot(x, w)
+linear_value_function(x::Vector{T}, w::Vector{T}) where {T<:Real} = dot(x, w)
+
+# ╔═╡ 635abb34-2c97-4f04-a74c-22fbec32f408
+function fcann_value_function(x::Vector{T}, params::FCANNParams, activations::FCANNActivations{T}, reslayers::Integer) where T<:Float32
+	FCANN.forwardNOGRAD_base!(activations, params..., x, reslayers)
+	return first(last(activations))
 end
 
 # ╔═╡ 459579ab-0b48-4114-b730-7271f9d95876
-#=╠═╡
 begin
 	#version of reinforce for general function approximation
-	function reinforce_with_baseline_monte_carlo_control!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer; α_w = one(T)/10, α_θ = one(T)/10, γ = one(T), baseline = zero(T), ∇lnπ::P1 = deepcopy(policy_params), ∇v̂::P2 = deepcopy(value_params), epkwargs...) where {P1, P2, V, T<:Real, S, A, PTF, F1, F2, F3}
+	function reinforce_with_baseline_monte_carlo_control!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_action_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), baseline = zero(T), ∇lnπ::P1 = deepcopy(policy_params), ∇v̂::P2 = deepcopy(value_params), epkwargs...) where {P1, P2, V, T<:Real, S, A, PTF, F1, F2, F3}
 		rewards = zeros(T, max_episodes)
 		action_preferences = zeros(T, length(mdp.actions))
 		function π(s)
 			update_feature_vector!(x, s)
-			update_preferences!(action_preferences, x, policy_params)
+			update_action_preferences!(action_preferences, x, policy_params)
 			# @info "Action preferences are $action_preferences"
 			soft_max!(action_preferences)
-			sample_action(action_preferences)
 		end
-		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+
+		π_sample(s) = sample_action(π(s))
+
+		function estimate_state_value(s)
+			update_feature_vector!(x, s)
+			value_function(x, value_params)
+		end
+
+		function policy_and_value(s::S)
+			update_feature_vector!(x, s)
+			update_action_preferences!(action_preferences, x, policy_params)
+			soft_max!(action_preferences)
+			v̂ = value_function(x, value_params)
+			return (action_probabilities = action_preferences, state_value_estimate = v̂)
+		end
+
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π_sample)
 		for i in eachindex(rewards)
 			# @info "On episode $i of $max_episodes"
-			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π_sample, epkwargs...)
 			g = zero(T)
 			rtotal = zero(T)
 			#iterate through episode beginning at the end
@@ -852,40 +880,44 @@ begin
 				δ = g - v̂
 				update_value_gradient!(∇v̂, x, value_params)
 				c = α_w*δ
-				update_value_parameters!(value_params, c, ∇v̂)
-				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], params)
+				update_params_with_gradient!(value_params, c, ∇v̂)
+				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], policy_params)
 				c = α_θ * γ^(i-1) * δ
-				update_policy_params!(params, c, ∇lnπ)
+				update_params_with_gradient!(policy_params, c, ∇lnπ)
 				rtotal += reward_history[i]
 			end
 			rewards[i] = rtotal
 		end
-		return (episode_rewards = rewards, π = π, parameters = params)
+		return (episode_rewards = rewards, policy_function = π, policy_sample_action =π_sample, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
 	end
 
-	reinforce_with_baseline_monte_carlo_control!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, x::V, update_feature_vector!::Function, max_episodes::Integer; kwargs...) where {P1, P2, V, T<:Real, S, A, PTF, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, value_function, update_value_gradient!, max_episodes; kwargs...)
+	reinforce_with_baseline_monte_carlo_control!(policy_params::Matrix{T}, value_params::Vector{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, x::Vector{T}, update_feature_vector!::Function, max_episodes::Integer; kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, update_linear_action_preferences!, update_linear_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes; kwargs...)
 
 	#version of reinforce with binary feature vectors
-	function reinforce_with_baseline_monte_carlo_control!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ = one(T), baseline = zero(T), epkwargs...) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
+	function reinforce_with_baseline_monte_carlo_control!(policy_params::Matrix{T}, value_params::Vector{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ = one(T), baseline = zero(T), epkwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
 		rewards = zeros(T, max_episodes)
 		action_preferences = zeros(T, length(mdp.actions))
 		function update_preferences!(action_preferences, active_features, params)
 			@inbounds for i_a in eachindex(mdp.actions)
 				action_preferences[i_a] = zero(T)
 				@simd for i in active_features
-					action_preferences[i_a] += params[i, i_a]
+					action_preferences[i_a] += policy_params[i, i_a]
 				end
 			end
 			return action_preferences
 		end
-		
-		function π(s)
-			active_features = get_active_features(s)
-			update_preferences!(action_preferences, active_features, policy_params)
-			# @info "Action preferences are $action_preferences"
-			soft_max!(action_preferences)
-			sample_action(action_preferences)
+
+		function π!(h::Vector{T}, active_features)
+			update_preferences!(h, active_features, policy_params)
+			soft_max!(h)
 		end
+		
+		function π(s::S)
+			active_features = get_active_features(s)
+			π!(action_preferences, active_features)
+		end
+
+		π_sample(s) = sample_action(π(s))
 
 		function estimate_value(active_features, params::Vector{T}) where {T<:Real}
 			v = zero(T)
@@ -894,11 +926,19 @@ begin
 			end
 			return v
 		end
+
+		function policy_and_value(s)
+			h = copy(action_preferences)
+			active_features = get_active_features(s)
+			π!(h, active_features)
+			v̂ = estimate_value(active_features, value_params)
+			return (action_probabilities = h, state_value_estimate = v̂)
+		end
 		
-		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π)
+		state_history, action_history, reward_history, sterm, nsteps = runepisode(mdp; π = π_sample)
 		for i in eachindex(rewards)
 			# @info "On episode $i of $max_episodes"
-			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π, epkwargs...)
+			state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π_sample, epkwargs...)
 			g = zero(T)
 			rtotal = zero(T)
 			#iterate through episode beginning at the end
@@ -932,32 +972,114 @@ begin
 
 		value_function(s::S) = estimate_value(get_active_features(s), value_params)
 		
-		return (episode_rewards = rewards, π = π, policy_parameters = policy_params, v̂ = value_function, value_parameters = value_params)
+		return (episode_rewards = rewards, policy_function = π, policy_sample_action = π_sample, policy_parameters = policy_params, v̂ = value_function, value_parameters = value_params, policy_and_value = policy_and_value)
 	end
 end
-  ╠═╡ =#
 
 # ╔═╡ ff3d7b94-6422-4b4b-8e7c-de589563d575
-#=╠═╡
 begin
-	#run reinforce with binary features, only requires defining the number of features and a function that returns active features
+	#run reinforce with baseline with binary features, only requires defining the number of features and a function that returns active features
 	reinforce_with_baseline_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; policy_params = zeros(T, num_features, length(mdp.actions)), value_params = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, num_features, get_active_features, max_episodes; kwargs...)
 
-	# #run reinforce with linear features, only requires defining the length of the feature vector and a function to update it given a state
-	# function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer; params = zeros(T, num_features, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	# 	x = zeros(T, num_features)
-	# 	reinforce_monte_carlo_control!(params, mdp, x, update_feature_vector!, max_episodes; kwargs...)
-	# end
+	#run reinforce with baseline with linear features, only requires defining the length of the feature vector and a function to update it given a state
+	reinforce_with_baseline_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), x::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, x, update_feature_vector!, max_episodes; kwargs...)
 
-	# #run reinforce with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers
-	# function reinforce_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer; reslayers = 0, l2 = 0f0, dropout = 0f0, params = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = true), activations = FCANN.form_activations(params[1]), tanh_grad_z = deepcopy(activations), deltas = deepcopy(activations), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	# 	x = zeros(T, input_length)
-	# 	activation_list = fill(true, length(hidden_layers))
-	# 	update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_eligibility_vector_NN!(∇lnπ, action_preferences, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list)
-	# 	update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_preferences_NN!(action_preferences, x, params, activations, reslayers)
-	# 	reinforce_monte_carlo_control!(params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, max_episodes; kwargs...)
-	# end
+	#run reinforce with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers.  By default the same network is used for both functions with a swapped out final layer
+	function reinforce_with_baseline_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer; reslayers::Integer = 0, l2::T = 0f0, dropout::T = 0f0, use_μP::Bool=true, policy_params = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = use_μP), x::Vector{T} = zeros(T, input_length), activation_list = fill(true, length(hidden_layers)), policy_activations = FCANN.form_activations(policy_params[1]), policy_tanh_grad_z = deepcopy(policy_activations), policy_deltas = deepcopy(policy_activations), scales::Vector{T} = fill(one(T), length(policy_params[1])), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+		scale = (reslayers == 0) ? 1 : length(hidden_layers)/(reslayers + 1) + 1
+		c = scale*last(hidden_layers)
+		f = use_μP ? one(T) / c : c^T(-0.5)
+		w_θ_out = T.(FCANN.makeorthonormalrand(1, last(hidden_layers)) .* f)
+		w_β_out = zeros(T, 1)
+
+		if use_μP
+			for i in eachindex(hidden_layers)
+				i′ = i + 1
+				scales[i′] /= size(policy_params[1][i′], 2)
+			end
+		end
+		
+		#value function shares its params with the policy function
+		value_params = deepcopy(policy_params)
+		#replace the final layer of the value network with something that outputs a single value
+		value_params[1][end] = w_θ_out
+		value_params[2][end] = w_β_out
+
+		#form activations for value network
+		value_activations = deepcopy(policy_activations)
+		value_activations[end] = zeros(T, 1)
+		value_tanh_grad_z = deepcopy(value_activations)
+		value_deltas = deepcopy(value_activations)
+		
+		
+		update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params, hidden_layers, l2, policy_tanh_grad_z, policy_activations, policy_deltas, dropout, reslayers, activation_list, scales)
+		update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_fcann_action_preferences!(action_preferences, x, policy_params, policy_activations, reslayers)
+		value_function(x, params) = fcann_value_function(x, params, value_activations, reslayers)
+		function update_value_gradient!(∇v̂, x, value) 
+			update_fcann_value_gradient!(∇v̂, x, value_params, hidden_layers, l2, value_tanh_grad_z, value_activations, value_deltas, dropout, reslayers, activation_list)
+			use_μP && scale_fcann_params!(value_params, scales)
+		end
+		
+		reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, value_function, update_value_gradient!, max_episodes; kwargs...)
+	end
 end
+
+# ╔═╡ 8544eddb-2095-4a3c-82e0-920123a88e6d
+md"""
+#### Test REINFORCE With and Without Baseline
+
+The following function calls execute the REINFORCE algorithm on Example 13.1.  The output displayed is the policy function acting on the single state representation for the problem.  The two values represent the probability of taking the left and right action respectively.  If converged properly, the right action probability should be higher, approaching a value of about 60%.
+"""
+
+# ╔═╡ 48b342f2-e48f-457a-9bd3-b3504a79f3a6
+md"""
+##### Binary Features
+
+This version of REINFORCE uses binary feature vectors for which one needs to specify the total number of features as well as a function that returns the active features for a given state.
+"""
+
+# ╔═╡ f2ed56c9-c2b7-42cb-a083-e12aeaa126ef
+#=╠═╡
+reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000, α = 2f0^-13, max_steps = 1_000).policy_function(1)
+  ╠═╡ =#
+
+# ╔═╡ cbea5840-49d2-4e91-be9c-f5f15666d78a
+#=╠═╡
+reinforce_with_baseline_monte_carlo_control(corridor_mdp, s -> (1,), 1, 1_000, α_θ = 2f0^-12, α_w = 2f0^-6, max_steps = 1_000).policy_function(1)
+  ╠═╡ =#
+
+# ╔═╡ fd89433e-643c-474b-b3c4-a997678421a6
+md"""
+##### Linear Features
+
+This version of REINFORCE uses linear feature vectors for which one needs to specify the total number of features as well as a function that updates the values in a feature vector given a state.
+"""
+
+# ╔═╡ 5720e942-d3f8-4329-83a8-8bcedf078b6a
+#=╠═╡
+reinforce_monte_carlo_control(corridor_mdp, 1, (x, s) -> x[1] = 1f0, 1_000; α = 2f0^-14, max_steps = 1_000).policy_function(1)
+  ╠═╡ =#
+
+# ╔═╡ cacaaca6-6e01-464f-a2ee-cbf62737a426
+#=╠═╡
+reinforce_with_baseline_monte_carlo_control(corridor_mdp, 1, (x, s) -> x[1] = 1f0, 1_000;  α_θ = 2f0^-12, α_w = 2f0^-6, max_steps = 1_000).policy_function(1)
+  ╠═╡ =#
+
+# ╔═╡ 1ec1acf1-f833-4478-9b3c-88029340a629
+md"""
+##### Non-linear Features
+
+This version of REINFORCE uses non-linear features in a fully connected neural network.  The number of parameters no longer matches the size of the input feature vector, but a mapping from state to feature vector is still required.  One must specify the size of the feature vector, a function that updates the values in a feature vector given a state, and the size of each hidden layer in the neural network.  Additional keyword arguments are available to change the construction of the neural network such as adding residual layers.
+"""
+
+# ╔═╡ 07ad517a-c2ac-4377-99fb-adb13d0f1d0c
+#=╠═╡
+reinforce_monte_carlo_control(corridor_mdp, 1, [1], (x, s) -> x[1] = 1f0, 1_000; α = 2f0^-14, max_steps = 1_000).policy_function(1)
+  ╠═╡ =#
+
+# ╔═╡ aa69e4ea-91e0-496a-a7be-529e67f4dbec
+#=╠═╡
+reinforce_with_baseline_monte_carlo_control(corridor_mdp, 1, [1], (x, s) -> x[1] = 1f0, 1_000; α_θ = 2f0^-14, α_w = 2f0^-6, max_steps = 1_000).policy_function(1)
   ╠═╡ =#
 
 # ╔═╡ 83ca0577-15d7-4448-b597-c77810b812bf
@@ -974,13 +1096,13 @@ function figure_13_2_test(α_list, α_pair_list; nruns = 100, num_episodes = 1_0
 
 	traces1 = [begin
 		out = average_runs(α)
-		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α = 2^{$(log2(α))}"))
+		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α = 2^{$(round(Int64, log2(α)))}"))
 	end
 	for α in α_list]
 
 	traces2 = [begin
 		out = average_runs(αs...)
-		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α^{θ} = 2^{$(log2(αs[1]))} \\text{ and } α^w = 2^{$(log2(αs[2]))}"))
+		scatter(x = 1:num_episodes, y = out, name = name = latexstring("α^{θ} = 2^{$(round(Int64, log2(αs[1])))} \\text{ and } α^{\\mathbf{w}} = 2^{$(round(Int64, log2(αs[2])))}"))
 	end
 	for αs in α_pair_list]
 
@@ -999,7 +1121,50 @@ Adding a baseline to REINFORCE can make it learn much faster as illustrated here
 
 # ╔═╡ a7dcc8cd-04ec-48f2-a387-116330eaffb2
 #=╠═╡
-figure_13_2_test([2f0^-13], vcat([(2f0^n, 2f0^-6) for n in -12:-10], [(2f0^n, 2f0^-4) for n in -11:-9]))
+figure_13_2_test([2f0^-13], vcat([(2f0^n, 2f0^-4) for n in -12:-10], [(2f0^n, 2f0^-2) for n in -8:-6]))
+  ╠═╡ =#
+
+# ╔═╡ 047656d1-2921-40f2-b75b-ce4a87098007
+md"""
+### Switched Corridor Parameter Studies
+"""
+
+# ╔═╡ e5c1aca8-7575-4835-8273-e69ca0a55fe8
+#=╠═╡
+function corridor_parameter_studies(α_list, α_θ_list, α_w_list; nruns = 100, num_episodes = 100, max_steps = 1_000)
+	Random.seed!(45)
+	function average_runs(α)
+		1:nruns |> Map(_ -> reinforce_monte_carlo_control(corridor_mdp, s -> (1,), 1, num_episodes, params = [0f0 3.7f0], α = α, max_steps = max_steps).episode_rewards) |> sum |> foldxt(+) |> x -> x / nruns / num_episodes
+	end
+
+	function average_runs(α_θ, α_w)
+		1:nruns |> Map(_ -> reinforce_with_baseline_monte_carlo_control(corridor_mdp, s -> (1,), 1, num_episodes, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, max_steps = max_steps).episode_rewards) |> sum |> foldxt(+) |> x -> x / nruns / num_episodes
+	end
+
+	trace1 = scatter(x = α_list, y = average_runs.(α_list), name = "REINFORCE") 
+
+	with_baseline_traces = [begin
+		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = latexstring("\\text{REINFORCE with Baseline: }α^{\\mathbf{w}} = 2^{$(round(Int64, log2(α_w)))}"))
+	end
+	for α_w in α_w_list]
+
+	plot([trace1; with_baseline_traces], Layout(xaxis_title = "Policy Parameters Learning Rate", yaxis_title = "Average Reward Per Episode <br> Over First $num_episodes Episodes", xaxis_type = "log", yaxis_range = [-80, -10]))
+
+	# traces2 = [begin
+	# 	out = average_runs(αs...)
+	# 	scatter(x = 1:num_episodes, y = out, name = name = latexstring("α^{θ} = 2^{$(round(Int64, log2(αs[1])))} \\text{ and } α^{\\mathbf{w}} = 2^{$(round(Int64, log2(αs[2])))}"))
+	# end
+	# for αs in α_pair_list]
+
+	# baselinetrace = scatter(x = 1:num_episodes, y = fill(-2*sqrt(2) / (3*sqrt(2) - 4), num_episodes), name = latexstring("v_{\\text{ideal}}(s_0)"), line_dash = "dash", line_color = "gray")
+	
+	# plot([baselinetrace; traces1; traces2], Layout(yaxis_range = [-90, -10], yaxis_title = "Total reward on episode <br> (averaged over $nruns runs)", xaxis_title = "Episode", width = 800))
+end
+  ╠═╡ =#
+
+# ╔═╡ 94354552-9920-4b90-98d9-f75286d1f53e
+#=╠═╡
+corridor_parameter_studies(2f0 .^([-11, -12, -13, -14, -15]), 2f0 .^ (-9:-6), 2f0 .^(-3:-1))
   ╠═╡ =#
 
 # ╔═╡ ce33f710-fd9d-4dfa-acda-40204e54d518
@@ -1008,10 +1173,10 @@ md"""
 
 Here we also use the value function estimator to calculate the the return estimate using the one step bootstrap return.  When the state value function is used in this way we call it the *critic*.  In general we can use this function with n-step returns and eligibility traces.
 
-The one-step actor-critic method is the analog of the one step methods such as TD(0), Sarsa(0), and Q learning.  These methods replace the full return of REINFORCE with the one step return as follows:
+The one-step actor-critic method is the analog of the one step methods such as TD$(0)$, Sarsa$(0)$, and Q learning.  These methods replace the full return of REINFORCE with the one step return as follows:
 
 $\begin{flalign}
-\mathbf{\theta}_{t+1} &\hspace{5px}   \dot = \hspace{5px} \mathbf{\theta}_t + \alpha(G_{t:t+1} - \hat v(S_t, \mathbf{w}))\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.12} \\
+\mathbf{\theta}_{t+1} &\doteq \mathbf{\theta}_t + \alpha(G_{t:t+1} - \hat v(S_t, \mathbf{w}))\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.12} \\
 & = \mathbf{\theta}_t + \alpha(R_{t+1} + \gamma \hat v(S_{t+1}, \mathbf{w}) - \hat v(S_t, \mathbf{w}))\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.13} \\
 & = \mathbf{\theta}_t + \delta_t\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.14} \\
 \end{flalign}$
@@ -5192,25 +5357,42 @@ version = "17.4.0+2"
 # ╟─73b90260-d57a-449a-8db6-47f91e6a4e4f
 # ╟─ee72af8d-3cb8-4314-82df-580f068e1252
 # ╟─89901156-b874-416b-89c1-6dc434a4eb17
-# ╠═8ae52de0-f229-40c7-95f6-46c3e61e8a97
-# ╠═2b11ef08-288f-4110-b741-ba580782b6a7
 # ╠═5c11a92d-7496-4aba-af15-2537eac49dd7
-# ╠═48904614-3247-41e2-b994-b6593c457b61
-# ╠═2b197502-e925-46df-b03e-44cb40fe9c1b
+# ╠═b0a66a19-ee76-463b-a704-8fcee85444d0
+# ╠═581f7e9b-a5c2-4841-9605-85f9585b0274
+# ╠═cc3ac95e-a398-438a-ba3d-62b6733f6342
+# ╠═4634267b-5dea-4164-8bb2-1eb2fd4d7954
+# ╠═45f0a385-6465-4acc-8637-1b007a0fe215
+# ╠═2b11ef08-288f-4110-b741-ba580782b6a7
 # ╠═fda8d86c-de1e-4e5e-86de-77c3c670a5e5
 # ╠═d037ea92-915c-4dc7-97c6-d006d92e088a
 # ╟─a206c759-3f6e-4003-8cba-5f6ce6742646
 # ╟─0c56b341-24eb-4c78-844e-182f44a7221a
 # ╟─cc45091e-b889-4d5a-9eef-84d80f792046
 # ╟─d83dc659-dce7-41dd-a8e7-2933ab39d15c
-# ╠═19e84898-09cf-4412-a194-1ee6ea86691f
-# ╠═16af5c05-2d21-482b-a7cd-1d1e6b3c2a54
+# ╠═1753b5ed-c00b-4b60-b492-822180778e8c
+# ╠═5c4a383f-fcf2-4f2b-819f-6d84471dda00
+# ╠═77cf3a74-899f-4ade-99f2-5aaf7a98c02d
 # ╠═0bf3b988-b3fb-49d5-8dde-b25766596363
+# ╠═635abb34-2c97-4f04-a74c-22fbec32f408
 # ╠═459579ab-0b48-4114-b730-7271f9d95876
 # ╠═ff3d7b94-6422-4b4b-8e7c-de589563d575
+# ╟─8544eddb-2095-4a3c-82e0-920123a88e6d
+# ╟─48b342f2-e48f-457a-9bd3-b3504a79f3a6
+# ╠═f2ed56c9-c2b7-42cb-a083-e12aeaa126ef
+# ╠═cbea5840-49d2-4e91-be9c-f5f15666d78a
+# ╟─fd89433e-643c-474b-b3c4-a997678421a6
+# ╠═5720e942-d3f8-4329-83a8-8bcedf078b6a
+# ╠═cacaaca6-6e01-464f-a2ee-cbf62737a426
+# ╟─1ec1acf1-f833-4478-9b3c-88029340a629
+# ╠═07ad517a-c2ac-4377-99fb-adb13d0f1d0c
+# ╠═aa69e4ea-91e0-496a-a7be-529e67f4dbec
 # ╠═83ca0577-15d7-4448-b597-c77810b812bf
 # ╟─b72e030f-7d52-481f-b4f7-2b16b227e547
 # ╠═a7dcc8cd-04ec-48f2-a387-116330eaffb2
+# ╟─047656d1-2921-40f2-b75b-ce4a87098007
+# ╠═94354552-9920-4b90-98d9-f75286d1f53e
+# ╠═e5c1aca8-7575-4835-8273-e69ca0a55fe8
 # ╟─ce33f710-fd9d-4dfa-acda-40204e54d518
 # ╟─f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
 # ╠═bf656d55-19cb-4052-baaa-0896ab6d23a0
