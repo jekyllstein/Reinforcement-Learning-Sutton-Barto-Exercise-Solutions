@@ -417,6 +417,76 @@ $\begin{flalign}
 \end{flalign}$
 """
 
+# ╔═╡ b6b1c980-ef7a-4d92-8242-8f4569071fea
+md"""
+The probability distributions mentioned in this proof can be visualized with the short corridor example.  The following function simulates many episodes in the environment with the random policy and keeps track of the visit count for a given state and which step it was visited.  The result of the accumulation is a matrix who's columns contain the number of times each state was visited on every step of an episode across all of the simulated episodes.
+"""
+
+# ╔═╡ 0c9986bb-54c0-4b08-9c29-4bfb0b68b54e
+#=╠═╡
+function collect_state_distributions(;num_episodes = 1_000_000)
+	function add_vecs(x::Array{T, N}, y::Array{T, N}) where {T<:Real, N}
+		l1 = size(x, 1)
+		l2 = size(y, 1)
+		(l1 == l2) && return x .+ y
+		if l1 > l2
+			out = copy(x)
+			for i in 1:l2
+				view(out, i, :) .+= view(y, i, :)
+			end
+		else
+			out = copy(y)
+			for i in 1:l1
+				view(out, i, :) .+= view(x, i, :)
+			end
+		end
+		return out
+	end
+				
+	1:num_episodes |> Map() do _
+		(states, actions, rewards, _, l) = runepisode(corridor_mdp)
+		state_visits = zeros(Float32, l, 3)
+		@inbounds @simd for i in eachindex(states)
+			s = states[i]
+			state_visits[i, s] += 1f0
+		end
+		return state_visits
+	end |> foldxt(add_vecs)
+end
+  ╠═╡ =#
+
+# ╔═╡ 54f559b6-8a62-4a42-894d-c56e41d5ebef
+#=╠═╡
+collect_state_distributions()
+  ╠═╡ =#
+
+# ╔═╡ b138572c-0d5d-49b7-81c8-6e81dd09a502
+md"""
+Since every episode starts in state one, the first row of the matrix only has a count for state 1 and that count equals the total number of simulations.  From there the simulations branch and distribute the visits to subsequent steps and states.  The final rows contain samples from episodes that lasted longer than all of the others and are thus lower probability events with fewer samples.  From these counts, we can form several different probability distributions depending on how we sum and normalize the data.  The plots below summarize all of the typical distributions that are of interest and also used in the earlier proof.
+"""
+
+# ╔═╡ f6281f84-46e6-4023-8e32-9af4aa6dbb23
+md"""
+The above function normalizes the visit counts in several ways depending on the desired distribution.  Each plot is explained below in order with the following assumptions true : 
+
+- Episodes start in state 1: $\Pr(S_0 = s_1) = 1$
+- Episodes follow the random policy: $\pi(\text{left} \vert s) = 0.5 = \pi(\text{right} \vert s) \: \forall s$
+
+Since the collected data is counts, use the following notation to mean the count for a state $s$ and a step $k$: $\mathcal{N}(s, k)$
+
+##### Full Probability Distribution
+Data is normalized across the entire visit count and each count is a separate probability.  This distribution is the most granular as it contains the probability of being in a specific state and a specific time step: $f_1(s, k) = \Pr(S_k = s)$
+
+##### Probability Distribution Across Steps
+Data is summed across states but normalized for all visit counts.  Specifies the probability of being at a particular step regardless of the state: $f_2(k) = \sum_s f_1(s, k)$
+
+##### Stationary State Distribution
+ $\mu(s)$ is the first distribution considered and is simply the probability of being in a particular state independent of the step count: $\mu(s) = \sum_k f_1(s, k)$
+
+##### Probability Distribution Across Steps For a Single State
+The same distribution across steps except instead of being for each state, data is partitioned per state and only normalized for the visit counts to that state: 
+"""
+
 # ╔═╡ f924eb30-d1cc-4941-8fb5-ff70ad425ab9
 md"""
 ## 13.3 REINFORCE: Monte Carlo Policy Gradient
@@ -4323,6 +4393,47 @@ md"""
 # ╔═╡ 16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
 import HypertextLiteral.@htl
 
+# ╔═╡ 16fcc2d0-9f2f-4226-9dcc-6d86248cab26
+#=╠═╡
+function plot_state_distributions(;kwargs...)
+	state_visits = collect_state_distributions(;kwargs...)
+	μ = sum(state_visits, dims=1)[:]
+	μ_ks = eachcol(state_visits)
+	p1 = plot(bar(x = 1:3, y = μ ./ sum(μ)), Layout(yaxis_range = [0, 1], xaxis_tickvals = [1, 2, 3], xaxis_title = "State", yaxis_title = "Probability of Being in State", title = "Stationary State Distribution"))
+	traces1 = [bar(y = v ./ sum(v), name = "state $i") for (i, v) in enumerate(μ_ks)]
+	p2 = plot(traces1, Layout(xaxis_range = [-1, 50], xaxis_title = "Episode Step", yaxis_title = "Probability of Being in Specified State <br> at Each Time Step", title = "Step Distribution For Each State"))
+
+	(n, m) = size(state_visits)
+	plots = [begin
+		v = state_visits[k, :][:]
+		t = bar(x = 1:3, y = v ./ sum(v), name = "k = $k")
+		p = plot(t, Layout(width = 270, height = 350, yaxis_range = [0, 1], xaxis_title = "State", yaxis_title = "Probability of Being in State",  title = "Step $k"))
+	end
+	for k in vcat(1:5, 10:10:50, n-4:n)]
+	full_p = plot(heatmap(x = 0:20, y = 1:3, z = state_visits[1:21, :]' ./ sum(state_visits)), Layout(xaxis_title = "Step", yaxis_title = "State", title = "Probability Over States and Steps", yaxis_tickvals = [1, 2, 3]))
+	μ_k = sum(state_visits, dims=2)[:] ./ sum(state_visits)
+	μ_k_plot = plot([scatter(y = μ_k, name = "density function"), scatter(y = cumsum(μ_k), name = "distribution function")], Layout(xaxis_title = "Step", yaxis_title = "Probability", title = "Episode Step Probabilities", xaxis_range = [0, 50]))
+	# p3 = plot(traces2)
+	@htl("""
+	$full_p
+	$μ_k_plot
+	<div style = "display:flex; height: 500px;">
+	$p1
+	$p2
+	</div>
+	Stationary State Distribution at Different Steps
+	<div style = "display: flex; flex-wrap: wrap;">
+	$plots
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 9cf3dc5f-8a25-479f-93db-06e34f0d37a0
+#=╠═╡
+plot_state_distributions()
+  ╠═╡ =#
+
 # ╔═╡ 92b62688-2cff-4286-958f-9f4e32de52ee
 #=╠═╡
 function makeboardselector() 
@@ -5351,6 +5462,13 @@ version = "17.4.0+2"
 # ╟─339b4d2b-2237-46a3-9867-ecc3332856c1
 # ╟─05b0fcad-628b-48d2-aa24-f6f562dbb660
 # ╟─efdaceb1-8dfd-4b39-823f-7a280f6234bb
+# ╟─b6b1c980-ef7a-4d92-8242-8f4569071fea
+# ╠═0c9986bb-54c0-4b08-9c29-4bfb0b68b54e
+# ╠═54f559b6-8a62-4a42-894d-c56e41d5ebef
+# ╟─b138572c-0d5d-49b7-81c8-6e81dd09a502
+# ╠═16fcc2d0-9f2f-4226-9dcc-6d86248cab26
+# ╠═f6281f84-46e6-4023-8e32-9af4aa6dbb23
+# ╠═9cf3dc5f-8a25-479f-93db-06e34f0d37a0
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9
 # ╟─189798b3-ec6b-48b9-918c-ee0f65935ab3
 # ╟─70096b14-beab-4f71-9886-6355c749bb8a
