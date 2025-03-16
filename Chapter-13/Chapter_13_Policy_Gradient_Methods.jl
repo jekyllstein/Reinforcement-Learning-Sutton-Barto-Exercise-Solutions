@@ -193,7 +193,7 @@ update_corridor_features!(x::Vector{T}, s) where T<:Real = x[1] = one(T)
 
 # ╔═╡ a019925a-460a-410e-a54b-50a4cfe0e90e
 #=╠═╡
-plot(scatter(x = 1 .- LinRange(0.01, 0.99, 100), y = -[get_corridor_episode_stats(p) for p in 1 .- LinRange(0.01, 0.99, 100)]), Layout(xaxis_title = "probability of right action", yaxis_title = "sample mean value of starting state", width = 800))
+plot(scatter(x = 1 .- LinRange(0.01, 0.99, 100), y = -[get_corridor_episode_stats(p) for p in 1 .- LinRange(0.01, 0.99, 100)]), Layout(xaxis_title = "probability of right action", yaxis_title = "sample mean value of starting state", width = 800, yaxis_range = [-60, -10]))
   ╠═╡ =#
 
 # ╔═╡ f2f2dd1d-180c-4d36-b515-5079d129f93a
@@ -1052,7 +1052,17 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 		rewards[i] = rtotal
 		steps[i] = nsteps
 	end
-	return (episode_rewards = rewards, episode_steps = steps, policy_function = π, policy_sample_action =π_sample, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
+
+	function π2(s; feature_vector = deepcopy(x), action_preferences = copy(action_preferences))
+		update_feature_vector!(feature_vector, s)
+		update_action_preferences!(action_preferences, x, policy_params)
+		# @info "Action preferences are $action_preferences"
+		soft_max!(action_preferences)
+	end
+
+	π_sample2(s; kwargs...) = sample_action(π2(s; kwargs...))
+		
+	return (episode_rewards = rewards, episode_steps = steps, policy_function = π2, policy_sample_action = π_sample2, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
 end
 
 # ╔═╡ 0ac7ea44-14f6-4e80-80f9-d6df8059bb38
@@ -1265,6 +1275,19 @@ md"""
 ### Switched Corridor Parameter Studies
 """
 
+# ╔═╡ a12b92d1-e045-4f92-b8cd-eee5d56fa67d
+#=╠═╡
+const best_mc_corridor = reinforce_with_baseline_monte_carlo_control_linear_features(corridor_mdp, update_corridor_features!, 1, 100;  α_θ = 0.006f0, α_w = 2f0^-2, max_steps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ 553b0ceb-f2ca-41ee-99bc-9f53a4487b49
+#=╠═╡
+get_corridor_episode_stats(best_mc_corridor.policy_sample_action; ntrials = 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 738ada7f-edc7-4ed3-a15e-e92113468738
+#note that the random policy i.e. p = 0.5 has an expected episode length of 12 which is very close to ideal already.
+
 # ╔═╡ e5c1aca8-7575-4835-8273-e69ca0a55fe8
 #=╠═╡
 function corridor_parameter_studies(α_list, α_θ_list, α_w_list; nruns = 100, num_episodes = 100, max_steps = 1_000)
@@ -1292,7 +1315,7 @@ end
 md"""
 ## 13.5 Actor-Critic Methods
 
-Here we also use the value function estimator to calculate the the return estimate using the one step bootstrap return.  When the state value function is used in this way we call it the *critic*.  In general we can use this function with n-step returns and eligibility traces.
+Here we also use the value function estimator to calculate the the return estimate using the one step bootstrap return.  When the state value function is used in this way we call it the *critic*.  In general we can use this function with n-step returns and eligibility traces. Recall from the subject of TD learning of value functions that the one-step return is often superior to the actual return regarding variance and ease of computation, although it does introduce bias to the estimate.  With the use of eligibility traces we can smoothly vary arbitrarily close to the Monte Carlo return.  Note that the bias in the gradient estimate is n due to the bootstrapping as such; the actor would be biased even if the critic was learned by a Monte Carlo method.
 
 The one-step actor-critic method is the analog of the one step methods such as TD$(0)$, Sarsa$(0)$, and Q learning.  These methods replace the full return of REINFORCE with the one step return as follows:
 
@@ -1302,7 +1325,7 @@ $\begin{flalign}
 & = \mathbf{\theta}_t + \delta_t\ln\nabla\pi(A_t|S_t, \mathbf{\theta_t}) \tag{13.14} \\
 \end{flalign}$
 
-This can be implemented as a fully online algorithm because we do not have to wait until the end of an episode to calculate return estimates.
+This can be implemented as a fully online algorithm because we do not have to wait until the end of an episode to calculate return estimates.  The natural state-value-function learning method to pair with this is semi-gradient TD(0).  See a full implementation below.
 """
 
 # ╔═╡ f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
@@ -1310,295 +1333,93 @@ md"""
 ### *One-step Actor-Critic Implementation*
 """
 
-# ╔═╡ e9957968-725a-40f8-8aa4-59ae024de44f
-begin
-	#version of reinforce for general function approximation
-	function one_step_actor_critic!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_action_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), action_preferences = zeros(T, length(mdp.actions)), ∇lnπ::P1 = deepcopy(policy_params), ∇v̂::P2 = deepcopy(value_params), epkwargs...) where {P1, P2, V, T<:Real, S, A, PTF, F1, F2, F3}
-		step_rewards = Vector{T}()
-		episode_steps = Vector{Int64}()
+# ╔═╡ 4d4ae57b-afc3-44f9-b6fc-892f59f82921
+#version of reinforce for general function approximation
+function one_step_actor_critic!(policy_params, ∇lnπ, value_params, ∇v̂, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_action_preferences!::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), action_preferences = zeros(T, length(mdp.actions)), save_episode_steps = false) where {T<:Real, S, A, PTF, F1, F2, F3}
+	step_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	episode_rewards = Vector{T}()
 
-		#initialize variables
-		ep = 1
-		step = 1
-		c = one(T)
-		s = mdp.initialize_state()
-		update_feature_vector!(x, s)
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			update_value_gradient!(∇v̂, x, value_params)
-			v̂ = value_function(x, value_params)
-			update_action_preferences!(action_preferences, x, policy_params)
-			soft_max!(action_preferences)
-			i_a = sample_action(action_preferences)
-			update_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params)
-		
-			(r, s′) = mdp.ptf(s, i_a)
-			push!(step_rewards, r)
-			step += 1
+	#initialize variables
+	ep = 1
+	step = 1
+	rtot = zero(T)
+	c = one(T)
+	s = mdp.initialize_state()
+	update_feature_vector!(x, s)
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		update_value_gradient!(∇v̂, x, value_params)
+		v̂ = value_function(x, value_params)
+		update_action_preferences!(action_preferences, x, policy_params)
+		soft_max!(action_preferences)
+		i_a = sample_action(action_preferences)
+		update_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params)
+	
+		(r, s′) = mdp.ptf(s, i_a)
+		rtot += r
+		save_episode_steps && push!(step_rewards, r)
+		step += 1
 
-			if mdp.isterm(s′)
-				push!(episode_steps, step)
-				v̂′ = zero(T)
-				ep += 1
-				c = one(T)
-				s = mdp.initialize_state()
-				update_feature_vector!(x, s)
-			else
-				update_feature_vector!(x, s′)
-				v̂′ = value_function(x, value_params)
-				s = s′
-				c *= γ
-			end
-			
-			δ = r + γ*v̂′ - v̂
-			
-			update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
-			update_params_with_gradient!(policy_params, α_θ*c*δ, ∇lnπ)
-		end
-
-		function π(s)
+		if mdp.isterm(s′)
+			push!(episode_steps, step)
+			push!(episode_rewards, rtot)
+			v̂′ = zero(T)
+			ep += 1
+			rtot = zero(T)
+			c = one(T)
+			s = mdp.initialize_state()
 			update_feature_vector!(x, s)
-			update_action_preferences!(action_preferences, x, policy_params)
-			soft_max!(action_preferences)
-		end
-
-		π_sample(s) = sample_action(π(s))
-
-		function estimate_state_value(s)
-			update_feature_vector!(x, s)
-			value_function(x, value_params)
-		end
-
-		function policy_and_value(s::S)
-			update_feature_vector!(x, s)
-			update_action_preferences!(action_preferences, x, policy_params)
-			soft_max!(action_preferences)
-			v̂ = value_function(x, value_params)
-			return (action_probabilities = action_preferences, state_value_estimate = v̂)
-		end
-		
-		return (step_rewards = step_rewards, episode_steps = episode_steps, policy_function = π, policy_sample_action =π_sample, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
-	end
-
-	one_step_actor_critic!(policy_params::Matrix{T}, value_params::Vector{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, x::Vector{T}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, update_linear_action_preferences!, update_linear_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes, max_steps; kwargs...)
-
-	#version of one-step-acctor-critic with binary feature vectors
-	function one_step_actor_critic!(policy_params::Matrix{T}, value_params::Vector{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), action_preferences::Vector{T} = zeros(T, length(mdp.actions)), save_step_rewards::Bool = false, epkwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
-		step_rewards = Vector{T}()
-		episode_steps = Vector{Int64}()
-		episode_rewards = Vector{T}()
-
-		#initialize variables
-		ep = 1
-		step = 1
-		c = one(T)
-		s = mdp.initialize_state()
-		rtot = zero(T)
-		# active_features = get_active_features(s)
-
-		# @tailrec function step_update(ep::Integer, step::Integer, s::S, active_features::BinaryFeatures, c::T)
-		# 	(ep > max_episodes) || (step > max_steps) && return nothing
-		# 	v̂ = binary_value_function(active_features, value_params)
-		# 	update_binary_action_preferences!(action_preferences, active_features, policy_params)
-		# 	soft_max!(action_preferences)
-		# 	i_a = sample_action(action_preferences)
-			
-		# 	(r, s′) = mdp.ptf(s, i_a)
-		# 	push!(step_rewards, r)
-		# 	step += 1
-
-		# 	δ = r - v̂
-		# 	if mdp.isterm(s′)
-		# 		push!(episode_steps, step)
-		# 		v̂′ = zero(T)
-		# 		ep += 1
-		# 		c = one(T)
-		# 		s′ = mdp.initialize_state()
-		# 		active_features′ = get_active_features(s)
-		# 	else
-		# 		active_features′ = get_active_features(s′)
-		# 		v̂′ = binary_value_function(active_features′, value_params) 
-		# 		c *= γ
-		# 	end
-			
-		# 	δ = r + γ*v̂′ - v̂
-		# 	update_binary_value_params!(value_params, active_features, α_w*δ)
-		# 	update_binary_policy_params!(policy_params, active_features, i_a, action_preferences, α_θ*c*δ)
-		# 	step_update(ep, step, s′, active_features′, c)
-		# end
-
-		# step_update(ep, step, s, active_features, c)
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			active_features = get_active_features(s)
-			v̂ = binary_value_function(active_features, value_params)
-			update_binary_action_preferences!(action_preferences, active_features, policy_params)
-			soft_max!(action_preferences)
-			i_a = sample_action(action_preferences)
-			
-			(r, s′) = mdp.ptf(s, i_a)
-			rtot += r
-			save_step_rewards && push!(step_rewards, r)
-			step += 1
-			if mdp.isterm(s′)
-				push!(episode_steps, step)
-				push!(episode_rewards, rtot)
-				rtot = zero(T)
-				v̂′ = zero(T)
-				ep += 1
-				c = one(T)
-				s = mdp.initialize_state()
-				active_features′ = get_active_features(s)
-			else
-				active_features′ = get_active_features(s′)
-				v̂′ = binary_value_function(active_features′, value_params) 
-				s = s′
-				c *= γ
-			end
-			
-			δ = r + γ*v̂′ - v̂
-			update_binary_value_params!(value_params, active_features, α_w*δ)
-			update_binary_policy_params!(policy_params, active_features, i_a, action_preferences, α_θ*c*δ)
-		end
-
-		function π(s)
-			active_features = get_active_features(s)
-			update_binary_action_preferences!(action_preferences, active_features, policy_params)
-			soft_max!(action_preferences)
-		end
-
-		π_sample(s) = sample_action(π(s))
-
-		estimate_state_value(s) = binary_value_function(get_active_features(s), value_params)
-
-		function policy_and_value(s::S)
-			active_features = get_active_features(s)
-			update_binary_action_preferences!(action_preferences, x, policy_params)
-			soft_max!(action_preferences)
-			v̂ = binary_value_function(active_features, value_params)
-			return (action_probabilities = action_preferences, state_value_estimate = v̂)
-		end
-		
-		return (step_rewards = step_rewards, episode_steps = episode_steps, episode_rewards = episode_rewards, policy_function = π, policy_sample_action =π_sample, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
-	end
-end
-
-# ╔═╡ 364f3963-dd12-4b32-9fb6-0415b47a3925
-begin
-	#run one-step-actor-critic with binary features, only requires defining the number of features and a function that returns active features
-	one_step_actor_critic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params = zeros(T, num_features, length(mdp.actions)), value_params = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, num_features, get_active_features, max_episodes, max_steps; kwargs...)
-
-	#run one-step-actor-critic with linear features, only requires defining the length of the feature vector and a function to update it given a state
-	one_step_actor_critic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), x::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, x, update_feature_vector!, max_episodes, max_steps; kwargs...)
-
-	#run one-step-actor-critic with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers.  By default the same network is used for both functions with a swapped out final layer
-	function one_step_actor_critic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; reslayers::Integer = 0, l2::T = 0f0, dropout::T = 0f0, use_μP::Bool=true, policy_params = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = use_μP), x::Vector{T} = zeros(T, input_length), activation_list = fill(true, length(hidden_layers)), policy_activations = FCANN.form_activations(policy_params[1]), policy_tanh_grad_z = deepcopy(policy_activations), policy_deltas = deepcopy(policy_activations), scales::Vector{T} = fill(one(T), length(policy_params[1])), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-		scale = (reslayers == 0) ? 1 : length(hidden_layers)/(reslayers + 1) + 1
-		c = scale*last(hidden_layers)
-		f = use_μP ? one(T) / c : c^T(-0.5)
-		w_θ_out = T.(FCANN.makeorthonormalrand(1, last(hidden_layers)) .* f)
-		w_β_out = zeros(T, 1)
-
-		if use_μP
-			for i in eachindex(hidden_layers)
-				i′ = i + 1
-				scales[i′] /= size(policy_params[1][i′], 2)
-			end
-		end
-		
-		#value function shares its params with the policy function
-		value_params = deepcopy(policy_params)
-		#replace the final layer of the value network with something that outputs a single value
-		value_params[1][end] = w_θ_out
-		value_params[2][end] = w_β_out
-
-		#form activations for value network
-		value_activations = deepcopy(policy_activations)
-		value_activations[end] = zeros(T, 1)
-		value_tanh_grad_z = deepcopy(value_activations)
-		value_deltas = deepcopy(value_activations)
-		
-		
-		update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params, hidden_layers, l2, policy_tanh_grad_z, policy_activations, policy_deltas, dropout, reslayers, activation_list, scales)
-		update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_fcann_action_preferences!(action_preferences, x, policy_params, policy_activations, reslayers)
-		value_function(x, params) = fcann_value_function(x, params, value_activations, reslayers)
-		function update_value_gradient!(∇v̂, x, value) 
-			update_fcann_value_gradient!(∇v̂, x, value_params, hidden_layers, l2, value_tanh_grad_z, value_activations, value_deltas, dropout, reslayers, activation_list)
-			use_μP && scale_fcann_params!(value_params, scales)
-		end
-		
-		one_step_actor_critic!(policy_params, value_params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, value_function, update_value_gradient!, max_episodes, max_steps; kwargs...)
-	end
-end
-
-# ╔═╡ bf656d55-19cb-4052-baaa-0896ab6d23a0
-"""
-    one_step_actor_critic(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; 
-        γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
-
-Run the one-step actor-critic algorithm to learn a policy and state-value function for a given environment.
-
-# Arguments
-- `π::Function`: a function that maps a state `s` and a parameter vector `θ` to a probability distribution over actions.
-- `∇lnπ::Function`: a function that maps an action `a`, a state `s`, and a parameter vector `θ` to the gradient of the log-probability of the action under the policy.
-- `v̂::Function`: a function that maps a state `s` and a parameter vector `w` to an estimate of the state-value function.
-- `∇v̂::Function`: a function that maps a state `s` and a parameter vector `w` to the gradient of the state-value function estimate.
-- `d::Int64`: the dimension of the parameter vector `θ`.
-- `d′::Int64`: the dimension of the parameter vector `w`.
-- `s0`: the initial state of the environment.
-- `αθ`: the step size parameter for updating the policy parameters `θ`.
-- `αw`: the step size parameter for updating the state-value function parameters `w`.
-- `step`: a function that maps a state `s` and an action `a` to a tuple `(s′, r)` representing the next state and reward.
-- `sterm`: the terminal state of the environment.
-- `actions`: an array of possible actions in the environment.
-- `γ`: the discount factor for future rewards (default: `1.0`).
-- `max_episodes`: the maximum number of episodes to run (default: `1000`).
-- `θ`: the initial policy parameters (default: `zeros(d)`).
-- `w`: the initial state-value function parameters (default: `zeros(d′)`).
-- `maxsteps`: the maximum number of steps per episode (default: `Inf`).
-
-# Returns
-- `rewards`: an array of length `max_episodes` containing the total rewards obtained in each episode.
-- `θ`: the learned policy parameters.
-- `w`: the learned state-value function parameters.
-
-# Notes
-This function implements the one-step actor-critic algorithm, which updates the policy and state-value function estimates in an online fashion using the gradients of the log-probability and state-value function estimates, respectively, with respect to their parameters. The algorithm uses the eligibility trace method to update the state-value function estimates.
-"""
-function one_step_actor_critic(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf)
-	rewards = zeros(max_episodes)	
-	function run_episode!(maxsteps)
-		I = 1.0
-		s = s0
-		state_history = [s0]
-		a = select_action(π(s0, θ))
-		action_history = [a]
-		(s′, r) = step(s0, actions[a])
-		reward_history = [r]
-		δ = r + γ*v̂(s′, w) - v̂(s, w)
-		w .+= αw * δ .* ∇v̂(s, w)
-		θ .+= αθ * I * δ .* ∇lnπ(a, s, θ)		
-		
-		while s′ != sterm && length(state_history) < maxsteps
-			I = γ*I
+		else
+			update_feature_vector!(x, s′)
+			v̂′ = value_function(x, value_params)
 			s = s′
-			a = select_action(π(s, θ))
-			(s′, r) = step(s, actions[a])
-			push!(state_history, s)
-			push!(action_history, a)
-			push!(reward_history, r)
-			δ = r + γ*v̂(s′, w) - v̂(s, w)
-			w .+= αw * δ .* ∇v̂(s, w)
-			θ .+= αθ * I * δ .* ∇lnπ(a, s, θ)		
+			c *= γ
 		end
-		return state_history, action_history, reward_history
-	end	
-
-	for i in eachindex(rewards)		
-		state_history, action_history, reward_history = run_episode!(maxsteps)
-		rewards[i] = sum(reward_history)
+		
+		δ = r + γ*v̂′ - v̂
+		
+		update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
+		update_params_with_gradient!(policy_params, α_θ*c*δ, ∇lnπ)
 	end
-	return rewards, θ, w
+
+	function π(s; x = deepcopy(x), action_preferences = copy(action_preferences))
+		update_feature_vector!(x, s)
+		update_action_preferences!(action_preferences, x, policy_params)
+		soft_max!(action_preferences)
+	end
+
+	π_sample(s; kwargs...) = sample_action(π(s; kwargs...))
+
+	function estimate_state_value(s; x = deepcopy(x))
+		update_feature_vector!(x, s)
+		value_function(x, value_params)
+	end
+
+	function policy_and_value(s::S; x = deepcopy(x), action_preferences = copy(action_preferences))
+		update_feature_vector!(x, s)
+		update_action_preferences!(action_preferences, x, policy_params)
+		soft_max!(action_preferences)
+		v̂ = value_function(x, value_params)
+		return (action_probabilities = action_preferences, state_value_estimate = v̂)
+	end
+	
+	return (step_rewards = step_rewards, episode_steps = episode_steps, episode_rewards = episode_rewards, policy_function = π, policy_sample_action =π_sample, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
+end
+
+# ╔═╡ aa797ac6-5c79-4bc2-942f-7e2c6cdfaaa2
+function one_step_actor_critic_binary_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
+	setup = setup_binary_policy_arguments(mdp, get_active_features, num_features)
+	one_step_actor_critic!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes, max_steps; action_preferences = setup.action_preferences, kwargs...)
+end
+
+# ╔═╡ 57e5e12a-b722-4ea3-ab3b-e5711029e640
+one_step_actor_critic_linear_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), x = zeros(T, num_features), action_preferences = zeros(T, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = one_step_actor_critic!(policy_params, copy(policy_params), value_params, copy(value_params), mdp, update_linear_action_preferences!, update_linear_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes, max_steps; kwargs...)
+
+# ╔═╡ 57bbdb10-bed8-459d-8f67-9ea637cf12ba
+function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; policy_params::FCANNParams = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions)), reslayers = 0, l2 = 0f0, dropout = 0f0, use_μP = true, activation_list = fill(true, length(hidden_layers)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
+	setup = setup_fcann_policy_and_value_arguments(policy_params, input_length, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
+	one_step_actor_critic!(policy_params, setup.eligibility_vector, setup.value_params, setup.value_gradient, mdp, setup.update_action_preferences!, setup.update_eligibility_vector!, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient_update, max_episodes, max_steps; kwargs...)
 end
 
 # ╔═╡ 1386ffdb-940d-4f1b-a872-4e38647b5335
@@ -1617,39 +1438,39 @@ This version of One-step Actor-Critic uses binary feature vectors for which one 
 
 # ╔═╡ 7d63b960-3998-4f7b-8cbb-ccd49db9aeac
 #=╠═╡
-one_step_actor_critic(corridor_mdp, s -> (1,), 1, typemax(Int64), 1_000_000, α_θ = 2f0^-30, α_w = 2f0^-5, policy_params = [0f0 3.7f0])
+one_step_actor_critic_binary_features(corridor_mdp, get_corridor_features, 1, typemax(Int64), 10_000, α_θ = 2f0^-4, α_w = 2f0^-20).policy_function(1)
   ╠═╡ =#
 
 # ╔═╡ 9db9ff71-bee9-4bea-a45b-748f8517fed1
 #=╠═╡
-one_step_actor_critic(corridor_mdp, 1, (x, s) -> x[1] = 1f0, typemax(Int64), 1_000_000, α_θ = 2f0^-20, α_w = 2f0^-15).policy_function(1)
+one_step_actor_critic_linear_features(corridor_mdp, update_corridor_features!, 1, typemax(Int64), 100_000, α_θ = 2f0^-20, α_w = 2f0^-15)
   ╠═╡ =#
 
 # ╔═╡ 0fbf45c8-3e3c-47c1-b763-3b06bcdc60e0
 #=╠═╡
-one_step_actor_critic(corridor_mdp, 1, [1], (x, s) -> x[1] = 1f0, typemax(Int64), 1_000_000, α_θ = 2f0^-15, α_w = 2f0^-12).policy_function(1)
+one_step_actor_critic_fcann(corridor_mdp, 1, [1], update_corridor_features!, typemax(Int64), 100_000, α_θ = 2f0^-4, α_w = 2f0^-20).policy_function(1)
   ╠═╡ =#
-
-# ╔═╡ e2b09af1-0f22-4f7f-b806-54fa522adb20
-#note that due to the feature construction in this problem, the bootstrapping estimate is worthless so we'd expect this to do poorly at this task.  Imagine that the value function starts out perfectly accurate for the initial policy with bad parameterization which we know finishes episodes in 90 to 100 steps.  Then the δ on each step is just -1
 
 # ╔═╡ 646bc853-b7fc-49fa-a201-ff98e8f952d4
 #=╠═╡
 function corridor_parameter_studies(α_θ_list, α_w_list; nruns = 100, max_steps = 10_000)
-	Random.seed!(45)
+	# Random.seed!(45)
 
 	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> one_step_actor_critic(corridor_mdp, s -> (1,), 1, typemax(Int64), max_steps, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w).episode_rewards |> length) |> foldxt(+) |> x -> max_steps / (x / nruns)
+		1:nruns |> Map(_ -> one_step_actor_critic_binary_features(corridor_mdp, get_corridor_features, 1, typemax(Int64), max_steps, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w).episode_steps |> length) |> foldxt(+) |> x -> max_steps / (x / nruns)
 	end
 
 	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = latexstring("α^{\\mathbf{w}} = 2^{$(round(Int64, log2(α_w)))}"))
+		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = 2^$(round(Int64, log2(α_w)))")
 	end
 	for α_w in α_w_list]
 
-	plot(traces, Layout(xaxis_title = "Policy Parameters Learning Rate", yaxis_title = "Average Number of Steps Per Episode Completed <br> in First $max_steps Steps", xaxis_type = "log"))
+	plot(traces, Layout(xaxis_title = "Policy Parameters Learning Rate", yaxis_title = "Average Number of Steps <br> Per Episode Completed <br> in First $max_steps Steps", xaxis_type = "log"))
 end
   ╠═╡ =#
+
+# ╔═╡ e2b09af1-0f22-4f7f-b806-54fa522adb20
+#note that due to the feature construction in this problem, the bootstrapping estimate is worthless so we'd expect this to do poorly at this task.  Imagine that the value function starts out perfectly accurate for the initial policy with bad parameterization which we know finishes episodes in 90 to 100 steps.  Then the δ on each step is just -1.  Given the policy initialization, this is very poor progress since the improvement is only towards something still with worse performance than the completely random policy
 
 # ╔═╡ 4cbdb082-22ba-49e9-a6ed-4380917625ac
 md"""
@@ -1670,6 +1491,29 @@ end
 
 # ╔═╡ 25be5dcf-be63-46c4-b6de-6cf79fa28fd0
 begin
+	function update_traces_with_gradient!(c1::T, z_θ::Matrix{T}, c2::T, ∇θ::BinaryEligibilityVector{T, B}) where {T<:Real, B<:BinaryFeatureVector}
+		@inbounds for i in eachindex(∇θ.π_dist)
+			@simd for j in 1:∇θ.binary_features.num_features
+				k = ∇θ.binary_features.active_features[j]
+				z_θ[k, i] = c1*z_θ[k, i] + c2*∇θ.π_dist[i]
+			end
+		end
+		
+		@inbounds @simd for i in 1:∇θ.binary_features.num_features
+			j = ∇θ.binary_features.active_features[i]
+			z_θ[j, ∇θ.i_a] += c2
+		end
+		return z_θ
+	end
+
+	function update_traces_with_gradient!(c1::T, z_w::Vector{T}, ∇w::BinaryFeatureVector) where {T<:Real}
+		@inbounds @simd for i in 1:∇w.num_features
+			j = ∇w.active_features[i]
+			z_w[j] = c1*z_w[j] + one(T)
+		end
+		return z_w
+	end
+	
 	function update_traces_with_gradient!(c1::T, z_θ::Array{T, N}, ∇θ::Array{T, N}) where {T<:Real, N}
 		z_θ .= c1 .* z_θ .+ ∇θ
 	end
@@ -1695,90 +1539,93 @@ begin
 	end
 end
 
-# ╔═╡ 675356cc-7020-4bf4-a37d-b72d672f2465
-begin
-	#version of reinforce for general function approximation
-	function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, update_action_preferences!::Function, update_eligibility_vector!::Function, x::V, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), action_preferences = zeros(T, length(mdp.actions)), ∇lnπ::P1 = deepcopy(policy_params), ∇v̂::P2 = deepcopy(value_params), z_θ::P1 = deepcopy(policy_params), z_w::P2 = deepcopy(value_params), save_step_rewards = false) where {P1, P2, V, T<:Real, S, A, PTF, F1, F2, F3}
-		step_rewards = Vector{T}()
-		episode_steps = Vector{Int64}()
-		episode_rewards = Vector{T}()
+# ╔═╡ 266d2234-26c8-43f1-9e75-49440a230ed6
+#version of reinforce for general function approximation
+function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value_params::P2, ∇v̂, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, update_action_preferences!::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), action_preferences = zeros(T, length(mdp.actions)), z_θ::P1 = deepcopy(policy_params), z_w::P2 = deepcopy(value_params), save_step_rewards = false) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
+	step_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	episode_rewards = Vector{T}()
 
-		#initialize variables
-		ep = 1
-		step = 1
-		rtot = zero(T)
-		c = one(T)
-		zero_params!(z_θ)
-		zero_params!(z_w)
-		
-		s = mdp.initialize_state()
-		update_feature_vector!(x, s)
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			update_value_gradient!(∇v̂, x, value_params)
-			v̂ = value_function(x, value_params)
-			update_action_preferences!(action_preferences, x, policy_params)
-			soft_max!(action_preferences)
-			i_a = sample_action(action_preferences)
-			update_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params)
-		
-			(r, s′) = mdp.ptf(s, i_a)
-			rtot += r
-			save_step_rewards && push!(step_rewards, r)
-			step += 1
+	#initialize variables
+	ep = 1
+	step = 1
+	rtot = zero(T)
+	c = one(T)
+	zero_params!(z_θ)
+	zero_params!(z_w)
+	
+	s = mdp.initialize_state()
+	update_feature_vector!(x, s)
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		update_value_gradient!(∇v̂, x, value_params)
+		v̂ = value_function(x, value_params)
+		update_action_preferences!(action_preferences, x, policy_params)
+		soft_max!(action_preferences)
+		i_a = sample_action(action_preferences)
+		update_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params)
+	
+		(r, s′) = mdp.ptf(s, i_a)
+		rtot += r
+		save_step_rewards && push!(step_rewards, r)
+		step += 1
 
-			if mdp.isterm(s′)
-				push!(episode_steps, step)
-				push!(episode_rewards, rtot)
-				v̂′ = zero(T)
-				rtot = zero(T)
-				zero_params!(z_θ)
-				zero_params!(z_w)
-				ep += 1
-				c = one(T)
-				s = mdp.initialize_state()
-				update_feature_vector!(x, s)
-			else
-				update_feature_vector!(x, s′)
-				v̂′ = value_function(x, value_params)
-				s = s′
-				c *= γ
-			end
-			
-			δ = r + γ*v̂′ - v̂
-
-			update_traces_with_gradient!(γ*λ_w, z_w, ∇v̂)
-			update_traces_with_gradient!(γ*λ_θ, z_θ, c, ∇lnπ)
-			
-			update_params_with_gradient!(value_params, α_w*δ, z_w)
-			update_params_with_gradient!(policy_params, α_θ*c*δ, z_θ)
-		end
-
-		function π(s)
+		if mdp.isterm(s′)
+			push!(episode_steps, step)
+			push!(episode_rewards, rtot)
+			v̂′ = zero(T)
+			rtot = zero(T)
+			zero_params!(z_θ)
+			zero_params!(z_w)
+			ep += 1
+			c = one(T)
+			s = mdp.initialize_state()
 			update_feature_vector!(x, s)
-			update_action_preferences!(action_preferences, x, policy_params)
-			soft_max!(action_preferences)
-		end
-
-		π_sample(s) = sample_action(π(s))
-
-		function estimate_state_value(s)
-			update_feature_vector!(x, s)
-			value_function(x, value_params)
-		end
-
-		function policy_and_value(s::S)
-			update_feature_vector!(x, s)
-			update_action_preferences!(action_preferences, x, policy_params)
-			soft_max!(action_preferences)
-			v̂ = value_function(x, value_params)
-			return (action_probabilities = action_preferences, state_value_estimate = v̂)
+		else
+			update_feature_vector!(x, s′)
+			v̂′ = value_function(x, value_params)
+			s = s′
+			c *= γ
 		end
 		
-		return (step_rewards = step_rewards, episode_steps = episode_steps, episode_rewards = episode_rewards, policy_function = π, policy_sample_action =π_sample, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
+		δ = r + γ*v̂′ - v̂
+
+		update_traces_with_gradient!(γ*λ_w, z_w, ∇v̂)
+		update_traces_with_gradient!(γ*λ_θ, z_θ, c, ∇lnπ)
+		
+		update_params_with_gradient!(value_params, α_w*δ, z_w)
+		update_params_with_gradient!(policy_params, α_θ*c*δ, z_θ)
 	end
 
-	actor_critic_with_eligibility_traces!(policy_params::Matrix{T}, value_params::Vector{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, x::Vector{T}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, update_linear_action_preferences!, update_linear_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes, max_steps; kwargs...)
+	function π(s; x = deepcopy(x), action_preferences = deepcopy(action_preferences))
+		update_feature_vector!(x, s)
+		update_action_preferences!(action_preferences, x, policy_params)
+		soft_max!(action_preferences)
+	end
+
+	π_sample(s; kwargs...) = sample_action(π(s; kwargs...))
+
+	function estimate_state_value(s; x = deepcopy(x))
+		update_feature_vector!(x, s)
+		value_function(x, value_params)
+	end
+
+	function policy_and_value(s::S; x = deepcopy(x), action_preferences = deepcopy(action_preferences))
+		update_feature_vector!(x, s)
+		update_action_preferences!(action_preferences, x, policy_params)
+		soft_max!(action_preferences)
+		v̂ = value_function(x, value_params)
+		return (action_probabilities = action_preferences, state_value_estimate = v̂)
+	end
+	
+	return (step_rewards = step_rewards, episode_steps = episode_steps, episode_rewards = episode_rewards, policy_function = π, policy_sample_action =π_sample, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
+end
+
+# ╔═╡ 675356cc-7020-4bf4-a37d-b72d672f2465
+begin
+	
+
+	# actor_critic_with_eligibility_traces!(policy_params::Matrix{T}, value_params::Vector{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, x::Vector{T}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, update_linear_action_preferences!, update_linear_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes, max_steps; kwargs...)
 
 	#version of one-step-acctor-critic with binary feature vectors
 	# function actor_critic_with_eligibility_traces!(policy_params::Matrix{T}, value_params::Vector{T}, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_features::Integer, get_active_features::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), action_preferences::Vector{T} = zeros(T, length(mdp.actions)), save_step_rewards::Bool = false, epkwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
@@ -1847,82 +1694,127 @@ begin
 	# end
 end
 
+# ╔═╡ 916cf206-463f-4dcc-8188-9bb63a8176f7
+# begin
+# 	#run one-step-actor-critic with binary features, only requires defining the number of features and a function that returns active features
+# 	# actor_critic_with_eligibility_traces(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params = zeros(T, num_features, length(mdp.actions)), value_params = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_features, get_active_features, max_episodes, max_steps; kwargs...)
+
+# 	#run one-step-actor-critic with linear features, only requires defining the length of the feature vector and a function to update it given a state
+# 	actor_critic_with_eligibility_traces(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), x::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, x, update_feature_vector!, max_episodes, max_steps; kwargs...)
+
+# 	#run one-step-actor-critic with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers.  By default the same network is used for both functions with a swapped out final layer
+# 	function actor_critic_with_eligibility_traces(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; reslayers::Integer = 0, l2::T = 0f0, dropout::T = 0f0, use_μP::Bool=true, policy_params = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = use_μP), x::Vector{T} = zeros(T, input_length), activation_list = fill(true, length(hidden_layers)), policy_activations = FCANN.form_activations(policy_params[1]), policy_tanh_grad_z = deepcopy(policy_activations), policy_deltas = deepcopy(policy_activations), scales::Vector{T} = fill(one(T), length(policy_params[1])), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+# 		scale = (reslayers == 0) ? 1 : length(hidden_layers)/(reslayers + 1) + 1
+# 		c = scale*last(hidden_layers)
+# 		f = use_μP ? one(T) / c : c^T(-0.5)
+# 		w_θ_out = T.(FCANN.makeorthonormalrand(1, last(hidden_layers)) .* f)
+# 		w_β_out = zeros(T, 1)
+
+# 		if use_μP
+# 			for i in eachindex(hidden_layers)
+# 				i′ = i + 1
+# 				scales[i′] /= size(policy_params[1][i′], 2)
+# 			end
+# 		end
+		
+# 		#value function shares its params with the policy function
+# 		value_params = deepcopy(policy_params)
+# 		#replace the final layer of the value network with something that outputs a single value
+# 		value_params[1][end] = w_θ_out
+# 		value_params[2][end] = w_β_out
+
+# 		#form activations for value network
+# 		value_activations = deepcopy(policy_activations)
+# 		value_activations[end] = zeros(T, 1)
+# 		value_tanh_grad_z = deepcopy(value_activations)
+# 		value_deltas = deepcopy(value_activations)
+		
+		
+# 		update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params, hidden_layers, l2, policy_tanh_grad_z, policy_activations, policy_deltas, dropout, reslayers, activation_list, scales)
+# 		update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_fcann_action_preferences!(action_preferences, x, policy_params, policy_activations, reslayers)
+# 		value_function(x, params) = fcann_value_function(x, params, value_activations, reslayers)
+# 		function update_value_gradient!(∇v̂, x, value) 
+# 			update_fcann_value_gradient!(∇v̂, x, value_params, hidden_layers, l2, value_tanh_grad_z, value_activations, value_deltas, dropout, reslayers, activation_list)
+# 			use_μP && scale_fcann_params!(value_params, scales)
+# 		end
+		
+# 		actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, value_function, update_value_gradient!, max_episodes, max_steps; kwargs...)
+# 	end
+# end
+
 # ╔═╡ d8222abf-139c-4220-8e92-cc987ec6900c
 md"""
 Note that for the corridor problem, it learns most efficiently with the policy function using Monte Carlo traces and the value function using TD(0) learning
 """
 
-# ╔═╡ be519eb6-4a56-4c3a-a547-4703ef0bd352
-#add an easier to implement parameter study when dealing with 4 parameters like here and consider adding other versions of eligibility traces like the true online versions and others
-
 # ╔═╡ 58ad84b0-f9c9-424e-8c05-0b15fbe7b349
 #=╠═╡
-function actor_critic_eligibility(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; λθ = 0.0, λw = 0.0, γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf, termination_threshold = (episode = Inf, reward = -Inf), zθ = zeros(size(θ)...), zw = zeros(size(w)...), showprogress = false, get_s0 = () -> s0)
-	rewards = zeros(max_episodes)
-	#initialize trace vectors
-	zθ = zeros(size(θ)...)
-	zw = zeros(size(w)...)
+# function actor_critic_eligibility(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0, αθ, αw, step, sterm, actions; λθ = 0.0, λw = 0.0, γ = 1.0, max_episodes = 1000, θ = zeros(d), w = zeros(d′), maxsteps = Inf, termination_threshold = (episode = Inf, reward = -Inf), zθ = zeros(size(θ)...), zw = zeros(size(w)...), showprogress = false, get_s0 = () -> s0)
+# 	rewards = zeros(max_episodes)
+# 	#initialize trace vectors
+# 	zθ = zeros(size(θ)...)
+# 	zw = zeros(size(w)...)
 	
-	function run_episode!(maxsteps)
-		I = 1.0
-		zθ .= 0.0
-		zw .= 0.0
-		s0 = get_s0()
-		s = s0
-		state_history = [s0]
-		a = select_action(π(s0, θ))
-		action_history = [a]
-		(s′, r) = step(s0, actions[a])
-		reward_history = [r]
-		δ = r + γ*v̂(s′, w) - v̂(s, w)
-		zw .= γ*λw .* zw .+ ∇v̂(s, w)
-		zθ .= γ*λθ .* zθ .+ I .* ∇lnπ(a, s, θ)
-		w .+= αw * δ .* zw
-		θ .+= αθ * δ .* zθ		
+# 	function run_episode!(maxsteps)
+# 		I = 1.0
+# 		zθ .= 0.0
+# 		zw .= 0.0
+# 		s0 = get_s0()
+# 		s = s0
+# 		state_history = [s0]
+# 		a = select_action(π(s0, θ))
+# 		action_history = [a]
+# 		(s′, r) = step(s0, actions[a])
+# 		reward_history = [r]
+# 		δ = r + γ*v̂(s′, w) - v̂(s, w)
+# 		zw .= γ*λw .* zw .+ ∇v̂(s, w)
+# 		zθ .= γ*λθ .* zθ .+ I .* ∇lnπ(a, s, θ)
+# 		w .+= αw * δ .* zw
+# 		θ .+= αθ * δ .* zθ		
 		
-		while s′ != sterm && length(state_history) < maxsteps
-			I = γ*I
-			s = s′
-			a = select_action(π(s, θ))
-			(s′, r) = step(s, actions[a])
-			push!(state_history, s)
-			push!(action_history, a)
-			push!(reward_history, r)
-			δ = r + γ*v̂(s′, w) - v̂(s, w)
-			zw .= γ*λw .* zw .+ ∇v̂(s, w)
-			zθ .= γ*λθ .* zθ .+ I .* ∇lnπ(a, s, θ)
-			w .+= αw * δ .* zw
-			θ .+= αθ * δ .* zθ			
-		end
-		return state_history, action_history, reward_history
-	end	
+# 		while s′ != sterm && length(state_history) < maxsteps
+# 			I = γ*I
+# 			s = s′
+# 			a = select_action(π(s, θ))
+# 			(s′, r) = step(s, actions[a])
+# 			push!(state_history, s)
+# 			push!(action_history, a)
+# 			push!(reward_history, r)
+# 			δ = r + γ*v̂(s′, w) - v̂(s, w)
+# 			zw .= γ*λw .* zw .+ ∇v̂(s, w)
+# 			zθ .= γ*λθ .* zθ .+ I .* ∇lnπ(a, s, θ)
+# 			w .+= αw * δ .* zw
+# 			θ .+= αθ * δ .* zθ			
+# 		end
+# 		return state_history, action_history, reward_history
+# 	end	
 
-	function loopfunction!(i)
-		state_history, action_history, reward_history = run_episode!(maxsteps)
-		rewards[i] = sum(reward_history)
-		#end execution early if results don't meet criteria
-		if i > termination_threshold.episode && rewards[i] < termination_threshold.reward
-			rewards[i+1:end] .= -Inf
-			return true
-		else
-			return false
-		end
-	end
+# 	function loopfunction!(i)
+# 		state_history, action_history, reward_history = run_episode!(maxsteps)
+# 		rewards[i] = sum(reward_history)
+# 		#end execution early if results don't meet criteria
+# 		if i > termination_threshold.episode && rewards[i] < termination_threshold.reward
+# 			rewards[i+1:end] .= -Inf
+# 			return true
+# 		else
+# 			return false
+# 		end
+# 	end
 
-	if showprogress
-		@progress for i in eachindex(rewards)	
-			stop = loopfunction!(i)
-			stop && break
-		end
-	else
-		for i in eachindex(rewards)	
-			stop = loopfunction!(i)
-			stop && break
-		end
-	end
+# 	if showprogress
+# 		@progress for i in eachindex(rewards)	
+# 			stop = loopfunction!(i)
+# 			stop && break
+# 		end
+# 	else
+# 		for i in eachindex(rewards)	
+# 			stop = loopfunction!(i)
+# 			stop && break
+# 		end
+# 	end
 		
-	return rewards, θ, w
-end
+# 	return rewards, θ, w
+# end
   ╠═╡ =#
 
 # ╔═╡ 511a847f-234c-465e-8f4a-688e79d9b975
@@ -2135,52 +2027,72 @@ begin
 	# end
 end
 
-# ╔═╡ 916cf206-463f-4dcc-8188-9bb63a8176f7
-begin
-	#run one-step-actor-critic with binary features, only requires defining the number of features and a function that returns active features
-	# actor_critic_with_eligibility_traces(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params = zeros(T, num_features, length(mdp.actions)), value_params = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_features, get_active_features, max_episodes, max_steps; kwargs...)
+# ╔═╡ 05bfd818-bf4e-4bda-baa9-5ba647867097
+function actor_critic_with_eligibility_traces_binary_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
+	setup = setup_binary_policy_arguments(mdp, get_active_features, num_features)
+	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, λ_θ, λ_w, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes, max_steps; action_preferences = setup.action_preferences, kwargs...)
+end
 
-	#run one-step-actor-critic with linear features, only requires defining the length of the feature vector and a function to update it given a state
-	actor_critic_with_eligibility_traces(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, num_features::Integer, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), x::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, x, update_feature_vector!, max_episodes, max_steps; kwargs...)
+# ╔═╡ a9ba88b6-b995-4d84-92e8-23a1d518e4ff
+#=╠═╡
+function corridor_parameter_studies(λ_θ, λ_w, α_θ_list, α_w_list; nruns = 100, max_episodes = 100, max_steps = 1_000_000)
+	Random.seed!(45)
 
-	#run one-step-actor-critic with non-linear function approximation, requires defining the length of the feature vector, a function to update it given a state, and the number of hidden layers.  By default the same network is used for both functions with a swapped out final layer
-	function actor_critic_with_eligibility_traces(mdp::StateMDP{T, S, A, P, F1, F2, F3}, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; reslayers::Integer = 0, l2::T = 0f0, dropout::T = 0f0, use_μP::Bool=true, policy_params = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions), reslayers; use_μP = use_μP), x::Vector{T} = zeros(T, input_length), activation_list = fill(true, length(hidden_layers)), policy_activations = FCANN.form_activations(policy_params[1]), policy_tanh_grad_z = deepcopy(policy_activations), policy_deltas = deepcopy(policy_activations), scales::Vector{T} = fill(one(T), length(policy_params[1])), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-		scale = (reslayers == 0) ? 1 : length(hidden_layers)/(reslayers + 1) + 1
-		c = scale*last(hidden_layers)
-		f = use_μP ? one(T) / c : c^T(-0.5)
-		w_θ_out = T.(FCANN.makeorthonormalrand(1, last(hidden_layers)) .* f)
-		w_β_out = zeros(T, 1)
-
-		if use_μP
-			for i in eachindex(hidden_layers)
-				i′ = i + 1
-				scales[i′] /= size(policy_params[1][i′], 2)
-			end
-		end
-		
-		#value function shares its params with the policy function
-		value_params = deepcopy(policy_params)
-		#replace the final layer of the value network with something that outputs a single value
-		value_params[1][end] = w_θ_out
-		value_params[2][end] = w_β_out
-
-		#form activations for value network
-		value_activations = deepcopy(policy_activations)
-		value_activations[end] = zeros(T, 1)
-		value_tanh_grad_z = deepcopy(value_activations)
-		value_deltas = deepcopy(value_activations)
-		
-		
-		update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, policy_params, hidden_layers, l2, policy_tanh_grad_z, policy_activations, policy_deltas, dropout, reslayers, activation_list, scales)
-		update_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_fcann_action_preferences!(action_preferences, x, policy_params, policy_activations, reslayers)
-		value_function(x, params) = fcann_value_function(x, params, value_activations, reslayers)
-		function update_value_gradient!(∇v̂, x, value) 
-			update_fcann_value_gradient!(∇v̂, x, value_params, hidden_layers, l2, value_tanh_grad_z, value_activations, value_deltas, dropout, reslayers, activation_list)
-			use_μP && scale_fcann_params!(value_params, scales)
-		end
-		
-		actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, value_function, update_value_gradient!, max_episodes, max_steps; kwargs...)
+	function average_runs(α_θ, α_w)
+		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features(corridor_mdp, λ_θ, λ_w, get_corridor_features, 1, max_episodes, max_steps, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w).episode_rewards |> x -> sum(x) / length(x)) |> foldxt(+) |> x -> x / nruns
 	end
+
+	traces = [begin
+		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name ="α_w = 2^$(round(Int64, log2(α_w)))")
+	end
+	for α_w in α_w_list]
+
+	plot(traces, Layout(xaxis_title = "Policy Parameters Learning Rate", yaxis_title = "Average Reward Per Episode In First <br> $max_episodes Episodes Averaged over $nruns Runs", xaxis_type = "log", title = "λ_θ = $λ_θ, λ_w = $λ_w"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 94354552-9920-4b90-98d9-f75286d1f53e
+#=╠═╡
+corridor_parameter_studies(1.5f0 .^(-24:-20), 1.25f0 .^ (-27:-20), 2f0 .^(-3:-1); nruns = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ 5583ae6d-f6fa-47ba-aab4-cb6a4f32cb6c
+#=╠═╡
+corridor_parameter_studies(2f0 .^ (-7:-3), 2f0 .^ (-30:5:-15); nruns = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ 4a6d3fcd-9a93-4373-aa85-816e221e31ce
+#=╠═╡
+corridor_parameter_studies(0.999f0, 0.999f0, 2f0 .^ (-10:-7), 2f0 .^ (-8:-3); nruns = 1000)
+  ╠═╡ =#
+
+# ╔═╡ a70a57eb-4d65-458d-8706-8bc4595a85e1
+#=╠═╡
+corridor_parameter_studies(0.999f0, 0.01f0, 1.25f0 .^ (-30:-24), 2f0 .^ (-5:-1); nruns = 1000, max_episodes = 100, max_steps = 1_000_000)
+  ╠═╡ =#
+
+# ╔═╡ 20656bd3-cfe2-4014-8d12-e06e6f3fbce4
+#=╠═╡
+corridor_parameter_studies(0.99f0, 0.5f0, 2f0 .^ (-11:-7), 2f0 .^ (-6:-3); nruns = 1000)
+  ╠═╡ =#
+
+# ╔═╡ c52c4cec-0ea8-4af3-831a-d284f0e086ee
+#=╠═╡
+corridor_parameter_studies(0.99f0, 0.1f0, 2f0 .^ (-10:-7), 2f0 .^ (-5:-2); nruns = 1000)
+  ╠═╡ =#
+
+# ╔═╡ 92f5c366-f4e7-4f43-b259-e2a6dae7b5bf
+#=╠═╡
+corridor_parameter_studies(0.99f0, 0.01f0, 1.25f0 .^ (-100:-100), 2f0 .^ (-5:-2); nruns = 1000, max_episodes = 100)
+  ╠═╡ =#
+
+# ╔═╡ 68806899-9972-460a-9f11-daa708a9d610
+actor_critic_with_eligibility_traces_linear_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, update_feature_vector!::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), x = zeros(T, num_features), action_preferences = zeros(T, length(mdp.actions)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, copy(policy_params), value_params, copy(value_params), mdp, λ_θ, λ_w, update_linear_action_preferences!, update_linear_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes, max_steps; kwargs...)
+
+# ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
+function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, max_episodes::Integer, max_steps::Integer; policy_params::FCANNParams = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions)), reslayers = 0, l2 = 0f0, dropout = 0f0, use_μP = true, activation_list = fill(true, length(hidden_layers)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
+	setup = setup_fcann_policy_and_value_arguments(policy_params, input_length, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
+	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, setup.value_params, setup.value_gradient, mdp, λ_θ, λ_w, setup.update_action_preferences!, setup.update_eligibility_vector!, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient_update, max_episodes, max_steps; kwargs...)
 end
 
 # ╔═╡ 1848d63f-0896-4fb4-9c5b-2ce572b2ac43
@@ -2230,64 +2142,6 @@ begin
 		actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, update_preferences!, update_eligibility_vector!, x, update_feature_vector!, value_function, update_value_gradient!, max_steps; kwargs...)
 	end
 end
-
-# ╔═╡ a9ba88b6-b995-4d84-92e8-23a1d518e4ff
-#=╠═╡
-function corridor_parameter_studies(λ_θ, λ_w, α_θ_list, α_w_list; nruns = 100, max_episodes = 100, max_steps = 1_000_000)
-	Random.seed!(45)
-
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces(corridor_mdp, λ_θ, λ_w, 1, (x, s) -> x[1]=1f0, max_episodes, max_steps, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w).episode_rewards |> x -> sum(x) / length(x)) |> foldxt(+) |> x -> x / nruns
-	end
-
-	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name ="α_w = 2^$(round(Int64, log2(α_w)))")
-	end
-	for α_w in α_w_list]
-
-	plot(traces, Layout(xaxis_title = "Policy Parameters Learning Rate", yaxis_title = "Average Reward Per Episode In First <br> $max_episodes Episodes Averaged over $nruns Runs", xaxis_type = "log", title = "λ_θ = $λ_θ, λ_w = $λ_w"))
-end
-  ╠═╡ =#
-
-# ╔═╡ 94354552-9920-4b90-98d9-f75286d1f53e
-#=╠═╡
-corridor_parameter_studies(1.5f0 .^(-24:-20), 1.25f0 .^ (-27:-20), 2f0 .^(-3:-1); nruns = 1_000)
-  ╠═╡ =#
-
-# ╔═╡ a3dcc262-d3f7-4410-b5f9-594517411957
-#=╠═╡
-corridor_parameter_studies(2f0 .^ (-30:-20), 2f0 .^ (-5:-1))
-  ╠═╡ =#
-
-# ╔═╡ 4a6d3fcd-9a93-4373-aa85-816e221e31ce
-#=╠═╡
-corridor_parameter_studies(0.999f0, 0.999f0, 2f0 .^ (-10:-7), 2f0 .^ (-14:-11))
-  ╠═╡ =#
-
-# ╔═╡ 20656bd3-cfe2-4014-8d12-e06e6f3fbce4
-#=╠═╡
-corridor_parameter_studies(0.99f0, 0.5f0, 2f0 .^ (-11:-7), 2f0 .^ (-10:-6))
-  ╠═╡ =#
-
-# ╔═╡ c52c4cec-0ea8-4af3-831a-d284f0e086ee
-#=╠═╡
-corridor_parameter_studies(0.99f0, 0.1f0, 2f0 .^ (-11:-8), 2f0 .^ (-10:-6))
-  ╠═╡ =#
-
-# ╔═╡ 92f5c366-f4e7-4f43-b259-e2a6dae7b5bf
-#=╠═╡
-corridor_parameter_studies(0.99f0, 0.01f0, 1.25f0 .^ (-28:-24), 2f0 .^ (-7:-4))
-  ╠═╡ =#
-
-# ╔═╡ a70a57eb-4d65-458d-8706-8bc4595a85e1
-#=╠═╡
-corridor_parameter_studies(0.999f0, 0.01f0, 1.25f0 .^ (-34:-30), 2f0 .^ (-9:-7); max_episodes = 1_000, max_steps = 1_000_000)
-  ╠═╡ =#
-
-# ╔═╡ 5ffb7677-274c-44c3-9d35-0dc88e97e794
-#=╠═╡
-actor_critic_with_eligibility_traces(corridor_mdp, .999f0, .01f0, 1, (x, s) -> x[1] = 1f0, typemax(Int64), 100_000, α_θ = 2f0^-11, α_w = 2f0^-8, policy_params = [0f0 3.7f0]).policy_function(1)
-  ╠═╡ =#
 
 # ╔═╡ 533cbf4b-ac14-47eb-98cf-e569f32cc215
 function actor_critic_eligibility_continuing(π::Function, ∇lnπ::Function, v̂::Function, ∇v̂::Function, d::Int64, d′::Int64, s0::S, αθ, αw, αR, step, actions::AbstractVector{A}; λθ = 0.0, λw = 0.0, maxsteps = 1000, θ = zeros(d), w = zeros(d′)) where {S, A}
@@ -6273,7 +6127,7 @@ version = "17.4.0+2"
 # ╠═cecc2a35-3850-4f66-84e8-e29da4f3d4b0
 # ╠═6bb0263e-368e-462a-948c-baf9cfa82512
 # ╠═1acc0d86-fd5b-4f2e-acb2-dc9a96d3b811
-# ╠═a019925a-460a-410e-a54b-50a4cfe0e90e
+# ╟─a019925a-460a-410e-a54b-50a4cfe0e90e
 # ╠═f2f2dd1d-180c-4d36-b515-5079d129f93a
 # ╠═e1493cea-19c4-475d-98a0-86d27fb04af1
 # ╠═3e5fc75b-61a5-49d5-b5bd-3d2847f5f72c
@@ -6365,35 +6219,41 @@ version = "17.4.0+2"
 # ╟─b72e030f-7d52-481f-b4f7-2b16b227e547
 # ╟─a7dcc8cd-04ec-48f2-a387-116330eaffb2
 # ╟─047656d1-2921-40f2-b75b-ce4a87098007
-# ╟─94354552-9920-4b90-98d9-f75286d1f53e
+# ╠═94354552-9920-4b90-98d9-f75286d1f53e
+# ╠═a12b92d1-e045-4f92-b8cd-eee5d56fa67d
+# ╠═553b0ceb-f2ca-41ee-99bc-9f53a4487b49
+# ╠═738ada7f-edc7-4ed3-a15e-e92113468738
 # ╠═e5c1aca8-7575-4835-8273-e69ca0a55fe8
 # ╟─ce33f710-fd9d-4dfa-acda-40204e54d518
 # ╟─f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
-# ╠═e9957968-725a-40f8-8aa4-59ae024de44f
-# ╠═364f3963-dd12-4b32-9fb6-0415b47a3925
-# ╠═bf656d55-19cb-4052-baaa-0896ab6d23a0
+# ╠═4d4ae57b-afc3-44f9-b6fc-892f59f82921
+# ╠═aa797ac6-5c79-4bc2-942f-7e2c6cdfaaa2
+# ╠═57e5e12a-b722-4ea3-ab3b-e5711029e640
+# ╠═57bbdb10-bed8-459d-8f67-9ea637cf12ba
 # ╟─1386ffdb-940d-4f1b-a872-4e38647b5335
 # ╟─4c4828ca-5a12-41ce-a85b-e47bc8bf9747
 # ╠═7d63b960-3998-4f7b-8cbb-ccd49db9aeac
 # ╠═9db9ff71-bee9-4bea-a45b-748f8517fed1
 # ╠═0fbf45c8-3e3c-47c1-b763-3b06bcdc60e0
-# ╠═a3dcc262-d3f7-4410-b5f9-594517411957
-# ╠═e2b09af1-0f22-4f7f-b806-54fa522adb20
 # ╠═646bc853-b7fc-49fa-a201-ff98e8f952d4
+# ╠═5583ae6d-f6fa-47ba-aab4-cb6a4f32cb6c
+# ╠═e2b09af1-0f22-4f7f-b806-54fa522adb20
 # ╟─4cbdb082-22ba-49e9-a6ed-4380917625ac
 # ╠═e6cf9550-2e69-4b82-92cf-5e07a35490aa
 # ╠═25be5dcf-be63-46c4-b6de-6cf79fa28fd0
+# ╠═266d2234-26c8-43f1-9e75-49440a230ed6
+# ╠═05bfd818-bf4e-4bda-baa9-5ba647867097
+# ╠═68806899-9972-460a-9f11-daa708a9d610
+# ╠═97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
 # ╠═675356cc-7020-4bf4-a37d-b72d672f2465
 # ╠═916cf206-463f-4dcc-8188-9bb63a8176f7
 # ╠═a9ba88b6-b995-4d84-92e8-23a1d518e4ff
 # ╠═4a6d3fcd-9a93-4373-aa85-816e221e31ce
+# ╠═a70a57eb-4d65-458d-8706-8bc4595a85e1
 # ╠═20656bd3-cfe2-4014-8d12-e06e6f3fbce4
 # ╠═c52c4cec-0ea8-4af3-831a-d284f0e086ee
 # ╠═92f5c366-f4e7-4f43-b259-e2a6dae7b5bf
-# ╠═a70a57eb-4d65-458d-8706-8bc4595a85e1
 # ╟─d8222abf-139c-4220-8e92-cc987ec6900c
-# ╠═5ffb7677-274c-44c3-9d35-0dc88e97e794
-# ╠═be519eb6-4a56-4c3a-a547-4703ef0bd352
 # ╠═58ad84b0-f9c9-424e-8c05-0b15fbe7b349
 # ╟─511a847f-234c-465e-8f4a-688e79d9b975
 # ╟─0284f0d7-b8a9-4ae6-add0-ac1078571d9b
