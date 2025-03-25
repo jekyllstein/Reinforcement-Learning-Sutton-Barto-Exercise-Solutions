@@ -4,21 +4,6 @@
 using Markdown
 using InteractiveUtils
 
-# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
-macro bind(def, element)
-    #! format: off
-    quote
-        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
-        local el = $(esc(element))
-        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
-        el
-    end
-    #! format: on
-end
-
-# ╔═╡ 28c8ac96-a114-42b7-b864-b4a2577f15c0
-using HTTP
-
 # ╔═╡ df7f84e8-b42a-4001-9dbf-6bc3ced94207
 using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threads, Random, Distributions, Statistics, StatsBase, StaticArrays
 
@@ -1160,19 +1145,26 @@ md"""
 #### Test Actor-Critic with Eligibility Traces
 """
 
+# ╔═╡ a8b40b8f-051a-4e6f-a079-ece4f32873de
+#=╠═╡
+function create_actor_critic_params_UI(;λ_θ = 0.5f0, λ_w = 0.5f0, log2α_θ = -10, log2α_w = -10)
+PlutoUI.combine() do Child
+md"""
+ $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = λ_θ, show_value=true)))
+
+ $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = λ_w, show_value=true)))
+
+ $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = log2α_θ)))
+
+ $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = log2α_w)))
+"""
+end |> confirm
+end
+  ╠═╡ =#
+
 # ╔═╡ 36d514fa-b27a-4c6b-8399-9d108377b9b5
 #=╠═╡
-@bind study_params PlutoUI.combine() do Child
-	md"""
-	 $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = 0.75f0, show_value=true)))
-	
-	 $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = 0.25f0, show_value=true)))
-	
-	 $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = -8)))
-
-	 $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = -11)))
-	"""
-end |> confirm
+@bind study_params create_actor_critic_params_UI(;λ_θ = 0.75f0, λ_w = 0.25f0, log2α_θ = -8, log2α_w = -11)
   ╠═╡ =#
 
 # ╔═╡ d8222abf-139c-4220-8e92-cc987ec6900c
@@ -1289,21 +1281,28 @@ end
 # ╔═╡ 1ac9296f-047b-4051-ba5c-0c23d5f9cde9
 const corridor_continuing_mdp = make_corridor_continuing_mdp()
 
+# ╔═╡ 5b15d91e-7119-4f85-a54a-7d4f1fdaf097
+#=╠═╡
+function create_actor_critic_continuing_params_UI(;λ_θ = 0.5f0, λ_w = 0.5f0, log2α_θ = -10, log2α_w = -10, α_r̄ = 0.005f0)
+PlutoUI.combine() do Child
+md"""
+ $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = λ_θ, show_value=true)))
+
+ $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = λ_w, show_value=true)))
+
+ $$\alpha_{\overline{r}}$$: $(Child(:α_r̄, NumberField(0.00f0:0.001f0:1f0, default = α_r̄)))
+
+ $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = log2α_θ)))
+
+ $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = log2α_w)))
+"""
+end |> confirm
+end
+  ╠═╡ =#
+
 # ╔═╡ 7d94922e-dc9f-4953-b539-24aaa2c85b12
 #=╠═╡
-@bind continuing_study_params PlutoUI.combine() do Child
-	md"""
-	 $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = 0.75f0, show_value=true)))
-	
-	 $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = 0.25f0, show_value=true)))
-	
-	 $$\alpha_{\overline{r}}$$: $(Child(:α_r, NumberField(0.00f0:0.001f0:1f0, default = 0.005f0)))
-	
-	 $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = -4)))
-
-	 $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = -10)))
-	"""
-end |> confirm
+@bind continuing_study_params create_actor_critic_continuing_params_UI(;λ_θ = 0.75f0, λ_w = 0.25f0, log2α_θ = -4, log2α_w = -10, α_r̄ = 0.005f0)
   ╠═╡ =#
 
 # ╔═╡ da8d0bca-105b-4d0b-a73d-ee5c9059aeaf
@@ -1506,7 +1505,7 @@ begin
 
 	function ContinuousMDP(step::Function, initialize_state::Function, a::A; kwargs...) where A
 		s0 = initialize_state()
-		ptf = ContinuousMDPTransitionSampler(step, s, a)
+		ptf = ContinuousMDPTransitionSampler(step, s0, a)
 		ContinuousMDP(ptf, initialize_state; kwargs...)
 	end
 end
@@ -2077,34 +2076,6 @@ function actor_critic_binary_episodic_parameter_study(mdp::StateMDP{T, S, A, P, 
 end
   ╠═╡ =#
 
-# ╔═╡ bc8a399b-8864-4473-89d2-e3b0a03d15b5
-#=╠═╡
-corridor_parameter_study(args...; kwargs...) = actor_critic_binary_episodic_parameter_study(corridor_mdp, get_corridor_features, 1, args...; init_policy_params = [0f0 3.7f0])
-  ╠═╡ =#
-
-# ╔═╡ c52c4cec-0ea8-4af3-831a-d284f0e086ee
-#=╠═╡
-corridor_parameter_study(study_params.λ_θ, study_params.λ_w, 2f0 .^ (study_params.α_θ_min:study_params.α_θ_min+6), 2f0 .^ (study_params.α_w_min:study_params.α_w_min+2), 100)
-  ╠═╡ =#
-
-# ╔═╡ a9ba88b6-b995-4d84-92e8-23a1d518e4ff
-#=╠═╡
-function corridor_parameter_studies(λ_θ, λ_w, α_θ_list, α_w_list; nruns = 100, max_episodes = 100, max_steps = 10_000)
-	Random.seed!(45)
-
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features(corridor_mdp, λ_θ, λ_w, get_corridor_features, 1, max_episodes, max_steps, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w) |> x -> isempty(x.episode_rewards) ? -Inf32 : (sum(x.episode_rewards) / length(x.episode_rewards))) |> foldxt(+) |> x -> x / nruns
-	end
-
-	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name ="α_w = 2^$(round(Int64, log2(α_w)))")
-	end
-	for α_w in α_w_list]
-
-	plot(traces, Layout(xaxis_title = "Policy Parameters Learning Rate", yaxis_title = "Average Reward Per Episode In First <br> $max_episodes Episodes Averaged over $nruns Runs", xaxis_type = "log", title = "λ_θ = $λ_θ, λ_w = $λ_w"))
-end
-  ╠═╡ =#
-
 # ╔═╡ 72273f27-d0b9-4645-a609-cb65cc9332ee
 #=╠═╡
 actor_critic_with_eligibility_traces_binary_features(corridor_mdp, 0f0, 0f0, get_corridor_features, 1, 100_000, α_θ = 2f0 ^ -4, α_w = 2f0 ^ -10, policy_params = [0f0 3.7f0]).policy_and_value(1)
@@ -2113,22 +2084,31 @@ actor_critic_with_eligibility_traces_binary_features(corridor_mdp, 0f0, 0f0, get
 # ╔═╡ 8b35661b-5075-4d63-bc31-044407f99acf
 actor_critic_with_eligibility_traces_binary_features(corridor_continuing_mdp, 0.8f0, 0.999f0, get_corridor_features, 1, 100_000, α_θ = 0.1f0, α_w = 2f0 ^ -20, α_r̄ = 0.003f0, policy_params = [0f0 3.7f0]; save_step_rewards = true).policy_and_value(1)
 
-# ╔═╡ adcad429-cbae-4e68-9764-b0d19bf34f6b
+# ╔═╡ 734573e5-547b-4dcc-89bb-412aa6cc42d6
 #=╠═╡
-function corridor_parameter_studies(λ_θ, λ_w, α_r, α_θ_list, α_w_list; nruns = 100, max_steps = 2_000)
-	Random.seed!(45)
-
-	function average_runs(α_θ, α_w, α_r)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features(corridor_continuing_mdp, λ_θ, λ_w, get_corridor_features, 1, max_steps, policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, α_r̄ = α_r, save_step_rewards = true).step_rewards |> mean) |> foldxt(+) |> x -> nruns / x
+function actor_critic_binary_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	Random.seed!(seed)
+	function average_runs(α_θ, α_w)
+		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features(mdp, λ_θ, λ_w, get_active_features, num_features, max_steps; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, policy_params = copy(init_policy_params), value_params = copy(init_value_params), kwargs...) |> x -> x.total_reward / max_steps) |> foldxt(+) |> x -> x / nruns
 	end
 
 	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w, α_r), name ="α_w = 2^$(round(Int64, log2(α_w)))")
+		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
 	end
 	for α_w in α_w_list]
 
-	plot(traces, Layout(xaxis_title = "Policy Parameters Learning Rate", yaxis_title = "Average Steps Until Reward <br> Over the First $max_steps Steps", xaxis_type = "log", title = "λ_θ = $λ_θ, λ_w = $λ_w, α_r = $α_r", yaxis_range = [10, 50]))
+	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Step in the First <br> $max_steps Steps Averaged Over $nruns Runs", xaxis_type = "log", title = "Binary Feature Encoding with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
 end
+  ╠═╡ =#
+
+# ╔═╡ 7afb6fb0-248a-4518-b94f-9876f81eca64
+#=╠═╡
+corridor_continuing_parameter_study(args...; kwargs...) = actor_critic_binary_parameter_study(corridor_continuing_mdp, get_corridor_features, 1, args...; init_policy_params = [0f0 3.7f0], seed = 45, kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 42775fd1-5b27-48e0-abf1-9b22bb775e6d
+#=╠═╡
+corridor_continuing_parameter_study(continuing_study_params.λ_θ, continuing_study_params.λ_w, continuing_study_params.α_r̄, 2f0 .^ (continuing_study_params.α_θ_min:continuing_study_params.α_θ_min+4), 2f0 .^ (continuing_study_params.α_w_min:continuing_study_params.α_w_min + 3), 2000)
   ╠═╡ =#
 
 # ╔═╡ 68806899-9972-460a-9f11-daa708a9d610
@@ -2151,6 +2131,23 @@ function actor_critic_linear_episodic_parameter_study(mdp::StateMDP{T, S, A, P, 
 end
   ╠═╡ =#
 
+# ╔═╡ 128a551e-89ab-4441-a8c8-8ee331f36964
+#=╠═╡
+function actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	Random.seed!(seed)
+	function average_runs(α_θ, α_w)
+		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_linear_features(mdp, λ_θ, λ_w, update_feature_vector!, num_features, max_steps; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, policy_params = copy(init_policy_params), value_params = copy(init_value_params), kwargs...) |> x -> x.total_reward / max_steps) |> foldxt(+) |> x -> x / nruns
+	end
+
+	traces = [begin
+		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
+	end
+	for α_w in α_w_list]
+
+	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Step in the First <br> $max_steps Steps Averaged Over $nruns Runs", xaxis_type = "log", title = "Linear Encoding with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
+end
+  ╠═╡ =#
+
 # ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
 function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, args...; policy_params::FCANNParams = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions)), reslayers = 0, l2 = 0f0, dropout = 0f0, use_μP = true, activation_list = fill(true, length(hidden_layers)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
 	setup = setup_fcann_policy_and_value_arguments(policy_params, input_length, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
@@ -2162,7 +2159,7 @@ end
 function actor_critic_fcann_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3},  update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, λ_θ::T, λ_w::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_episodes::Integer; nruns = 100, max_steps::Integer = 10_000, seed = rand(UInt64), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	Random.seed!(seed)
 	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_features, hidden_layers, update_feature_vector!, max_episodes, max_steps; α_θ = α_θ, α_w = α_w, kwargs...) |> x -> isempty(x.episode_rewards) ? -T(Inf) : sum(x.episode_rewards) / length(x.episode_rewards)) |> foldxt(+) |> x -> x / nruns
+		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_features, hidden_layers, update_feature_vector!, max_episodes, max_steps; α_θ = α_θ, α_w = α_w, kwargs...) |> x -> isempty(x.episode_rewards) ? missing : mean(x.episode_rewards)) |> Filter(!ismissing) |> tcollect |> x -> isempty(x) ? missing : mean(x)
 	end
 
 	traces = [begin
@@ -2170,7 +2167,24 @@ function actor_critic_fcann_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F
 	end
 	for α_w in α_w_list]
 
-	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Episode in the First <br> $max_episodes Episodes Averaged Over $nruns Runs", xaxis_type = "log2", title = "$num_features Inputs, $hidden_layers Hidden Non Linear, λ_θ = $λ_θ, λ_w = $λ_w"))
+	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Episode in the First <br> $max_episodes Episodes Averaged Over $nruns Runs", xaxis_type = "log", title = "$num_features Inputs, $hidden_layers Hidden Non Linear, λ_θ = $λ_θ, λ_w = $λ_w"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 8bc280db-e57d-4e40-be46-1790f4f7d9e7
+#=╠═╡
+function actor_critic_fcann_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	Random.seed!(seed)
+	function average_runs(α_θ, α_w)
+		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_features, hidden_layers, update_feature_vector!, max_steps; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, kwargs...) |> x -> x.total_reward / max_steps) |> foldxt(+) |> x -> x / nruns
+	end
+
+	traces = [begin
+		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
+	end
+	for α_w in α_w_list]
+
+	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Step in the First <br> $max_steps Steps Averaged Over $nruns Runs", xaxis_type = "log", title = "$num_features Input, $hidden_layers Hidden Non Linear Approximation, λ_θ = $λ_θ, λ_w = $λ_w"))
 end
   ╠═╡ =#
 
@@ -2372,11 +2386,6 @@ corridor_parameter_studies(1.5f0 .^(-24:-20), 1.25f0 .^ (-27:-20), 2f0 .^(-3:-1)
 # ╔═╡ 5583ae6d-f6fa-47ba-aab4-cb6a4f32cb6c
 #=╠═╡
 corridor_parameter_studies(2f0 .^ (-15:-8), 2f0 .^ (-35:5:-15); nruns = 100)
-  ╠═╡ =#
-
-# ╔═╡ 42775fd1-5b27-48e0-abf1-9b22bb775e6d
-#=╠═╡
-corridor_parameter_studies(continuing_study_params.λ_θ, continuing_study_params.λ_w, continuing_study_params.α_r, 2f0 .^ (continuing_study_params.α_θ_min:continuing_study_params.α_θ_min+4), 2f0 .^ (continuing_study_params.α_w_min:continuing_study_params.α_w_min + 3))
   ╠═╡ =#
 
 # ╔═╡ d1ed25e6-60c6-411f-a541-99986e5da2c5
@@ -2677,48 +2686,41 @@ end
 # ╔═╡ 61650a97-b353-4a85-b50b-93fee296ac7b
 const cartpole_fcann_feature_setup = fcann_feature_vector_setup(cartpole_setup.min_vals, cartpole_setup.max_vals)
 
-# ╔═╡ 9978d537-49ff-4014-a971-b42704c50a6b
-#=╠═╡
-@bind fcann_cartpole_study_params PlutoUI.combine() do Child
-	md"""
-	 $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = 0.75f0, show_value=true)))
-	
-	 $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = 0.25f0, show_value=true)))
-	
-	 hidden layer size: $(Child(:h, NumberField(1:128, default = 8))), num layers: $(Child(:l, NumberField(1:5, default = 3)))
-	
-	 $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = -11)))
+# ╔═╡ 192b9f82-8d3a-408f-91c2-829cfcd32572
+cartpole_vector_update!(x::Vector{T}, s::CartPoleState{T}) where T<:Real = cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇))
 
-	 $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = -10)))
-	"""
-end |> confirm
+# ╔═╡ d34d22ad-89c2-423e-91dd-bfb895dc6540
+#=╠═╡
+cartpole_fcann_parameter_study(args...; kwargs...) = actor_critic_fcann_episodic_parameter_study(cartpole_setup.mdps.episodic.discrete, cartpole_vector_update!, cartpole_fcann_feature_setup.num_features, args...; kwargs...)
   ╠═╡ =#
 
-# ╔═╡ 17154a9e-eb26-4025-b74b-2dc4acb75ecd
+# ╔═╡ 5eebf3da-bfe7-46eb-81a3-f87f334ee270
 #=╠═╡
-function cartpole_fcann_parameter_study(α1_list, α2_list, λ_θ, λ_w, hidden_layers, max_steps; num_trials = 100, kwargs...)
-	setup = setup_cartpole_problem(;kwargs...)
-	
-	traces = [begin
-		steps = [begin
-			1:num_trials |> Map() do i
-				solution = actor_critic_with_eligibility_traces_fcann(cartpole_setup.mdps.episodic.discrete, λ_θ, λ_w, cartpole_fcann_feature_setup.num_features, hidden_layers, (x, s) -> cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇)), typemax(Int64), max_steps; α_θ = α1, α_w = α2)
-				steps = solution.episode_steps
-				isempty(steps) && return max_steps
-				steps[end]/length(steps)
-			end |> foldxt(+) |> x -> x / num_trials
-		end
-		for α1 in α1_list]
-		scatter(x = α1_list, y = steps, name = "α_w = $α2")
-	end
-	for α2 in α2_list]
-	plot(traces, Layout(xaxis_title = "Policy Learning Rate α_θ", yaxis_title = "Average Episode Duration <br> Over First $max_steps Steps", xaxis_type = "log", title = "Hiden Layers = $hidden_layers, λ_θ = $λ_θ, λ_w = $λ_w"))
+function create_actor_critic_fcann_params_UI(;λ_θ = 0.5f0, λ_w = 0.5f0, h = 8, l = 2, log2α_θ = -10, log2α_w = -10)
+PlutoUI.combine() do Child
+md"""
+ $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = λ_θ, show_value=true)))
+
+ $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = λ_w, show_value=true)))
+
+ hidden layer size: $(Child(:h, NumberField(1:128, default = h))), num layers: $(Child(:l, NumberField(1:5, default = l)))
+
+ $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = log2α_θ)))
+
+ $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = log2α_w)))
+"""
+end |> confirm
 end
   ╠═╡ =#
 
-# ╔═╡ fc069ac5-8709-46a4-90a4-ca0001b16e51
+# ╔═╡ 9978d537-49ff-4014-a971-b42704c50a6b
 #=╠═╡
-cartpole_fcann_parameter_study(2f0 .^(fcann_cartpole_study_params.α_θ_min:fcann_cartpole_study_params.α_θ_min+4), 2f0 .^ (fcann_cartpole_study_params.α_w_min:fcann_cartpole_study_params.α_w_min+2), fcann_cartpole_study_params.λ_θ, fcann_cartpole_study_params.λ_w, fill(fcann_cartpole_study_params.h, fcann_cartpole_study_params.l), 1_000)
+@bind fcann_cartpole_study_params create_actor_critic_fcann_params_UI(;λ_θ = 0.95f0, λ_w = 0.2f0, h = 16, log2α_θ = -10, log2α_w = -11)
+  ╠═╡ =#
+
+# ╔═╡ 54ff46a2-489a-4dd2-bc30-df70c780cc42
+#=╠═╡
+cartpole_fcann_parameter_study(fill(fcann_cartpole_study_params.h, fcann_cartpole_study_params.l), fcann_cartpole_study_params.λ_θ, fcann_cartpole_study_params.λ_w,  2f0 .^(fcann_cartpole_study_params.α_θ_min:fcann_cartpole_study_params.α_θ_min+4), 2f0 .^ (fcann_cartpole_study_params.α_w_min:fcann_cartpole_study_params.α_w_min+2), 1_000)
   ╠═╡ =#
 
 # ╔═╡ 407a0724-4bb6-4c83-ab2d-17a0e19c4072
@@ -2743,11 +2745,6 @@ const ep = runepisode(cartpole_setup.mdps.episodic.discrete; π = reinforce_test
 # ╔═╡ a4eec4d3-5a75-4b52-ab9c-9d9e83d5547d
 #=╠═╡
 @bind ep_step Slider(1:length(ep[1]), show_value=true)
-  ╠═╡ =#
-
-# ╔═╡ fb23260f-6c21-412d-a2fd-a32080888f6c
-#=╠═╡
-reinforce_test4.policy_and_value(ep[1][ep_step])
   ╠═╡ =#
 
 # ╔═╡ 5ee4ce72-7740-4297-8d84-619e0708e4ac
@@ -2844,11 +2841,87 @@ reinforce_test5.policy_and_value(CartPoleState())
 
 # ╔═╡ 54f1546d-87ae-49d2-92ed-6fcc9b66e027
 md"""
-### *Mountain Car Continuous Action MDP*
+### *Mountain Car MDP*
 """
 
-# ╔═╡ 7e6a51ac-4ef4-437c-8d48-751d32c19b59
-MountainCarTask.mdp
+# ╔═╡ c5dd7e99-57e0-4bc7-97d2-2c780b23bcff
+md"""
+#### Discrete Action Space
+
+As an initial test, consider the discrete action space originally used for the mountain car problem where there are three actions (-1, 0, 1) corresponding to full throttle reverse, idle, and full throttle forward.  We can apply the same tile coding solution technique from before but with a policy gradient method instead of Sarsa.
+"""
+
+# ╔═╡ 2025ff38-f2ec-4224-b771-ff72ffe1af28
+const mountaincar_min_vals = (-1.2f0, -0.07f0)
+
+# ╔═╡ 77906355-08f8-4b08-b051-84697199b519
+const mountaincar_max_vals = (0.5f0, 0.07f0)
+
+# ╔═╡ 023f67b8-8f38-470a-9766-ac60a75678aa
+const mountaincar_fcann_setup = fcann_feature_vector_setup(mountaincar_min_vals, mountaincar_max_vals)
+
+# ╔═╡ 7c592385-e8d3-4efe-962c-d39debb64405
+const mountaincar_tilecoding_setup = tile_coding_setup(mountaincar_min_vals, mountaincar_max_vals, (0.1f0, 0.1f0), 12, (1, 3))
+
+# ╔═╡ d9d11d69-bc16-400a-8f46-f9a8ecb8516a
+actor_critic_binary_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, num_episodes::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_binary_episodic_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), num_episodes; kwargs...)
+
+# ╔═╡ bc8a399b-8864-4473-89d2-e3b0a03d15b5
+#=╠═╡
+corridor_parameter_study(args...; kwargs...) = actor_critic_binary_episodic_parameter_study(corridor_mdp, get_corridor_features, 1, args...; init_policy_params = [0f0 3.7f0], kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ c52c4cec-0ea8-4af3-831a-d284f0e086ee
+#=╠═╡
+corridor_parameter_study(study_params.λ_θ, study_params.λ_w, 2f0 .^ (study_params.α_θ_min:study_params.α_θ_min+6), 2f0 .^ (study_params.α_w_min:study_params.α_w_min+2), 100; seed = 45)
+  ╠═╡ =#
+
+# ╔═╡ 4c5cb75e-79b5-4502-b1eb-6246e002feaf
+#=╠═╡
+@bind mountaincar_binary_params create_actor_critic_params_UI()
+  ╠═╡ =#
+
+# ╔═╡ 8eb42403-1234-4e59-993e-057cc3a6d5c9
+#=╠═╡
+actor_critic_binary_episodic_parameter_study(MountainCarTask.mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, mountaincar_binary_params, 5, 3, 1000; max_steps = 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 6d0925d3-af96-4b94-8e2e-4941cce39e51
+const mountaincar_test_train = actor_critic_with_eligibility_traces_binary_features(MountainCarTask.mdp, 0.1f0, 0.9f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 100_000; α_θ = 0.008f0, α_w = 0.004f0)
+
+# ╔═╡ 786a5385-b648-4fc3-8e19-bf6582828136
+md"""
+#### Continuous Action Space
+
+Now that we have verified the success of policy gradient methods on this problem, we can consider using a continuous action space where the policy can output a distribution over throttles.  In the original problem, the maximum throttle value is 1, but the velocity of the car is already capped at 0.07.  We can see if a policy attempts to use much higher throttle values to end the episode faster even if the physics is unrealistic.  That observation would confirm a successful use of continuous actions where the throttle is an unbounded continuous value.  The optimal policy would likely try to use the highest throttle possible to reach the maximum speed in either direction faster.  We could apply friction to the problem so that the car would actually slip if it attempts to accelerate too quickly.
+"""
+
+# ╔═╡ b86ee9d3-b6b5-4ea0-8f55-1927571cdfbf
+function create_continuous_action_mountaincar()
+	mdp = MountainCarTask.mdp
+	step(s, a) = (-1f0, MountainCarTask.step(s, a))
+	ContinuousMDP(step, mdp.initialize_state, 0f0; isterm = mdp.isterm)
+end
+
+# ╔═╡ d560b2a0-c571-4ad7-b1c9-83ec03fc8cc2
+const mountaincar_continuous_mdp = create_continuous_action_mountaincar()
+
+# ╔═╡ a7891c63-18d6-4c1f-ba67-adf7c547d334
+# ╠═╡ disabled = true
+#=╠═╡
+@bind fcann_mountaincar_study_params create_actor_critic_fcann_params_UI(;λ_θ = 0.5f0, λ_w = 0.5f0, h = 16, log2α_θ = -10, log2α_w = -11)
+  ╠═╡ =#
+
+# ╔═╡ 7126aefd-b847-497a-9545-514e9b9afa71
+#=╠═╡
+actor_critic_fcann_episodic_parameter_study(MountainCarTask.mdp, mountaincar_fcann_setup.update_feature_vector!, mountaincar_fcann_setup.num_features, fill(fcann_mountaincar_study_params.h, fcann_mountaincar_study_params.l), fcann_mountaincar_study_params.λ_θ, fcann_mountaincar_study_params.λ_w, 2f0 .^ (fcann_mountaincar_study_params.α_θ_min:fcann_mountaincar_study_params.α_θ_min+4), 2f0 .^ (fcann_mountaincar_study_params.α_w_min:fcann_mountaincar_study_params.α_w_min+2), 100_000; nruns = 100, max_steps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ 1894ae1a-bb68-4de0-a4d2-ac5d02c49f09
+# ╠═╡ disabled = true
+#=╠═╡
+plot(mountaincar_test_train.episode_rewards)
+  ╠═╡ =#
 
 # ╔═╡ 4c34640f-efa2-4e1d-8a70-0acd2ce45428
 md"""
@@ -2894,1092 +2967,126 @@ $\begin{equation}
 This is a gradient vector which corresponds to the components of $\theta_s$ which is the parameter vector for each action at that state.  We have a new vector update for each unique state/action pair observed, but once those two are fixed the number of components that need to be calculated is just a vector with a length equal to the number of actions.
 """
 
-# ╔═╡ 273e7735-91a6-45cd-81ad-49d0da665143
-md"""
-## Value Iteration Review
-
-For this method we need an MDP defined more thoroughly than normal for sampling methods.  In particular we need a probability transition function that returns a probability for each set of (s′, r, s, a).  To perform calculations with this function it will be convenient to have lookup tables for the available actions in each state as well as all possible transitions from a given state/action pair.
-"""
-
-# ╔═╡ 8a4e2b43-15fe-49c4-a487-497875246f82
-#p is the state transition function for an mdp which maps the 4 arguments to a probability.  This function uses p to generate two dictionaries.  The first maps each state to a set of possible actions in that state.  The second maps each state/action pair to a set of possible transition/reward pairs
-function get_sa_keys(p::Dict{Tuple{A, B, A, C}, T}) where {T <: Real, A, B, C}
-	#map from states to a list of possible actions
-	state_actions = Dict{A, Set{C}}()
-
-	#map from state action pairs to a list of possible newstate/reward pairs
-	sa_s′rewards = Dict{Tuple{A, C}, Set{Tuple{A, B}}}()
-	for k in keys(p)
-		(s′, r, s, a) = k
-		haskey(state_actions, s) ? push!(state_actions[s], a) : state_actions[s] = Set([a])
-		haskey(sa_s′rewards, (s,a)) ? push!(sa_s′rewards[(s,a)], (s′, r)) : sa_s′rewards[(s,a)] = Set([(s′,r)])
-	end
-	return state_actions, sa_s′rewards
-end	
-
-# ╔═╡ ac43b613-5c74-45bd-a49e-5b30bb19f52d
-# ╠═╡ disabled = true
-#=╠═╡
-function bellman_optimal_value!(V::Dict{S, Float64}, p::Dict{Tuple{S, Float64, S, A}, Float64}, sa_keys::Tuple{Dict{S, Set{A}}, Dict{Tuple{S, A}, Set{Tuple{S, Float64}}}}, γ::Float64; invert_state = s -> 1.0) where {S, A}
-	delt = 0.0
-	calcvalue(s′, r, s, a) = p[(s′,r,s,a)] * (r + γ*V[s′])
-	sumvalue(list, s, a) = sum(calcvalue(s′, r, s, a) for (s′, r) in list)
-	function updatestate(s, delt)
-		c = invert_state(s)
-		v = V[s]
-		actions = first(sa_keys)[s]
-		V[s] = c*maximum(c*sumvalue(sa_keys[2][(s,a)], s, a) for a in actions; init = -Inf)
-		delt = max(delt, abs(v - V[s]))
-	end
-
-	for s in keys(first(sa_keys))
-		delt = updatestate(s, delt)
-	end
-	return delt
-end
-  ╠═╡ =#
-
-# ╔═╡ 25dc6e02-dc77-4e7b-8639-ee39fee5d87e
-#struct to hold results of value iteration which consists of 1) the state value function either as a list for each iteration or a final value and 2) the optimal policy represented by a dictionary mapping states to action probability lookups
-struct ValueIterationResults{V, S}
-	state_values::V
-	πstar::Dict{S, Dict{Int64, Float64}}
-end
-
-# ╔═╡ 1683b216-d310-4c66-81ba-0329898d90dd
-# ╠═╡ disabled = true
-#=╠═╡
-#perform value iteration accumulating the value function calculated at each step
-function value_iteration_v(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real, valuelist::AbstractVector{T}; kwargs...) where T <: Dict
-	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		πstar = calculatepolicy(mdp, γ, V; kwargs...)
-		return ValueIterationResults(valuelist, πstar)
-	else 
-		newV = copy(V)
-		delt = bellman_optimal_value!(newV, p, sa_keys, γ; kwargs...)
-		newlist = [valuelist; [newV]]
-		value_iteration_v(θ, mdp, γ, newV, delt, nmax - 1, newlist; kwargs...)	
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ d538939d-df32-4766-b3c7-f9fc5af564df
-# ╠═╡ disabled = true
-#=╠═╡
-#perform value iteration updating a given value function in place
-function value_iteration_v!(θ::Real, mdp::NamedTuple, γ::Float64, V::T, delt::Float64, nmax::Real; kwargs...) where T <: Dict
-	(p, sa_keys) = mdp
-	if nmax <= 0 || delt <= θ
-		πstar = calculatepolicy(mdp, γ, V; kwargs...)
-		return ValueIterationResults(V, πstar)
-	else 
-		delt = bellman_optimal_value!(V, p, sa_keys, γ; kwargs...)
-		value_iteration_v!(θ, mdp, γ, V, delt, nmax - 1; kwargs...)	
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ ee23064b-499a-4061-bfed-242ccbcbf25e
-#take a policy calculation over values for a given state and return a probability distribution for the greedy policy
-function convertπs(πs::Dict)
-	m = maximum(values(πs))
-	c = count(a == m for a in values(πs))
-	p = 1. / c
-	Dict(a => πs[a] == m ? p : 0.0 for a in keys(πs))
-end
-
-# ╔═╡ 3825159e-a5db-45c8-b2bc-193b4494b53d
-#create a probability lookup policy from a dictionary of preferences
-convertπ(π::Dict) = Dict(s => convertπs(π[s]) for s in keys(π))
-
-# ╔═╡ 461e27bb-c38b-4dc6-aa68-d5d76ff79cbf
-function calculatepolicy(mdp::NamedTuple, γ::Float64, V::Dict; invert_state = s -> 1.0)
-	(p, sa_keys) = mdp
-	calcvalue(s′, r, s, a) = p[(s′,r,s,a)] * (r + γ*V[s′])
-	sumvalue(list, s, a) = sum(calcvalue(s′, r, s, a) for (s′, r) in list)
-	makenewdist(s, actions) = Dict(a => invert_state(s)*sumvalue(sa_keys[2][(s, a)], s, a) for a in actions)
-	function getpair(s)
-		actions = sa_keys[1][s]
-		newdist = makenewdist(s, actions)
-		return (s, newdist)
-	end
-	convertπ(Dict(getpair(s) for s in keys(sa_keys[1])))
-end 
-
-# ╔═╡ ed2785a8-0fed-4052-8371-0e34982e8800
-# ╠═╡ disabled = true
-#=╠═╡
-function begin_value_iteration_v(θ, γ, mdp, V, nmax; kwargs...)
-	(p, sa_keys) = mdp
-	newV = copy(V)
-	delt = bellman_optimal_value!(newV, p, sa_keys, γ; kwargs...)
-	value_iteration_v(θ, mdp, γ, newV, delt, nmax-1, [V, newV]; kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ f5745c5a-8dd9-4827-a222-df4036498a0e
-# ╠═╡ disabled = true
-#=╠═╡
-function begin_value_iteration_v!(θ, γ, mdp, V, nmax; kwargs...)
-	(p, sa_keys) = mdp
-	delt = bellman_optimal_value!(V, p, sa_keys, γ; kwargs...)
-	value_iteration_v!(θ, mdp, γ, V, delt, nmax-1; kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ a81d2380-b853-432e-9592-d5461daad7b2
-# ╠═╡ disabled = true
-#=╠═╡
-function begin_value_iteration_v(mdp::NamedTuple, γ; θ = eps(0.0), nmax=Inf, Vinit = 0.0, savelist = true, kwargs...)
-	#initialize value at a constant
-	V = Dict(s => Vinit for s in keys(mdp[2][1]))
-	f = if savelist
-		begin_value_iteration_v
-	else
-		begin_value_iteration_v!
-	end
-	f(θ, γ, mdp, V, nmax; kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ fc68dd3e-e42d-4642-a5ba-bac9ba1b432d
-# ╠═╡ disabled = true
-#=╠═╡
-#for an episodic task add a terminal state that will remain at 0 value
-function begin_value_iteration_v(mdp::NamedTuple, sterm, γ::Real; θ = eps(0.0), nmax=Inf, Vinit = 0.0, savelist = true, kwargs...)
-	#initialize value at a constant
-	V = Dict(s => Vinit for s in keys(mdp[2][1]))
-	V[sterm] = 0.0
-	f = if savelist
-		begin_value_iteration_v
-	else
-		begin_value_iteration_v!
-	end
-	f(θ, γ, mdp, V, nmax; kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ a7316ca6-28ae-4ee0-b0be-e8d451beb17f
-# ╠═╡ disabled = true
-#=╠═╡
-# this is for continuing value iteration from some existing value function
-begin_value_iteration_v(mdp::NamedTuple, γ::Real, V; θ = eps(0.0), nmax=Inf, kwargs...) = begin_value_iteration_v(θ, γ, mdp, V, nmax; kwargs...)
-  ╠═╡ =#
-
 # ╔═╡ 5ce1af6b-847c-47f0-a6ca-867c35948caa
-md"""
-## Racetrack Environment
-"""
+
 
 # ╔═╡ ff60f48e-2055-4bb6-8cf4-fac1da45200b
-const racetrack_velocities = [(vx, vy) for vx in 0:4 for vy in 0:4]
+
 
 # ╔═╡ a79ed238-a6d3-40e6-9bf3-351b7494b446
-const racetrack_actions = [(dx, dy) for dx in -1:1 for dy in -1:1]
+
 
 # ╔═╡ 76af787d-7a3d-4c65-ab6a-898fba148705
-#track is defined as a set of points for each of the start, body, and finish
-const track1 = (  start = Set((x, 0) for x in 0:5), 
-            finish = Set((13, y) for y in 26:31), 
-            body = union(   Set((x, y) for x in 0:5 for y in 1:2),
-                            Set((x, y) for x in -1:5 for y in 3:9),
-                            Set((x, y) for x in -2:5 for y in 10:17),
-                            Set((x, y) for x in -3:5 for y in 18:24),
-                            Set((x, 25) for x in -3:6),
-                            Set((x, y) for x in -3:12 for y in 26:27),
-                            Set((x, 28) for x in -2:12),
-                            Set((x, y) for x in -1:12 for y in 29:30),
-                            Set((x, 31) for x in 0:12))
-)
+
 
 # ╔═╡ 0538aaf4-716b-4f3c-aa7e-dcb1dd456172
-#given a position, velocity, and action takes a forward step in time and returns the new position, new velocity, and a set of points that represent the space covered in between
-function project_path(p, v, a)
-    (vx, vy) = v
-    (dx, dy) = a
 
-    vxnew = clamp(vx + dx, 0, 4)
-    vynew = clamp(vy + dy, 0, 4)
-
-    #ensure that the updated velocities are not 0
-    if vxnew + vynew == 0
-        if iseven(p[1] + p[2])
-            vxnew += 1
-        else
-            vynew += 1
-        end
-    end
-
-    #position the car ends up at
-    pnew = (p[1] + vxnew, p[2] + vynew)
-
-    #how to check if the path intersects the finish line or the boundary?  Form a square from vxnew and vynew and see if the off-track area or finish line is contained in that square
-    pathsquares = Set((x, y) for x in p[1]:pnew[1] for y in p[2]:pnew[2])
-
-    (pnew, (vxnew, vynew), pathsquares)
-end
 
 # ╔═╡ d37e21ac-b82a-423f-8719-b513bddf433d
-function make_racetrack(track)
-	positions = mapreduce(a -> collect(a), vcat, track)
-	states = [(position = p, velocity = v) for p in positions for v in racetrack_velocities]
 
-	sterm = (position = (-1, -1), velocity = (0, 0))
-
-	#take a forward step from current state returning new state and reward of -1
-	function step(s, a)
-		s == sterm && return (sterm, 0.0)
-		pnew, vnew, psquare = project_path(s.position, s.velocity, a)
-		fsquares = intersect(psquare, track.finish)
-		outsquares = setdiff(psquare, track.body, track.start)
-		s′ = if !isempty(fsquares) #car finished race
-			# println("Finished race")
-			sterm
-		elseif !isempty(outsquares) #car path went outside of track
-			# println("car reset")
-			(position = rand(track.start), velocity = (0, 0))
-		else
-			(position = pnew, velocity = vnew)
-		end
-		# println("starting state: $s, ending state: $s′")
-		(s′, -1.0)
-	end	
-
-	s0 = (position = first(track.start), velocity = (0, 0))
-
-	function runepisode(π; s0 = s0)
-		traj = [s0]
-		rewards = Vector{Float64}()
-		s = s0
-		while true
-			(s, r) = step(s, π(s))
-			push!(rewards, r)
-			(s == sterm) && break
-			push!(traj, s)
-		end
-		return traj, rewards
-	end
-
-	(states, sterm, racetrack_actions, step, s0, runepisode)
-end
 
 # ╔═╡ d314361e-4d4f-413b-b935-1e88c1112fa0
-function setup_racetrack_actor_critic(track)
-	(states, sterm, actions, step) = make_racetrack(track)
-	s0 = (position = first(track.start), velocity = (0, 0))
 
-	state_action_pairs = [(s, a) for s in states for a in actions]
-
-	#convert states to index
-	statelookup = Dict(zip(states, eachindex(states)))
-	statelookup[sterm] = lastindex(states) + 1
-
-	#create state feature vectors, leave the terminal state at all zeros
-	xs = [zeros(lastindex(states)+1) for i in 1:(lastindex(states)+1)]
-	for i in eachindex(states)
-		xs[i][i] = 1.0
-	end
-	
-	#allocations for outputs
-	πoutput = zeros(lastindex(actions))
-	gradoutput = zeros(lastindex(states)+1, lastindex(actions))
-
-	#value function and gradient
-	v̂(s, w) = w[statelookup[s]]
-	∇v̂(s, w) = xs[statelookup[s]]
-
-	function clean_output!(v::AbstractVector{T}) where T <: AbstractFloat
-		for (i, x) in enumerate(v)
-			if isnan(x) || isinf(x)
-				v[i] = zero(T)
-			end
-		end
-		return v
-	end
-
-	#policy function and gradient
-	function π!(s, θ) 
-		soft_max!(θ[statelookup[s], :], πoutput)
-		clean_output!(πoutput)
-	end
-
-	function ∇lnπ!(a, s, θ)
-		#ensure πoutput contains the current softmax output for this state
-		# π!(s, θ)
-		i = statelookup[s]
-		 for n in eachindex(actions)
-			@inbounds @simd for m in eachindex(states)
-				gradoutput[m, n] = (i == m) * ((n == a) - πoutput[n])
-				# if i == m
-				# 	println("At state $i Updated gradient of $(gradoutput[m, n])")
-				# end
-			end
-		end
-		return gradoutput
-	end
-
-	#parameters
-	θ = zeros(lastindex(states)+1, lastindex(actions))
-	w = zeros(lastindex(states)+1)
-	
-	return (π!, ∇lnπ!, v̂, ∇v̂, s0, step, states, sterm, actions, θ, w)
-end
 
 # ╔═╡ 9040a58b-afd7-49cd-a253-054a5b26c603
-track1_setup = setup_racetrack_actor_critic(track1)
+
 
 # ╔═╡ e5a0a3fc-2eb3-4f31-8ab6-4a3130c70932
-function execute_racetrack_actor_critic(track, setup, αθ, αw; kwargs...)
-	(π!, ∇lnπ!, v̂, ∇v̂, s0, step, states, sterm, actions, θ, w) = setup
-	#parameters
-	θ .= zeros(lastindex(states)+1, lastindex(actions))
-	w .= zeros(lastindex(states)+1)
-	
-	# reinforce_monte_carlo_control(π!, ∇lnπ!, length(θ), s0, αθ, step, sterm, actions; θ = θ, kwargs...)
 
-	actor_critic_eligibility(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
-
-	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
-end
 
 # ╔═╡ 85fc29c9-e5ca-4bc8-b607-51d75906a1f2
 # ╠═╡ show_logs = false
-#=╠═╡
-function eval_racetrack(track; nruns = nthreads(), αlist = 2. .^(-3:-1), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, 1.0], kwargs...)
-	opt_setup = setup_racetrack_actor_critic(track)
-	params = [(α, λ) for α in αlist for λ in λlist]
-	@progress traces = [begin
-		 (α, λ) = p
-		@info "running for α = $α and λ = $λ"
-		out = average_runs((;kwargs...) -> execute_racetrack_actor_critic(track, opt_setup, α, α; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
-		scatter(x = eachindex(out), y = -cumsum(out) ./ (1:length(out)), name = "α = $α, λ = $λ")
-	end
-	for p in params]
-	plot(traces, Layout(xaxis_title = "Episodes", yaxis_title = "Cumulative Average Steps to Finish So Far", yaxis_type="log", width = 900, height = 600))
-end
-  ╠═╡ =#
+
 
 # ╔═╡ 6e2e9c99-8664-40f2-a1df-bd182db9859e
-#=╠═╡
-@bind run_eval_racetrack CounterButton("Click to run `eval_racetrack` and plot rewards per episode for different α and λ")
-  ╠═╡ =#
+
+
+# ╔═╡ 617dba19-2819-4317-a652-e39235030aa9
+
 
 # ╔═╡ b50282ed-e599-4687-bfbc-0ac9c4f30c84
-#=╠═╡
-function racetrack_optimize_λ(track, αθlist, αwlist; epavg = 100, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
-	opt_setup = setup_racetrack_actor_critic(track)
-	function maketrace(αθ, αw) 
-		@info "running for αθ = $αθ and αw = $αw"
-		@progress rewards = [begin
-			out = average_runs((;kwargs...) -> execute_racetrack_actor_critic(track, opt_setup, αθ, αw; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
-			mean(out[max(1, end-epavg):end])
-		end
-		for λ in λlist]
-		scatter(x = λlist, y = rewards, name = "αθ = $αθ, αw = $αw")
-	end
 
-	params = [(a, b) for a in αθlist for b in αwlist]
-	@progress traces = [maketrace(p...) for p in params]
-	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", width = 900, height = 600))
-end
-  ╠═╡ =#
 
 # ╔═╡ aeffb168-06d2-484e-beea-b507f329e4b8
-#=╠═╡
-@bind run_racetrack_optimize CounterButton("Click to run racetrack optimize λ")
-  ╠═╡ =#
 
-# ╔═╡ 80e40d2b-a67b-46eb-86fd-294c0a87a80f
-md"""
-## Blackjack Environment
-"""
+
+# ╔═╡ 8e10be80-6902-46df-ab72-1a999dd44d2e
+
 
 # ╔═╡ 8edb3337-0902-45fa-a5b0-c7cc3d40f97f
-const cards = (2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, :A)
+
 
 # ╔═╡ 37dc5518-d378-41fd-b0ef-bc5e3b1b3687
-const blackjackactions = (:hit, :stick)
+
 
 # ╔═╡ 0ac08421-20d2-4e56-bce8-1bc47b36fe2e
-#deal a card from an infinite deck and return either the value of that card or an ace
-deal() = rand(cards)
+
 
 # ╔═╡ 064b06ae-903b-4430-b925-534925bca733
-const blackjackstates = [(s, c, ua) for s in 12:21 for c in 1:10 for ua in (true, false)]
+
 
 # ╔═╡ 9be279fa-9325-4eb1-8c73-7742c066664d
-const blackjack_sterm = (100, 100, false)
+
 
 # ╔═╡ 6353a374-9eba-4184-a528-f8ca9f32dfe5
-const blackjack_s0 = (0, 0, false)
+
 
 # ╔═╡ b265b8e6-994a-4be2-a7c9-05adef570fda
-makestatelookup(states) = Dict(zip(states, eachindex(states)))
+
 
 # ╔═╡ 460d9e76-9841-4fb8-8e35-0efbbf6f9f08
-const blackjackstatelookup = makestatelookup([blackjackstates; blackjack_s0; blackjack_sterm])
+
 
 # ╔═╡ 8ea91577-57eb-4afc-8919-95bd16ae6865
-#takes a previous sum, usable ace indicator, and a card to be added to the sum.  Returns the updated sum and whether an ace is still usable
-function addsum(s::Int64, ua::Bool, c::Symbol)
-	if !ua
-		s >= 11 ? (s+1, false) : (s+11, true)
-	else
-		(s+1, true)
-	end
-end
+
 
 # ╔═╡ 6324046e-c766-444f-8a74-f6e3569154fa
-function addsum(s::Int64, ua::Bool, c::Int64)
-	if !ua
-		(s + c, false)
-	else
-		if (s + c) > 21
-			(s + c - 10, false)
-		else
-			(s + c, true)
-		end
-	end
-end
+
 
 # ╔═╡ 7f8ea283-8b42-4bb7-8d49-a54855a98c5d
-function playerstep(s, ua, a)
-	a == :stick && return (s, ua)
-	addsum(s, ua, deal())
-end
+
 
 # ╔═╡ 8f133852-12da-41b3-8071-51a12211f432
-function dealer_sim(s::Int64, ua::Bool)
-	(s >= 17) && return s
-	(s, ua) = addsum(s, ua, deal())
-	dealer_sim(s, ua)
-end
+
 
 # ╔═╡ ebeabff8-4779-49e6-a04f-16a76e0b9b04
-function blackjack_step(state, action)
-	#score a game in which the player didn't go bust
-	function scoregame(playersum, dealersum)
-		#if the dealer goes bust, the player wins
-		dealersum > 21 && return 1.0
 
-		#if the player is closer to 21 the player wins
-		playersum > dealersum && return 1.0
-
-		#if the dealer sum is closer to 21 the player loses
-		playersum < dealersum && return -1.0
-
-		#otherwise the outcome is a draw
-		return 0.0
-	end
-	
-	(s, c, ua) = state
-
-	#initial state
-	if s == 0 
-		initstate = true
-		#deal two cards and check for player natural
-		(s, ua) = addsum(s, ua, deal())
-		(s, ua) = addsum(s, ua, deal())
-		playernatural = (s == 21)
-
-		#if sum is less than 12 then keep dealing since these are not states with any action choice
-		while s < 12
-			(s, ua) = addsum(s, ua, deal())
-		end
-
-		#generate dealer card
-		c = rand(1:10)
-	else
-		initstate = false
-		playernatural = false
-	end
-	
-	#generate hidden dealer card and final state
-	hc = deal()
-	(ds, dua) = if c == 1
-		addsum(11, true, hc)
-	else 
-		addsum(c, false, hc)
-	end
-
-	dealernatural = ds == 21
-
-	sdealer = dealer_sim(ds, dua)
-
-	#calculate score in case of player natural
-	playernatural && return (blackjack_sterm, Float64(!dealernatural))
-
-	#if there is no playernatural and we are in the initial state, then return the new initial state ignoring the action selection and giving no reward
-	initstate && return ((s, c, ua), 0.0)
-
-	#sticking always ends the game 
-	action == :stick && return (blackjack_sterm, scoregame(s, sdealer))
-
-	#deal player new card if hitting
-	(s, ua) = addsum(s, ua, deal())
-
-	#player always looses if busts
-	s > 21 && return (blackjack_sterm, -1.0)
-
-	#if player has 21 game also ends
-	s == 21 && return (blackjack_sterm, scoregame(s, sdealer))
-
-	#otherwise return new state and 0 reward
-	return ((s, c, ua), 0.0)
-end			
 
 # ╔═╡ 097b8fc1-b4a4-4b93-bc08-2ceebd5d759a
-function execute_blackjack_actor_critic(αθ, αw, statelookup; kwargs...)
-	nstates = length(statelookup)
-	
-	#create state feature one hot vectors
-	xs = [zeros(nstates) for i in 1:nstates]
-	for i in values(statelookup)
-		xs[i][i] = 1.0
-	end
-	
-	#parameters
-	θ = zeros(nstates, lastindex(blackjackactions))
-	w = zeros(nstates)
 
-	#allocations for outputs
-	πoutput = zeros(lastindex(blackjackactions))
-	gradoutput = similar(θ)
-
-	#value function and gradient
-	v̂(s, w) = w[statelookup[s]]
-	∇v̂(s, w) = xs[statelookup[s]]
-
-	function clean_output!(v::AbstractVector{T}) where T <: AbstractFloat
-		for (i, x) in enumerate(v)
-			if isnan(x) || isinf(x)
-				v[i] = zero(T)
-			end
-		end
-		return v
-	end
-
-	#policy function and gradient
-	function π!(s, θ) 
-		soft_max!(θ[statelookup[s], :], πoutput)
-		clean_output!(πoutput)
-	end
-
-	function ∇lnπ!(a, s, θ)
-		#ensure πoutput contains the current softmax output for this state
-		# π!(s, θ)
-		i = statelookup[s]
-		 for n in eachindex(blackjackactions)
-			@inbounds @simd for m in 1:nstates
-				gradoutput[m, n] = (i == m) * ((n == a) - πoutput[n])
-				# if i == m
-				# 	println("At state $i Updated gradient of $(gradoutput[m, n])")
-				# end
-			end
-		end
-		return gradoutput
-	end
-	
-	# reinforce_monte_carlo_control(π!, ∇lnπ!, length(θ), s0, αθ, step, sterm, actions; θ = θ, kwargs...)
-
-	actor_critic_eligibility(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), blackjack_s0, αθ, αw, blackjack_step, blackjack_sterm, blackjackactions; θ = θ, w = w, kwargs...)
-
-	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
-end
 
 # ╔═╡ 519e6da0-efbf-4b0a-a61c-5849ba403389
-#=╠═╡
-function plotblackjackwinrate(αθ, αw, max_episodes; kwargs...)
-	y = cumsum(execute_blackjack_actor_critic(αθ, αw, blackjackstatelookup; max_episodes = max_episodes, kwargs...)[1])[100:end]
-	x = (100:max_episodes)
 
-	l = length(y)
-
-	i = ceil(Int64, l / 10_000)
-	plot(scatter(x = x, y = y[1:i:l] ./ x[1:i:l]), Layout(xaxis_title = "Episode", yaxis_title = "Average Cumulative Reward", width = 800, height = 500))
-end
-  ╠═╡ =#
 
 # ╔═╡ 4c4ba58e-e3b7-4d02-81ae-b8d753487caa
-#=╠═╡
-plotblackjackwinrate(0.3, 0.3, 100_000; λθ = 0.5, λw = 0.5)
-  ╠═╡ =#
+
 
 # ╔═╡ 06d508ea-640d-4e55-b3b6-05c929f82c3b
-#=╠═╡
-function blackjack_optimize_λ(αθlist, αwlist; epavg = 1000, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
-	function maketrace(αθ, αw) 
-		@info "running for αθ = $αθ and αw = $αw"
-		@progress rewards = [begin
-			out = average_runs((;kwargs...) -> execute_blackjack_actor_critic(αθ, αw, blackjackstatelookup; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
-			mean(out[max(1, end-epavg):end])
-		end
-		for λ in λlist]
-		scatter(x = λlist, y = rewards, name = "αθ = $(round(αθ, sigdigits = 2)), αw = $(round(αw, sigdigits = 2))")
-	end
 
-	paramlist = [(a, b) for a in αθlist for b in αwlist]
-
-	@progress traces = [maketrace(p...) for p in paramlist]
-	plot(traces, Layout(font_color = "white", plot_bgcolor = "black", paper_bgcolor="rgb(40, 40, 40)", xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", height = 600))
-end
-  ╠═╡ =#
 
 # ╔═╡ 0c3714fd-821a-4dae-8d1e-1db35ebef315
-#=╠═╡
-@bind blackjackruncount CounterButton("Click to run Blackjack Optimize λ")
-  ╠═╡ =#
+
+
+# ╔═╡ 6046893f-2f7a-40cc-8844-22c62f2e2660
+
 
 # ╔═╡ 8cb58177-cc29-4bf0-af2f-704bebb9871f
 # ╠═╡ disabled = true
 #=╠═╡
-_, blackjackθ, blackjackw = execute_blackjack_actor_critic(0.25, 0.25, blackjackstatelookup; max_episodes = 500_000, λθ = 0.2, λw = 0.2)
+
   ╠═╡ =#
 
 # ╔═╡ 7550213b-8174-4623-9abc-9dcbdc0351a8
-#=╠═╡
-plot_blackjack_policy(blackjackθ, blackjackw)
-  ╠═╡ =#
+
 
 # ╔═╡ 0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
-#=╠═╡
-function plot_blackjack_policy(θ, w)
-	πstargridua = zeros(10, 10)
-	πstargridnua = zeros(10, 10)
-	v̂starua = zeros(10, 10)
-	v̂starnua = zeros(10, 10)
-	for state in blackjackstates
-		(s, c, ua) = state
-		n = blackjackstatelookup[state]
-		a = blackjackactions[argmax(θ[n, :])]
+
 	
-		(i, j) = (s-11, c)
-
-		πout = soft_max(θ[n, :])[1]
-		vout = w[n]
-		
-		(π, v̂) = if ua
-			πstargridua, v̂starua
-		else
-			πstargridnua, v̂starnua
-		end
-
-		π[i, j] = πout
-		v̂[i, j] = vout 
-	end
-
-	x = ["A"; string.([2, 3, 4, 5, 6, 7, 8, 9, 10])]
-	y = 12:21
-
-	layout =  Layout(title = "Usable Ace Policy, Stick Probability", width = 400, height = 300, x_label = "Dealer Showing", y_label = "Player sum")
-	
-	# vstar = eval_blackjack_policy(Dict(s => π[s] == :hit ? [1.0, 0.0] : [0.0, 1.0] for s in blackjackstates), 500_000)
-	p1 = Plot(heatmap(z = πstargridua, x = x, y = y, colorbar=attr(y = .8, len = 0.4), name = "Policy Usable Ace"), Layout(title = attr(text="Policy Hit Probability", x = 0.5), margin = attr(b = 1, t = 1, l = 1, r = 1), yaxis_title = "Player sum", xaxis_title = "Usable Ace", font_color="white", xaxis_tickvals = fill("", length(x))))
-	# p1 = Plot(heatmap(z = rand(10, 10), x = 1:10, y = 1:10, colorbar = attr(orientation = "h", len = 0.5)))
-	p2 = Plot(heatmap(z = πstargridnua, x = x, y = y, showscale = false, name = "Policy No Usable Ace"), Layout(xaxis_tickvals = fill("", length(x)), xaxis_title = "No Usable Ace", title = "Policy Hit Probability"))
-	
-	# md"""
-	# $p1 $p2
-	# """
-	p3 = Plot(heatmap(z = v̂starua, x = x, y = y, showscale=false, name = "Value Estimate Usable Ace"), Layout(title = "Value Estimate", xaxis_title = "Dealer Showing", yaxis_title = "Player sum"))
-	p4 = Plot(heatmap(z = v̂starnua, x = x, y = y, colorbar = attr(len=0.4, y = .2), showscale=true, name = "Value Estimate No Usable Ace"), Layout(xaxis_title="Dealer Showing", title = "Value Estimate"))
-	p = [p1 p2; p3 p4]
-	relayout!(p, paper_bgcolor="rgb(40, 40, 40)", font_color="white", height = 700, width = 700,  title_text = "Blackjack Policy and Value Functions Estimates")
-	plot(p)
-end
-	
-  ╠═╡ =#
-
-# ╔═╡ 2b964c13-c961-4ed9-8b66-a6715ff7d0ef
-md"""
-## Tic Tac Toe Environment
-
-This state space is small enough that it is also possible to solve with effectively tabular techniques.  To make the solution more efficient consider the inherent symmetries in the problem.  In particular, the value of game states should be invariant with respenct to d4 symmetries which include: mirror reflection across horizontal, vertical and both diagonal axes, 90, 180, and 270 degree rotations.  So each board and the 7 transformed versions should be treated the same.
-
-Each of the 9 elements of the board can contain an X, O, or nothing.  To encode a board into a unique integer, I will use a ternary encoding.  Associate each cell state with an integer: 0 = nothing, 1 = X, and 2 = O.  A board can then be represented with a 9 digit value where each digit is 0, 1, 2 and this vector is equivalent to a ternary number calculated as follows: `sum(v[i]*3^(i-1) for v in boardvector)`.  So to get a list of unique states, apply all the symmetry operations to a board, encode each board as an integer, select the transformation with lowest integer.  This procedure can be performed for every possible board and a mapping between those and the unique states can be saved for future use.  
-
-Additional filters for valid boards should include ensuring that the O count either 1 less than the X count or equal to it.  Also boards where more than one player has 3 in a row are invalid.
-"""
-
-# ╔═╡ 078a1739-911c-4673-821b-488a878bab37
-md"""
-### Game Setup
-"""
-
-# ╔═╡ 205fcf67-e79c-4f20-bb8b-ddb6b980ed9d
-const d4_symmetries = SVector{9}.([
-		[1, 2, 3, 4, 5, 6, 7, 8, 9], #identity
-		[3, 2, 1, 6, 5, 4, 9, 8, 7], #x axis flip
-		[7, 8, 9, 4, 5, 6, 1, 2, 3], #y axis flip
-		[7, 4, 1, 8, 5, 2, 9, 6, 3], #90 degree rotation
-		[9, 8, 7, 6, 5, 4, 3, 2, 1], #180 degree rotation
-		[3, 6, 9, 2, 5, 8, 1, 4, 7], #270 degree rotation
-		[9, 6, 3, 8, 5, 2, 7, 4, 1], #diagonal flip 1
-		[1, 4, 7, 2, 5, 8, 3, 6, 9] #diagonal flip 2
-])
-
-# ╔═╡ 5f917c40-c1b2-4dd8-ac81-8e955d6af7af
-#indices to transform back after doing symmetry operation
-const d4_inverted = [SVector{9}(findfirst(==(i), v) for i in 1:9) for v in d4_symmetries]
-
-# ╔═╡ 7f4b6d93-53dd-466e-8401-24c1a59c32d9
-const BoardTTT = SVector{9, UInt8}
-
-# ╔═╡ eadea57c-b3b6-44c0-bf5d-ed57fec3ff7c
-#if a player has claimed any of these inds then the game is over
-const winning_inds = ((1, 2, 3), (4, 5, 6), (7, 8, 9), (1, 4, 7), (2, 5, 8), (3, 6, 9), (1, 5, 9), (3, 5, 7))
-
-# ╔═╡ 15ac8e2e-9ec6-4723-a0ba-0bd29a37f64e
-const ttt_moves = SVector{9}(UInt8.(1:9))
-
-# ╔═╡ 9fe44113-8232-4579-85b3-65725d30fd46
-const X_VAL = 0x01
-
-# ╔═╡ a0ddc362-cfeb-4585-86bd-0ad003e3d61d
-const O_VAL = 0x02
-
-# ╔═╡ cfdc3298-118e-4b87-b0c0-f46afe573a12
-const EMPTY = 0x00
-
-# ╔═╡ bd53c7c0-e77a-46a5-be88-0fd97e80c02c
-#check if a player associated with a given value has won on a given board
-val_win(board::BoardTTT, val::UInt8) = any(all(board[i] == val for i in inds) for inds in winning_inds)
-
-# ╔═╡ 2deb0cf0-d83d-4a51-b76b-093c53f09c77
-val_win(board, val) = val_win(BoardTTT(board), UInt8(val))
-
-# ╔═╡ 62eb2abe-e418-4826-9c99-7d3b1df500eb
-x_win(board) = val_win(board, X_VAL)
-
-# ╔═╡ 727ea9ce-a670-4e8c-b2f2-8a19477d9a33
-o_win(board) = val_win(board, O_VAL)
-
-# ╔═╡ 9b8187b5-aba6-404c-b232-faf4ed200c89
-canmove(board::BoardTTT, m::Integer) = board[m] == 0x00
-
-# ╔═╡ 57f7fddd-01cb-489f-98cf-f1ce07977eb1
-canmove(board, m) = canmove(BoardTTT(board), m)
-
-# ╔═╡ 83988884-e42e-44aa-9ead-0b81258160cb
-valid_moves(board::BoardTTT) = board .== 0 
-
-# ╔═╡ 76e7a54d-8db6-43be-a994-e8469fce6760
-valid_moves(board) = valid_moves(BoardTTT(board))
-
-# ╔═╡ f53f464b-f9f6-4f34-b35f-e7e8cabc3600
-is_term(board) = !any(==(0), board)
-
-# ╔═╡ ef4b5d88-cae0-466b-baac-90c3cf8f65df
-is_winner(board) = x_win(board) || o_win(board)
-
-# ╔═╡ ec5bb245-051a-4c80-aa98-76b618ec65c6
-is_draw(board) = is_term(board) && !is_winner(board)
-
-# ╔═╡ a12c0d95-8e64-4a82-9c31-62604a1a03ce
-is_active(board) = !is_term(board) && !is_winner(board)
-
-# ╔═╡ d7850e01-34ff-48aa-b366-ee33584372a7
-#determine if it is O's turn to move because the board sum should be 1 off from a multiple of 3
-function is_o_move(board::BoardTTT)
-	s = sum(board)
-	Bool(s % 0x0003)
-end
-
-# ╔═╡ 58668067-0efe-4f23-94f4-d010016f568d
-is_o_move(board) = is_o_move(BoardTTT(board))
-
-# ╔═╡ d4f866a4-7e40-4e60-8382-cd78b2fe0a86
-#check if a board is valid, i.e. can be reached during normal play where X starts, players alternate and the game ends after the first player gets 3 in a row
-function isvalid(board::BoardTTT)
-	winners = NamedTuple((Symbol(f), f(board)) for f in (x_win, o_win))
-	#cannot have both x and o winning
-	all(winners) && return false
-	xnum = count(==(X_VAL), board)
-	onum = count(==(O_VAL), board)
-	#O count must be equal to or one less than X count
-	!(0 <= xnum - onum <= 1) && return false
-	#if O wins then the X count must be equal to the O count because if it is one greater then X played a move after O won
-	winners.o_win && (xnum != onum) && return false
-	#if X wins then it must have a count greater than O because otherwise O would have gone after X wins
-	winners.x_win && (xnum == onum) && return false
-	
-	#in all other cases the board is fine
-	return true
-end
-
-# ╔═╡ 475099d3-d3a4-4757-865d-1e1b4e7da10e
-isvalid(board) = isvalid(BoardTTT(board))
-
-# ╔═╡ e43b5edb-9a3b-4b88-9ef4-87ca1f267b2a
-const score_functions = (x_win, o_win, is_draw, is_active)
-
-# ╔═╡ bbb82a7d-8c54-4cdd-95fe-f6719ecaa5fd
-#list of functions to compute all relevant properties of a board
-const status_functions = (score_functions..., is_o_move, valid_moves)
-
-# ╔═╡ c9ea915e-2bab-4648-8388-658ebf796d78
-#rewards associated with arriving at a board with the following conditions for the X player.  rewards for the O player will be negative of this.  The value of draw differing from 0 is so it can be distinguished from an active board.  Also under these rewards a state with equal probability of win and loss would be 0 whereas a state with an expected draw would be valued at -0.5.
-rewardsX = NamedTuple(zip(Symbol.(score_functions), (1.0, -1.0, -0.5, 0.0)))
-
-# ╔═╡ 97d7bfbd-f821-4201-9d68-9d1654d2a86b
-const BoardStatus = NamedTuple{Symbol.(status_functions)}
-
-# ╔═╡ 6ce26626-1c4c-41ea-b23b-cf6d5bac230b
-#check a board and return game status of each check
-get_board_status(board::BoardTTT) = NamedTuple((Symbol(f), f(board)) for f in status_functions)
-
-# ╔═╡ 3b3973d7-e26e-4e0d-b767-a4247304b9a0
-#attempt to convert a different type to a valid board if possible
-get_board_status(board) = get_board_status(BoardTTT(board))
-
-# ╔═╡ 52fb1724-3e09-4514-b315-ffc83ba88ebe
-#reward associated with arriving at a new board from the perspective of the x player, not that for valid boards only one of the values in status will be true so this will produce a value for invalid boards even though it isn't well defined
-get_reward_x(status::BoardStatus) = sum(rewardsX[k]*status[k] for k in keys(rewardsX))
-
-# ╔═╡ 2d811d01-d2c4-477d-8a06-fcf94e5ad798
-get_reward_x(board) = get_reward_x(get_board_status(board))
-
-# ╔═╡ a7be257c-d2d9-4d55-a498-3e4db491e644
-get_reward_o(args...) = -get_reward_x(args...)
-
-# ╔═╡ 2f147876-144d-4c7f-9c5a-affc3476753c
-#get reward for a board assuming the desired perspective is the player with the available move
-get_reward(status::BoardStatus) = (1 - 2*status.is_o_move) * get_reward_x(status)
-
-# ╔═╡ 90170d3b-25d9-4fbc-a131-f8def2187435
-get_reward(board) = get_reward(get_board_status(board))
-
-# ╔═╡ 08f28c09-708c-40e0-ba16-71135fb438b4
-# convert a board representation as a vector to an integer using powers of 3, need to use UInt16 here to have enough states.  Optionally permute the indices to calculate the state of a transformed board
-mapboard(v::BoardTTT; inds = eachindex(v)) =  mapreduce(a -> v[last(a)]*0x0003^(first(a)-1), +, enumerate(inds)) 
-
-# ╔═╡ 85a07db1-5135-472e-95e6-9d4e85928350
-mapboard(v; kwargs...) = mapboard(BoardTTT(v); kwargs...)
-
-# ╔═╡ 3e44c2aa-2d59-4dba-ba3c-0db868c6e460
-# convert a number to a board representation vector
-map_ttt_state(n::UInt16) = BoardTTT(digits(n, base = 0x03, pad=9))
-
-# ╔═╡ e59efa67-9f52-4493-ba47-84f3ad8a87a2
-map_ttt_state(n) = map_ttt_state(UInt16(n))
-
-# ╔═╡ f9a2136c-7b8d-4427-9fd9-040084dc96fe
-const unfiltered_ttt_boards = (map_ttt_state(n) for n in 0:(3^9-1))
-
-# ╔═╡ 762bed69-bdd8-443b-9526-bf10442eef65
-const valid_ttt_boards = (b for b in unfiltered_ttt_boards if isvalid(b))
-
-# ╔═╡ ffb0962d-bf78-40ea-aa56-7eb198ef5234
-#lookup table for getting board from a numerical state representation
-const ttt_state_lookup = Dict(mapboard(b) => b for b in valid_ttt_boards)
-
-# ╔═╡ 5481a261-45b3-4afd-9c28-03c11f884e69
-#convert a board to its symmetry equivalent version and the index of the symmetry transformation used
-function get_symmetric_board(board::BoardTTT)
-	#only keep the board with the lowest state value
-	(smin, imin) = findmin(inds -> mapboard(board; inds = inds), d4_symmetries)
-	inds = d4_symmetries[imin]
-	(BoardTTT(view(board, inds)), imin)
-end
-
-# ╔═╡ 9ea87c25-9acb-4ae9-8f39-6c684dbc6b19
-get_symmetric_board(board) = get_symmetric_board(BoardTTT(board))
-
-# ╔═╡ b89107cf-45e7-44da-9b73-40b5c995eb8e
-#map a board to it's symmetric equivalent with the permutation indices
-const symmetric_board_lookup = Dict(b => get_symmetric_board(b) for b in valid_ttt_boards)
-
-# ╔═╡ 6e556453-694d-48f7-8c8c-adc04f2d80df
-const symmetric_boards = unique(first(a) for a in values(symmetric_board_lookup))
-
-# ╔═╡ a8137758-4ff3-42d2-a163-8e1daffdc869
-#precompute the status of unique boards only
-const ttt_status_lookup = Dict(b => get_board_status(b) for b in symmetric_boards)
-
-# ╔═╡ 52f0411c-ac13-41c0-bb7b-8fc755849a35
-function lookup_board_status(board::BoardTTT)
-	sym_board, isym = symmetric_board_lookup[board]
-	(status = ttt_status_lookup[sym_board], isym = isym)
-end
-
-# ╔═╡ 5bdcfe04-f343-414a-87cf-a2a7170cf9c4
-lookup_board_status(board) = lookup_board_status(BoardTTT(board))
-
-# ╔═╡ 70e2766d-bc8f-42e6-89fd-7036a0020177
-const active_ttt_boards = filter(b->ttt_status_lookup[b].is_active, symmetric_boards)
-
-# ╔═╡ ea0e22de-a9c1-4a02-8a01-97990348d571
-const active_x_boards = filter(b -> !ttt_status_lookup[b].is_o_move, active_ttt_boards)
-
-# ╔═╡ 2d7651cb-0226-44c4-ac3c-5de1b98c513a
-const active_o_boards = filter(b -> ttt_status_lookup[b].is_o_move, active_ttt_boards)
-
-# ╔═╡ d856f23f-72ef-44e5-aaf6-0213997f783f
-struct TTTEnvironment{T, V}
-	init_board::BoardTTT
-	term_board::BoardTTT
-	move::T
-	apply_π::V
-end
-
-# ╔═╡ a8f7db69-4a50-4e0d-9be6-cf4eef5233c6
-function make_ttt_environment()
-	#the most straightforward board representation is a 3x3 matrix of a ternary value.  We could represent this with 2 bits that can take on 1 of 4 values so it would be one more value than is necessary.  With this representation an unocupied cell is 00, x cell is 01, and o cell is 10 with 11 being ignored.  We could use 2 bit matricies for this with each matrix representing the occupied positions of x and o respectively.  This could also be compressed down to a single number 9 bits long.  It would be nice to just use a 8 bit number though because that is a fundamental datatype UInt8.  Maybe we can ignore the last number because we'd never have a situation where every state was filled up by a single mark but these bits represent whether the mark is present in a given cell so we'd have some unintuitive mapping if we force ourselves to use UInt8.  We could also just use a vector or even static array of length 9.  The other approach is to generate all 3^9 possible boards and just have a lookup table from that maps a given board to one of those numbers.  We could do that by having 0, 1, 2 in each position and then calculating the ternary value of that.  For example let's say we have the following board where the cells are shown one row at a time [0 0 0; 0 1 0; 0 0 2].  This would map to 3^5 + 2*3^9.  
-
-	init_board = BoardTTT(fill(0x00, 9))
-	term_board = BoardTTT(fill(0x03, 9))
-
-	#return a new board state after a move a where a should be the square where a mark is placed as a number from 1 to 9.
-	function move(board::BoardTTT, a::UInt8)
-		#if an illegal move is attempted 
-		board[a] != 0x00 && begin @info "illegal move $a on board $board"; return term_board end
-		#value to be filled into the board, 1 for X moves and 2 for O moves
-		fillmove = 0x0001 + UInt8(lookup_board_status(board).status.is_o_move)
-		state = mapboard(board) #convert board to integer to calculate new values and perform lookup
-		newstate = state + (fillmove * 0x003^(a-0x0001)) #calculate new state
-		newboard = ttt_state_lookup[newstate] #get new board from lookup table
-	end
-
-	move(board, a) = move(BoardTTT(board), UInt8(a))
-
-	#take a policy π that is only defined for unique boards and calculate the action to take converting symmetries back to original board
-	function apply_π(π, board::BoardTTT)
-		(symboard, isym) = symmetric_board_lookup[board]
-		prbs = copy(π(symboard))
-		prbs[d4_inverted[isym]]
-	end	
-
-	TTTEnvironment(init_board, term_board, move, apply_π)
-end
-
-# ╔═╡ 4d67501b-1f27-40e3-8d76-f406c0de9e1c
-const ttt_environment = make_ttt_environment()
-
-# ╔═╡ a3e91897-ebc0-4b1f-bec2-c99338c92fb0
-function get_random_move(board::BoardTTT)
-	status, isym = lookup_board_status(board)
-	wsample(ttt_moves, view(status.valid_moves, d4_inverted[isym]))
-end
-
-# ╔═╡ 7c5234d2-7a19-46cd-81cd-daeb15327594
-get_random_move(board) = get_random_move(BoardTTT(board))
-
-# ╔═╡ 875d894d-055d-4f48-91e5-19871f4ee370
-#clean up possible issues in softmax caused by infinite and undefined values
-function clean_output!(v::AbstractVector{T}) where T <: AbstractFloat
-	for (i, x) in enumerate(v)
-		if isnan(x) || isinf(x)
-			v[i] = zero(T)
-		end
-	end
-	return v
-end
-
-# ╔═╡ 23f8b2d3-7f76-4dd5-a301-95afe719ec30
-#move on a board but return the symmetric version
-symmetric_move(board, m) = first(symmetric_board_lookup[ttt_environment.move(board, m)])
-
-# ╔═╡ c8885191-44a7-448c-a546-d5fb50254616
-#take a step but map boards to symmetric versions and any inactive board maps to the terminal state. defaults to calculating rewards from the x player perspective
-function ttt_step(board, m; reward_func = get_reward_x)
-	newboard = symmetric_move(board, m)
-	(status, isym) = lookup_board_status(newboard)
-	r = reward_func(status)
-	finalboard = status.is_active ? newboard : ttt_environment.term_board
-	(finalboard, r, status.is_active)
-end
-
-# ╔═╡ f29d1813-fa74-46ce-b3ac-3a06a5cd104e
-#define step for a player against an opponent
-function ttt_step(board::BoardTTT, m::UInt8, get_opponent_action::Function; kwargs...)
-	(newboard, r, is_active) = ttt_step(board, m; kwargs...)
-	!is_active && return (newboard, r)
-	m2 = get_opponent_action(newboard)
-	ttt_step(newboard, m2; kwargs...)[[1, 2]]
-end
-
-# ╔═╡ 3f927561-7b13-4f19-946a-67c310c60255
-md"""
-### Actor-Critic Agents vs Fixed Opponent
-"""
-
-# ╔═╡ 04d93927-6206-4d32-91fb-81b73568f1f7
-struct ActorCriticTTTAgent{Vest, Vgrad, Pfunc, Pgrad}
-	v̂::Vest
-	∇v̂::Vgrad
-	π!::Pfunc
-	∇lnπ!::Pgrad
-	θ::Matrix{Float64}
-	w::Vector{Float64}
-	πoutput::Vector{Float64}
-	∇output::Matrix{Float64}
-end
-
-# ╔═╡ 2da0cccb-5e1a-43a7-b485-8b62a8d70d10
-#setup estimation functions for a player given a set of valid playable states for that player.  For example to create an X player, only valid X states should be selected and the corresponding step function should only produce those states
-function setup_ttt_player(states::AbstractVector{T}) where T <: BoardTTT
-	#convert states to index
-	statelookup = Dict(zip(states, eachindex(states)))
-	statelookup[ttt_environment.term_board] = lastindex(states) + 1
-
-	#create state feature vectors, leave the terminal state at all zeros
-	xs = [zeros(lastindex(states)+1) for i in 1:(lastindex(states)+1)]
-	for i in eachindex(states)
-		xs[i][i] = 1.0
-	end
-
-	#value function and gradient
-	v̂(s::BoardTTT, w) = w[statelookup[s]]
-	∇v̂(s::BoardTTT, w) = xs[statelookup[s]]
-	#allocations for outputs
-	πoutput = zeros(lastindex(ttt_moves))
-	∇output = zeros(lastindex(states)+1, lastindex(ttt_moves))
-
-	#policy function and gradient
-	function π!(s::BoardTTT, θ::Matrix)
-		πoutput .= view(θ, statelookup[s], :)
-		πoutput .+= ((s .!= 0x00) .* -Inf) #set output preference to -Inf for occupied cells
-		soft_max!(πoutput)
-		clean_output!(πoutput)
-	end
-
-	#under the convension that we always use the x player reward for the value estimate, to get a valid policy for the o player we can reverse the gradient direction for board states on which the o player is taking a turn.  That way both players can use the same value function
-	function ∇lnπ!(a::UInt8, s::BoardTTT, θ::Matrix)
-		π!(s, θ)
-		i = statelookup[s]
-		f = 1.0 - (2.0 * lookup_board_status(s).status.is_o_move) #reverse policy gradient for o player
-		for n in ttt_moves
-			@inbounds @simd for m in eachindex(states)
-				#apply gradient for soft-max but noticing all values are 0 for i != m which corresponds to other states
-				∇output[m, n] = f * (i == m) * ((n == a) - πoutput[n])
-			end
-		end
-		return ∇output
-	end
-
-	∇lnπ!(a, s, θ) = ∇lnπ!(UInt8(a), BoardTTT(s), θ)
-
-	#parameters
-	θ = zeros(lastindex(states)+1, lastindex(ttt_moves))
-	w = zeros(lastindex(states)+1)
-
-	#note that because there are internal allocated outputs for the policy and the gradient a new instance of this should be generated each time a learning procedure is done.  it may be better design to explicitely pass these holders into any running function so there's always a new copy
-	ActorCriticTTTAgent(v̂, ∇v̂, π!, ∇lnπ!, θ, w, πoutput, ∇output)
-end	
-
-# ╔═╡ 959e4a18-fe6e-4c9c-b9bf-f752108fd2dd
-x_step_vs_random(board, move) = ttt_step(board, move, get_random_move)
 
 # ╔═╡ b6f3d5b6-74b7-4211-b236-203881a97c38
 # ╠═╡ disabled = true
 #=╠═╡
 x_step_vs_random_results = execute_ttt_actor_critic(active_x_boards, x_step_vs_random, () -> rand() < 0.1 ? ttt_environment.init_board : rand(active_x_boards), 0.5, 0.5; λθ = 0.5, λw = 0.5, max_episodes = 100_000, showprogress=true)
-  ╠═╡ =#
-
-# ╔═╡ 8731821b-d82a-4697-be21-522583d7dbab
-#=╠═╡
-@bind avgeps Slider(100:10000, show_value=true)
   ╠═╡ =#
 
 # ╔═╡ 892df402-df32-4344-9201-0458b90fed26
@@ -4035,11 +3142,6 @@ plot_tttresults(x_vs_o1_results, avgeps)
 style_value_policy(x_vs_o1_results.eval_board, xplayboard2...)
   ╠═╡ =#
 
-# ╔═╡ 9e32d0d4-bdbb-46a7-ad3c-34184cea0b92
-md"""
-Compare these three policies on a single board state
-"""
-
 # ╔═╡ 31112289-6978-49a9-a0ec-acba4289b0c8
 #=╠═╡
 displayboards(compdisplayboards1.htmlboards)
@@ -4070,42 +3172,6 @@ displayexamplegame(x_vs_o1_results, o_vs_x1_results)
 displayexamplegame(get_random_move, o_vs_x1_results)
   ╠═╡ =#
 
-# ╔═╡ 9e9d1b3a-d8a5-45f2-87b1-20f7edf56793
-run_ttt_game(πx, πo) = run_ttt_game(πx, πo, [ttt_environment.init_board], Vector{UInt8}(), Vector{UInt8}())
-
-# ╔═╡ f271a2a6-1720-4cb1-99e0-9aff3fab171c
-#play a game between two different policies for the x and o player
-function run_ttt_game(πx::Function, πo::Function, board_history::Vector{BoardTTT}, xturns::Vector{UInt8}, oturns::Vector{UInt8})
-	board = last(board_history)
-	status = lookup_board_status(board)
-	#if the board is no longer active then end the game
-	!status.status.is_active && return (board_history, status, xturns, oturns)
-	xmove = πx(board) #select move for x player
-	push!(xturns, xmove)
-	board′ = ttt_environment.move(board, xmove)
-	push!(board_history, board′)
-	status′ = lookup_board_status(board′)
-	#if the board is no longer active then end the game
-	!status′.status.is_active && return (board_history, status′, xturns, oturns)
-	omove = πo(board′) #select move for o player
-	push!(oturns, omove)
-	board′′ = ttt_environment.move(board′, omove)
-	push!(board_history, board′′)
-	run_ttt_game(πx, πo, board_history, xturns, oturns)
-end
-
-# ╔═╡ 75f13e3d-90a5-461e-9f64-479a01465fab
-function get_ttt_matchup_statistics(πx::Function, πo::Function; trials = 100_000)
-	wld = 1:trials |> Map(n -> run_ttt_game(πx, πo)[2].status[(:x_win, :o_win, :is_draw)]) |> collect
-	NamedTuple(outcome => count(a[outcome] for a in wld)/trials for outcome in (:x_win, :o_win, :is_draw))
-end
-
-# ╔═╡ c577550f-0fff-4a95-85c8-d6ef2b685dde
-compare_ttt_policies(p1::Function, p2::Function; kwargs...) = get_ttt_matchup_statistics(p1, p2; kwargs...)
-
-# ╔═╡ 1d0fe433-0bca-4083-842b-dc209298af13
-nrounds = 10
-
 # ╔═╡ a0740d6d-d034-4037-b410-f31f76b207f5
 # ╠═╡ disabled = true
 #=╠═╡
@@ -4116,17 +3182,6 @@ ttt_rounds_results = execute_actor_critic_selfplay(0.5, 0.5, nrounds; λθ = 0.5
 # ╠═╡ disabled = true
 #=╠═╡
 plot_ttt_rounds(ttt_rounds_results; trials = 10_000)
-  ╠═╡ =#
-
-# ╔═╡ 124a38c0-dd7a-43b2-9f86-5a41261736e0
-#=╠═╡
-md"""
-Round:
-$(@bind roundcount Slider(1:nrounds, show_value=true))
-
-Player:
-$(@bind playerselect Select([1 => "X", 2 => "O"]))
-"""
   ╠═╡ =#
 
 # ╔═╡ 90385599-9db0-4463-8063-81a41266712f
@@ -4171,9 +3226,6 @@ get_ttt_matchup_statistics(get_ttt_move(x_step_vs_random_results), get_ttt_move(
 #=╠═╡
 get_ttt_matchup_statistics(get_ttt_move(x_vs_o1_results), get_ttt_move(o_vs_x1_results))
   ╠═╡ =#
-
-# ╔═╡ 2900dc4e-eed2-4a5c-a026-d1d1bdaf62b9
-get_ttt_matchup_statistics(get_random_move, get_random_move)
 
 # ╔═╡ 2ec47c25-ec71-4cd9-b1b7-14ae8ee3492a
 # ╠═╡ disabled = true
@@ -4241,343 +3293,76 @@ compare_ttt_policies(x_step_vs_random_results, get_random_move)
 compare_ttt_policies(ttt_selfplay_results, ttt_selfplay_results)
   ╠═╡ =#
 
-# ╔═╡ 0d234b25-994f-4649-ac05-0df2dcf12264
-#=╠═╡
-function optimize_λ(αθlist, αwlist, opt_setup; epavg = 100, nruns = nthreads(), λlist = [0.0, 0.1, 0.2, 0.4, 0.8, .9], kwargs...)
-	function maketrace(αθ, αw) 
-		@info "running for αθ = $αθ and αw = $αw"
-		@progress rewards = [begin
-			out = average_runs((;kwargs...) -> execute_actor_critic(opt_setup, αθ, αw; kwargs...), nruns; λθ = λ, λw = λ, kwargs...) 
-			mean(out[max(1, end-epavg):end])
-		end
-		for λ in λlist]
-		scatter(x = λlist, y = rewards, name = "αθ = $αθ, αw = $αw")
-	end
-
-	params = [(a, b) for a in αθlist for b in αwlist]
-	@progress traces = [maketrace(p...) for p in params]
-	plot(traces, Layout(xaxis_title = "λ", yaxis_title = "Average Reward Last $epavg Episodes", width = 900, height = 600))
-end
-  ╠═╡ =#
-
-# ╔═╡ 506a7c77-0d48-47a1-b3fd-d203101b9106
-function showboard(board::AbstractVector)
-	function f(n::Integer)
-		n == 0 && return '-'
-		n == 1 && return 'X'
-		return 'O'
-	end
-	mapreduce(inds -> f.(board[inds]), vcat, [[1 2 3], [4 5 6], [7 8 9]])
-end		
-
-# ╔═╡ 60652571-4e4e-4d68-bec2-3b3fb6db0b1d
-showboard(boardstate::UInt16) = boardstate == typemax(UInt16) ? "Terminal State" : showboard(mapstate(boardstate))
-
-# ╔═╡ d7976b1a-41a7-4d3d-9b0d-7b5a7d87da54
-md"""
-### Using Value Iteration
-
-For the previous two environments, value iteration was not feasible because defining the probability transition function was very inconvenient or impossible.  However for the tic tac toe game it may be possible assuming that the opponent is pursuing the same greedy policy as the player.  Alternatively we can train value iteration against the random policy which could very well find the same optimal strategy as playing against an optimal opponent.  To make the problem more tractable we will only consider states that are unique in terms of symmetries and use the mapping functions to enforce every state in our lookup is a symmetry mapped version.
-"""
-
-# ╔═╡ f1d6e558-6e7c-4238-983a-b756d4ea9450
-function make_ttt_ptf(boards, π_opponent)
-	function get_opponent_transitions(board, s, a)
-		prbs = π_opponent(board)
-		#add up probabilities for each transition accumulating them if the ending state is equivalent
-		mapreduce(mergewith(+), keys(prbs)) do i
-			(s′, r, active) = ttt_step(board, i)
-			Dict((s′, r, s, a) => prbs[i])
-		end
-	end
-
-	function get_transitions(board, a)
-		(newboard, r, active) = ttt_step(board, a)
-		!active && return Dict((newboard, r, board, a) => 1.)
-		get_opponent_transitions(newboard, board, a) #if game isn't over get the transition from the subsequent move
-	end
-
-	function get_transitions(board::S) where S
-		moves = findall(==(0), board)
-		isempty(moves) && return Dict{Tuple{S, Float64, S, UInt8}, Float64}()
-		mapreduce(mergewith(+), moves) do move
-			get_transitions(board, move)
-		end
-	end
-
-	#only calculate transitions from valid states for x player
-	ptf = mapreduce(get_transitions, mergewith(+), boards)
-	sa_keys = get_sa_keys(ptf)
-
-	return (ptr = ptf, sa_keys = sa_keys)
-end
-
-# ╔═╡ c5514f37-9987-4633-818c-adc480136683
-function π_random_ttt(b)
-	inds = findall(==(0), b)
-	v = 1/length(inds)
-	Dict(i => v for i in inds)
-end
-
-# ╔═╡ 8a9bbf5b-18f3-4cbe-ac15-d2d88b68f8bd
-#compute the action probability distribution and value for a given board state from a value iteration result output
-function value_policy_output(value_policy::ValueIterationResults{T, S}, board) where {T <: Dict, S} 
-	(newplayboard, isym) = symmetric_board_lookup[board]
-	!haskey(value_policy.πstar, newplayboard) && return (zeros(9), "Invalid State")
-	board_value = value_policy.state_values[newplayboard]
-	πs = value_policy.πstar[newplayboard]
-	prbs = [haskey(πs, a) ? πs[a] : 0.0 for a in UInt8.(1:9)][d4_inverted[isym]]
-	return (prbs, board_value)
-end
-
-# ╔═╡ e62f195d-7b25-45e5-bdd0-7071b9323dab
-abstract type ResultsTTT end
-
-# ╔═╡ 626940b4-eeb9-4ee6-9f27-b6446f014572
-struct PolicyResultsTTT{T} <: ResultsTTT
-	rewards::Vector{Float64} #rewards per episode of training
-	θ::Matrix{Float64} #parameters for policy function
-	w::Vector{Float64} #parameters for value function
-	eval_board::T #function to evaluate a board
-end
-
-# ╔═╡ 11d113f1-c1f0-4a58-a3b2-44c70b21cdac
-function execute_ttt_actor_critic(states, step, get_s0, αθ, αw; kwargs...)
-	agent = setup_ttt_player(states)
-	s0 = ttt_environment.init_board
-	sterm = ttt_environment.term_board
-	actions = ttt_moves
-
-	# reinforce_monte_carlo_control(π!, ∇lnπ!, length(θ), s0, αθ, step, sterm, actions; θ = θ, kwargs...)
-	(rewards, θout, wout) = actor_critic_eligibility(agent.π!, agent.∇lnπ!, agent.v̂, agent.∇v̂, length(agent.θ), length(agent.w), s0, αθ, αw, step, sterm, actions; θ = agent.θ, w = agent.w, get_s0=get_s0, kwargs...)
-	# one_step_actor_critic(π!, ∇lnπ!, v̂, ∇v̂, length(θ), length(w), s0, αθ, αw, step, sterm, actions; θ = θ, w = w, kwargs...)
-
-	function eval_board(b)
-		(symboard, isym) = symmetric_board_lookup[b]
-		prbs = agent.π!(symboard, θout)[d4_inverted[isym]]
-		v = agent.v̂(symboard, wout)
-		(prbs, v)
-	end
-	PolicyResultsTTT(rewards, θout, wout, eval_board)
-end
-
-# ╔═╡ 75377f64-9b4b-47ec-b25e-b17d42407fad
-#=╠═╡
-#modify this so that it uses the new functions and plots progress per round by showing the victory rate over the previous opponent
-function execute_actor_critic_selfplay(αθ, αw, rounds; kwargs...)
-	form_opponent(results) = (board, move) -> ttt_step(board, move, b -> select_action(results.eval_board(b)[1]))
-	train_player(active_boards, opponent) = execute_ttt_actor_critic(active_boards, opponent, () -> rand(active_boards), αθ, αw; kwargs...)
-
-	x_results = Vector{PolicyResultsTTT}(undef, rounds)
-	o_results = Vector{PolicyResultsTTT}(undef, rounds)
-
-	x_results[1] = train_player(active_x_boards, (board, move) -> ttt_step(board, move, get_random_move))
-	o_results[1] = train_player(active_o_boards, form_opponent(x_results[1]))
-	
-	@progress for i in 2:rounds
-		x_results[i] = train_player(active_x_boards, form_opponent(o_results[i-1]))
-		o_results[i] = train_player(active_o_boards, form_opponent(x_results[i]))
-	end
-	
-	return x_results, o_results
-end
-  ╠═╡ =#
-
-# ╔═╡ 83ccd36d-96c8-4665-9148-bdf95eb8dda1
-#=╠═╡
-function plot_tttresults(ttt_results::PolicyResultsTTT, avgeps = 100)
-	plot([mean(ttt_results.rewards[i:avgeps+i-1]) for i in 1:lastindex(ttt_results.rewards)-avgeps])
-end
-  ╠═╡ =#
-
-# ╔═╡ 938e33dd-c129-40d0-a72e-b7d1f3f770ff
-get_ttt_move(results::ResultsTTT) = b -> select_action(results.eval_board(b) |> first)
-
-# ╔═╡ a278e854-e230-42aa-97a2-0f5b7d1815af
-function compare_ttt_policies(results1::ResultsTTT, results2::ResultsTTT; kwargs...)
-	p1 = get_ttt_move(results1)
-	p2 = get_ttt_move(results2)
-	get_ttt_matchup_statistics(p1, p2; kwargs...)
-end
-
-# ╔═╡ 702f39a7-f921-4f20-90d2-9b7ec493230e
-compare_ttt_policies(results::ResultsTTT, p::Function; kwargs...) = get_ttt_matchup_statistics(get_ttt_move(results), p; kwargs...)
-
-# ╔═╡ 088c2166-17ab-4c22-b621-6421316ebd52
-compare_ttt_policies(p::Function, results::ResultsTTT; kwargs...) = get_ttt_matchup_statistics(p, get_ttt_move(results); kwargs...)
-
-# ╔═╡ d4058d19-3c4d-48b9-9f65-f408fe79ce94
-struct ValueResultsTTT{V, S, T} <: ResultsTTT
-	state_values::V
-	πstar::Dict{S, Dict{Int64, Float64}}
-	eval_board::T
-end
-
 # ╔═╡ 2c2275fc-7b61-4734-859e-3e01b1dfc0ca
-#=╠═╡
 function run_ttt_value_iteration(ptf; γ=1.0, savelist = false, kwargs...) 
 	results = begin_value_iteration_v(ptf, ttt_environment.term_board, γ; θ = 0.0, nmax=Inf, Vinit=0.0, savelist=savelist, kwargs...)
 	eval_board(b) = value_policy_output(results, b)
 	ValueResultsTTT(results.state_values, results.πstar, eval_board)
 end
-  ╠═╡ =#
 
 # ╔═╡ 9b726b74-0e54-4031-b48b-f99248363962
-#=╠═╡
 x_vs_random_value_results = run_ttt_value_iteration(x_vs_random_ptf; γ = 0.9)
-  ╠═╡ =#
 
 # ╔═╡ a4261098-17d6-47e4-9649-42e09d21d1ad
-#=╠═╡
 style_value_policy(x_vs_random_value_results.eval_board, base_board1...)
-  ╠═╡ =#
 
 # ╔═╡ 19fbb0b8-bc03-4203-a65d-0b1516b73174
-#=╠═╡
 o_vs_random_value_results = run_ttt_value_iteration(o_vs_random_ptf; invert_state = s -> -1.0)
-  ╠═╡ =#
-
-# ╔═╡ b81f3149-8cff-4639-9ba7-d96b062decc4
-md"""
-#### Visualize O Player Policy Against Random Opponent
-"""
 
 # ╔═╡ c772ae36-3023-444f-a6f6-3b4c159541b8
-#=╠═╡
 style_value_policy(o_vs_random_value_results.eval_board, o_vs_random_value_board...)
-  ╠═╡ =#
 
 # ╔═╡ f9063856-b2bf-4b01-90cf-2420d53405d2
-#=╠═╡
 o_vs_x1_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_random_value_results.πstar[b])
-  ╠═╡ =#
 
 # ╔═╡ 540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
-#=╠═╡
 o_vs_x1_value_results = run_ttt_value_iteration(o_vs_x1_ptf, invert_state = s -> -1.0)
-  ╠═╡ =#
 
 # ╔═╡ e7a2e7df-f7fd-49db-8339-95fe96376ab6
-#=╠═╡
 style_value_policy(o_vs_x1_value_results.eval_board, o_vs_x1_value_board...)
-  ╠═╡ =#
 
 # ╔═╡ f6bb82e1-9274-425c-901a-35ced8c32f87
-#=╠═╡
 x_vs_o_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x1_value_results.πstar[b])
-  ╠═╡ =#
 
 # ╔═╡ c325fcc9-28a5-45ab-9517-b1f48b169664
-#=╠═╡
 x_vs_o_value_results = run_ttt_value_iteration(x_vs_o_ptf)
-  ╠═╡ =#
 
 # ╔═╡ 19163ab8-e3b8-4978-8968-48dd1aea6eed
-#=╠═╡
 style_value_policy(x_vs_o_value_results.eval_board, x_vs_o_value_board...)
-  ╠═╡ =#
 
 # ╔═╡ eaa953a0-6281-4dc8-9a93-fc8da3779fb6
-#=╠═╡
 o_vs_x2_ptf = make_ttt_ptf(active_o_boards, b -> x_vs_o_value_results.πstar[b])
-  ╠═╡ =#
 
 # ╔═╡ a9c7a7e4-093b-4bc3-bf81-7ab8343994cc
-#=╠═╡
 o_vs_x2_value_results = run_ttt_value_iteration(o_vs_x2_ptf, invert_state = s -> -1.0)
-  ╠═╡ =#
 
 # ╔═╡ eecf7438-5e47-489d-bbb8-7b9dd524c540
-#=╠═╡
 style_value_policy(o_vs_x2_value_results.eval_board, o_vs_x2_value_board...)
-  ╠═╡ =#
 
 # ╔═╡ 47f54710-10e9-4f25-b122-595f33b9b37f
-#=╠═╡
 x_vs_o2_ptf = make_ttt_ptf(active_x_boards, b -> o_vs_x2_value_results.πstar[b])
-  ╠═╡ =#
 
 # ╔═╡ 4c44dcde-c390-4bdf-9d31-7f4e376112d3
-#=╠═╡
 x_vs_o2_value_results = run_ttt_value_iteration(x_vs_o2_ptf)
-  ╠═╡ =#
 
 # ╔═╡ 1ad20faa-caea-4de9-9897-9425f10d4b4b
-#=╠═╡
 style_value_policy(x_vs_o2_value_results.eval_board, x_vs_o2_value_board...)
-  ╠═╡ =#
 
 # ╔═╡ 839ba147-f695-4ba6-922e-c700db120ab3
-#=╠═╡
 #so these two policies are equivalent
 x_vs_o_value_results.πstar == x_vs_o2_value_results.πstar
-  ╠═╡ =#
 
 # ╔═╡ b1db9fd1-b276-4b12-a0d6-a20361265b2f
-#=╠═╡
 o_policy_comp = compare_actions(o_vs_x2_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards)
-  ╠═╡ =#
 
 # ╔═╡ a25e11f3-7e97-42ed-b1b5-fec72663001b
-#=╠═╡
 compare_actions(o_vs_random_value_results.πstar,  o_vs_x1_value_results.πstar, active_o_boards) |> length #this is how many states that have a different policy
-  ╠═╡ =#
-
-# ╔═╡ 985cc4f8-80b9-4562-91c7-c962accdeb4d
-#add a function to show boards where the policies differ
-
-# ╔═╡ 5ac09667-ad41-4b8e-ab7a-857643a69511
-#identify states where two policies differ 
-function compare_actions(π1, π2, states)
-	compactions = [s => (π1[s], π2[s]) for s in states]
-	Dict(filter(a -> a[2][1] != a[2][2], compactions))
-end
-
-# ╔═╡ 3bea1145-2387-4674-9ac4-cad212694e72
-#can alternate this as well until each player's policy is identical for every state similar to how the value iteration stops running
-
-# ╔═╡ be0ab5f8-a89f-4127-96ee-3d9a52f6887a
-#make probability transition function for a selfplay game of tic tac toe over all active states
-function make_ttt_ptf()
-	function get_transitions(board::S) where S
-		moves = findall(==(0), board)
-		isempty(moves) && return Dict{Tuple{S, Float64, S, UInt8}, Float64}()
-		mapreduce(mergewith(+), moves) do move
-			(newboard, r, active) = ttt_step(board, move)
-			Dict((newboard, r, board, move) => 1.)
-		end
-	end
-
-	#only calculate transitions from valid states for x player
-	ptf = mapreduce(get_transitions, mergewith(+), active_ttt_boards)
-	sa_keys = get_sa_keys(ptf)
-
-	return (ptr = ptf, sa_keys = sa_keys)
-end
-
-# ╔═╡ 8568dd44-ad15-42a6-9aff-62c41d2ff739
-const x_vs_random_ptf = make_ttt_ptf(active_x_boards, π_random_ttt)
-
-# ╔═╡ 47492b1f-2ff4-4f98-9489-68b2d8bc45ac
-const o_vs_random_ptf = make_ttt_ptf(active_o_boards, π_random_ttt)
-
-# ╔═╡ 28729f3c-2f68-4399-afe6-2c56a76cb3cc
-const selfplay_ptf = make_ttt_ptf()
 
 # ╔═╡ 1539ff60-3082-4e5c-ad52-dbb93299bac2
-#=╠═╡
 selfplay_value_results = run_ttt_value_iteration(selfplay_ptf, invert_state = s -> is_o_move(s) ? -1.0 : 1.0)
-  ╠═╡ =#
 
 # ╔═╡ 3afd97de-fa10-4458-a272-ede2fea04118
-#=╠═╡
 style_value_policy(selfplay_value_results.eval_board, selfplay_value_board...)
-  ╠═╡ =#
-
-# ╔═╡ 9f1d9b18-d5cc-4c91-85ae-b60f617e8d09
-md"""
-### Compare Learned Policies
-"""
 
 # ╔═╡ d8a17ed4-ce58-4495-8bb6-a84974d78977
 #=╠═╡
@@ -4589,70 +3374,11 @@ displayboards(comp1displayboards.htmlboards)
 comp1displayboards = makecompboard_display(policycompboard[1], [selfplay_value_results, ttt_selfplay_results, x_vs_random_value_results, x_step_vs_random_results, o_vs_random_value_results, o_vs_x1_value_results, x_vs_o_value_results], ["value iteration selfplay", "actor/critic selfplay", "value iteration x vs random", "actor critic vs random", "value iteration o vs random", "value iteration o vs x1", "value iteration x vs o1"]; cellsize = 70)
   ╠═╡ =#
 
-# ╔═╡ 35761e33-0319-4d8c-aeea-263ddc752626
-function makepolicycomptable(xplayers, oplayers)
-	tablenames = [:x_win, :o_win, :is_draw]
-	tables = Dict(name => zeros(length(xplayers), length(oplayers)) for name in tablenames)
-	for (i, x) in enumerate(xplayers) for (j, o) in enumerate(oplayers)
-		results = compare_ttt_policies(x, o)
-		for name in tablenames
-			tables[name][i, j] = results[name]
-		end
-	end end
-	return NamedTuple(tables)
-end
-
 # ╔═╡ 1d1269e2-a175-4fee-b43b-999dd9d6e061
-#=╠═╡
 matchup_tables = makepolicycomptable([selfplay_value_results, x_vs_random_value_results, x_vs_o_value_results, get_random_move], [selfplay_value_results, o_vs_random_value_results, o_vs_x1_value_results, get_random_move])
-  ╠═╡ =#
 
 # ╔═╡ 6f4db010-7738-435d-8338-1353e8e40f39
-#=╠═╡
 display_matchup_comps(matchup_tables, ["selfplay value", "x vs random", "x vs o1 value", "random"], ["selfplay value", "o vs random", "o vs x1 value", "random"]; title = "Value Iteration Outcome Probabilities")
-  ╠═╡ =#
-
-# ╔═╡ 5636cc70-c885-4b57-9f9a-d1848d285735
-joinrow(a, b) = "$a|$b"
-
-# ╔═╡ 74b7c99b-e268-4b80-ba17-97c0d5fc639d
-joinmdrows(r1, r2) = "$r1\n$r2"
-
-# ╔═╡ 5aee3064-0ff1-4162-8204-dda6f1dc2c78
-function make_md_row(v::AbstractVector)
-	"""|$(reduce(joinrow, v))|"""
-end
-
-# ╔═╡ 0cdc2c60-5532-436c-a6d1-e8e465cc380c
-function matrix_to_mdtable(M, header, rownames)
-	body = mapreduce(joinmdrows, eachrow(hcat(rownames, M))) do row
-		make_md_row(row)
-	end
-	h = make_md_row(header)
-	n = make_md_row(["---" for _ in eachindex(header)])
-	reduce(joinmdrows, [h, n, body])
-end
-
-# ╔═╡ 59f08a12-0208-48bb-a461-63b78c558536
-function display_matchup_comps(tables, xnames, onames; title = "Outcome Probabilities Per Matchup")
-	out = 
-	"""	
-	##### $title
-
-	Draw
-	
-	$(matrix_to_mdtable(tables.is_draw, [""; onames], xnames))
-
-	X Win
-	
-	$(matrix_to_mdtable(tables.x_win, [""; onames], xnames))
-
-	O Win
-	
-	$(matrix_to_mdtable(tables.o_win, [""; onames], xnames))
-	"""
-	Markdown.parse(out)
-end
 
 # ╔═╡ bebc22d1-ccdb-4a60-90e2-7574aa6fc74b
 #=╠═╡
@@ -4660,47 +3386,22 @@ compare_ttt_policies(selfplay_value_results, o_vs_x1_results)
   ╠═╡ =#
 
 # ╔═╡ 88faed7e-9e0d-48a2-8992-72f20854157f
-#=╠═╡
 compare_ttt_policies(selfplay_value_results, get_random_move)
-  ╠═╡ =#
 
 # ╔═╡ cdf467f0-1dec-46cb-a354-8fde5eb22e09
-#=╠═╡
 compare_ttt_policies(x_vs_random_value_results, get_random_move)
-  ╠═╡ =#
 
 # ╔═╡ d2abed56-7b34-4885-96ed-9c295870d061
-#=╠═╡
 compare_ttt_policies(x_vs_random_value_results, selfplay_value_results)
-  ╠═╡ =#
 
 # ╔═╡ b771489e-7bd8-4977-bc26-f667bb036b82
-#=╠═╡
 compare_ttt_policies(selfplay_value_results, selfplay_value_results)
-  ╠═╡ =#
 
 # ╔═╡ 49de73c3-dcbe-4012-a997-924e06e6f912
-#=╠═╡
 compare_ttt_policies(get_random_move, selfplay_value_results)
-  ╠═╡ =#
 
 # ╔═╡ 737d4566-a737-46d1-87f0-c691c7a12525
-#=╠═╡
 compare_ttt_policies(get_random_move, o_vs_random_value_results)
-  ╠═╡ =#
-
-# ╔═╡ 3b403f52-c12e-4477-9597-b1ba89096738
-const boardnodes = Dict(begin
-		moves = findall(==(0), b)
-		nextboards = if isempty(moves) 
-			Set{SVector{9, UInt8}}()
-		else
-			Set(symmetric_move(b, a) for a in moves)
-		end
-		b => nextboards
-	
-	end
-	for b in active_ttt_boards)
 
 # ╔═╡ 9373e86e-2bdf-4d71-ab48-181be977f8ba
 # ╠═╡ disabled = true
@@ -4718,322 +3419,39 @@ board4 = UInt8.(board4raw)
 checkboard(state_symmetry_lookup[mapboard(board4)][1])
   ╠═╡ =#
 
-# ╔═╡ a21a92d2-cd52-47ad-9043-78f2e1f59ab3
-#should address this problem of having values for states that should be terminal.  The value of every terminal state should be 0.0 and the symmetry map should turn every such state into the terminal state.  Also states where more than one player has 3 in a row should be eliminated from the MDP
-
 # ╔═╡ da67b5bb-3b44-462a-86b5-3e536545b0fa
 #=╠═╡
 eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
   ╠═╡ =#
-
-# ╔═╡ c6781d81-6497-41b0-ad4b-1248b7212d21
-#next step is to implement the HTML program for adding moves to the state and updating a board object.  Ideally we could recompute the policy as well but another cell could actually update the style for these grid elements which would change the appearance.  Yeah so I can make the HTML where the bound variable is the board and then another cell styles that board with the correct policy.  But then I would need to just stick with one policy per board.  Also wanna implement the reset button.
 
 # ╔═╡ 262c8cad-ff83-42ea-a6fc-b763611d8688
 #=╠═╡
 (value = minimaxvalues[state_symmetry_lookup[mapboard(board4)][1]], actions =  show_policy(board4, s -> apply_sym_π(minimax_policy, board4)))
   ╠═╡ =#
 
-# ╔═╡ 44d6a906-2966-4342-8b24-48682dfc4db7
-show_policy(board, f) = heatmap_board(hash(f), board, f(board))
-
-# ╔═╡ de982a01-2d17-40fc-a005-a1d500ae38bf
-function get_minimax_policy(minimaxvalues, board)
-	moves = check_available_moves(board)
-	c = is_o_move(board) ? -1.0 : 1.0
-	prefs = [begin
-		newboard = first(move(board, a))
-		if haskey(minimaxvalues, newboard)
-			c*minimaxvalues[newboard]
-		else
-			-Inf
-		end
-	end
-	for a in UInt8.(1:9)]
-
-	v = soft_max(1e2*prefs)
-end
-
-# ╔═╡ fac24b16-ca02-4255-bd5f-ac8995e2b52f
-function minimax(board, o_max_player::Bool, boardvalues)
-	c = o_max_player ? -1.0 : 1.0
-	nextboards = boardnodes[board]
-	if any(checkboard(board)) || isempty(nextboards)
-		r = c*get_reward_x(board)
-		boardvalues[board] = r
-		return r
-	end
-	
-	(value, f) = if (is_o_move(board) == o_max_player) #maximizing player
-		(-Inf, max)
-	else
-		(Inf, min)
-	end
-
-	for newboard in nextboards
-		value = f(value, minimax(newboard, o_max_player, boardvalues))
-	end
-	boardvalues[board] = value
-	return value
-end
-
-# ╔═╡ 40500856-73f6-47ab-97d2-afd69eaf6d95
-function run_minimax(startboard)
-	boardvalues = Dict{SVector{9, UInt8}, Float64}()
-	v = minimax(startboard, is_o_move(startboard), boardvalues)
-	π = Dict(board => get_minimax_policy(boardvalues, board) for board in keys(boardvalues))
-	return (v, boardvalues, π)
-end
-
-# ╔═╡ 811fcaed-fcbb-4109-bf79-05cf1bfec645
-(baseval, minimaxvalues, minimax_policy) = run_minimax(ttt_environment.init_board)
-
-# ╔═╡ 915f17a0-dfb7-46fe-8a01-73a1a739210d
-md"""
-## Wordle Environment
-
-Unlike the previous examples, this game has a state space which is too large to enumerate.  There are ~13k possible words that could be guessed.  For each 5 letter word we receive feedback in the form of a list of 5 values indicated by green, yellow, or gray.  So for any guess would could receive one of $3^5=243$ different sets of feedback.  Assuming it is possible to receive any form of feedback for a given guess, we can get an upper bound on the number of possible guess/feedback states: $243 \times 13000\approx 3.16\times 10^6$.  That alone isn't intractable, but we can make up to six guesses in a game.  To solve the game, the state needs to include the previous guesses and the feedback received, meaning we would need potentially over $10^38$ states.  What isn't intractable is enumerating the feedback for every possible guess/answer pair.  If we represent feedback as an 8 bit Unsigned Integer rather than a vector of colors, that would be a matrix of 170 million values.  Once we construct this matrix we can very quickly look up the feedback for a guess without having to calculate anything.
-
-To avoid variable lengths of state representations, we can notice that after a guess and the received feedback, we know for certain which words could be the answer and which cannot.  In particular, the row of the feedback matrix associated with a particular guess will have one or more indices that match a feedback value.  In the best case, only one index in the row will match, and the word associated with that index is the unique answer.  In general there will be a set of indices that match, and those are the remaining possible answers.  After a number of guesses, this list shrinks and can always be represented by a bit array whose length equals the number of possible guesses where each word is marked either 1 or 0 depending on if it is a possible answer.  So our state feature vectors are just binary vectors and the action space is the same length as any one of the possible words could be chosen for a guess.  One additional complication is that we need to keep track of how many guesses remain from 6 down to 0.  This can be achieved by appending a 6 length onehot vector to the end that indicates which guess we are on.  We will need to use these feature vectors with parametrized approximation functions.  
-"""
-
-# ╔═╡ 744c064a-fb12-4a44-8e2f-8b666260c35d
-# ╠═╡ disabled = true
-#=╠═╡
-word_data = String(HTTP.get("https://raw.githubusercontent.com/3b1b/videos/master/_2022/wordle/data/allowed_words.txt").body)
-  ╠═╡ =#
-
-# ╔═╡ f14aea94-3e1c-4cb5-b045-73cfb3afca8a
-#=╠═╡
-wordlist = split(word_data, "\n") |> Filter(!isempty) |> Map(String) |> collect
-  ╠═╡ =#
-
-# ╔═╡ 7863fa1c-1dad-4f4c-8927-5be4c6535820
-# ╠═╡ disabled = true
-#=╠═╡
-const letters = collect('a':'z')
-  ╠═╡ =#
-
-# ╔═╡ 8783f033-895c-4442-b054-1bcb92e36df9
-#=╠═╡
-const letter_lookup = Dict(zip(letters, UInt8.(eachindex(letters))))
-  ╠═╡ =#
-
-# ╔═╡ 95c290c2-c622-431a-bb91-570183cb1385
-# ╠═╡ disabled = true
-#=╠═╡
-const MISSING = 0x00
-  ╠═╡ =#
-
-# ╔═╡ 3c505317-95b2-4216-a3fe-6f7e2a858e80
-# ╠═╡ disabled = true
-#=╠═╡
-const EXACT = 0x02
-  ╠═╡ =#
-
-# ╔═╡ 79283854-9816-489e-88fb-d4d1adf2b208
-const MISPLACED = 0x01
-
-# ╔═╡ 0aaaaffb-86a5-4bc6-9858-61fa3e3ff140
-const WORDLEWIN = UInt8(242)
-
-# ╔═╡ 2c76b158-6678-4459-b76e-10af97555772
-#=╠═╡
-const WORDLETERM = BitVector(zeros(length(wordlist)))
-  ╠═╡ =#
-
-# ╔═╡ bd5e1f4e-6c9b-4abc-a0c1-89a3993d8210
-#=╠═╡
-word2num(word) = SVector{5, UInt8}(letter_lookup[c] for c in word)
-  ╠═╡ =#
-
-# ╔═╡ ea44fb9c-2faa-4c0b-888b-7eac95b9e19c
-#=╠═╡
-num2word(vec) = String([letters[i] for i in vec])
-  ╠═╡ =#
-
-# ╔═╡ 39bb639c-6719-4da7-8726-c3c8621e5fb4
-#=╠═╡
-const word_index = Dict(zip(wordlist, UInt16.(eachindex(wordlist))))
-  ╠═╡ =#
-
-# ╔═╡ 998d4920-d7ec-478f-908c-9e3bdb3d6399
-#=╠═╡
-const word_arrays = [word2num(w) for w in wordlist]
-  ╠═╡ =#
-
-# ╔═╡ fd0c6dda-90b5-43ec-bdc0-df875212d9f1
-# ╠═╡ disabled = true
-#=╠═╡
-const feedback_index = SVector{243}(SVector{5, UInt8}(digits(n; base=3, pad=5)) for n in 0:242)
-  ╠═╡ =#
-
-# ╔═╡ 4307c04c-9440-4991-9455-7b7d959ac656
-# ╠═╡ disabled = true
-#=╠═╡
-get_feedback(n::Integer) = feedback_index[n+1]
-  ╠═╡ =#
-
-# ╔═╡ edc5a1e2-a1e0-495a-8153-0398df9cf2b5
-# ╠═╡ disabled = true
-#=╠═╡
-convert_bytes(v) = eachindex(v) |> Map(i -> v[i] * (3 ^ (i-1))) |> sum |> UInt8
-  ╠═╡ =#
-
-# ╔═╡ c96dd818-96aa-4493-b8fb-77c51a72194f
-# ╠═╡ disabled = true
-#=╠═╡
-const char_counts = MVector{26}(zeros(UInt8, 26))
-  ╠═╡ =#
-
-# ╔═╡ c6f31993-0cf0-4da4-82e1-3a2b28874f77
-# ╠═╡ disabled = true
-#=╠═╡
-const checkinds = BitVector(zeros(5))
-  ╠═╡ =#
-
-# ╔═╡ a8e77437-596f-45db-9773-14f9fe953259
-#=╠═╡
-function get_feedback(guess::SVector{5, UInt8}, answer::SVector{5, UInt8}, counts::MVector{26, UInt8} = MVector{26, UInt8}(zeros(26)), checkinds = checkinds)
-	output::UInt8 = 0x00
-	counts .= 0x00
-
-	#green pass
-	for (i, c) in enumerate(answer)
-		#mark characters that need to be covered by yellow pass
-		counts[c] += 0x01
-		if guess[i] == c
-			output += (EXACT * (0x03^(i-0x01)))
-			#remove one count of letter from yellow pass
-			counts[c] -= 0x01
-			#remove index from yellow pass
-			checkinds[i] = 0
-		else
-			#check this index on yellow pass
-			checkinds[i] = 1
-		end
-	end
-
-	#yellow pass
-	for (i, c) in enumerate(guess)
-		if checkinds[i] && (counts[c] > 0)
-			output += (MISPLACED * (0x03^(i-0x01)))
-			counts[c] -= 0x01
-		end
-	end
-	return output
-end
-  ╠═╡ =#
-
-# ╔═╡ a4d820f6-f6a9-4988-8c0e-d18967d305e3
-#=╠═╡
-function get_feedback(guess::AbstractString, answer::AbstractString)
-	g = word_arrays[word_index[guess]]
-	a = word_arrays[word_index[answer]]
-	get_feedback(g, a) |> get_feedback
-end
-  ╠═╡ =#
-
-# ╔═╡ 9509cc0d-268e-4712-a378-2595a56313d5
-#=╠═╡
-get_feedback(n1::Integer, n2::Integer) = get_feedback(word_arrays[n1], word_arrays[n2]) |> get_feedback
-  ╠═╡ =#
-
-# ╔═╡ c110651c-fc99-44b9-bfad-2650f8553026
-#=╠═╡
-function make_feedback_matrix(list1::AbstractVector{T}, list2::AbstractVector{T}) where T <: SVector{5, UInt8}
-	feedback_matrix = zeros(UInt8, length(list1), length(list2))
-	for i in eachindex(list1) for j in eachindex(list2)
-		feedback_matrix[i, j] = get_feedback(list1[i], list2[j], char_counts)
-	end end
-	return feedback_matrix
-end
-  ╠═╡ =#
-
-# ╔═╡ 14b3d98c-8c5b-4d8e-8a74-98ac90f75da3
-#=╠═╡
-const feedback_matrix = make_feedback_matrix(word_arrays, word_arrays)
-  ╠═╡ =#
-
 # ╔═╡ d8bd669e-8765-493b-9513-e5db805df315
-#=╠═╡
 lookup_feedback(guess::AbstractString, answer::AbstractString) = feedback_matrix[word_index[guess], word_index[answer]]
-  ╠═╡ =#
 
 # ╔═╡ cb854d5b-058b-40f1-8213-6047530910b2
-#=╠═╡
 lookup_feedback(n1::Integer, n2::Integer) = feedback_matrix[n1, n2]
-  ╠═╡ =#
 
 # ╔═╡ a4d1186d-6f43-4c0a-b818-3138a7237484
-#=╠═╡
 #given a guess and answer, produce the feedback and determine the number of possible words that could be the answer
 get_possible_words(guess, answer) = get_possible_words(guess, lookup_feedback(guess, answer))
-  ╠═╡ =#
 
 # ╔═╡ 45f173d9-0d13-4771-be51-54f5770ec6d0
-#=╠═╡
 get_possible_words(guess::AbstractString, feedback::Integer) = get_possible_words(word_index[guess], feedback)
-  ╠═╡ =#
 
 # ╔═╡ adffcbd9-48bd-4d31-9a63-7b9e7c9c1f85
-#=╠═╡
 get_possible_words(g_index::Integer, feedback::Integer) = view(feedback_matrix, g_index, :) .== feedback
-  ╠═╡ =#
 
 # ╔═╡ 25f11075-832f-4840-bfa3-32ef170e2041
-#=╠═╡
 get_possible_feedback(g_index::Integer) = view(feedback_matrix, g_index, :)
-  ╠═╡ =#
-
-# ╔═╡ ca80286d-db1d-4d44-bbd0-0c3baa4bcb5f
-#=╠═╡
-function wordle_step(answer, n, guess)
-	feedback = lookup_feedback(guess, answer)
-	feedback == WORDLEWIN && return (WORDLETERM, 1.0) 
-	n == 6 && return (WORDLETERM, -1.0)
-	(get_possible_words(guess, feedback), 0.0)
-end
-  ╠═╡ =#
-
-# ╔═╡ aab25a03-fed0-4803-9527-d168363d9576
-#=╠═╡
-f1 = get_possible_words("apple", "crane")
-  ╠═╡ =#
-
-# ╔═╡ e05671b1-8b90-4d5f-a0f1-16aa499f46ce
-#=╠═╡
-f2 = get_possible_words("blobs", "crane")
-  ╠═╡ =#
-
-# ╔═╡ 12d26759-74c3-47c6-b88e-d86bb422f0a6
-#=╠═╡
-sum(f1 .&& f2)
-  ╠═╡ =#
-
-# ╔═╡ 33bff271-3c12-47b9-a31e-53cbdea00d36
-#=╠═╡
-apple_possible = [sum(get_possible_words("apple", w)) for w in wordlist]
-  ╠═╡ =#
-
-# ╔═╡ e4266c59-d3ce-40cb-9f64-def0ba6b1d66
-#=╠═╡
-wordlist[sortperm(apple_possible)]
-  ╠═╡ =#
 
 # ╔═╡ f7ede764-5ad8-426b-a805-cc21b622d977
 md"""
 # Results Caching
 """
-
-# ╔═╡ 2e2435bc-ca24-4b1f-87bb-4d20e7a346d8
-racetrack_optimize_λ_plots = Dict()
-
-# ╔═╡ 8afb8301-d2b9-4719-9337-3e6de5e2a535
-eval_racetrack_plots = Dict()
-
-# ╔═╡ 805b6220-0a14-4f2a-bbb1-7ba13ac1749b
-blackjack_optimize_λ_plots = Dict()
 
 # ╔═╡ 3ea08816-705e-4be7-a175-dbd3f3e4c17d
 md"""
@@ -5052,524 +3470,16 @@ function show_or_lookup_plot(buttoncounter::Integer, args::Tuple, kwargs::NamedT
 	dict[(args, kwargs)] = p
 end
 
-# ╔═╡ 617dba19-2819-4317-a652-e39235030aa9
-#=╠═╡
-show_or_lookup_plot(run_eval_racetrack, (track1,), (max_episodes = 1000, maxsteps = 10_000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8]), eval_racetrack_plots, eval_racetrack, "racetrack episode progress")
-  ╠═╡ =#
-
-# ╔═╡ 8e10be80-6902-46df-ab72-1a999dd44d2e
-#=╠═╡
-show_or_lookup_plot(run_racetrack_optimize, (track1, [0.3, 0.5, 0.8], [0.3, 0.5]), (max_episodes = 1000, maxsteps = 10_000, termination_threshold = (episode = 100, reward = -500), λlist = [0.2, 0.4, 0.5, 0.6, 0.7, 0.8]), racetrack_optimize_λ_plots, racetrack_optimize_λ, "racetrack optimize λ plot")
-  ╠═╡ =#
-
-# ╔═╡ 6046893f-2f7a-40cc-8844-22c62f2e2660
-#=╠═╡
-show_or_lookup_plot(blackjackruncount, (2. .^ (-3:-1), 2. .^ (-3:-1)), (max_episodes = 1_000_000, λlist = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0]), blackjack_optimize_λ_plots, blackjack_optimize_λ, "blackjack optimize λ plot")
-  ╠═╡ =#
-
-# ╔═╡ 1227cfdb-19ea-4df8-80ae-724ef403d5c9
-md"""
-## Tic Tac Toe Board Visualization
-"""
-
-# ╔═╡ 544ee0c2-6ebd-4878-b5fd-799f489e9171
-md"""
-### Style and JavaScript
-"""
-
-# ╔═╡ fac4c6d1-44b2-408b-bea5-1f11baae2e82
-const base_cell_style = HTML("""
-		<style>
-		.grid-container {
-			margin: 10px;
-			display: grid;
-			justify-content: center;
-			align-content: center;
-			grid-template-columns: repeat(3, auto);
-			background-color: rgb(31, 31, 31);
-		}
-
-		.grid-container .gridcell.x::before,
-		.grid-container .gridcell.x::after,
-		.grid-container.x .gridcell:hover:not(.x):not(.o)::before,
-		.grid-container.x .gridcell:hover:not(.x):not(.o)::after {
-			content: '';
-			position: absolute;
-			background-color: black;
-			width: 10%;
-			height: 90%;
-		}
-
-		.grid-container .gridcell.x::before,
-		.grid-container.x .gridcell:hover::before {
-			transform: rotate(45deg);
-		}
-
-		.grid-container .gridcell.x::after,
-		.grid-container.x .gridcell:hover::after {
-			transform: rotate(-45deg);
-		}
-
-		.grid-container .gridcell.o::before, 
-		.grid-container.o .gridcell:hover:not(.x):not(.o)::before
-		{
-			content: '';
-			background-color: rgba(1, 1, 1, 0);
-			border: 10px solid black;
-			border-radius:50%;
-			width: 65%;
-			height: 65%;
-		}
-
-		.grid-container.x .gridcell:hover:not(.x):not(.o)::before,
-		.grid-container.x .gridcell:hover:not(.x):not(.o)::after {
-			background-color: gray;
-		}
-
-		.grid-container.o .gridcell:hover:not(.x):not(.o)::before {
-			border-color: gray;
-		}
-		
-		.gridcell {
-			border: 1px solid black;
-			display: flex;
-			justify-content: center;
-			align-items: center;
-			position: relative;
-			cursor: pointer;
-			width: vw/10;
-			height: vw/10;
-		}
-
-		.gridcell.x, .gridcell.o {
-			cursor: not-allowed;
-		}
-
-		.gridcell:first-child,
-		.gridcell:nth-child(2),
-		.gridcell:nth-child(3) {
-			border-top: none;
-		}
-
-		.gridcell:nth-child(3),
-		.gridcell:nth-child(6),
-		.gridcell:nth-child(9) {
-			border-right: none;
-		}
-
-		.gridcell:nth-child(7),
-		.gridcell:nth-child(8),
-		.gridcell:nth-child(9) {
-			border-bottom: none;
-		}
-
-		.gridcell:nth-child(1),
-		.gridcell:nth-child(4),
-		.gridcell:nth-child(7) {
-			border-left: none;
-		}
-	</style>
-""")
-
-# ╔═╡ 26e388a2-b715-428b-96e2-64bd49b936de
-function make_board_script(name) 
-	"""
-<script>
-	const resetButton = document.querySelector(".$name .resetButton");
-	console.log("got button")
-	console.log(resetButton)
-	resetButton.addEventListener("click", resetClick);
-	resetButton.onclick = console.log("clicked");
-	
-	const X_CLASS = 'x'
-	const CIRCLE_CLASS = 'o'
-	const span = currentScript.parentElement
-	const board = document.querySelector('.grid-container.$name')
-	const cells = [...board.children];
-	
-	let circleTurn 
-
-	span.value = [$(zeros(Int64, 9)), '$name']
-	span.dispatchEvent(new CustomEvent('input'))
-
-	cells.forEach ((child) => {
-		child.addEventListener('click', handleClick, {once: true});    
-	})
-
-	function resetClick(e) {
-		console.log('button pushed')
-		restart()
-	}
-
-	function restart() {
-		circleTurn = false
-		cells.forEach((cell) => {
-			var index = cells.indexOf(cell);
-			cell.classList.remove(X_CLASS);
-			cell.classList.remove(CIRCLE_CLASS);
-			cell.removeEventListener('click', handleClick);
-			cell.addEventListener('click', handleClick, {once: true});
-			span.value[0][index] = 0;
-		})
-		setBoardHoverClass()
-		span.dispatchEvent(new CustomEvent('input'))
-	}
-
-	function handleClick(e) {
-		const cell = e.target;
-		const index = cells.indexOf(cell);
-		console.log('cell ', index, ' clicked');
-		const currentClass = circleTurn ? CIRCLE_CLASS : X_CLASS;
-		const fillValue = circleTurn ? 2 : 1;
-		placeMark(cell, currentClass);
-		swapTurns();
-		setBoardHoverClass();
-		span.value[0][index] = fillValue;
-		span.dispatchEvent(new CustomEvent('input'));
-	}
-
-	function placeMark(cell, currentClass) {
-		cell.classList.add(currentClass)
-	}
-
-	function setBoardHoverClass() {
-		board.classList.remove(X_CLASS)
-		board.classList.remove(CIRCLE_CLASS)
-		if (circleTurn) {
-			board.classList.add(CIRCLE_CLASS)
-		} else {
-			board.classList.add(X_CLASS)
-		}
-				
-	}
-
-	function swapTurns() {
-		circleTurn = !circleTurn
-	}
-	
-</script>
-"""
-end
-
-# ╔═╡ b45b9df1-c1ae-440f-829b-312178d55b94
-md"""
-### Board Display and Control
-"""
-
-# ╔═╡ 7558d7f1-d8a0-4e7c-b411-8801021f2a25
-md"""
-### Restyling Utilities
-"""
-
-# ╔═╡ c7b74124-c448-466f-905c-d78e44370590
-const no_color = "rgba(0, 0, 0, 0)"
-
-# ╔═╡ 3db231d5-dc5f-434a-ac83-d3fb5cd125ee
-joinelements(a, b) =  """$a \n $b"""
-
-# ╔═╡ 20e27028-cdd7-433f-ace3-a053b14e22f7
-make_elems(f, iter) = mapreduce(f, joinelements, iter)
-
-# ╔═╡ 49608c2c-b66f-4dbf-a99f-d589e0143f8a
-function colorcell(name, i, c)
-	"""
-	.grid-container.$name .gridcell:nth-child($i) {
-		background-color: $c;
-	}
-	"""
-end
-
-# ╔═╡ 284df137-a066-4fd1-a7ac-32b319f65e75
-function colorboard(name::AbstractString, colors::AbstractVector{T}) where T <: AbstractString
-	HTML("""
-	<style>
-	$(make_elems(i -> colorcell(name, i, colors[i]), 1:9))
-	</style>
-	""")
-end
-
-# ╔═╡ 2baab643-1b70-442b-96e8-1eb0ee0090ad
-#option to just make every cell the same color
-colorboard(name, color) = colorboard(name, fill(color, 9))
-
-# ╔═╡ a8520c73-60f6-4d9f-9949-9f75e7345c58
-#display boards in rows that wrap to the next line
-function displayboards(boards)
-	HTML("""
-	<span class=multiboard>
-	$(reduce(joinelements, boards))
-	</span>
-	<style>
-		.multiboard {
-			display: flex;
-			flex-wrap: wrap;
-		}
-	</style>
-""")
-end
-
-# ╔═╡ 905c92e5-9130-4353-8bc1-69d80b8f7735
-function resize_board(name, cellsize)
-	HTML("""
-	<style>
-	.grid-container.$name .gridcell {
-			width: $(cellsize)px;
-			height: $(cellsize)px;
-		}
-	.grid-container.$name .gridcell.o::before, 
-	.grid-container.$name.o .gridcell:hover:not(.x):not(.o)::before
-	{
-		border: $(cellsize/10)px solid black;
-	}
-	.grid-container.$name.o .gridcell:hover:not(.x):not(.o)::before {
-			border-color: gray;
-		}
-	.$name .resetButton {
-		font-size: $(min(20, cellsize/3))px;
-	}
-	.$name .board-value {
-		font-size: $(min(20, cellsize/4))px;
-	}
-	</style>
-""")
-end
-
-# ╔═╡ 081139f2-a2be-4a84-bb73-cb3a8c3f7974
-resize_boards(boardnames::Union{AbstractVector{T}, Base.Generator}, size) where T <: AbstractString = HTML(reduce(joinelements, (resize_board(b, size).content for b in boardnames)))
-
-# ╔═╡ 45c3e544-6cc9-4694-b0ff-c7d876fac5de
-function annotate_value(name, str)
-	"""
-	<style>
-	.$name .board-value::after {
-		content: '$str';
-		background-color: "rgba(0, 0, 0, 0)";
-		font-weight: normal;
-		color: rgb(180, 180, 180);
-		font-family: Arial;
-		text-shadow: 1px 2px 1px black;
-	}
-	</style>
-"""
-end
-
-# ╔═╡ b3b6b689-e0c0-4b77-bcb8-8e6cb5f738c9
-value_board(name, v::AbstractFloat) = annotate_value(name, "Value Est: $(round(v, sigdigits = 2))")
-
-# ╔═╡ b3846537-df26-4e3d-b336-0990a544c2f9
-value_board(name, v) = annotate_value(name, "Value Est: $v")
-
-# ╔═╡ 9e9c655b-035e-4de7-bb67-7f8c5f8d76a3
-prb_to_color(p::AbstractFloat) = "rgb(40, $(max(40, .9*round(Int64, 255*(p .^(1/2))))), 40)"
-
-# ╔═╡ 55267cb3-1089-4146-9325-b8eb0ad38f4f
-makecolors(prbs::AbstractVector{T}) where T <: AbstractFloat = prb_to_color.(prbs)
-
-# ╔═╡ 6b72f9a0-41ab-4245-a6a2-83b9d19154d1
-colorboard(name::AbstractString, prbs::AbstractVector{T}) where T <: AbstractFloat = colorboard(name, makecolors(prbs)) 
-
-# ╔═╡ abe86494-c43c-4999-9d0e-4d11f6e6292d
-#color a TTT board with action probabilities based on a policy function
-function style_value_policy(get_value_policy, board, boardname)
-	(prbs, v) = try get_value_policy(board) catch; (zeros(9), "Invalid State") end
-	c = colorboard(boardname, prbs).content
-	htmlstr = if isa(v, Real)
-		joinelements(c, value_board(boardname, round(v, sigdigits = 2)))
-	else
-		joinelements(c, value_board(boardname, v))
-	end
-	HTML(htmlstr)
-end
-
-# ╔═╡ d3abee1c-21ec-4e24-be88-996324991d2e
-randomclassname(n = 20) = string(rand('a':'z'), String(rand(['a':'z'; '0':'9'; '_'; '-'], 20)))
-
-# ╔═╡ 957d0392-d627-4d47-95bf-ef927129279a
-function make_ttt_board_raw(board; colors = ["rgba(0, 0, 0, 0)" for _ in 1:9], cellsize = 100, name = randomclassname(), boardtitle = "", value = nothing)
-	function makehtmlcell(v)
-		str = if v == 1
-			" x"
-		elseif v == 2
-			" o"
-		else
-			""
-		end
-		"""<div class = "gridcell$str"></div>"""
-	end
-	gridstr(board) = is_o_move(board) ? "o" : "x"
-	function makecontainer(board, name)
-		"""
-		<div class = "grid-container $name $(gridstr(board))">
-			$(makecells(board))
-		</div>
-		"""
-	end
-	
-	makecells(board) = make_elems(makehtmlcell, board)
-
-	addvalue(v::AbstractFloat) = value_board(name, v)
-	addvalue(v::AbstractString) = annotate_value(name, v)
-	addvalue(::Nothing) = """"""
-
-	board = """
-	<span class = $name>
-	<div>$boardtitle</div>
-	<div class = "board-value"></div>
-	$(makecontainer(board, name))
-	</span>
-	$(colorboard(name, colors).content)
-	$(resize_board(name, cellsize).content)
-	<style>
-		$name {
-			display: flex;
-			flex-direction: column;
-		}
-	</style>
-	$(addvalue(value))
-	"""
-	(board = board, id = name)
-end
-
-# ╔═╡ 2172b39a-bf36-4e58-b40c-d8af22ab518f
-function makecompboard_display(board, policies::AbstractVector{T}, titles; kwargs...) where T <: ResultsTTT
-	@assert length(policies) == length(titles)
-	policyoutputs = [try policy.eval_board(board) catch; (zeros(9), "Invalid State") end for policy in policies]
-	rawboards = [make_ttt_board_raw(board; boardtitle = title, colors = policyoutputs[i][1], value = policyoutputs[i][2], kwargs...) for (i, title) in enumerate(titles)]
-	displayboards = [a[1] for a in rawboards]
-	boardids = [a[2] for a in rawboards]
-	(htmlboards = displayboards, boardids = boardids)
-end
-
-# ╔═╡ 4cd527c7-6e6e-47bf-971e-6256801005e8
-function displayexamplegame(xplayer::PolicyResultsTTT, oselect::Function; cellsize = 50)
-	game = run_ttt_game(b -> select_action(xplayer.eval_board(b)[1]), oselect)
-	gameboards = [(board, make_ttt_board_raw(board, cellsize = cellsize)) for board in game[1]]
-	style = mapreduce(joinelements, gameboards[1:end-1]) do board
-		if !is_o_move(board[1])
-			style_value_policy(xplayer.eval_board, board[1], board[2][2]).content
-		else
-			""""""
-		end
-	end
-	base = joinelements(displayboards(a[2][1] for a in gameboards).content, style)
-	outcomestr = game[2].status.x_win ? "X Wins" : game[2].status.o_win ? "O Wins" : "Draw"
-	joinelements(base, annotate_value(gameboards[end][2][2], outcomestr)) |> HTML
-end
-
-# ╔═╡ 2b8a3cf6-0eef-4fd8-9704-dcfd1bd858f9
-function displayexamplegame(xselect::Function, oplayer::PolicyResultsTTT; cellsize = 50)
-	game = run_ttt_game(xselect, b -> select_action(oplayer.eval_board(b)[1]))
-	gameboards = [(board, make_ttt_board_raw(board, cellsize = cellsize)) for board in game[1]]
-	style = mapreduce(joinelements, gameboards[1:end-1]) do board
-		if is_o_move(board[1])
-			style_value_policy(oplayer.eval_board, board[1], board[2][2]).content
-		else
-			""""""
-		end
-	end
-	base = joinelements(displayboards(a[2][1] for a in gameboards[2:end]).content, style)
-	outcomestr = game[2].status.x_win ? "X Wins" : game[2].status.o_win ? "O Wins" : "Draw"
-	joinelements(base, annotate_value(gameboards[end][2][2], outcomestr)) |> HTML
-end
-
-# ╔═╡ a70e9d2d-f964-4825-a66e-006d489c0538
-function displayexamplegame(xplayer::PolicyResultsTTT, oplayer::PolicyResultsTTT; cellsize = 50)
-	game = run_ttt_game(b -> select_action(xplayer.eval_board(b)[1]), b -> select_action(oplayer.eval_board(b)[1]))
-	gameboards = [(board, make_ttt_board_raw(board, cellsize = cellsize)) for board in game[1]]
-	style = mapreduce(joinelements, gameboards[1:end-1]) do board
-	result = if is_o_move(board[1])
-		oplayer
-	else
-		xplayer
-	end
-	style_value_policy(result.eval_board, board[1], board[2][2]).content
-	end
-	base = joinelements(displayboards(a[2][1] for a in gameboards).content, style)
-	outcomestr = game[2].status.x_win ? "X Wins" : game[2].status.o_win ? "O Wins" : "Draw"
-	joinelements(base, annotate_value(gameboards[end][2][2], outcomestr)) |> HTML
-end
-
-# ╔═╡ 2ec09938-55c8-4259-adb7-0d35ef6a6b42
-#create interactive board that works with @bind
-function TTTBoard(;cellsize = 100, alignment = "flex-start")
-	(board, id) = make_ttt_board_raw(zeros(9); cellsize = cellsize) #make empty board
-	js = make_board_script(id)
-	HTML(
-		"""
-		<span class = $id>
-			<button class="resetButton">Reset Board</button>
-			$board
-			$js
-		</span>
-		<style>
-			.$id {
-				display: flex;
-				flex-direction: column;
-				align-items: $alignment;
-			}
-		</style>
-		"""
-	)
-end
-
-# ╔═╡ 46ce0c68-19c4-4c84-bddf-5a19542aa26b
-@bind testboard TTTBoard()
-
-# ╔═╡ ae46c33d-0119-4d3c-8a6d-bf8c58835445
-get_board_status(testboard[1]), get_reward(testboard[1]), isvalid(testboard[1])
-
-# ╔═╡ 6c9a1063-29d7-45ab-84d0-475d806ccec7
-@bind xplayboard TTTBoard()
-
-# ╔═╡ a9efdd1c-fb11-45f4-9ef1-da5a7298b504
-@bind oplayboard TTTBoard()
-
-# ╔═╡ f2e33f78-d61c-4337-9430-f75ab01e2d36
-@bind xplayboard2 TTTBoard()
-
-# ╔═╡ 21a726ef-48f3-4e69-870c-549add227181
-@bind compboard1 TTTBoard(cellsize = 70)
-
-# ╔═╡ 2224d20f-c8dc-4ef6-af81-d1f832bee5ea
-@bind selfplayboard TTTBoard()
-
-# ╔═╡ f27dbf3c-df30-453c-8764-879df3b93694
-md"""
-#### Visualize Learned X-Player Policy Against Random  
-
-Higher probability moves appear more green.  Click on board to change state by adding moves.  The value estimate will be 1.0 for an expected win, -0.5 for a draw, and -1.0 for a loss.
-
-$(@bind base_board1 TTTBoard())
-"""
-
-# ╔═╡ 3efbbb22-1e34-4924-8a16-7289210437af
-@bind o_vs_random_value_board TTTBoard()
-
-# ╔═╡ 3f305df4-8419-42a0-b4c8-3990248aa0ce
-@bind o_vs_x1_value_board TTTBoard()
-
-# ╔═╡ dd17568a-4529-4fed-a84a-19b7207719e6
-@bind x_vs_o_value_board TTTBoard()
-
-# ╔═╡ 632fe679-d8e3-4555-9664-e655363b960a
-@bind o_vs_x2_value_board TTTBoard()
-
-# ╔═╡ 03aabd5b-ada4-4a3a-96f1-e9cfc76e37a9
-@bind x_vs_o2_value_board TTTBoard()
-
-# ╔═╡ 3b466d93-fb32-4081-87db-e69d8e580af4
-@bind selfplay_value_board TTTBoard()
-
-# ╔═╡ 15db7b51-0e5a-4356-9eff-8807b0666132
-@bind policycompboard TTTBoard(cellsize = 80)
-
 # ╔═╡ 0ab70fc3-6188-42eb-aba2-d808f319be9f
 md"""
 # Dependencies
 """
 
 # ╔═╡ 16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb
+# ╠═╡ skip_as_script = true
+#=╠═╡
 import HypertextLiteral.@htl
+  ╠═╡ =#
 
 # ╔═╡ 16fcc2d0-9f2f-4226-9dcc-6d86248cab26
 #=╠═╡
@@ -5652,11 +3562,17 @@ plot_cart(ep2[1][ep2_step], ep2[2][ep2_step])
 
 # ╔═╡ 4f96be72-ef3e-4e08-ac4c-be4271dcd14c
 #=╠═╡
-function plot_cartpole_policy(policy_and_value::Function; θ̇_range = 1, npoints = 100, x = 0f0, ẋ = 0f0)
+function plot_cartpole_policy(policy_and_value::Function; θ̇_range = 1, npoints = 100, s_ref::CartPoleState = CartPoleState())
 	θs = LinRange(-1.2f0, 1.2f0, npoints)
 	θ̇s = LinRange(-10f0, 10f0, npoints)
 	value_output = zeros(Float32, npoints, npoints)
 	policy_outputs = [zeros(Float32, npoints, npoints) for _ in 1:3]
+	x = s_ref.x
+	ẋ = s_ref.ẋ
+
+	policy_output = policy_and_value(s_ref)
+
+	policy_plot = plot(bar(y = policy_output.action_probabilities))
 
 	for i in 1:npoints
 		for j in 1:npoints
@@ -5669,15 +3585,17 @@ function plot_cartpole_policy(policy_and_value::Function; θ̇_range = 1, npoint
 		end
 	end
 
-	value_plot = plot(heatmap(x = θs, y = θ̇s, z = value_output))
-	policy_plots = [plot(heatmap(x = θs, y = θ̇s, z = policy_outputs[i_a]), Layout(title = "Action $i_a", xaxis_title = "Pole Angle in Radians", yaxis_title = "Pole Angular Velocity", height = 350)) for i_a in 1:3]
+	reference_trace = scatter(x = [s_ref.θ], y = [s_ref.θ̇], name = "reference state", marker_color = "black", marker_symbol = "x")
+
+	value_plot = plot([heatmap(x = θs, y = θ̇s, z = value_output, name = "value function"), reference_trace], Layout(xaxis_title = "Pole Angle in Radians", yaxis_title = "Pole Angular Velocity", title = "Value Estimate for x = $x and ẋ = $ẋ"))
+	policy_plots = [plot([heatmap(x = θs, y = θ̇s, z = policy_outputs[i_a]), reference_trace], Layout(title = "Action $i_a", xaxis_title = "Pole Angle in Radians", yaxis_title = "Pole Angular Velocity", height = 350)) for i_a in 1:3]
 
 	@htl("""
 	$value_plot
 	<div style = "display: flex;">
 	$policy_plots
 	</div>
-	
+	$policy_plot
 	""")
 	
 	# value_traces = [begin
@@ -5690,36 +3608,75 @@ function plot_cartpole_policy(policy_and_value::Function; θ̇_range = 1, npoint
 end
   ╠═╡ =#
 
-# ╔═╡ d4e87ac4-6008-43b2-aa06-e232ec2b2b5b
+# ╔═╡ af144759-fe66-4ad0-b378-e9eb4e859db4
 #=╠═╡
-plot_cartpole_policy(reinforce_test5.policy_and_value; x = Float32(x), ẋ = Float32(ẋ))
+plot_cartpole_policy(reinforce_test4.policy_and_value; s_ref = ep[1][ep_step])
   ╠═╡ =#
 
-# ╔═╡ 92b62688-2cff-4286-958f-9f4e32de52ee
+# ╔═╡ d4e87ac4-6008-43b2-aa06-e232ec2b2b5b
 #=╠═╡
-function makeboardselector() 
-	PlutoUI.combine() do Child
-		makechild() = @htl("""<div>$(Child(Select([0x00 => "", 0x01 => "X", 0x02 => "O", ])))</div>""")
-		makechildren() = mapreduce(a -> makechild(), (a, b) -> @htl("""$a \n $b"""), 1:9)
-		children = makechildren()
-		@htl("""
-		<div class = "button-grid">
-			$(children)
-		</div>
-		<style>
-			.button-grid {
-				display: grid;
-				grid-template-columns: repeat(3, auto);
-				width: 100px;
-				height: 100px;
-			}
-		</style>
-		""")
+plot_cartpole_policy(reinforce_test5.policy_and_value; s_ref = CartPoleState(Float32(x), 0f0, Float32(ẋ), 0f0))
+  ╠═╡ =#
+
+# ╔═╡ f9facbba-39d4-483e-9066-275603156db0
+#=╠═╡
+function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
+	xvals = LinRange(-1.2f0, 0.5f0, n1)
+	vvals = LinRange(-0.07f0, 0.07f0, n2)
+	values = zeros(Float32, n1, n2)
+	actions = zeros(Float32, n1, n2)
+	for (i, x) in enumerate(xvals)
+		for (j, v) in enumerate(vvals)
+			v̂ = v̂_mountain_car((x, v))
+			values[j, i] = v̂
+			actions[j, i] = π((x, v))
+		end
 	end
+	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Learned Value Function", height = 400))
+	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)", height = 400))
+	@htl("""
+	<div style = "display:flex;">
+	$p1 
+	$p2
+	</div>
+	""")
 end
   ╠═╡ =#
 
+# ╔═╡ dc2efc6c-8da8-425b-aa5f-290949109565
+#=╠═╡
+plot_mountaincar_values(mountaincar_test_train.estimate_state_value, mountaincar_test_train.policy_sample_action)
+  ╠═╡ =#
+
+# ╔═╡ ba645f6b-143f-4e83-9003-707770ae308d
+#=╠═╡
+function show_mountaincar_trajectory(π::Function, max_steps::Integer)
+	states, actions, rewards, sterm, nsteps = runepisode(MountainCarTask.mdp; π = π, max_steps = max_steps)
+	positions = [s[1] for s in states]
+	velocities = [s[2] for s in states]
+	tr1 = scatter(x = positions, y = velocities, mode = "markers", showlegend = false)
+	tr2 = scatter(y = positions, showlegend = false)
+	tr3 = scatter(y = [MountainCarTask.actions[i] for i in actions], showlegend = false)
+	p1 = plot(tr1, Layout(xaxis_title = "position", yaxis_title = "velocity", xaxis_range = [-1.2, 0.5], yaxis_range = [-0.07, 0.07], height = 400))
+	p2 = plot(tr2, Layout(xaxis_title = "time", yaxis_title = "position", height = 400))
+	p3 = plot(tr3, Layout(xaxis_title = "time", yaxis_title = "action", height = 400))
+	@htl("""
+	Total Reward: $(sum(rewards))
+	<div style = "display: flex;">
+	$([p1 p2 p3])
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ ddbca73f-c692-46f2-95f3-a7dd849d33f7
+#=╠═╡
+show_mountaincar_trajectory(mountaincar_test_train.policy_sample_action, 10_000)
+  ╠═╡ =#
+
 # ╔═╡ f59a5dcd-9f4a-4336-a391-e64af35ef799
+# ╠═╡ skip_as_script = true
+#=╠═╡
 html"""
 	<style>
 		main {
@@ -5731,13 +3688,13 @@ html"""
 		}
 	</style>
 	"""
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
-HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -5755,7 +3712,6 @@ Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 [compat]
 BenchmarkTools = "~1.3.2"
 Distributions = "~0.25.87"
-HTTP = "~1.9.4"
 HypertextLiteral = "~0.9.4"
 LaTeXStrings = "~1.3.0"
 PlutoDevMacros = "~0.9.0"
@@ -5775,7 +3731,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.4"
 manifest_format = "2.0"
-project_hash = "8d6b2af847155e76742766ce1a37969a1d8366e3"
+project_hash = "c763df6e6f757a1656705e8578f13dc90dbb61b6"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -5869,22 +3825,11 @@ git-tree-sha1 = "d9a9701b899b30332bbcb3e1679c41cce81fb0e8"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.3.2"
 
-[[deps.BitFlags]]
-git-tree-sha1 = "0691e34b3bb8be9307330f88d1a3c3f25466c24d"
-uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
-version = "0.1.9"
-
 [[deps.CodeTracking]]
 deps = ["InteractiveUtils", "UUIDs"]
 git-tree-sha1 = "7eee164f122511d3e4e1ebadb7956939ea7e1c77"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
 version = "1.3.6"
-
-[[deps.CodecZlib]]
-deps = ["TranscodingStreams", "Zlib_jll"]
-git-tree-sha1 = "962834c22b66e32aa10f7611c08c8ca4e20749a9"
-uuid = "944b1d66-785c-5afd-91f1-9de20f533193"
-version = "0.7.8"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
@@ -5937,12 +3882,6 @@ weakdeps = ["InverseFunctions"]
 
     [deps.CompositionsBase.extensions]
     CompositionsBaseInverseFunctionsExt = "InverseFunctions"
-
-[[deps.ConcurrentUtilities]]
-deps = ["Serialization", "Sockets"]
-git-tree-sha1 = "d9d26935a0bcffc87d2613ce14c527c99fc543fd"
-uuid = "f0e56b4a-5159-44fe-b623-3e5288b988bb"
-version = "2.5.0"
 
 [[deps.ConstructionBase]]
 git-tree-sha1 = "76219f1ed5771adbb096743bff43fb5fdd4c1157"
@@ -6023,21 +3962,17 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
-[[deps.ExceptionUnwrapping]]
-deps = ["Test"]
-git-tree-sha1 = "d36f682e590a83d63d1c7dbd287573764682d12a"
-uuid = "460bff9d-24e4-43bc-9d9f-a8973cb893f4"
-version = "0.1.11"
-
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
 git-tree-sha1 = "2dd20384bf8c6d411b5c7370865b1e9b26cb2ea3"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 version = "1.16.6"
-weakdeps = ["HTTP"]
 
     [deps.FileIO.extensions]
     HTTPExt = "HTTP"
+
+    [deps.FileIO.weakdeps]
+    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
@@ -6071,12 +4006,6 @@ version = "0.2.10"
 deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 version = "1.11.0"
-
-[[deps.HTTP]]
-deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "ExceptionUnwrapping", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
-git-tree-sha1 = "cdd17fe57efb16bb05499712860500b60ecb6775"
-uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-version = "1.9.19"
 
 [[deps.HypergeometricFunctions]]
 deps = ["LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
@@ -6220,12 +4149,6 @@ version = "0.3.29"
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
 
-[[deps.LoggingExtras]]
-deps = ["Dates", "Logging"]
-git-tree-sha1 = "f02b56007b064fbfddb4c9cd60161b6dd0f40df3"
-uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
-version = "1.1.0"
-
 [[deps.MIMEs]]
 git-tree-sha1 = "1833212fd6f580c20d4291da9c1b4e8a655b128e"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
@@ -6240,12 +4163,6 @@ version = "0.5.15"
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 version = "1.11.0"
-
-[[deps.MbedTLS]]
-deps = ["Dates", "MbedTLS_jll", "MozillaCACerts_jll", "NetworkOptions", "Random", "Sockets"]
-git-tree-sha1 = "c067a280ddc25f196b5e7df3877c6b226d390aaf"
-uuid = "739be429-bea8-5141-9913-cc70e7f3736d"
-version = "1.1.9"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -6285,18 +4202,6 @@ version = "0.3.27+1"
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
 version = "0.8.1+4"
-
-[[deps.OpenSSL]]
-deps = ["BitFlags", "Dates", "MozillaCACerts_jll", "OpenSSL_jll", "Sockets"]
-git-tree-sha1 = "38cb508d080d21dc1128f7fb04f20387ed4c0af4"
-uuid = "4d8831e6-92b7-49fb-bdf8-b643e874388c"
-version = "1.4.3"
-
-[[deps.OpenSSL_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "a9697f1d06cc3eb3fb3ad49cc67f2cfabaac31ea"
-uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.0.16+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
@@ -6487,11 +4392,6 @@ git-tree-sha1 = "e2cc6d8c88613c05e1defb55170bf5ff211fbeac"
 uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
 version = "1.1.1"
 
-[[deps.SimpleBufferStream]]
-git-tree-sha1 = "f305871d2f381d21527c770d4788c06c097c9bc1"
-uuid = "777ac1f9-54b0-4bf8-805c-2214025038e7"
-version = "1.2.0"
-
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 version = "1.11.0"
@@ -6617,11 +4517,6 @@ version = "0.1.1"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 version = "1.11.0"
-
-[[deps.TranscodingStreams]]
-git-tree-sha1 = "0c45878dcfdcfa8480052b6ab162cdd138781742"
-uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
-version = "0.11.3"
 
 [[deps.Transducers]]
 deps = ["Accessors", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "ConstructionBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "SplittablesBase", "Tables"]
@@ -6837,7 +4732,7 @@ version = "17.4.0+2"
 # ╠═11ea640c-3981-404d-87c6-4d3d0708a2b8
 # ╠═f8614042-7c94-4d47-a1b6-4e96676b4e8b
 # ╠═bc8a399b-8864-4473-89d2-e3b0a03d15b5
-# ╠═a9ba88b6-b995-4d84-92e8-23a1d518e4ff
+# ╠═a8b40b8f-051a-4e6f-a079-ece4f32873de
 # ╟─36d514fa-b27a-4c6b-8399-9d108377b9b5
 # ╠═c52c4cec-0ea8-4af3-831a-d284f0e086ee
 # ╟─d8222abf-139c-4220-8e92-cc987ec6900c
@@ -6853,9 +4748,13 @@ version = "17.4.0+2"
 # ╠═f0104778-81a6-417b-8501-f916e5e7f3af
 # ╠═1ac9296f-047b-4051-ba5c-0c23d5f9cde9
 # ╠═8b35661b-5075-4d63-bc31-044407f99acf
-# ╠═adcad429-cbae-4e68-9764-b0d19bf34f6b
-# ╟─7d94922e-dc9f-4953-b539-24aaa2c85b12
-# ╟─42775fd1-5b27-48e0-abf1-9b22bb775e6d
+# ╠═734573e5-547b-4dcc-89bb-412aa6cc42d6
+# ╠═128a551e-89ab-4441-a8c8-8ee331f36964
+# ╠═8bc280db-e57d-4e40-be46-1790f4f7d9e7
+# ╠═7afb6fb0-248a-4518-b94f-9876f81eca64
+# ╠═5b15d91e-7119-4f85-a54a-7d4f1fdaf097
+# ╠═7d94922e-dc9f-4953-b539-24aaa2c85b12
+# ╠═42775fd1-5b27-48e0-abf1-9b22bb775e6d
 # ╟─da8d0bca-105b-4d0b-a73d-ee5c9059aeaf
 # ╟─735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 # ╟─79c85707-ea09-4f6b-ad51-a2683c3923c0
@@ -6904,16 +4803,18 @@ version = "17.4.0+2"
 # ╠═76d54520-baa3-44bf-b303-4cdcb8b87080
 # ╠═9acdbf38-2e10-45ec-85a0-d0db8453a599
 # ╠═61650a97-b353-4a85-b50b-93fee296ac7b
+# ╠═192b9f82-8d3a-408f-91c2-829cfcd32572
+# ╠═d34d22ad-89c2-423e-91dd-bfb895dc6540
+# ╠═5eebf3da-bfe7-46eb-81a3-f87f334ee270
 # ╟─9978d537-49ff-4014-a971-b42704c50a6b
-# ╠═fc069ac5-8709-46a4-90a4-ca0001b16e51
-# ╠═17154a9e-eb26-4025-b74b-2dc4acb75ecd
+# ╠═54ff46a2-489a-4dd2-bc30-df70c780cc42
 # ╠═407a0724-4bb6-4c83-ab2d-17a0e19c4072
 # ╠═27487ad0-4779-42ce-8def-e660ef04bee0
 # ╠═9d264543-33ab-498a-90f5-5f913c252484
 # ╠═07ba9fe4-aaa7-4123-9865-cbfa79d0d44a
 # ╟─a4eec4d3-5a75-4b52-ab9c-9d9e83d5547d
-# ╠═374af774-3a97-49b5-a3bb-bc3f7f63a3fa
-# ╠═fb23260f-6c21-412d-a2fd-a32080888f6c
+# ╟─374af774-3a97-49b5-a3bb-bc3f7f63a3fa
+# ╠═af144759-fe66-4ad0-b378-e9eb4e859db4
 # ╠═e1274f57-75cb-4659-a82f-e5870c5367e2
 # ╠═63fbf8f4-e4e2-4893-be09-67450e92dbd7
 # ╠═5ee4ce72-7740-4297-8d84-619e0708e4ac
@@ -6935,23 +4836,27 @@ version = "17.4.0+2"
 # ╠═700dcbc4-c94c-4287-8cf0-0b2c7a320a3a
 # ╠═4f96be72-ef3e-4e08-ac4c-be4271dcd14c
 # ╟─54f1546d-87ae-49d2-92ed-6fcc9b66e027
-# ╠═7e6a51ac-4ef4-437c-8d48-751d32c19b59
+# ╟─c5dd7e99-57e0-4bc7-97d2-2c780b23bcff
+# ╠═2025ff38-f2ec-4224-b771-ff72ffe1af28
+# ╠═77906355-08f8-4b08-b051-84697199b519
+# ╠═023f67b8-8f38-470a-9766-ac60a75678aa
+# ╠═7c592385-e8d3-4efe-962c-d39debb64405
+# ╠═d9d11d69-bc16-400a-8f46-f9a8ecb8516a
+# ╟─4c5cb75e-79b5-4502-b1eb-6246e002feaf
+# ╠═8eb42403-1234-4e59-993e-057cc3a6d5c9
+# ╠═6d0925d3-af96-4b94-8e2e-4941cce39e51
+# ╠═dc2efc6c-8da8-425b-aa5f-290949109565
+# ╠═ddbca73f-c692-46f2-95f3-a7dd849d33f7
+# ╟─786a5385-b648-4fc3-8e19-bf6582828136
+# ╠═b86ee9d3-b6b5-4ea0-8f55-1927571cdfbf
+# ╠═d560b2a0-c571-4ad7-b1c9-83ec03fc8cc2
+# ╠═a7891c63-18d6-4c1f-ba67-adf7c547d334
+# ╠═7126aefd-b847-497a-9545-514e9b9afa71
+# ╠═1894ae1a-bb68-4de0-a4d2-ac5d02c49f09
+# ╠═f9facbba-39d4-483e-9066-275603156db0
+# ╠═ba645f6b-143f-4e83-9003-707770ae308d
 # ╟─4c34640f-efa2-4e1d-8a70-0acd2ce45428
-# ╟─273e7735-91a6-45cd-81ad-49d0da665143
-# ╠═8a4e2b43-15fe-49c4-a487-497875246f82
-# ╠═ac43b613-5c74-45bd-a49e-5b30bb19f52d
-# ╠═25dc6e02-dc77-4e7b-8639-ee39fee5d87e
-# ╠═1683b216-d310-4c66-81ba-0329898d90dd
-# ╠═d538939d-df32-4766-b3c7-f9fc5af564df
-# ╠═461e27bb-c38b-4dc6-aa68-d5d76ff79cbf
-# ╠═ee23064b-499a-4061-bfed-242ccbcbf25e
-# ╠═3825159e-a5db-45c8-b2bc-193b4494b53d
-# ╠═ed2785a8-0fed-4052-8371-0e34982e8800
-# ╠═f5745c5a-8dd9-4827-a222-df4036498a0e
-# ╠═a81d2380-b853-432e-9592-d5461daad7b2
-# ╠═fc68dd3e-e42d-4642-a5ba-bac9ba1b432d
-# ╠═a7316ca6-28ae-4ee0-b0be-e8d451beb17f
-# ╟─5ce1af6b-847c-47f0-a6ca-867c35948caa
+# ╠═5ce1af6b-847c-47f0-a6ca-867c35948caa
 # ╠═ff60f48e-2055-4bb6-8cf4-fac1da45200b
 # ╠═a79ed238-a6d3-40e6-9bf3-351b7494b446
 # ╠═76af787d-7a3d-4c65-ab6a-898fba148705
@@ -6961,12 +4866,11 @@ version = "17.4.0+2"
 # ╠═9040a58b-afd7-49cd-a253-054a5b26c603
 # ╠═e5a0a3fc-2eb3-4f31-8ab6-4a3130c70932
 # ╠═85fc29c9-e5ca-4bc8-b607-51d75906a1f2
-# ╟─6e2e9c99-8664-40f2-a1df-bd182db9859e
-# ╟─617dba19-2819-4317-a652-e39235030aa9
+# ╠═6e2e9c99-8664-40f2-a1df-bd182db9859e
+# ╠═617dba19-2819-4317-a652-e39235030aa9
 # ╠═b50282ed-e599-4687-bfbc-0ac9c4f30c84
-# ╟─aeffb168-06d2-484e-beea-b507f329e4b8
-# ╟─8e10be80-6902-46df-ab72-1a999dd44d2e
-# ╟─80e40d2b-a67b-46eb-86fd-294c0a87a80f
+# ╠═aeffb168-06d2-484e-beea-b507f329e4b8
+# ╠═8e10be80-6902-46df-ab72-1a999dd44d2e
 # ╠═8edb3337-0902-45fa-a5b0-c7cc3d40f97f
 # ╠═37dc5518-d378-41fd-b0ef-bc5e3b1b3687
 # ╠═0ac08421-20d2-4e56-bce8-1bc47b36fe2e
@@ -6984,123 +4888,30 @@ version = "17.4.0+2"
 # ╠═519e6da0-efbf-4b0a-a61c-5849ba403389
 # ╠═4c4ba58e-e3b7-4d02-81ae-b8d753487caa
 # ╠═06d508ea-640d-4e55-b3b6-05c929f82c3b
-# ╟─0c3714fd-821a-4dae-8d1e-1db35ebef315
-# ╟─6046893f-2f7a-40cc-8844-22c62f2e2660
+# ╠═0c3714fd-821a-4dae-8d1e-1db35ebef315
+# ╠═6046893f-2f7a-40cc-8844-22c62f2e2660
 # ╠═8cb58177-cc29-4bf0-af2f-704bebb9871f
 # ╠═7550213b-8174-4623-9abc-9dcbdc0351a8
 # ╠═0b6fb5bf-c21e-4727-aafb-65fc3f7b76fb
-# ╟─2b964c13-c961-4ed9-8b66-a6715ff7d0ef
-# ╟─078a1739-911c-4673-821b-488a878bab37
-# ╠═205fcf67-e79c-4f20-bb8b-ddb6b980ed9d
-# ╠═5f917c40-c1b2-4dd8-ac81-8e955d6af7af
-# ╠═7f4b6d93-53dd-466e-8401-24c1a59c32d9
-# ╠═eadea57c-b3b6-44c0-bf5d-ed57fec3ff7c
-# ╠═15ac8e2e-9ec6-4723-a0ba-0bd29a37f64e
-# ╠═9fe44113-8232-4579-85b3-65725d30fd46
-# ╠═a0ddc362-cfeb-4585-86bd-0ad003e3d61d
-# ╠═cfdc3298-118e-4b87-b0c0-f46afe573a12
-# ╠═bd53c7c0-e77a-46a5-be88-0fd97e80c02c
-# ╠═2deb0cf0-d83d-4a51-b76b-093c53f09c77
-# ╠═62eb2abe-e418-4826-9c99-7d3b1df500eb
-# ╠═727ea9ce-a670-4e8c-b2f2-8a19477d9a33
-# ╠═9b8187b5-aba6-404c-b232-faf4ed200c89
-# ╠═57f7fddd-01cb-489f-98cf-f1ce07977eb1
-# ╠═83988884-e42e-44aa-9ead-0b81258160cb
-# ╠═76e7a54d-8db6-43be-a994-e8469fce6760
-# ╠═f53f464b-f9f6-4f34-b35f-e7e8cabc3600
-# ╠═ef4b5d88-cae0-466b-baac-90c3cf8f65df
-# ╠═ec5bb245-051a-4c80-aa98-76b618ec65c6
-# ╠═a12c0d95-8e64-4a82-9c31-62604a1a03ce
-# ╠═d7850e01-34ff-48aa-b366-ee33584372a7
-# ╠═58668067-0efe-4f23-94f4-d010016f568d
-# ╠═d4f866a4-7e40-4e60-8382-cd78b2fe0a86
-# ╠═475099d3-d3a4-4757-865d-1e1b4e7da10e
-# ╠═e43b5edb-9a3b-4b88-9ef4-87ca1f267b2a
-# ╠═bbb82a7d-8c54-4cdd-95fe-f6719ecaa5fd
-# ╠═c9ea915e-2bab-4648-8388-658ebf796d78
-# ╠═97d7bfbd-f821-4201-9d68-9d1654d2a86b
-# ╠═6ce26626-1c4c-41ea-b23b-cf6d5bac230b
-# ╠═3b3973d7-e26e-4e0d-b767-a4247304b9a0
-# ╠═52fb1724-3e09-4514-b315-ffc83ba88ebe
-# ╠═2d811d01-d2c4-477d-8a06-fcf94e5ad798
-# ╠═a7be257c-d2d9-4d55-a498-3e4db491e644
-# ╠═2f147876-144d-4c7f-9c5a-affc3476753c
-# ╠═90170d3b-25d9-4fbc-a131-f8def2187435
-# ╟─46ce0c68-19c4-4c84-bddf-5a19542aa26b
-# ╠═ae46c33d-0119-4d3c-8a6d-bf8c58835445
-# ╠═08f28c09-708c-40e0-ba16-71135fb438b4
-# ╠═85a07db1-5135-472e-95e6-9d4e85928350
-# ╠═3e44c2aa-2d59-4dba-ba3c-0db868c6e460
-# ╠═e59efa67-9f52-4493-ba47-84f3ad8a87a2
-# ╠═f9a2136c-7b8d-4427-9fd9-040084dc96fe
-# ╠═762bed69-bdd8-443b-9526-bf10442eef65
-# ╠═ffb0962d-bf78-40ea-aa56-7eb198ef5234
-# ╠═5481a261-45b3-4afd-9c28-03c11f884e69
-# ╠═9ea87c25-9acb-4ae9-8f39-6c684dbc6b19
-# ╠═b89107cf-45e7-44da-9b73-40b5c995eb8e
-# ╠═6e556453-694d-48f7-8c8c-adc04f2d80df
-# ╠═a8137758-4ff3-42d2-a163-8e1daffdc869
-# ╠═52f0411c-ac13-41c0-bb7b-8fc755849a35
-# ╠═5bdcfe04-f343-414a-87cf-a2a7170cf9c4
-# ╠═70e2766d-bc8f-42e6-89fd-7036a0020177
-# ╠═ea0e22de-a9c1-4a02-8a01-97990348d571
-# ╠═2d7651cb-0226-44c4-ac3c-5de1b98c513a
-# ╠═d856f23f-72ef-44e5-aaf6-0213997f783f
-# ╠═a8f7db69-4a50-4e0d-9be6-cf4eef5233c6
-# ╠═4d67501b-1f27-40e3-8d76-f406c0de9e1c
-# ╠═a3e91897-ebc0-4b1f-bec2-c99338c92fb0
-# ╠═7c5234d2-7a19-46cd-81cd-daeb15327594
-# ╠═875d894d-055d-4f48-91e5-19871f4ee370
-# ╠═23f8b2d3-7f76-4dd5-a301-95afe719ec30
-# ╠═c8885191-44a7-448c-a546-d5fb50254616
-# ╠═f29d1813-fa74-46ce-b3ac-3a06a5cd104e
-# ╟─3f927561-7b13-4f19-946a-67c310c60255
-# ╠═04d93927-6206-4d32-91fb-81b73568f1f7
-# ╠═2da0cccb-5e1a-43a7-b485-8b62a8d70d10
-# ╠═626940b4-eeb9-4ee6-9f27-b6446f014572
-# ╠═11d113f1-c1f0-4a58-a3b2-44c70b21cdac
-# ╠═959e4a18-fe6e-4c9c-b9bf-f752108fd2dd
 # ╠═b6f3d5b6-74b7-4211-b236-203881a97c38
-# ╟─8731821b-d82a-4697-be21-522583d7dbab
 # ╠═892df402-df32-4344-9201-0458b90fed26
-# ╠═6c9a1063-29d7-45ab-84d0-475d806ccec7
 # ╠═f2fc13ac-6eff-43a0-bec9-f1d14f89cf91
-# ╠═abe86494-c43c-4999-9d0e-4d11f6e6292d
 # ╠═3728a916-a502-48ec-9c84-5b2e7e4df61c
 # ╠═e6cd6459-6e50-4c5c-b6d3-a55706bbb257
 # ╠═f88a0889-f3d5-4d75-a745-c734e4420802
-# ╠═a9efdd1c-fb11-45f4-9ef1-da5a7298b504
 # ╠═d219a48b-a491-44cc-b746-6c5282537855
 # ╠═4a999b16-1427-4b30-a2be-1919b0ad2caf
 # ╠═aea8317c-fb5f-4817-b927-1c6d48072ea7
 # ╠═73693dd6-f07c-4625-9d84-f356c91f5735
-# ╟─f2e33f78-d61c-4337-9430-f75ab01e2d36
 # ╠═30090262-67a1-430a-b1fc-74fb59432def
-# ╟─9e32d0d4-bdbb-46a7-ad3c-34184cea0b92
-# ╟─21a726ef-48f3-4e69-870c-549add227181
 # ╠═31112289-6978-49a9-a0ec-acba4289b0c8
 # ╠═ec60c197-e940-465d-ae13-20f1fa6f449b
-# ╠═2172b39a-bf36-4e58-b40c-d8af22ab518f
-# ╠═4cd527c7-6e6e-47bf-971e-6256801005e8
-# ╠═2b8a3cf6-0eef-4fd8-9704-dcfd1bd858f9
-# ╠═a70e9d2d-f964-4825-a66e-006d489c0538
 # ╠═b8612417-77da-489c-bf66-fb99a3e0ab25
 # ╠═0f18d16f-bfd3-4fb6-b8cf-34e76fe5ee0a
 # ╠═09768139-1c6c-4c69-99a1-b40f35505302
 # ╠═2dd430db-1bfd-4f39-876b-0983b1c0fada
-# ╠═9e9d1b3a-d8a5-45f2-87b1-20f7edf56793
-# ╠═f271a2a6-1720-4cb1-99e0-9aff3fab171c
-# ╠═75f13e3d-90a5-461e-9f64-479a01465fab
-# ╠═938e33dd-c129-40d0-a72e-b7d1f3f770ff
-# ╠═a278e854-e230-42aa-97a2-0f5b7d1815af
-# ╠═702f39a7-f921-4f20-90d2-9b7ec493230e
-# ╠═088c2166-17ab-4c22-b621-6421316ebd52
-# ╠═c577550f-0fff-4a95-85c8-d6ef2b685dde
-# ╠═75377f64-9b4b-47ec-b25e-b17d42407fad
-# ╠═1d0fe433-0bca-4083-842b-dc209298af13
 # ╠═a0740d6d-d034-4037-b410-f31f76b207f5
 # ╠═87fd6b09-fd43-454c-a589-38dab5ccf71a
-# ╟─124a38c0-dd7a-43b2-9f86-5a41261736e0
 # ╠═90385599-9db0-4463-8063-81a41266712f
 # ╠═3c6243f6-973c-4521-9881-c66f94de83a0
 # ╠═a45949bc-878b-47fc-a239-cb8bb110046b
@@ -7108,10 +4919,8 @@ version = "17.4.0+2"
 # ╠═72025689-c50d-4f74-8ddb-5709b43b39ed
 # ╠═2616cfe3-c66a-4d00-8caa-1b92e8bcfa6d
 # ╠═eef60b59-8595-454c-89a3-f02729fbd1d5
-# ╠═2900dc4e-eed2-4a5c-a026-d1d1bdaf62b9
 # ╠═2ec47c25-ec71-4cd9-b1b7-14ae8ee3492a
 # ╠═8464adca-a780-4da1-bb1c-05db6277634c
-# ╟─2224d20f-c8dc-4ef6-af81-d1f832bee5ea
 # ╠═063e0ba3-69b0-4c77-8ecd-e8b70c64f7ba
 # ╠═e431002a-e31a-42ed-9f98-2e766d8e3fa8
 # ╠═3153b4fc-1c2c-47d0-84ab-f40344df4794
@@ -7123,65 +4932,32 @@ version = "17.4.0+2"
 # ╠═f70dcbbd-e871-4f6d-9287-b468d511dc7b
 # ╠═c5502e6e-751a-4e24-851d-6cc1ed119c3f
 # ╠═b72f2485-e9a9-4b2c-a126-d7a42a3d6ba6
-# ╠═83ccd36d-96c8-4665-9148-bdf95eb8dda1
-# ╠═0d234b25-994f-4649-ac05-0df2dcf12264
-# ╠═506a7c77-0d48-47a1-b3fd-d203101b9106
-# ╠═60652571-4e4e-4d68-bec2-3b3fb6db0b1d
-# ╟─d7976b1a-41a7-4d3d-9b0d-7b5a7d87da54
-# ╠═f1d6e558-6e7c-4238-983a-b756d4ea9450
-# ╠═8568dd44-ad15-42a6-9aff-62c41d2ff739
-# ╠═c5514f37-9987-4633-818c-adc480136683
-# ╠═8a9bbf5b-18f3-4cbe-ac15-d2d88b68f8bd
-# ╠═d4058d19-3c4d-48b9-9f65-f408fe79ce94
-# ╠═e62f195d-7b25-45e5-bdd0-7071b9323dab
 # ╠═2c2275fc-7b61-4734-859e-3e01b1dfc0ca
 # ╠═9b726b74-0e54-4031-b48b-f99248363962
-# ╟─f27dbf3c-df30-453c-8764-879df3b93694
 # ╠═a4261098-17d6-47e4-9649-42e09d21d1ad
-# ╠═47492b1f-2ff4-4f98-9489-68b2d8bc45ac
 # ╠═19fbb0b8-bc03-4203-a65d-0b1516b73174
-# ╟─b81f3149-8cff-4639-9ba7-d96b062decc4
-# ╟─3efbbb22-1e34-4924-8a16-7289210437af
 # ╠═c772ae36-3023-444f-a6f6-3b4c159541b8
 # ╠═f9063856-b2bf-4b01-90cf-2420d53405d2
 # ╠═540af2b5-9f16-4c9c-8134-d5b6ccdd7d40
-# ╠═3f305df4-8419-42a0-b4c8-3990248aa0ce
 # ╠═e7a2e7df-f7fd-49db-8339-95fe96376ab6
 # ╠═f6bb82e1-9274-425c-901a-35ced8c32f87
 # ╠═c325fcc9-28a5-45ab-9517-b1f48b169664
-# ╠═dd17568a-4529-4fed-a84a-19b7207719e6
 # ╠═19163ab8-e3b8-4978-8968-48dd1aea6eed
 # ╠═eaa953a0-6281-4dc8-9a93-fc8da3779fb6
 # ╠═a9c7a7e4-093b-4bc3-bf81-7ab8343994cc
-# ╠═632fe679-d8e3-4555-9664-e655363b960a
 # ╠═eecf7438-5e47-489d-bbb8-7b9dd524c540
 # ╠═47f54710-10e9-4f25-b122-595f33b9b37f
 # ╠═4c44dcde-c390-4bdf-9d31-7f4e376112d3
-# ╠═03aabd5b-ada4-4a3a-96f1-e9cfc76e37a9
 # ╠═1ad20faa-caea-4de9-9897-9425f10d4b4b
 # ╠═839ba147-f695-4ba6-922e-c700db120ab3
 # ╠═b1db9fd1-b276-4b12-a0d6-a20361265b2f
 # ╠═a25e11f3-7e97-42ed-b1b5-fec72663001b
-# ╠═985cc4f8-80b9-4562-91c7-c962accdeb4d
-# ╠═5ac09667-ad41-4b8e-ab7a-857643a69511
-# ╠═3bea1145-2387-4674-9ac4-cad212694e72
-# ╠═be0ab5f8-a89f-4127-96ee-3d9a52f6887a
-# ╠═28729f3c-2f68-4399-afe6-2c56a76cb3cc
 # ╠═1539ff60-3082-4e5c-ad52-dbb93299bac2
-# ╠═3b466d93-fb32-4081-87db-e69d8e580af4
 # ╠═3afd97de-fa10-4458-a272-ede2fea04118
-# ╟─9f1d9b18-d5cc-4c91-85ae-b60f617e8d09
-# ╟─15db7b51-0e5a-4356-9eff-8807b0666132
-# ╟─d8a17ed4-ce58-4495-8bb6-a84974d78977
+# ╠═d8a17ed4-ce58-4495-8bb6-a84974d78977
 # ╠═034cf1e9-7408-4360-9338-d5aa00c25eec
-# ╠═35761e33-0319-4d8c-aeea-263ddc752626
 # ╠═1d1269e2-a175-4fee-b43b-999dd9d6e061
 # ╠═6f4db010-7738-435d-8338-1353e8e40f39
-# ╠═59f08a12-0208-48bb-a461-63b78c558536
-# ╠═5636cc70-c885-4b57-9f9a-d1848d285735
-# ╠═74b7c99b-e268-4b80-ba17-97c0d5fc639d
-# ╠═5aee3064-0ff1-4162-8204-dda6f1dc2c78
-# ╠═0cdc2c60-5532-436c-a6d1-e8e465cc380c
 # ╠═bebc22d1-ccdb-4a60-90e2-7574aa6fc74b
 # ╠═88faed7e-9e0d-48a2-8992-72f20854157f
 # ╠═cdf467f0-1dec-46cb-a354-8fde5eb22e09
@@ -7189,87 +4965,20 @@ version = "17.4.0+2"
 # ╠═b771489e-7bd8-4977-bc26-f667bb036b82
 # ╠═49de73c3-dcbe-4012-a997-924e06e6f912
 # ╠═737d4566-a737-46d1-87f0-c691c7a12525
-# ╠═3b403f52-c12e-4477-9597-b1ba89096738
 # ╠═9373e86e-2bdf-4d71-ab48-181be977f8ba
 # ╠═64b56556-2c3e-4f6f-b874-50c48ac4b439
 # ╠═b19df237-4158-4168-9736-280f05c29a2e
-# ╠═a21a92d2-cd52-47ad-9043-78f2e1f59ab3
 # ╠═da67b5bb-3b44-462a-86b5-3e536545b0fa
-# ╠═c6781d81-6497-41b0-ad4b-1248b7212d21
 # ╠═262c8cad-ff83-42ea-a6fc-b763611d8688
-# ╠═811fcaed-fcbb-4109-bf79-05cf1bfec645
-# ╠═44d6a906-2966-4342-8b24-48682dfc4db7
-# ╠═de982a01-2d17-40fc-a005-a1d500ae38bf
-# ╠═40500856-73f6-47ab-97d2-afd69eaf6d95
-# ╠═fac24b16-ca02-4255-bd5f-ac8995e2b52f
-# ╟─915f17a0-dfb7-46fe-8a01-73a1a739210d
-# ╠═28c8ac96-a114-42b7-b864-b4a2577f15c0
-# ╠═744c064a-fb12-4a44-8e2f-8b666260c35d
-# ╠═f14aea94-3e1c-4cb5-b045-73cfb3afca8a
-# ╠═7863fa1c-1dad-4f4c-8927-5be4c6535820
-# ╠═8783f033-895c-4442-b054-1bcb92e36df9
-# ╠═95c290c2-c622-431a-bb91-570183cb1385
-# ╠═3c505317-95b2-4216-a3fe-6f7e2a858e80
-# ╠═79283854-9816-489e-88fb-d4d1adf2b208
-# ╠═0aaaaffb-86a5-4bc6-9858-61fa3e3ff140
-# ╠═2c76b158-6678-4459-b76e-10af97555772
-# ╠═bd5e1f4e-6c9b-4abc-a0c1-89a3993d8210
-# ╠═ea44fb9c-2faa-4c0b-888b-7eac95b9e19c
-# ╠═39bb639c-6719-4da7-8726-c3c8621e5fb4
-# ╠═998d4920-d7ec-478f-908c-9e3bdb3d6399
-# ╠═fd0c6dda-90b5-43ec-bdc0-df875212d9f1
-# ╠═4307c04c-9440-4991-9455-7b7d959ac656
-# ╠═edc5a1e2-a1e0-495a-8153-0398df9cf2b5
-# ╠═c96dd818-96aa-4493-b8fb-77c51a72194f
-# ╠═c6f31993-0cf0-4da4-82e1-3a2b28874f77
-# ╠═a8e77437-596f-45db-9773-14f9fe953259
-# ╠═a4d820f6-f6a9-4988-8c0e-d18967d305e3
-# ╠═9509cc0d-268e-4712-a378-2595a56313d5
-# ╠═c110651c-fc99-44b9-bfad-2650f8553026
-# ╠═14b3d98c-8c5b-4d8e-8a74-98ac90f75da3
 # ╠═d8bd669e-8765-493b-9513-e5db805df315
 # ╠═cb854d5b-058b-40f1-8213-6047530910b2
 # ╠═a4d1186d-6f43-4c0a-b818-3138a7237484
 # ╠═45f173d9-0d13-4771-be51-54f5770ec6d0
 # ╠═adffcbd9-48bd-4d31-9a63-7b9e7c9c1f85
 # ╠═25f11075-832f-4840-bfa3-32ef170e2041
-# ╠═ca80286d-db1d-4d44-bbd0-0c3baa4bcb5f
-# ╠═aab25a03-fed0-4803-9527-d168363d9576
-# ╠═e05671b1-8b90-4d5f-a0f1-16aa499f46ce
-# ╠═12d26759-74c3-47c6-b88e-d86bb422f0a6
-# ╠═33bff271-3c12-47b9-a31e-53cbdea00d36
-# ╠═e4266c59-d3ce-40cb-9f64-def0ba6b1d66
 # ╟─f7ede764-5ad8-426b-a805-cc21b622d977
-# ╠═2e2435bc-ca24-4b1f-87bb-4d20e7a346d8
-# ╠═8afb8301-d2b9-4719-9337-3e6de5e2a535
-# ╠═805b6220-0a14-4f2a-bbb1-7ba13ac1749b
 # ╟─3ea08816-705e-4be7-a175-dbd3f3e4c17d
 # ╠═5d50a5d0-8fe2-4c6e-b76c-d5614e4fd884
-# ╟─1227cfdb-19ea-4df8-80ae-724ef403d5c9
-# ╟─544ee0c2-6ebd-4878-b5fd-799f489e9171
-# ╠═fac4c6d1-44b2-408b-bea5-1f11baae2e82
-# ╠═26e388a2-b715-428b-96e2-64bd49b936de
-# ╟─b45b9df1-c1ae-440f-829b-312178d55b94
-# ╠═957d0392-d627-4d47-95bf-ef927129279a
-# ╠═2ec09938-55c8-4259-adb7-0d35ef6a6b42
-# ╟─7558d7f1-d8a0-4e7c-b411-8801021f2a25
-# ╠═c7b74124-c448-466f-905c-d78e44370590
-# ╠═3db231d5-dc5f-434a-ac83-d3fb5cd125ee
-# ╠═20e27028-cdd7-433f-ace3-a053b14e22f7
-# ╠═49608c2c-b66f-4dbf-a99f-d589e0143f8a
-# ╠═284df137-a066-4fd1-a7ac-32b319f65e75
-# ╠═2baab643-1b70-442b-96e8-1eb0ee0090ad
-# ╠═a8520c73-60f6-4d9f-9949-9f75e7345c58
-# ╠═905c92e5-9130-4353-8bc1-69d80b8f7735
-# ╠═081139f2-a2be-4a84-bb73-cb3a8c3f7974
-# ╠═b3b6b689-e0c0-4b77-bcb8-8e6cb5f738c9
-# ╠═b3846537-df26-4e3d-b336-0990a544c2f9
-# ╠═45c3e544-6cc9-4694-b0ff-c7d876fac5de
-# ╠═9e9c655b-035e-4de7-bb67-7f8c5f8d76a3
-# ╠═55267cb3-1089-4146-9325-b8eb0ad38f4f
-# ╠═6b72f9a0-41ab-4245-a6a2-83b9d19154d1
-# ╠═d3abee1c-21ec-4e24-be88-996324991d2e
-# ╠═92b62688-2cff-4286-958f-9f4e32de52ee
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═df7f84e8-b42a-4001-9dbf-6bc3ced94207
 # ╠═d963ff6d-f1b6-4799-aa0e-1ae100310d84

@@ -607,6 +607,9 @@ module MountainCarTask
 		(x, ẋ)
 	end
 
+	min_vals = (-1.2f0, -0.07f0)
+	max_vals = (0.5f0, 0.07f0)
+
 	function step(s::Tuple{Float32, Float32}, a::Float32)
 		ẋ′ = clamp(s[2] + 0.001f0*a - 0.0025f0*cos(3*s[1]), -0.07f0, 0.07f0)
 		x′ = clamp(s[1] + ẋ′, -1.2f0, 0.5f0)
