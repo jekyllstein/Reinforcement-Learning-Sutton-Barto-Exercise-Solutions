@@ -1470,6 +1470,48 @@ Where $\chi (a)$ is a function that returns 1 for $a=1$ and -1 for $a=0$.  There
 $\nabla \ln{\pi(a|s,\theta)} = (2a - 1) (1 - \pi(a|s, \mathbf{\theta}))\mathbf{x}(s)$ 
 """
 
+# ╔═╡ 3cfd63ad-b1a2-4b99-ae97-2ff10351e4f5
+md"""
+### Beta Distribution Alternative
+"""
+
+# ╔═╡ fd964539-2baf-4ff1-b286-5a0bb1b222c4
+md"""
+The beta distribution has two parameters like the normal distribution but is only defined from 0 to 1.  The two parameters $\alpha$ and $\beta$ are positive real numbers and control the shape of the distribution.  The density function is given below:
+
+$f(x; \alpha, \beta) = \frac{x^{\alpha-1} (1-x)^{\beta - 1}}{\text{B}(\alpha, \beta)}$ where $\text{B}(\alpha, \beta) = \frac{\Gamma(\alpha) \Gamma(\beta)}{\Gamma(\alpha + \beta)}$ and $\Gamma(z) = \int_0^\infty t^{z-1}e^{-t} \text{d} t$
+
+We saw earlier from the treatment of the gaussian distribution that we need to find the gradient of a function of each distribution parameter with respect to the parameters of the function approximation.  Luckily, the maximum likelihood estimator already computes the gradient we are interested in for this distribution.  Note that the likelihood function for a single sample of the random variable $x$ which follows the beta distribution is given by $\mathcal{L}(\alpha, \beta \vert X) = \ln(f(X_i; \alpha, \beta))$ and the partial derivative of this function with respect to each parameter $\alpha$ and $\beta$ is given by:
+
+$\frac{\partial \mathcal{L}(\alpha, \beta, \vert X)}{\partial \alpha} = \ln X - \frac{\partial \ln \text{B}(\alpha, \beta)}{\partial \alpha}$
+
+$\frac{\partial \mathcal{L}(\alpha, \beta, \vert X)}{\partial \beta} = \ln (1-X) - \frac{\partial \ln \text{B}(\alpha, \beta)}{\partial \beta}$ 
+
+where $\frac{\partial \ln \text{B}(\alpha, \beta)}{\partial \alpha} = -\psi(\alpha + \beta) + \psi(\alpha)$ and $\frac{\partial \ln \text{B}(\alpha, \beta)}{\partial \beta} = -\psi(\alpha + \beta) + \psi(\beta)$ and $\phi(\alpha)$ is the digamma function which is just the derivative of the logarithm of the gamma function.
+
+Since both $\alpha$ and $\beta$ must be greater than zero, we can use for an estimate for each one the exponential function applied to a dot product of the parameter vector with the feature vector:  $\alpha(s, \boldsymbol{\theta}) \doteq \exp \left (\boldsymbol{\theta}_\alpha^\top \mathbf{x}(s) \right )$ and $\beta(s, \boldsymbol{\theta}) \doteq \exp \left (\boldsymbol{\theta}_\beta^\top \mathbf{x}(s) \right )$.
+
+The eligibility vector for this distribution is then:
+
+$\nabla \ln f(a \vert \alpha(s, \boldsymbol{\theta}_\alpha), \beta(s, \boldsymbol{\theta}_\beta))$
+
+where $\alpha$ is a function of its parameters and $\beta$ is a function of the other parameter vector.  The gradient components corresponding to each vector is only a function of a partial derivative of the distribution with respect to $\alpha$ and $\beta$.  That is, since $\frac{\partial \alpha}{\partial \theta_{\beta_i}} = 0 \forall i$ and vice versa, then we can treat each part of the gradient separately.
+
+$\begin{flalign}
+\nabla_{\boldsymbol{\theta}_\alpha} \ln f(a \vert \alpha, \beta) &= \frac{\partial f(a \vert \alpha, \beta)}{\partial \alpha} \nabla_{\boldsymbol{\theta}_\alpha}\alpha \\
+&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\alpha) \right ) \nabla_{\boldsymbol{\theta}_\alpha} \alpha \\
+&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\alpha) \right ) \nabla_{\boldsymbol{\theta}_\alpha} \exp \left ( \boldsymbol{\theta}_\alpha^\top \mathbf{x}(s) \right ) \\
+&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\alpha) \right ) \alpha \mathbf{x}(s)\\
+\end{flalign}$
+
+$\begin{flalign}
+\nabla_{\boldsymbol{\theta}_\beta} \ln f(a \vert \alpha, \beta) &= \frac{\partial f(a \vert \alpha, \beta)}{\partial \beta} \nabla_{\boldsymbol{\theta}_\beta}\beta \\
+&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\beta) \right ) \nabla_{\boldsymbol{\theta}_\beta} \beta \\
+&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\beta) \right ) \nabla_{\boldsymbol{\theta}_\beta} \exp \left ( \boldsymbol{\theta}_\beta^\top \mathbf{x}(s) \right ) \\
+&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\beta) \right ) \beta \mathbf{x}(s)\\
+\end{flalign}$
+"""
+
 # ╔═╡ ae0f5a96-7a4b-47f9-be1e-e803a238a071
 md"""
 ### *MDP Types and Transitions for Continuous Actions*
@@ -3094,9 +3136,19 @@ Now that we have verified the success of policy gradient methods on this problem
 # ╔═╡ b86ee9d3-b6b5-4ea0-8f55-1927571cdfbf
 function create_continuous_action_mountaincar()
 	mdp = MountainCarTask.mdp
-	step(s, a) = (-1f0, MountainCarTask.step(s, a))
+	function step(s, a) 
+		f = if abs(a) > 1f0
+			sign(a)*0.1f0
+		else
+			a
+		end
+		(-1f0, MountainCarTask.step(s, f))
+	end
 	ContinuousMDP(step, mdp.initialize_state, 0f0; isterm = mdp.isterm)
 end
+
+# ╔═╡ 38acd032-1d18-4760-9111-67c9cdd2e892
+#without limiting the force in this way, the learned policy just applies so much force to go up the hill directly
 
 # ╔═╡ d560b2a0-c571-4ad7-b1c9-83ec03fc8cc2
 const mountaincar_continuous_mdp = create_continuous_action_mountaincar()
@@ -3110,6 +3162,9 @@ const mountaincar_continuous_mdp = create_continuous_action_mountaincar()
 #=╠═╡
 actor_critic_binary_episodic_gaussian_parameter_study(mountaincar_continuous_mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, mountaincar_binary_continuous_params, 3, 2, 1000; max_steps = 100_000)
   ╠═╡ =#
+
+# ╔═╡ b8532822-179b-4cd5-a279-4b71dafb544a
+const mountaincar_continuous_test_train = actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mountaincar_continuous_mdp, 0.05f0, 0.8f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 1000_000; α_θ = 6f-5, α_w = 0.00008f0)
 
 # ╔═╡ a7891c63-18d6-4c1f-ba67-adf7c547d334
 # ╠═╡ disabled = true
@@ -3372,6 +3427,11 @@ end
 plot_mountaincar_values(mountaincar_test_train.estimate_state_value, mountaincar_test_train.policy_sample_action)
   ╠═╡ =#
 
+# ╔═╡ d7f6ff79-3c0f-4f16-aa1c-3bc534ce580a
+#=╠═╡
+plot_mountaincar_values(mountaincar_continuous_test_train.estimate_state_value, mountaincar_continuous_test_train.policy_sample_action)
+  ╠═╡ =#
+
 # ╔═╡ ba645f6b-143f-4e83-9003-707770ae308d
 #=╠═╡
 function show_mountaincar_trajectory(π::Function, max_steps::Integer)
@@ -3396,6 +3456,32 @@ end
 # ╔═╡ ddbca73f-c692-46f2-95f3-a7dd849d33f7
 #=╠═╡
 show_mountaincar_trajectory(mountaincar_test_train.policy_sample_action, 10_000)
+  ╠═╡ =#
+
+# ╔═╡ b5319d8b-0420-4ebf-b603-ea0b93365ac1
+#=╠═╡
+function show_mountaincar_continuous_trajectory(π::Function, max_steps::Integer)
+	states, actions, rewards, sterm, nsteps = runepisode(mountaincar_continuous_mdp, π; max_steps = max_steps)
+	positions = [s[1] for s in states]
+	velocities = [s[2] for s in states]
+	tr1 = scatter(x = positions, y = velocities, mode = "markers", showlegend = false)
+	tr2 = scatter(y = positions, showlegend = false)
+	tr3 = scatter(y = actions, showlegend = false)
+	p1 = plot(tr1, Layout(xaxis_title = "position", yaxis_title = "velocity", xaxis_range = [-1.2, 0.5], yaxis_range = [-0.07, 0.07], height = 400))
+	p2 = plot(tr2, Layout(xaxis_title = "time", yaxis_title = "position", height = 400))
+	p3 = plot(tr3, Layout(xaxis_title = "time", yaxis_title = "action", height = 400))
+	@htl("""
+	Total Reward: $(sum(rewards))
+	<div style = "display: flex;">
+	$([p1 p2 p3])
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ c87dba8c-9a96-41b3-9dc7-a6c088ec1eaf
+#=╠═╡
+show_mountaincar_continuous_trajectory(mountaincar_continuous_test_train.policy_sample_action, 10_000)
   ╠═╡ =#
 
 # ╔═╡ f59a5dcd-9f4a-4336-a391-e64af35ef799
@@ -4487,6 +4573,8 @@ version = "17.4.0+2"
 # ╟─beb01fb8-c77d-4b5c-a66d-3812415e04a3
 # ╟─68e6f17e-8c87-40f0-a673-1115ecd1b71d
 # ╟─692c1043-4eaf-491e-b8fe-368618867f99
+# ╟─3cfd63ad-b1a2-4b99-ae97-2ff10351e4f5
+# ╟─fd964539-2baf-4ff1-b286-5a0bb1b222c4
 # ╟─ae0f5a96-7a4b-47f9-be1e-e803a238a071
 # ╠═c8b47eac-2d45-419a-bec6-2ae0cdc59393
 # ╠═537270ba-122b-4f2b-880b-31d086766295
@@ -4581,14 +4669,19 @@ version = "17.4.0+2"
 # ╠═ddbca73f-c692-46f2-95f3-a7dd849d33f7
 # ╟─786a5385-b648-4fc3-8e19-bf6582828136
 # ╠═b86ee9d3-b6b5-4ea0-8f55-1927571cdfbf
+# ╠═38acd032-1d18-4760-9111-67c9cdd2e892
 # ╠═d560b2a0-c571-4ad7-b1c9-83ec03fc8cc2
 # ╟─71a5fce8-6d9a-4625-bad1-a951d61bff28
 # ╠═b53dba81-a9e9-41da-8fc2-7736bf25f2dc
+# ╠═b8532822-179b-4cd5-a279-4b71dafb544a
+# ╠═d7f6ff79-3c0f-4f16-aa1c-3bc534ce580a
+# ╠═c87dba8c-9a96-41b3-9dc7-a6c088ec1eaf
 # ╠═a7891c63-18d6-4c1f-ba67-adf7c547d334
 # ╠═7126aefd-b847-497a-9545-514e9b9afa71
 # ╠═1894ae1a-bb68-4de0-a4d2-ac5d02c49f09
 # ╠═f9facbba-39d4-483e-9066-275603156db0
 # ╠═ba645f6b-143f-4e83-9003-707770ae308d
+# ╠═b5319d8b-0420-4ebf-b603-ea0b93365ac1
 # ╟─4c34640f-efa2-4e1d-8a70-0acd2ce45428
 # ╟─f7ede764-5ad8-426b-a805-cc21b622d977
 # ╟─3ea08816-705e-4be7-a175-dbd3f3e4c17d
