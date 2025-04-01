@@ -4,6 +4,9 @@
 using Markdown
 using InteractiveUtils
 
+# ╔═╡ 666a4e89-306b-4fb2-bdc4-3dda2c63153f
+using SpecialFunctions
+
 # ╔═╡ df7f84e8-b42a-4001-9dbf-6bc3ced94207
 using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threads, Random, Distributions, Statistics, StatsBase, StaticArrays
 
@@ -171,9 +174,6 @@ corridor_train = sarsa_λ(corridor_mdp, 1f0, 0.99f0, typemax(Int64), 1_000_000, 
 #=╠═╡
 corridor_train.value_function(1)
   ╠═╡ =#
-
-# ╔═╡ 9fc4e716-a663-437b-907c-089b311bc28a
-isapprox(-21.7675f0, -21.7712f0)
 
 # ╔═╡ 5981f52b-d829-4c7d-b47b-33310f7d64a2
 #=╠═╡
@@ -1145,28 +1145,6 @@ md"""
 #### Test Actor-Critic with Eligibility Traces
 """
 
-# ╔═╡ a8b40b8f-051a-4e6f-a079-ece4f32873de
-#=╠═╡
-function create_actor_critic_params_UI(;λ_θ = 0.5f0, λ_w = 0.5f0, log2α_θ = -10, log2α_w = -10)
-PlutoUI.combine() do Child
-md"""
- $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = λ_θ, show_value=true)))
-
- $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = λ_w, show_value=true)))
-
- $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = log2α_θ)))
-
- $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = log2α_w)))
-"""
-end |> confirm
-end
-  ╠═╡ =#
-
-# ╔═╡ 36d514fa-b27a-4c6b-8399-9d108377b9b5
-#=╠═╡
-@bind study_params create_actor_critic_params_UI(;λ_θ = 0.75f0, λ_w = 0.25f0, log2α_θ = -8, log2α_w = -11)
-  ╠═╡ =#
-
 # ╔═╡ d8222abf-139c-4220-8e92-cc987ec6900c
 md"""
 Note that for the corridor problem, the state-value learning rates have very little impact and learning is most effective when $\lambda_{\boldsymbol{\theta}}$ is close to 1 which mimics REINFORCE with baseline.
@@ -1176,7 +1154,7 @@ Note that for the corridor problem, the state-value learning rates have very lit
 md"""
 ## 13.6 Policy Gradient for Continuing Problems
 
-In the continuing case we need to define the average reward per time step as discussed in Section 10.3.  In the update procedure the δ is calculated differently in terms of the reward compared to this long running average.  The value functions in this case will also learn the reward difference from the average which is assumed to have a well defined expected value under the stationary state distribution for the policy.  This shift in the value function will not affect performance since shifting the value function up and down by a constant does not affect the learned policy.  To implement this we need a new learning rate αr which controls how quickly the reward average updates.  This replaces γ in a sense since we no longer discount rewards of future time steps.
+In the continuing case we need to define the average reward per time step as discussed in Section 10.3.  In the update procedure the δ is calculated differently in terms of the reward compared to this long running average.  The value functions in this case will also learn the reward difference from the average which is assumed to have a well defined expected value under the stationary state distribution for the policy.  This shift in the value function will not affect performance since shifting the value function up and down by a constant does not affect the learned policy.  To implement this we need a new learning rate $α_{\overline{R}}$ which controls how quickly the reward average updates.  This replaces $γ$ in a sense since we no longer discount rewards of future time steps.
 """
 
 # ╔═╡ 0284f0d7-b8a9-4ae6-add0-ac1078571d9b
@@ -1205,7 +1183,7 @@ md"""
 
 # ╔═╡ 4915b1ed-ad53-4ece-9b00-bc136d47d8dc
 md"""
-It is implicit in all expressions below that $\pi$ is a function of $\boldsymbol{\theta}$ and that the gradients are with respect to $\boldsymbol{\theta}$.  The performance measure for the continuing case is $J(\boldsymbol{\theta}) = r(\theta)$ (13.15) and all value functions use the definition of the differential return.  We begin by expressing the gradient of the state value function in terms of the state-action value function, the policy, the average return and gradients thereof:
+It is implicit in all expressions below that $\pi$ is a function of $\boldsymbol{\theta}$ and that the gradients are with respect to $\boldsymbol{\theta}$.  The performance measure for the continuing case is $J(\boldsymbol{\theta}) = r(\boldsymbol{\theta})$ (13.15) and all value functions use the definition of the differential return.  We begin by expressing the gradient of the state value function in terms of the state-action value function, the policy, the average return and gradients thereof:
 
 $\begin{flalign}
 \nabla v_\pi(s) &= \nabla \left [ \sum_a \pi(a \vert s) q_\pi (s, a) \right ], \: \forall s \in \mathcal{S} \\
@@ -1221,7 +1199,7 @@ $\begin{flalign}
 \nabla r(\boldsymbol{\theta}) &=-\nabla v_\pi(s) + \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) \right ] 
 \end{flalign}$
 
-Now the left hand side is $\nabla J(\boldsymbol{\theta})$ and does not depend on $s$.  As such, the right hand side as a whole must be independent of $s$ as well so we are free to take a weighted sum of it over some probability distribution on $s$ since all the terms sum ot 1.  That is, if $f$ is independent of $s$, then $f = \sum_s \mu(s) f = f \sum_s \mu(s) = f \times 1 = f$:
+Now the left hand side is $\nabla J(\boldsymbol{\theta})$ and does not depend on $s$.  As such, the right hand side as a whole must be independent of $s$ as well so we are free to take a weighted sum of it over some probability distribution on $s$ since all the terms sum to 1.  That is, if $f$ is independent of $s$, then $f = \sum_s \mu(s) f = f \sum_s \mu(s) = f \times 1 = f$:
 
 $\begin{flalign}
 \nabla J(\boldsymbol{\theta}) &= \sum_s \mu(s) \left ( \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) \right ] - \nabla v_\pi(s) \right ) \\  
@@ -1236,7 +1214,7 @@ $\begin{flalign}
 &= \mathbb{E}_\pi \left [G_t \nabla \ln \pi(A_t \vert S_t) \right ] \tag{chain rule}\\
 \end{flalign}$
 
-The expression inside the expected value can be sampled on every time step and the gradient is only in terms of the policy function which we have selected as something differentiable with respect to the parameters.  Since this method will only be used for continuing problems, we cannot rely on Monte Carlo sampling for the differential return.  Instead, our only option is to use a bootstrap value estimate in combination with a running estimate of the average reward and the immediate sample reward.  We can apply the existing actor-critic algorithms to these continuing problems as long as we track that additional information and use an additional step size parameter to update the average reward estimate.  This step size parameter replaces the discount rate.  See a full implementation below:
+The expression inside the expected value can be sampled on every time step and the gradient is only in terms of the policy function which we have selected as something differentiable with respect to the parameters.  Since this method will only be used for continuing problems, we cannot rely on Monte Carlo sampling for the differential return.  Instead, our only option is to use a bootstrap value estimate in combination with a running estimate of the average reward and the immediate sample reward: $R - \overline{R} + \hat v^\prime$ where $\hat v^\prime$ is the differential value function estimate at the transition state and $\overline{R}$ is an estimate of the average reward.  We can apply the existing actor-critic algorithms to these continuing problems as long as we track that additional information and use an additional step size parameter to update the average reward estimate.  This step size parameter replaces the discount rate.  See a full implementation below:
 """
 
 # ╔═╡ 5b15f5c9-80bf-47f0-898a-f8dead5b927c
@@ -1248,7 +1226,7 @@ Note that this function has the same name as the episodic version.  The only dif
 
 # ╔═╡ f3bc47b5-03fc-4bd9-a890-26f9608a730b
 md"""
-#### Testing Actor-Critic in the Continuing Case
+### *Continuing Corridor Gridworld Example*
 
 Note that if we try to apply this algorithm to the short corridor gridworld it fails because a terminal state is encountered.  This condition is checked inside the algorithm because there is nothing about an MDP the way it is defined which tells you in advance if it is a continuing task or not.  In the tabular case you can always check to see if a terminal state exists since every state is available, but for the non-tabular case, all we can do is note the problem if a terminal state is encountered.
 """
@@ -1284,6 +1262,12 @@ const corridor_continuing_mdp = make_corridor_continuing_mdp()
 # ╔═╡ e96d592d-1e54-486d-8ad9-b857f85476e8
 actor_critic_binary_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_binary_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
 
+# ╔═╡ 9a9761fe-cfc7-49b1-9c46-4ef8e5a58c05
+actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_linear_parameter_study(mdp, update_feature_vector!, num_features, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
+
+# ╔═╡ 5aba4f96-e877-457e-8e95-18737348f99f
+actor_critic_fcann_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_fcann_parameter_study(mdp, update_feature_vector!, num_features, hidden_layers, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
+
 # ╔═╡ 5b15d91e-7119-4f85-a54a-7d4f1fdaf097
 #=╠═╡
 function create_actor_critic_continuing_params_UI(;λ_θ = 0.5f0, λ_w = 0.5f0, log2α_θ = -10, log2α_w = -10, α_r̄ = 0.005f0)
@@ -1313,6 +1297,182 @@ md"""
 Notice now that all of the parameters associated with the state-value estimate are irrelevent since they always cancel out in the parameter update.  Even though we have added a parameter, this method effectively removes two from the analysis.  Also, we seem to actually benefit from an intermediate value of $\lambda_{\boldsymbol{\theta}}$ unlike in the episodic case where using the Monte Carlo method was always the best.
 """
 
+# ╔═╡ d17a4bd0-5992-4247-912d-73d51758d2f3
+md"""
+### *Continuing Cartpole Example*
+"""
+
+# ╔═╡ 352d2952-cb83-47d3-9078-2b2ef9927443
+#create a cart pole MDP environment
+function create_cartpole_functions(;
+	m::T = 1f0, 		#mass at the end of the pole in kg
+	m_c::T = 10f0,  	#mass of the cart in kg
+	l::T = 1f0, 		#length of the pole in meters
+	g::T = 9.8f0, 		#gravitational constant in meters per second squared
+	h::T = 4f-2, 		#step size parameter of simulation in seconds
+	k::T = 1f0, 		#inertial constant of pendulum,
+	m_f::T = 0f0, 		#friction of the rotating pole
+	μ_c::T = 0f0, 		#friction of the cart wheels against the track
+	fmax::T = 300f0, 		#force applied by throttle
+	x_max::T = 50f0,  	#maximum horizontal position
+    θ_max::T = deg2rad(70f0),   #maximum pole angle
+	ẋ_max::T = 50f0,
+	θ̇_max::T = 10f0,
+	init_x::Function = () -> 0f0,  #initialize each of the 4 state variables
+	init_θ::Function = () -> Float32(rand([-0.02f0, 0.02f0])),
+	init_ẋ::Function = () -> 0f0,
+	init_θ̇::Function = () -> 0f0) where T<:Real
+
+	#the action space is full throttle forward or backwards or idle in the discrete case
+	actions = [-fmax, zero(T), fmax]
+	
+	#create a vehicle to use in simulation steps
+	vehicle = CartPoleVehicle(m, m_c, l, k, m_f, μ_c)
+
+	initialize_state(;t = 0f0) = CartPoleState(init_x(), init_θ(), init_ẋ(), init_θ̇(), t)
+	
+	function failure(s::CartPoleState)
+		(abs(s.x) > x_max) || (abs(s.θ) > θ_max) || (abs(s.ẋ) > ẋ_max) || (abs(s.θ̇) > θ̇_max)
+	end
+
+	step(s::CartPoleState{T}, f::T) = cartpole_runge_kutta_step(vehicle, s, g, clamp(f, -fmax, fmax), h)
+
+	min_vals = (-x_max, -θ_max, -ẋ_max, -θ̇_max)
+	max_vals = (x_max, θ_max, ẋ_max, θ̇_max)
+
+	(step = step, failure = failure, initialize_state = initialize_state, discrete_actions = actions, min_vals = min_vals, max_vals = max_vals, h = h)
+end
+
+# ╔═╡ f27f2bcd-05b6-44fe-bf9e-a3e51556db7c
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const cartpole_functions = create_cartpole_functions()
+  ╠═╡ =#
+
+# ╔═╡ b87ff1a9-abff-40f7-a1d8-f751a1c8b060
+md"""
+In the episodic case, we provided a reward of -1 per step and then considered an episode finished when a failure state was reached.  In the continuing case, the step function will provide a reward of 0 unless a failure occurs in which case it will provide a reward of -1 and then initialize a new state.
+"""
+
+# ╔═╡ 5d434c83-c9ca-499f-8695-c7733031c2de
+#=╠═╡
+function cartpole_continuing_step(s::CartPoleState, i_a::Integer)
+	s′ = cartpole_functions.step(s, cartpole_functions.discrete_actions[i_a])
+	if cartpole_functions.failure(s′) 
+		s′ = cartpole_functions.initialize_state()
+		s′ = CartPoleState(s′.x, s′.θ, s′.ẋ, s′.θ̇, s.t+cartpole_functions.h)
+		(-1f0, s′)
+	else
+		(0f0, s′)
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ 4c4e643b-d4b9-44f0-8d30-dc521bcc55ac
+#=╠═╡
+const cartpole_continuing_mdp = StateMDP(cartpole_functions.discrete_actions, StateMDPTransitionSampler(cartpole_continuing_step, cartpole_functions.initialize_state()), cartpole_functions.initialize_state)
+  ╠═╡ =#
+
+# ╔═╡ 7dbb42a3-aa8c-47e5-b668-18e6325d4038
+md"""
+#### Tile Coding Method
+"""
+
+# ╔═╡ de3cba34-9842-44d1-9b79-47126c0a0751
+#=╠═╡
+const cartpole_tilecoding_setup = tile_coding_setup(cartpole_functions.min_vals, cartpole_functions.max_vals, (1f0/4, 1f0/10, 1f0/10, 1f0/10), 8, (1, 3, 5, 7))
+  ╠═╡ =#
+
+# ╔═╡ 8e742d32-c074-4981-b35b-b596b64c869b
+#=╠═╡
+@bind cartpole_continuing_binary_study_params create_actor_critic_continuing_params_UI(;λ_θ = 0.75f0, λ_w = 0.25f0, log2α_θ = -4, log2α_w = -10, α_r̄ = 0.005f0)
+  ╠═╡ =#
+
+# ╔═╡ 19dfabda-7049-4050-8662-0385529c0c5a
+#=╠═╡
+@bind sref_cartpole_binary PlutoUI.combine() do Child
+	md"""
+	x position: $(Child(:x, Slider(-50f0:50f0, default = 0f0, show_value=true)))
+	x velocity: $(Child(:ẋ, Slider(-50f0:50f0, default = 0f0, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 966ef17c-23be-49dc-bc37-4cb52b34c049
+md"""
+#### Neural Network Method
+"""
+
+# ╔═╡ 5ffc271f-c73f-494a-9727-8d7516af2191
+#=╠═╡
+@bind cartpole_continuing_fcann_study_params create_actor_critic_continuing_params_UI()
+  ╠═╡ =#
+
+# ╔═╡ 42d4600a-bf3c-45ac-b7f5-d23917713ff5
+#=╠═╡
+@bind cartpole_continuing_fcann_network_params PlutoUI.combine() do Child
+	md"""
+	Layer Size: $(Child(NumberField(1:128, default = 16)))
+	Num Layers: $(Child(NumberField(1:10, default = 2)))
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ 0964133c-3a5b-433b-a8c4-a97813c37583
+#=╠═╡
+function plot_continuing_step_rewards(r::Vector{T}; npoints = 1000) where T<:Real
+	rsum = cumsum(r)
+	ravg = rsum ./ (1:length(r))
+	inds = round.(Int64, LinRange(1, length(r), npoints))
+	plot(scatter(x = inds, y = ravg[inds]), Layout(xaxis_title = "Training Step", yaxis_title = "Reward Average"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 28ce6e60-59cf-408a-8081-b978507b3c72
+#=╠═╡
+@bind cartpole_fcann_continuing_test_state PlutoUI.combine() do Child
+	md"""
+	x position: 			$(Child(Slider(-50f0:50f0, default = 0, show_value=true)))
+	
+	pole angle: 			$(Child(Slider(LinRange(-deg2rad(70f0), deg2rad(70f0), 1000), default = 0, show_value=true)))
+	
+	x velocity: 			$(Child(Slider(-50f0:50f0, default = 0, show_value=true)))
+	
+	pole angular velocity: 	$(Child(Slider(-10f0:10f0, default = 0, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 5500fd8e-64cb-4af7-808d-230440746319
+md"""
+### *Continuing Mountain Car Example*
+"""
+
+# ╔═╡ a9db3f85-ff56-4bbc-be87-47b893ef3b7b
+function mountaincar_continuing_step(s, i_a::Integer)
+	a = MountainCarTask.actions[i_a]
+	s′ = MountainCarTask.step(s, a)
+	(s′[1] == 0.5f0) && return (1f0, MountainCarTask.initialize_state()) 
+	return (0f0, s′)
+end
+
+# ╔═╡ 00152954-dc98-4120-b94b-2ea4d987832b
+function create_mountaincar_continuing_mdp()
+	ptf = StateMDPTransitionSampler(mountaincar_continuing_step, (0f0, 0f0))
+	StateMDP(MountainCarTask.actions, ptf, MountainCarTask.initialize_state)
+end
+
+# ╔═╡ 46fea69b-599e-46ab-8455-d2da865d9a8e
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const mountaincar_continuing_mdp = create_mountaincar_continuing_mdp()
+  ╠═╡ =#
+
+# ╔═╡ fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
+#=╠═╡
+@bind mountaincar_continuing_binary_params create_actor_critic_continuing_params_UI()
+  ╠═╡ =#
+
 # ╔═╡ 735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 md"""
 ## 13.7 Policy Parameterization for Continuous Actions
@@ -1322,11 +1482,22 @@ With a parameterized policy we are to learn statistics of the distribution that 
 $p(x) \doteq \frac{1}{\sigma \sqrt{2\pi}} \exp \left ( - \frac{(x-\mu)^2}{2\sigma^2} \right ) \tag{13.18}$
 """
 
-# ╔═╡ 79c85707-ea09-4f6b-ad51-a2683c3923c0
+# ╔═╡ 60c21e9c-e42d-4f0b-a910-3b318440fbc8
 #=╠═╡
-let x = LinRange(-5, 5, 10_000)
-	traces = [scatter(x = x, y = pdf.(Normal(0.0, σ), x), name = latexstring("\\sigma^2 = $(round(σ^2, sigdigits = 2))")) for σ in sqrt.([0.2, 1.0, 0.5, 5.0])]
-	plot(traces, Layout(xaxis_title = "x", title = "Normal Distribution N(μ, σ)"))
+@bind gaussian_plot_params PlutoUI.combine() do Child
+	md"""
+	### Normal Distribution Plot with
+	 $$\mu$$: $(Child(Slider(-4:.01:4, default = 0, show_value=true)))
+	
+	 $$\sigma$$: $(Child(Slider(0.01:0.01:5, default = 1, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 09dd1440-5d09-421f-addc-b1ede43ff517
+#=╠═╡
+let x = LinRange(-5, 5, 1000)
+	plot(scatter(x = x, y = pdf.(Normal(gaussian_plot_params...), x)), Layout())
 end
   ╠═╡ =#
 
@@ -1499,18 +1670,39 @@ where $\alpha$ is a function of its parameters and $\beta$ is a function of the 
 
 $\begin{flalign}
 \nabla_{\boldsymbol{\theta}_\alpha} \ln f(a \vert \alpha, \beta) &= \frac{\partial f(a \vert \alpha, \beta)}{\partial \alpha} \nabla_{\boldsymbol{\theta}_\alpha}\alpha \\
-&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\alpha) \right ) \nabla_{\boldsymbol{\theta}_\alpha} \alpha \\
-&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\alpha) \right ) \nabla_{\boldsymbol{\theta}_\alpha} \exp \left ( \boldsymbol{\theta}_\alpha^\top \mathbf{x}(s) \right ) \\
-&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\alpha) \right ) \alpha \mathbf{x}(s)\\
+&= \left ( \ln a - \psi(\alpha + \beta) + \psi(\alpha) \right ) \nabla_{\boldsymbol{\theta}_\alpha} \alpha \\
+&= \left ( \ln a - \psi(\alpha + \beta) + \psi(\alpha) \right ) \nabla_{\boldsymbol{\theta}_\alpha} \exp \left ( \boldsymbol{\theta}_\alpha^\top \mathbf{x}(s) \right ) \\
+&= \left ( \ln a - \psi(\alpha + \beta) + \psi(\alpha) \right ) \alpha \mathbf{x}(s)\\
 \end{flalign}$
 
 $\begin{flalign}
 \nabla_{\boldsymbol{\theta}_\beta} \ln f(a \vert \alpha, \beta) &= \frac{\partial f(a \vert \alpha, \beta)}{\partial \beta} \nabla_{\boldsymbol{\theta}_\beta}\beta \\
-&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\beta) \right ) \nabla_{\boldsymbol{\theta}_\beta} \beta \\
-&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\beta) \right ) \nabla_{\boldsymbol{\theta}_\beta} \exp \left ( \boldsymbol{\theta}_\beta^\top \mathbf{x}(s) \right ) \\
-&= \left ( \ln a - \phi(\alpha + \beta) + \phi(\beta) \right ) \beta \mathbf{x}(s)\\
+&= \left ( \ln a - \psi(\alpha + \beta) + \psi(\beta) \right ) \nabla_{\boldsymbol{\theta}_\beta} \beta \\
+&= \left ( \ln a - \psi(\alpha + \beta) + \psi(\beta) \right ) \nabla_{\boldsymbol{\theta}_\beta} \exp \left ( \boldsymbol{\theta}_\beta^\top \mathbf{x}(s) \right ) \\
+&= \left ( \ln a - \psi(\alpha + \beta) + \psi(\beta) \right ) \beta \mathbf{x}(s)\\
 \end{flalign}$
 """
+
+# ╔═╡ 0b01ba67-3921-4f3f-a7e8-235190bc84eb
+function make_beta_dist(α, β)
+	f(x) = x^(α-1) * (1-x)^(β-1) / beta(α, β)
+end
+
+# ╔═╡ 7bf209c8-ef0a-46d1-937e-b1a6e45dc62e
+#=╠═╡
+@bind beta_params PlutoUI.combine() do Child
+	md"""
+	α: $(Child(Slider(0.01:0.1:100; show_value=true)))
+	
+	β: $(Child(Slider(0.01:0.1:100, show_value=true)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ ad0009af-2cfc-4820-bd4a-698ad391f459
+#=╠═╡
+plot(scatter(x = LinRange(0, 1, 1000), y = make_beta_dist(beta_params...).(LinRange(0, 1, 1000))))
+  ╠═╡ =#
 
 # ╔═╡ ae0f5a96-7a4b-47f9-be1e-e803a238a071
 md"""
@@ -1560,6 +1752,13 @@ md"""
 ### *REINFORCE Implementation for Continuous Action Spaces*
 """
 
+# ╔═╡ b966b248-fb4d-457d-90f6-114370846242
+begin
+	bad_continuous_action(a) = false
+	bad_continuous_action(a::Real) = isnan(a)
+	bad_continuous_action(a::NTuple{N, T}) where {N, T<:Real} = any(bad_continuous_action, a)
+end
+
 # ╔═╡ f946c886-6246-4f98-a96f-f06984691ad8
 begin
 	function ApproximationUtils.runepisode!((states, actions, rewards)::Tuple{Vector{S}, Vector{A}, Vector{T}}, mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, π::Function; s0::S = mdp.initialize_state(), a0::A = π(s0), max_steps = typemax(Int64)) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
@@ -1593,6 +1792,11 @@ begin
 		while !mdp.isterm(s) && (step <= max_steps)
 			add_value!(states, s, step)
 			a = π(s)
+			if bad_continuous_action(a)
+				@info "Terminating episode after $step steps due to bad continuous action $a taken in state $s"
+				step = 1
+				break
+			end
 			# @info "Selected action is $a"
 			(r, s′) = mdp.ptf(s, a)
 			add_value!(actions, a, step)
@@ -1701,7 +1905,14 @@ sum(corridor_state_counts)
 
 # ╔═╡ bba13634-ff0e-47f7-a23b-8d56098f4ac6
 begin
-	gaussian_action_sampler(params::Vector{T}) where T<:Real = rand(Normal(params[1], exp(params[2])))
+	function gaussian_action_sampler(params::Vector{T}) where T<:Real 
+		σ = exp(params[2])
+		μ = params[1]
+		isinf(μ) && return μ
+		isapprox(σ, zero(T)) && return μ
+		isnan(σ) && return μ
+		rand(Normal(μ, σ))
+	end
 	make_gaussian_n_sampler(::Val{1}) = gaussian_action_sampler
 	function make_gaussian_n_sampler(::Val{N}) where N
 		function f(params::Vector{T}) where T<:Real
@@ -1713,6 +1924,30 @@ begin
 
 	make_gaussian_sampler(::T) where T<:Real = gaussian_action_sampler
 	make_gaussian_sampler(::NTuple{N, T}) where {N, T<:Real} = make_gaussian_n_sampler(N)
+end
+
+# ╔═╡ b2082ab0-73a4-45a6-8772-a2e6e22b519a
+begin
+	function beta_action_sampler(p1::T, p2::T) where T<:Real
+		isnan(p1) && return p1
+		isnan(p2) && return p2
+		ϵ = eps(zero(T))
+		α = max(ϵ, exp(p1))
+		β = max(ϵ, exp(p2))
+		T(rand(Beta(α, β)))
+	end
+	beta_action_sampler(params::Vector{T}) where T<:Real = beta_action_sampler(params[1], params[2])
+	make_beta_n_sampler(::Val{1}) = beta_action_sampler
+	function make_beta_n_sampler(::Val{N}) where N
+		function f(params::Vector{T}) where T<:Real
+			ntuple(i -> beta_action_sampler(params[i], params[i+N]), N)
+		end
+	end
+
+	make_beta_n_sampler(n::Integer) = make_beta_n_sampler(Val(n))
+
+	make_beta_sampler(::T) where T<:Real = beta_action_sampler
+	make_beta_sampler(::NTuple{N, T}) where {N, T<:Real} = make_beta_n_sampler(N)
 end
 
 # ╔═╡ 5261651e-a51e-4e80-8e23-83a4c10e5259
@@ -1750,6 +1985,41 @@ begin
 	end
 end
 
+# ╔═╡ bfe7e41d-6318-4bd4-b892-287831876abc
+begin
+	function update_beta_eligibility_vector!(∇lnπ::Matrix{T}, action_dist_params::Vector{T}, x::Vector{T}, action::T, policy_params::Matrix{T}) where T<:Real
+		α = exp(first(action_dist_params))
+		β = exp(last(action_dist_params))
+		c1 = digamma(α + β)
+		δ1 = (log(action) + c1 - digamma(α))*α
+		@inbounds @simd for i in eachindex(x)
+			∇lnπ[i, 1] = x[i]*δ1
+		end
+
+		δ2 = (log(one(T) - action) + c1 - digamma(β))*β
+		@inbounds @simd for i in eachindex(x)
+			∇lnπ[i, 2] =  x[i]*δ2
+		end
+	end
+
+	function update_beta_eligibility_vector!(∇lnπ::Matrix{T}, action_dist_params::Vector{T}, x::Vector{T}, action::NTuple{N, T}, policy_params::Matrix{T}) where {N, T <: Real}
+		for k = 1:N
+			α = exp(action_dist_params[k])
+			β = exp(action_dist_params[k+N])
+			c1 = digamma(α + β)
+			δ1 = (log(action[k]) + c1 - digamma(α))*α
+			@inbounds @simd for i in eachindex(x)
+				∇lnπ[i, k] = x[i]*δ1
+			end
+
+			δ2 = (log(one(T) - action[k]) + c1 - digamma(β))*β
+			@inbounds @simd for i in eachindex(x)
+				∇lnπ[i, k+N] = x[i]*δ2
+			end
+		end
+	end
+end
+
 # ╔═╡ 10cdd16e-a337-4421-a7a0-6de4e4b60c0f
 begin
 	mutable struct BinaryGaussianEligibilityVector{T<:Real, A<:Union{T, NTuple{N, T} where N}, P<:Union{T, Vector{T}}, B <: BinaryFeatureVector}
@@ -1762,25 +2032,16 @@ begin
 	BinaryGaussianEligibilityVector(a::NTuple{N, T}) where {T<:Real, N} = BinaryGaussianEligibilityVector(BinaryFeatureVector(), a, zeros(T, N), ones(T, N))
 end
 
-# ╔═╡ 740a3f41-9302-481d-b373-762c0dea8eff
+# ╔═╡ 54fff14b-cf53-47b0-9cfa-8b9ee33df54e
 begin
-	function update_gaussian_eligibility_vector!(∇lnπ::BinaryGaussianEligibilityVector{T, T, T, B}, dist_params::Vector{T}, x::B, action::T, policy_params::Matrix{T}) where {T<:Real, B<:BinaryFeatureVector}
-		∇lnπ.binary_features = x
-		∇lnπ.a = action
-		∇lnπ.μ = first(dist_params)
-		∇lnπ.σ = exp(last(dist_params))
-		return ∇lnπ
+	mutable struct BinaryBetaEligibilityVector{T<:Real, A<:Union{T, NTuple{N, T} where N}, P<:Union{T, Vector{T}}, B <: BinaryFeatureVector}
+		binary_features::B
+		a::A
+		α::P
+		β::P
 	end
-
-	function update_gaussian_eligibility_vector!(∇lnπ::BinaryGaussianEligibilityVector{T, NTuple{N, T}, Vector{T}, B}, dist_params::Vector{T}, x::B, action::NTuple{N, T}, policy_params::Matrix{T}) where {T<:Real, N, B<:BinaryFeatureVector}
-		∇lnπ.binary_features = x
-		∇lnπ.a = action
-		for i in 1:N
-			∇lnπ.μ[k] = dist_params[k]
-			∇lnπ.σ[k] = exp(dist_params[k+N])
-		end
-		return ∇lnπ
-	end
+	BinaryBetaEligibilityVector(a::T) where T<:Real = BinaryBetaEligibilityVector(BinaryFeatureVector(), a, one(T), one(T))
+	BinaryBetaEligibilityVector(a::NTuple{N, T}) where {T<:Real, N} = BinaryBetaEligibilityVector(BinaryFeatureVector(), a, ones(T, N), ones(T, N))
 end
 
 # ╔═╡ f55afa58-962d-4551-8d95-a5b467d61adf
@@ -1788,6 +2049,8 @@ begin
 	function update_params_with_gradient!(θ::Matrix{T}, α::T, ∇θ::BinaryGaussianEligibilityVector{T, T, T, B}) where {T<:Real, B<:BinaryFeatureVector}
 		c1 = ∇θ.a - ∇θ.μ
 		c2 = ∇θ.σ^(-2)
+		# isnan(c2) && @info "warning σ of $∇θ.σ is causing nan results"
+		# isinf(c2) && @info "warning σ of $∇θ.σ is causing inf results"
 		c3 = c1 * c2
 		c4 = c3*c1 - one(T)
 		δ1 = α*c3
@@ -1804,10 +2067,28 @@ begin
 		return θ
 	end
 
+	function update_params_with_gradient!(θ::Matrix{T}, α::T, ∇θ::BinaryBetaEligibilityVector{T, T, T, B}) where {T<:Real, B<:BinaryFeatureVector}
+		c1 = digamma(∇θ.α + ∇θ.β)
+		δ1 = α*(log(∇θ.a) + c1 - digamma(∇θ.α))
+		@inbounds @simd for j in 1:∇θ.binary_features.num_features
+			i = ∇θ.binary_features.active_features[j]
+			θ[i, 1] += δ1
+		end
+	
+		δ2 = α*(log(one(T) - ∇θ.a) + c1 - digamma(∇θ.β))
+		@inbounds @simd for j in 1:∇θ.binary_features.num_features
+			i = ∇θ.binary_features.active_features[j]
+			θ[i, 2] += δ2
+		end
+		return θ
+	end
+
 	function update_params_with_gradient!(θ::Matrix{T}, α::T, ∇θ::BinaryGaussianEligibilityVector{T, NTuple{N, T}, Vector{T}, B}) where {T<:Real, N, B<:BinaryFeatureVector}
 		for k in 1:N
 			c1 = ∇θ.a[k] - ∇θ.μ[k]
 			c2 = ∇θ.σ[k] ^-2
+			# isnan(c2) && @info "warning σ of $∇θ.σ is causing nan results"
+			# isinf(c2) && @info "warning σ of $∇θ.σ is causing inf results"
 			c3 = c1 * c2
 			c4 = c3*c1 - one(T)
 			δ1 = α*c3
@@ -1816,6 +2097,22 @@ begin
 			end
 		
 			δ2 = α*c4
+			@inbounds @simd for i in 1:size(θ, 1)
+				θ[i, k+N] += δ2
+			end
+		end
+		return θ
+	end
+
+	function update_params_with_gradient!(θ::Matrix{T}, α::T, ∇θ::BinaryBetaEligibilityVector{T, NTuple{N, T}, Vector{T}, B}) where {T<:Real, N, B<:BinaryFeatureVector}
+		for k in 1:N
+			c1 = digamma(∇θ.α[k] + ∇θ.β[k])
+			δ1 = α*(log(∇θ.a[k]) + c1 - digamma(∇θ.α[k]))
+			@inbounds @simd for i in 1:size(θ, 1)
+				θ[i, k] += δ1
+			end
+		
+			δ2 = α*(log(one(T) - ∇θ.a[k]) + c1 - digamma(∇θ.β[k]))
 			@inbounds @simd for i in 1:size(θ, 1)
 				θ[i, k+N] += δ2
 			end
@@ -1870,6 +2167,53 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 	end
 		
 	return (episode_rewards = rewards, episode_steps = steps, policy_function = π2, policy_sample_action = π_sample2, policy_parameters = policy_params, estimate_state_value = estimate_state_value, value_parameters = value_params, policy_and_value = policy_and_value)
+end
+
+# ╔═╡ 740a3f41-9302-481d-b373-762c0dea8eff
+begin
+	function update_gaussian_eligibility_vector!(∇lnπ::BinaryGaussianEligibilityVector{T, T, T, B}, dist_params::Vector{T}, x::B, action::T, policy_params::Matrix{T}) where {T<:Real, B<:BinaryFeatureVector}
+		∇lnπ.binary_features = x
+		∇lnπ.a = action
+		∇lnπ.μ = first(dist_params)
+		∇lnπ.σ = exp(last(dist_params))
+		# isapprox(∇lnπ.σ, 0f0) && @info "with distribution params $dist_params having 0 result for σ of $∇lnπ.σ"
+		# isinf(∇lnπ.σ) && @info "with distribution params $dist_params having inf result for σ of $∇lnπ.σ"
+		# isnan(∇lnπ.σ) && @info "with distribution params $dist_params having nan result for σ of $∇lnπ.σ"
+		return ∇lnπ
+	end
+
+	function update_gaussian_eligibility_vector!(∇lnπ::BinaryGaussianEligibilityVector{T, NTuple{N, T}, Vector{T}, B}, dist_params::Vector{T}, x::B, action::NTuple{N, T}, policy_params::Matrix{T}) where {T<:Real, N, B<:BinaryFeatureVector}
+		∇lnπ.binary_features = x
+		∇lnπ.a = action
+		for i in 1:N
+			∇lnπ.μ[k] = dist_params[k]
+			∇lnπ.σ[k] = exp(dist_params[k+N])
+		end
+		return ∇lnπ
+	end
+end
+
+# ╔═╡ d41f1dd1-45fe-4456-9a01-ed47fd6704a7
+begin
+	function update_beta_eligibility_vector!(∇lnπ::BinaryBetaEligibilityVector{T, T, T, B}, dist_params::Vector{T}, x::B, action::T, policy_params::Matrix{T}) where {T<:Real, B<:BinaryFeatureVector}
+		# @info "Beta eligibility vector is $∇lnπ"
+		∇lnπ.binary_features = x
+		∇lnπ.a = action
+		∇lnπ.α = exp(first(dist_params))
+		∇lnπ.β = exp(last(dist_params))
+		# @info "Beta eligibility vector updated to $∇lnπ"
+		return ∇lnπ
+	end
+
+	function update_beta_eligibility_vector!(∇lnπ::BinaryBetaEligibilityVector{T, NTuple{N, T}, Vector{T}, B}, dist_params::Vector{T}, x::B, action::NTuple{N, T}, policy_params::Matrix{T}) where {T<:Real, N, B<:BinaryFeatureVector}
+		∇lnπ.binary_features = x
+		∇lnπ.a = action
+		for i in 1:N
+			∇lnπ.α[k] = exp(dist_params[k])
+			∇lnπ.β[k] = exp(dist_params[k+N])
+		end
+		return ∇lnπ
+	end
 end
 
 # ╔═╡ f545c800-0bf3-491f-9d7d-42341cfdb573
@@ -2098,14 +2442,14 @@ reinforce_with_baseline_monte_carlo_control_fcann(corridor_mdp, 1, [10, 10], upd
 
 # ╔═╡ 76eb6743-cac0-4174-9ba3-a0691c200b54
 begin
-	make_gaussian_params(::T) where T<:Real = zeros(T, 2)
-	make_gaussian_params(::NTuple{N, T}) where {N, T<:Real} = zeros(T, 2*N)
+	make_n_param_dist_params(n::Integer, ::T) where T<:Real = zeros(T, n)
+	make_n_param_dist_params(n::Integer, ::NTuple{N, T}) where {N, T<:Real} = zeros(T, n*N)
 end
 
 # ╔═╡ ba41f521-4ee2-42a6-bf18-078bfa4b875e
 begin
-	make_gaussian_policy_params(num_features::Integer, ::T) where T<:Real = zeros(T, num_features, 2)
-	make_gaussian_policy_params(num_features::Integer, ::NTuple{N, T}) where {N, T<:Real} = zeros(T, num_features, 2*N)
+	make_n_param_dist_policy_params(n::Integer, num_features::Integer, ::T) where T<:Real = zeros(T, num_features, n)
+	make_n_param_dist_policy_params(n::Integer, num_features::Integer, ::NTuple{N, T}) where {N, T<:Real} = zeros(T, num_features, n*N)
 end
 
 # ╔═╡ ba5d6311-daee-4abc-b2fb-fae2184ef3eb
@@ -2113,19 +2457,29 @@ function setup_binary_gaussian_policy_arguments(mdp::ContinuousMDP{T, S, A, P, F
 	x = BinaryFeatureVector()
 	update_feature_vector!(x::BinaryFeatureVector, s) = update_binary_feature_vector!(x, s, get_active_features)
 	sample_action = rand(A)
-	action_dist_params = make_gaussian_params(sample_action)
+	action_dist_params = make_n_param_dist_params(2, sample_action)
 	∇lnπ = BinaryGaussianEligibilityVector(sample_action)
 	return (feature_vector = x, update_feature_vector! = update_feature_vector!, action_distribution_parameters = action_dist_params, eligibility_vector = ∇lnπ)
 end
 
+# ╔═╡ ed93259c-7b8b-46d7-97fb-f194e0e04b3a
+function setup_binary_beta_policy_arguments(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer) where {T<:Real, S, N, A<:Union{T, NTuple{N, T}}, P, F1, F2, F3} 
+	x = BinaryFeatureVector()
+	update_feature_vector!(x::BinaryFeatureVector, s) = update_binary_feature_vector!(x, s, get_active_features)
+	sample_action = rand(A)
+	action_dist_params = make_n_param_dist_params(2, sample_action)
+	∇lnπ = BinaryBetaEligibilityVector(sample_action)
+	return (feature_vector = x, update_feature_vector! = update_feature_vector!, action_distribution_parameters = action_dist_params, eligibility_vector = ∇lnπ)
+end
+
 # ╔═╡ 7d5c5e78-cdb9-4c1f-8b6d-53591f47ff00
-function reinforce_with_baseline_monte_carlo_control_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; policy_params::Matrix{T} = make_gaussian_policy_params(num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
+function reinforce_with_baseline_monte_carlo_control_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
 	setup = setup_binary_gaussian_policy_arguments(mdp, get_active_features, num_features)
 	reinforce_with_baseline_monte_carlo_control!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, update_binary_action_preferences!, setup.action_distribution_parameters, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes; kwargs...)
 end
 
 # ╔═╡ d5020a8d-1dd7-403c-9d1f-665b95543943
-reinforce_with_baseline_monte_carlo_control_linear_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, max_episodes::Integer; policy_params::Matrix{T} = make_gaussian_policy_params(num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), x = zeros(T, num_features), action_dist_params::Vector{T} = make_gaussian_params(rand(A)), kwargs...) where {T<:Real, S, N, A<:Union{T, NTuple{N, T}}, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, copy(policy_params), value_params, copy(value_params), mdp, update_linear_action_preferences!, action_dist_params, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes; kwargs...)
+reinforce_with_baseline_monte_carlo_control_linear_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, max_episodes::Integer; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), x = zeros(T, num_features), action_dist_params::Vector{T} = make_gaussian_params(rand(A)), kwargs...) where {T<:Real, S, N, A<:Union{T, NTuple{N, T}}, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, copy(policy_params), value_params, copy(value_params), mdp, update_linear_action_preferences!, action_dist_params, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes; kwargs...)
 
 # ╔═╡ 2be8a812-4f21-4fe8-a2de-50497db0345a
 md"""
@@ -2137,6 +2491,8 @@ begin
 	function update_traces_with_gradient!(c::T, z_θ::Matrix{T}, ∇θ::BinaryGaussianEligibilityVector{T, T, T, B}) where {T<:Real, B<:BinaryFeatureVector}
 		c1 = ∇θ.a - ∇θ.μ
 		c2 = ∇θ.σ^(-2)
+		# isnan(c2) && @info "warning σ of $∇θ.σ is causing nan results"
+		# isinf(c2) && @info "warning σ of $∇θ.σ is causing inf results"
 		c3 = c1 * c2
 		c4 = c3*c1 - one(T)
 		z_θ .*= c
@@ -2152,9 +2508,28 @@ begin
 		return z_θ
 	end
 
+	function update_traces_with_gradient!(c::T, z_θ::Matrix{T}, ∇θ::BinaryBetaEligibilityVector{T, T, T, B}) where {T<:Real, B<:BinaryFeatureVector}
+		c1 = digamma(∇θ.α + ∇θ.β)
+		δ1 = ∇θ.α*(log(∇θ.a) + c1 - digamma(∇θ.α))
+		z_θ .*= c
+		@inbounds @simd for j in 1:∇θ.binary_features.num_features
+			i = ∇θ.binary_features.active_features[j]
+			z_θ[i, 1] += δ1
+		end
+
+		δ2 = ∇θ.β*(log(one(T) - ∇θ.a) + c1 - digamma(∇θ.β))
+		@inbounds @simd for j in 1:∇θ.binary_features.num_features
+			i = ∇θ.binary_features.active_features[j]
+			z_θ[i, 2] += δ2
+		end
+		return z_θ
+	end
+
 	function update_traces_with_gradient!(a::T, z_θ::Matrix{T}, b::T, ∇θ::BinaryGaussianEligibilityVector{T, T, T, B}) where {T<:Real, B<:BinaryFeatureVector}
 		c1 = ∇θ.a - ∇θ.μ
 		c2 = ∇θ.σ^(-2)
+		# isnan(c2) && @info "warning σ of $∇θ.σ is causing nan results"
+		# isinf(c2) && @info "warning σ of $∇θ.σ is causing inf results"
 		c3 = c1 * c2
 		c4 = c3*c1 - one(T)
 		z_θ .*= a
@@ -2172,11 +2547,31 @@ begin
 		return z_θ
 	end
 
+	function update_traces_with_gradient!(a::T, z_θ::Matrix{T}, b::T, ∇θ::BinaryBetaEligibilityVector{T, T, T, B}) where {T<:Real, B<:BinaryFeatureVector}
+		c1 = digamma(∇θ.α + ∇θ.β)
+		z_θ .*= a
+		δ1 = b*∇θ.α*(log(∇θ.a) + c1 - digamma(∇θ.α))
+		@inbounds @simd for j in 1:∇θ.binary_features.num_features
+			i = ∇θ.binary_features.active_features[j]
+			z_θ[i, 1] += δ1
+		end
+
+		δ2 = b*∇θ.β*(log(one(T) - ∇θ.a) + c1 - digamma(∇θ.β))
+		@inbounds @simd for j in 1:∇θ.binary_features.num_features
+			i = ∇θ.binary_features.active_features[j]
+			z_θ[i, 2] += δ2
+		end
+		return z_θ
+	end
+
+
 	function update_traces_with_gradient!(a::T, z_θ::Matrix{T}, ∇θ::BinaryGaussianEligibilityVector{T, NTuple{N, T}, Vector{T}, B}) where {T<:Real, N, B<:BinaryFeatureVector}
 		z_θ .*= a
 		for k in 1:N
 			c1 = ∇θ.a[k] - ∇θ.μ[k]
 			c2 = ∇θ.σ[k] ^-2
+			# isnan(c2) && @info "warning σ of $∇θ.σ is causing nan results"
+			# isinf(c2) && @info "warning σ of $∇θ.σ is causing inf results"
 			c3 = c1 * c2
 			c4 = c3*c1 - one(T)
 			
@@ -2191,11 +2586,31 @@ begin
 		return θ
 	end
 
+	function update_traces_with_gradient!(a::T, z_θ::Matrix{T}, ∇θ::BinaryBetaEligibilityVector{T, NTuple{N, T}, Vector{T}, B}) where {T<:Real, N, B<:BinaryFeatureVector}
+		z_θ .*= a
+		for k in 1:N
+			c1 = digamma(∇θ.α[k] + ∇θ.β[k])
+			δ1 = ∇θ.α[k]*(log(∇θ.a[k]) + c1 - digamma(∇θ.α[k]))
+			
+			@inbounds @simd for i in 1:size(θ, 1)
+				θ[i, k] += δ1
+			end
+			
+			δ2 = ∇θ.β[k]*(log(one(T) - ∇θ.a[k]) + c1 - digamma(∇θ.β[k]))
+			@inbounds @simd for i in 1:size(θ, 1)
+				θ[i, k+N] += δ2
+			end
+		end
+		return θ
+	end
+
 	function update_traces_with_gradient!(a::T, z_θ::Matrix{T}, b::T, ∇θ::BinaryGaussianEligibilityVector{T, NTuple{N, T}, Vector{T}, B}) where {T<:Real, N, B<:BinaryFeatureVector}
 		z_θ .*= a
 		for k in 1:N
 			c1 = ∇θ.a[k] - ∇θ.μ[k]
 			c2 = ∇θ.σ[k] ^-2
+			isnan(c2) && @info "warning σ of $∇θ.σ is causing nan results"
+			isinf(c2) && @info "warning σ of $∇θ.σ is causing inf results"
 			c3 = c1 * c2
 			c4 = c3*c1 - one(T)
 			δ1 = b*c3
@@ -2205,6 +2620,24 @@ begin
 			end
 		
 			δ2 = b*c4
+			@inbounds @simd for i in 1:size(θ, 1)
+				θ[i, k+N] += δ2
+			end
+		end
+		return θ
+	end
+
+	function update_traces_with_gradient!(a::T, z_θ::Matrix{T}, b::T, ∇θ::BinaryBetaEligibilityVector{T, NTuple{N, T}, Vector{T}, B}) where {T<:Real, N, B<:BinaryFeatureVector}
+		z_θ .*= a
+		for k in 1:N
+			c1 = digamma(∇θ.α[k] + ∇θ.β[k])
+			δ1 = b*∇θ.α[k]*(log(∇θ.a[k]) + c1 - digamma(∇θ.α[k]))
+			
+			@inbounds @simd for i in 1:size(θ, 1)
+				θ[i, k] += δ1
+			end
+			
+			δ2 = b*∇θ.β[k]*(log(one(T) - ∇θ.a[k]) + c1 - digamma(∇θ.β[k]))
 			@inbounds @simd for i in 1:size(θ, 1)
 				θ[i, k+N] += δ2
 			end
@@ -2480,6 +2913,12 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 		v̂ = value_function(x, value_params)
 		update_action_distribution!(action_dist_params, x, policy_params)
 		a = action_sampler(action_dist_params)
+		if bad_continuous_action(a)
+			@info "terminating after $step steps and episode $ep due to invalid continuous action $a taken in state $s with action distribution parameters $action_dist_params"
+			push!(episode_steps, max_steps)
+			push!(episode_rewards, typemin(T))
+			break
+		end
 		update_eligibility_vector!(∇lnπ, action_dist_params, x, a, policy_params)
 	
 		(r, s′) = mdp.ptf(s, a)
@@ -2517,6 +2956,61 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 	function_outputs = form_state_and_policy_function_outputs(update_feature_vector!, update_action_distribution!, action_dist_params, action_sampler, value_function, x, policy_params, value_params)
 
 	return (;step_rewards = step_rewards, episode_steps = episode_steps, episode_rewards = episode_rewards, policy_parameters = policy_params, value_parameters = value_params, function_outputs...)
+end
+
+# ╔═╡ 4da20fd7-b897-4f26-bf2a-f08d66ddf90f
+#version of reinforce for general function approximation
+function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value_params::P2, ∇v̂, mdp::ContinuousMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, update_action_distribution!::Function, action_dist_params::Vector{T}, action_sampler::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄ = one(T)/10, z_θ::P1 = deepcopy(policy_params), z_w::P2 = deepcopy(value_params), save_step_rewards = false) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
+	step_rewards = Vector{T}()
+
+	#initialize variables
+	step = 1
+	rtot = zero(T)
+	r̄ = zero(T)
+	c = one(T)
+	zero_params!(z_θ)
+	zero_params!(z_w)
+	
+	s = mdp.initialize_state()
+	update_feature_vector!(x, s)
+	
+	while step <= max_steps
+		update_value_gradient!(∇v̂, x, value_params)
+		v̂ = value_function(x, value_params)
+		update_action_distribution!(action_dist_params, x, policy_params)
+		a = action_sampler(action_dist_params)
+		if bad_continuous_action(a)
+			@info "terminating after $step steps due to invalid continuous action $a taken in state $s with action distribution parameters $action_dist_params"
+			push!(episode_steps, max_steps)
+			push!(episode_rewards, typemin(T))
+			break
+		end
+		update_eligibility_vector!(∇lnπ, action_dist_params, x, a, policy_params)
+	
+		(r, s′) = mdp.ptf(s, a)
+		rtot += r
+		save_step_rewards && push!(step_rewards, r)
+		step += 1
+
+		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		
+		update_feature_vector!(x, s′)
+		v̂′ = value_function(x, value_params)	
+		δ = r - r̄ + v̂′ - v̂
+		r̄ += α_r̄*δ
+
+		update_traces_with_gradient!(γ*λ_w, z_w, ∇v̂)
+		update_traces_with_gradient!(γ*λ_θ, z_θ, c, ∇lnπ)
+		
+		update_params_with_gradient!(value_params, α_w*δ, z_w)
+		update_params_with_gradient!(policy_params, α_θ*c*δ, z_θ)
+
+		s = s′
+	end
+
+	function_outputs = form_state_and_policy_function_outputs(update_feature_vector!, update_action_distribution!, action_dist_params, action_sampler, value_function, x, policy_params, value_params)
+
+	return (;step_rewards = step_rewards, total_reward = rtot, policy_parameters = policy_params, value_parameters = value_params, function_outputs...)
 end
 
 # ╔═╡ 05bfd818-bf4e-4bda-baa9-5ba647867097
@@ -2557,9 +3051,6 @@ end
 actor_critic_with_eligibility_traces_binary_features(corridor_mdp, 0f0, 0f0, get_corridor_features, 1, 100_000, α_θ = 2f0 ^ -4, α_w = 2f0 ^ -10, policy_params = [0f0 3.7f0]).policy_and_value(1)
   ╠═╡ =#
 
-# ╔═╡ 8b35661b-5075-4d63-bc31-044407f99acf
-actor_critic_with_eligibility_traces_binary_features(corridor_continuing_mdp, 0.8f0, 0.999f0, get_corridor_features, 1, 100_000, α_θ = 0.1f0, α_w = 2f0 ^ -20, α_r̄ = 0.003f0, policy_params = [0f0 3.7f0]; save_step_rewards = true).policy_and_value(1)
-
 # ╔═╡ 734573e5-547b-4dcc-89bb-412aa6cc42d6
 #=╠═╡
 function actor_critic_binary_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
@@ -2584,7 +3075,30 @@ corridor_continuing_parameter_study(args...; kwargs...) = actor_critic_binary_pa
 
 # ╔═╡ 42775fd1-5b27-48e0-abf1-9b22bb775e6d
 #=╠═╡
-corridor_continuing_parameter_study(continuing_study_params.λ_θ, continuing_study_params.λ_w, continuing_study_params.α_r̄, 2f0 .^ (continuing_study_params.α_θ_min:continuing_study_params.α_θ_min+4), 2f0 .^ (continuing_study_params.α_w_min:continuing_study_params.α_w_min + 3), 2000)
+corridor_continuing_parameter_study(continuing_study_params, 5, 3, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 1b102220-6d78-480d-a77f-0e57bad23dca
+#=╠═╡
+cartpole_binary_continuing_parameter_study(args...; kwargs...) = actor_critic_binary_parameter_study(cartpole_continuing_mdp, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, args...; kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ b2539398-fdbc-42a2-a8f3-d327358f3643
+#=╠═╡
+cartpole_binary_continuing_parameter_study(cartpole_continuing_binary_study_params, 5, 3, 10_000)
+  ╠═╡ =#
+
+# ╔═╡ 8b35661b-5075-4d63-bc31-044407f99acf
+actor_critic_with_eligibility_traces_binary_features(corridor_continuing_mdp, 0.75f0, 0.25f0, get_corridor_features, 1, 1_000_000, α_θ = 0.00625f0, α_w = 0.0004f0, α_r̄ = 0.004f0, policy_params = [0f0 3.7f0]; save_step_rewards = true).policy_and_value(1)
+
+# ╔═╡ 3c89209c-9202-4d5d-841c-ea34be369616
+#=╠═╡
+const cartpole_continuing_test = actor_critic_with_eligibility_traces_binary_features(cartpole_continuing_mdp, 0.95f0, 0.05f0, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, 100_000, α_θ = .2f0, α_w = 5f-4, α_r̄ = 0.005f0, save_step_rewards = true)
+  ╠═╡ =#
+
+# ╔═╡ 645e93e7-e92e-49c4-9757-8294fabf4e9b
+#=╠═╡
+plot_continuing_step_rewards(cartpole_continuing_test.step_rewards)
   ╠═╡ =#
 
 # ╔═╡ 68806899-9972-460a-9f11-daa708a9d610
@@ -2665,14 +3179,20 @@ end
   ╠═╡ =#
 
 # ╔═╡ 20776e09-7d9b-4db8-a060-7bceeec65b47
-function actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = make_gaussian_policy_params(num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
+function actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
 	setup = setup_binary_gaussian_policy_arguments(mdp, get_active_features, num_features)
 	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes, max_steps::Integer; kwargs...)
 end
 
+# ╔═╡ 3e3c5897-809f-46e3-bb58-f115b082443e
+function actor_critic_with_eligibility_traces_binary_features_beta_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
+	setup = setup_binary_beta_policy_arguments(mdp, get_active_features, num_features)
+	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_beta_sampler(rand(A)), update_beta_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes, max_steps::Integer; kwargs...)
+end
+
 # ╔═╡ 55ba8725-0ddf-4196-a41d-3f3c490a8d84
 #=╠═╡
-function actor_critic_binary_episodic_gaussian_parameter_study(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, λ_θ::T, λ_w::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_episodes::Integer; nruns::Integer = 100, max_steps::Integer = 10_000, seed = rand(UInt64), init_policy_params::Matrix{T} = make_gaussian_policy_params(num_features, rand(A)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+function actor_critic_binary_episodic_gaussian_parameter_study(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, λ_θ::T, λ_w::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_episodes::Integer; nruns::Integer = 100, max_steps::Integer = 10_000, seed = rand(UInt64), init_policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	Random.seed!(seed)
 	function average_runs(α_θ, α_w)
 		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mdp, λ_θ, λ_w, get_active_features, num_features, max_episodes, max_steps; α_θ = α_θ, α_w = α_w, policy_params = copy(init_policy_params), value_params = copy(init_value_params), kwargs...) |> x -> isempty(x.episode_rewards) ? -T(Inf) : mean(x.episode_rewards)) |> foldxt(+) |> x -> x / nruns
@@ -2687,8 +3207,28 @@ function actor_critic_binary_episodic_gaussian_parameter_study(mdp::ContinuousMD
 end
   ╠═╡ =#
 
+# ╔═╡ dd8e8cd2-7b41-46c4-8530-adefb7aea684
+#=╠═╡
+function actor_critic_binary_episodic_beta_parameter_study(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, λ_θ::T, λ_w::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_episodes::Integer; nruns::Integer = 100, max_steps::Integer = 10_000, seed = rand(UInt64), init_policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	Random.seed!(seed)
+	function average_runs(α_θ, α_w)
+		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features_beta_actions(mdp, λ_θ, λ_w, get_active_features, num_features, max_episodes, max_steps; α_θ = α_θ, α_w = α_w, policy_params = copy(init_policy_params), value_params = copy(init_value_params), kwargs...) |> x -> isempty(x.episode_rewards) ? -T(Inf) : mean(x.episode_rewards)) |> foldxt(+) |> x -> x / nruns
+	end
+
+	traces = [begin
+		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
+	end
+	for α_w in α_w_list]
+
+	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Episode in the First <br> $max_episodes Episodes Averaged Over $nruns Runs", xaxis_type = "log", title = "Binary Feature Encoding with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
+end
+  ╠═╡ =#
+
 # ╔═╡ 13ebc12f-ff6f-4266-88d3-28d6df5fcf59
 actor_critic_binary_episodic_gaussian_parameter_study(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, num_episodes::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_binary_episodic_gaussian_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), num_episodes; kwargs...)
+
+# ╔═╡ 3d065608-eef2-4caa-b17d-ec60714e3d58
+actor_critic_binary_episodic_beta_parameter_study(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, num_episodes::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_binary_episodic_beta_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), num_episodes; kwargs...)
 
 # ╔═╡ 3c695d54-c30f-4f04-bd40-f5da53be2a95
 md"""
@@ -2797,6 +3337,11 @@ end
 
 # ╔═╡ 26880577-d267-4950-8725-7afe0d0402b6
 const cartpole_setup = setup_cartpole_continuous_problem()
+
+# ╔═╡ 0cd96c44-cae6-421f-9fae-26141600bef4
+#=╠═╡
+display_cartpole_episode((runepisode(cartpole_setup.mdps.episodic.discrete; π = cartpole_continuing_test.policy_sample_action, max_steps = 1_000) |> x -> (x[1], x[2]))...)
+  ╠═╡ =#
 
 # ╔═╡ 24fa139c-ad4b-49db-ac8f-23c476ed8608
 const reinforce_test = reinforce_with_baseline_monte_carlo_control_binary_features_gaussian_actions(cartpole_setup.mdps.episodic.continuous, cartpole_setup.get_active_features, cartpole_setup.num_features, 10_000; α_θ = 2f0 ^-14, α_w = 2f0 ^-6)
@@ -2926,6 +3471,41 @@ const cartpole_fcann_feature_setup = fcann_feature_vector_setup(cartpole_setup.m
 # ╔═╡ 192b9f82-8d3a-408f-91c2-829cfcd32572
 cartpole_vector_update!(x::Vector{T}, s::CartPoleState{T}) where T<:Real = cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇))
 
+# ╔═╡ f52fc4a9-f6dd-422d-aeae-6c327d1a7b62
+#=╠═╡
+cartpole_fcann_continuing_parameter_study(layer_size::Integer, num_layers::Integer, args...; kwargs...) = actor_critic_fcann_parameter_study(cartpole_continuing_mdp, cartpole_vector_update!, cartpole_fcann_feature_setup.num_features, fill(layer_size, num_layers), args...; kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 50ae94c4-70f3-4215-82bd-eb2227c2badf
+#=╠═╡
+cartpole_fcann_continuing_parameter_study(cartpole_continuing_fcann_network_params..., cartpole_continuing_fcann_study_params, 4, 3, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ eae6493e-81b6-4d99-a9c6-6e75d3b3dc27
+#=╠═╡
+const cartpole_continuing_fcann_test = actor_critic_with_eligibility_traces_fcann(cartpole_continuing_mdp, 0.85f0, 0.05f0, cartpole_fcann_feature_setup.num_features, [64, 64], cartpole_vector_update!, 300_000, α_θ = 0.03125f0, α_w = 0.03125f0, α_r̄ = 0.005f0; save_step_rewards=true)
+  ╠═╡ =#
+
+# ╔═╡ 04b5929a-2058-49c9-963a-96c752a1d67d
+#=╠═╡
+plot_continuing_step_rewards(cartpole_continuing_fcann_test.step_rewards)
+  ╠═╡ =#
+
+# ╔═╡ 64b38d1f-ecf9-4843-89a1-4c8953048265
+#=╠═╡
+const cartpole_fcann_continuing_test_episode = runepisode(cartpole_setup.mdps.episodic.discrete; π = cartpole_continuing_fcann_test.policy_sample_action, max_steps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ 7f77d574-8f65-4e1e-8f5f-6f1bcccc3fce
+#=╠═╡
+display_cartpole_episode(cartpole_fcann_continuing_test_episode[1], cartpole_fcann_continuing_test_episode[2])
+  ╠═╡ =#
+
+# ╔═╡ 6acb549a-5d90-4457-a347-d22448ad8071
+#=╠═╡
+@bind cartpole_fcann_continuing_episode_step_select Slider(1:length(cartpole_fcann_continuing_test_episode[1]); show_value = true)
+  ╠═╡ =#
+
 # ╔═╡ d34d22ad-89c2-423e-91dd-bfb895dc6540
 #=╠═╡
 cartpole_fcann_parameter_study(args...; kwargs...) = actor_critic_fcann_episodic_parameter_study(cartpole_setup.mdps.episodic.discrete, cartpole_vector_update!, cartpole_fcann_feature_setup.num_features, args...; kwargs...)
@@ -2961,7 +3541,7 @@ cartpole_fcann_parameter_study(fill(fcann_cartpole_study_params.h, fcann_cartpol
   ╠═╡ =#
 
 # ╔═╡ 407a0724-4bb6-4c83-ab2d-17a0e19c4072
-const reinforce_test4 = actor_critic_with_eligibility_traces_fcann(cartpole_setup.mdps.episodic.discrete, 0.95f0, 0.2f0, cartpole_fcann_feature_setup.num_features, [64, 64], (x, s) -> cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇)), typemax(Int64), 1_000_000; α_θ = 2f-4, α_w = 3f-5, γ = 1f0)
+const reinforce_test4 = actor_critic_with_eligibility_traces_fcann(cartpole_setup.mdps.episodic.discrete, 0.95f0, 0.2f0, cartpole_fcann_feature_setup.num_features, [64, 64], (x, s) -> cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇)), typemax(Int64), 1_000_000; α_θ = 4f-4, α_w = 2f-5, γ = 1f0)
 
 # ╔═╡ 27487ad0-4779-42ce-8def-e660ef04bee0
 reinforce_test4.policy_and_value(cartpole_setup.mdps.episodic.discrete.initialize_state())
@@ -3076,6 +3656,9 @@ cartpole_setup.mdps.continuing.discrete
 # ╔═╡ 700dcbc4-c94c-4287-8cf0-0b2c7a320a3a
 reinforce_test5.policy_and_value(CartPoleState())
 
+# ╔═╡ 4f96be72-ef3e-4e08-ac4c-be4271dcd14c
+
+
 # ╔═╡ 54f1546d-87ae-49d2-92ed-6fcc9b66e027
 md"""
 ### *Mountain Car MDP*
@@ -3100,27 +3683,22 @@ const mountaincar_fcann_setup = fcann_feature_vector_setup(mountaincar_min_vals,
 # ╔═╡ 7c592385-e8d3-4efe-962c-d39debb64405
 const mountaincar_tilecoding_setup = tile_coding_setup(mountaincar_min_vals, mountaincar_max_vals, (0.1f0, 0.1f0), 12, (1, 3))
 
+# ╔═╡ d57375a5-b9e0-4742-b5f7-6a7da891604a
+#=╠═╡
+mountaincar_binary_continuing_parameter_study(args...; kwargs...) = actor_critic_binary_parameter_study(mountaincar_continuing_mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, args...; kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 04f42c09-8ab5-4233-b196-51c4aa2dcedb
+#=╠═╡
+mountaincar_binary_continuing_parameter_study(mountaincar_continuing_binary_params, 4, 2, 100_000)
+  ╠═╡ =#
+
 # ╔═╡ d9d11d69-bc16-400a-8f46-f9a8ecb8516a
 actor_critic_binary_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, num_episodes::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_binary_episodic_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), num_episodes; kwargs...)
 
 # ╔═╡ bc8a399b-8864-4473-89d2-e3b0a03d15b5
 #=╠═╡
 corridor_parameter_study(args...; kwargs...) = actor_critic_binary_episodic_parameter_study(corridor_mdp, get_corridor_features, 1, args...; init_policy_params = [0f0 3.7f0], kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ c52c4cec-0ea8-4af3-831a-d284f0e086ee
-#=╠═╡
-corridor_parameter_study(study_params.λ_θ, study_params.λ_w, 2f0 .^ (study_params.α_θ_min:study_params.α_θ_min+6), 2f0 .^ (study_params.α_w_min:study_params.α_w_min+2), 100; seed = 45)
-  ╠═╡ =#
-
-# ╔═╡ 4c5cb75e-79b5-4502-b1eb-6246e002feaf
-#=╠═╡
-@bind mountaincar_binary_params create_actor_critic_params_UI()
-  ╠═╡ =#
-
-# ╔═╡ 8eb42403-1234-4e59-993e-057cc3a6d5c9
-#=╠═╡
-actor_critic_binary_episodic_parameter_study(MountainCarTask.mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, mountaincar_binary_params, 5, 3, 1000; max_steps = 100_000)
   ╠═╡ =#
 
 # ╔═╡ 6d0925d3-af96-4b94-8e2e-4941cce39e51
@@ -3153,18 +3731,30 @@ end
 # ╔═╡ d560b2a0-c571-4ad7-b1c9-83ec03fc8cc2
 const mountaincar_continuous_mdp = create_continuous_action_mountaincar()
 
-# ╔═╡ 71a5fce8-6d9a-4625-bad1-a951d61bff28
-#=╠═╡
-@bind mountaincar_binary_continuous_params create_actor_critic_params_UI()
-  ╠═╡ =#
-
-# ╔═╡ b53dba81-a9e9-41da-8fc2-7736bf25f2dc
-#=╠═╡
-actor_critic_binary_episodic_gaussian_parameter_study(mountaincar_continuous_mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, mountaincar_binary_continuous_params, 3, 2, 1000; max_steps = 100_000)
-  ╠═╡ =#
-
 # ╔═╡ b8532822-179b-4cd5-a279-4b71dafb544a
-const mountaincar_continuous_test_train = actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mountaincar_continuous_mdp, 0.05f0, 0.8f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 1000_000; α_θ = 6f-5, α_w = 0.00008f0)
+const mountaincar_continuous_test_train = actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mountaincar_continuous_mdp, 0.05f0, 0.8f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 1_000_000; α_θ = 5f-5, α_w = 0.00008f0)
+
+# ╔═╡ d2729657-d0bf-4d39-8ec7-f242a1ad48d6
+function create_continuous_action_mountaincar_beta()
+	#if we sample actions from a beta distribution then the action will always be bounded between 0 and 1.  this step function rescales it to -1 to 1
+	mdp = MountainCarTask.mdp
+	function step(s, a) 
+		f = 2f0*(a - 0.5f0)
+		(-1f0, MountainCarTask.step(s, f))
+	end
+	ContinuousMDP(step, mdp.initialize_state, 0f0; isterm = mdp.isterm)
+end
+
+# ╔═╡ 8e096fae-9941-49d8-ae87-c68b02f68da5
+const mountaincar_continuous_beta_mdp = create_continuous_action_mountaincar_beta()
+
+# ╔═╡ 4156d955-9daf-4429-b152-e8332980fb9e
+const mountaincar_continuous_test_train_beta = actor_critic_with_eligibility_traces_binary_features_beta_actions(mountaincar_continuous_beta_mdp, 0.01f0, 0.99f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 1_000_000; α_θ = 4f-7, α_w = 0.00002f0)
+
+# ╔═╡ 16113560-e911-47b4-abc4-641bbd246454
+#=╠═╡
+plot(mountaincar_continuous_test_train_beta.episode_rewards, Layout(yaxis_range = [-10000, 0]))
+  ╠═╡ =#
 
 # ╔═╡ a7891c63-18d6-4c1f-ba67-adf7c547d334
 # ╠═╡ disabled = true
@@ -3302,6 +3892,161 @@ end
 plot_state_distributions(dist_plot_p)
   ╠═╡ =#
 
+# ╔═╡ cc80848a-6834-4272-9152-e17b45448814
+#=╠═╡
+function wind_speeds(directions)
+	PlutoUI.combine() do Child
+		@htl("""
+		<h6>Wind speeds</h6>
+		<ul>
+		$([
+			@htl("<li>$(name): $(Child(name, Slider(1:100)))</li>")
+			for name in directions
+		])
+		</ul>
+		""")
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ a8b40b8f-051a-4e6f-a079-ece4f32873de
+#=╠═╡
+function create_actor_critic_params_UI(;λ_θ = 0.5f0, λ_w = 0.5f0, log2α_θ = -10, log2α_w = -10)
+	PlutoUI.combine() do Child
+		@htl("""
+		$(md"""
+		 $$\lambda_\theta$$: $(Child(:λ_θ, Slider(0.00f0:0.001f0:.999f0, default = λ_θ, show_value=true)))
+		
+		 $$\lambda_\mathbf{w}$$: $(Child(:λ_w, Slider(0.00f0:0.001f0:.999f0, default = λ_w, show_value=true)))
+		
+		 $$\log_2 \alpha_\theta$$ min: $(Child(:α_θ_min, NumberField(-100:0, default = log2α_θ)))
+		
+		 $$\log_2 \alpha_{\mathbf{w}}$$ min: $(Child(:α_w_min, NumberField(-100:0, default = log2α_w)))
+		""")""")
+	end |> confirm
+end
+  ╠═╡ =#
+
+# ╔═╡ 36d514fa-b27a-4c6b-8399-9d108377b9b5
+#=╠═╡
+@bind study_params create_actor_critic_params_UI(;λ_θ = 0.75f0, λ_w = 0.25f0, log2α_θ = -8, log2α_w = -11)
+  ╠═╡ =#
+
+# ╔═╡ f7f4cfba-d8b2-4413-b6f6-f9b84fbffae3
+#=╠═╡
+study_params
+  ╠═╡ =#
+
+# ╔═╡ c52c4cec-0ea8-4af3-831a-d284f0e086ee
+#=╠═╡
+corridor_parameter_study(study_params.λ_θ, study_params.λ_w, 2f0 .^ (study_params.α_θ_min:study_params.α_θ_min+6), 2f0 .^ (study_params.α_w_min:study_params.α_w_min+2), 100; seed = 45)
+  ╠═╡ =#
+
+# ╔═╡ 4c5cb75e-79b5-4502-b1eb-6246e002feaf
+#=╠═╡
+@bind mountaincar_binary_params create_actor_critic_params_UI()
+  ╠═╡ =#
+
+# ╔═╡ 8eb42403-1234-4e59-993e-057cc3a6d5c9
+#=╠═╡
+actor_critic_binary_episodic_parameter_study(MountainCarTask.mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, mountaincar_binary_params, 5, 3, 1000; max_steps = 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 71a5fce8-6d9a-4625-bad1-a951d61bff28
+#=╠═╡
+@bind mountaincar_binary_continuous_params create_actor_critic_params_UI()
+  ╠═╡ =#
+
+# ╔═╡ b53dba81-a9e9-41da-8fc2-7736bf25f2dc
+#=╠═╡
+actor_critic_binary_episodic_gaussian_parameter_study(mountaincar_continuous_mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, mountaincar_binary_continuous_params, 4, 3, 1000; max_steps = 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 44f14d4f-7414-4c6f-883a-042ca261a403
+#=╠═╡
+@bind mountaincar_binary_continuous_params2 create_actor_critic_params_UI()
+  ╠═╡ =#
+
+# ╔═╡ 6c5f51bb-a6be-447e-b73d-4f9c2885e809
+#=╠═╡
+actor_critic_binary_episodic_beta_parameter_study(mountaincar_continuous_mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, mountaincar_binary_continuous_params2, 5, 3, 10000; max_steps = 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 602a07dd-8928-4b44-97e5-01c5cbf38351
+#=╠═╡
+function plot_cartpole_policy(policy_and_value::Function; θ̇_range = 1, npoints = 100, s_ref::CartPoleState = CartPoleState())
+	θs = LinRange(-1.2f0, 1.2f0, npoints)
+	θ̇s = LinRange(-10f0, 10f0, npoints)
+	value_output = zeros(Float32, npoints, npoints)
+	policy_outputs = [zeros(Float32, npoints, npoints) for _ in 1:3]
+	x = s_ref.x
+	ẋ = s_ref.ẋ
+
+	policy_output = policy_and_value(s_ref)
+
+	policy_plot = plot(bar(x = [-1, 0, 1], y = policy_output.action_probabilities), Layout(height = 350, xaxis_title = "Policy Action", yaxis_title = "Action Probability", title = "Policy Distribution Function"))
+
+	for i in 1:npoints
+		for j in 1:npoints
+			s = CartPoleState(x, θs[i], ẋ, θ̇s[j])
+			output = policy_and_value(s)
+			value_output[i, j] = output.state_value_estimate
+			for i_a in 1:3
+				policy_outputs[i_a][i, j] = output.action_probabilities[i_a]
+			end
+		end
+	end
+
+	reference_trace = scatter(x = [s_ref.θ], y = [s_ref.θ̇], name = "reference state", marker_color = "black", marker_symbol = "x")
+
+	value_plot = plot([heatmap(x = θs, y = θ̇s, z = value_output, name = "value function"), reference_trace], Layout(xaxis_title = "Pole Angle in Radians", yaxis_title = "Pole Angular Velocity", title = "Value Estimate for x = $x and ẋ = $ẋ", height = 350))
+	policy_plots = [plot([heatmap(x = θs, y = θ̇s, z = policy_outputs[i_a], zmin = 0, zmax = 1), reference_trace], Layout(title = "Action $i_a", xaxis_title = "Pole Angle in Radians", yaxis_title = "Pole Angular Velocity", height = 350)) for i_a in 1:3]
+
+	@htl("""
+	<div style = "display: flex;">
+	$(vcat(value_plot, policy_plot))
+	</div>
+
+	<div style = "display: flex;">
+	$policy_plots
+	</div>
+	""")
+	
+	# value_traces = [begin
+	# 	states = [CartPoleState(0f0, θ, 0f0, θ̇) for θ in θs]
+	# 	output = [policy_and_value(s) for s in states]
+	# 	scatter(x = θs, y = [a.state_value_estimate for a in output], name = "θ̇ = $θ̇")
+	# end
+	# for θ̇ in θ̇s]
+	# plot(value_traces, Layout(xaxis_title = "Pole Angle in Radians", yaxis_title = "State Value Estimate"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 0574f5a0-72e7-4aa2-80ac-f4ce4f0fe7c2
+#=╠═╡
+plot_cartpole_policy(cartpole_continuing_test.policy_and_value)
+  ╠═╡ =#
+
+# ╔═╡ db6ed0ea-c26b-4ea1-b4a1-7641f0f9c7ef
+#=╠═╡
+plot_cartpole_policy(cartpole_continuing_fcann_test.policy_and_value; s_ref = cartpole_fcann_continuing_test_episode[1][cartpole_fcann_continuing_episode_step_select])
+  ╠═╡ =#
+
+# ╔═╡ fd58402f-da65-44cf-b81a-e21192fd0e63
+#=╠═╡
+plot_cartpole_policy(cartpole_continuing_fcann_test.policy_and_value; s_ref = CartPoleState(cartpole_fcann_continuing_test_state...))
+  ╠═╡ =#
+
+# ╔═╡ af144759-fe66-4ad0-b378-e9eb4e859db4
+#=╠═╡
+plot_cartpole_policy(reinforce_test4.policy_and_value; s_ref = ep[1][ep_step])
+  ╠═╡ =#
+
+# ╔═╡ d4e87ac4-6008-43b2-aa06-e232ec2b2b5b
+#=╠═╡
+plot_cartpole_policy(reinforce_test5.policy_and_value; s_ref = CartPoleState(Float32(x), 0f0, Float32(ẋ), 0f0))
+  ╠═╡ =#
+
 # ╔═╡ 63fbf8f4-e4e2-4893-be09-67450e92dbd7
 #=╠═╡
 function plot_cart(s::CartPoleState, a::Int64; xmin = -50, xmax = 50, θ̇_min = -10, θ̇_max = 10)
@@ -3329,6 +4074,11 @@ function plot_cart(s::CartPoleState, a::Int64; xmin = -50, xmax = 50, θ̇_min =
 end
   ╠═╡ =#
 
+# ╔═╡ fad02876-efba-46a7-9cb7-43820528779f
+#=╠═╡
+plot_cart(cartpole_fcann_continuing_test_episode[1][cartpole_fcann_continuing_episode_step_select], cartpole_fcann_continuing_test_episode[2][cartpole_fcann_continuing_episode_step_select])
+  ╠═╡ =#
+
 # ╔═╡ 374af774-3a97-49b5-a3bb-bc3f7f63a3fa
 #=╠═╡
 plot_cart(ep[1][ep_step], ep[2][ep_step])
@@ -3337,64 +4087,6 @@ plot_cart(ep[1][ep_step], ep[2][ep_step])
 # ╔═╡ 1ce4bc6c-7cde-48e9-8ff1-7281697fd121
 #=╠═╡
 plot_cart(ep2[1][ep2_step], ep2[2][ep2_step])
-  ╠═╡ =#
-
-# ╔═╡ 4f96be72-ef3e-4e08-ac4c-be4271dcd14c
-#=╠═╡
-function plot_cartpole_policy(policy_and_value::Function; θ̇_range = 1, npoints = 100, s_ref::CartPoleState = CartPoleState())
-	θs = LinRange(-1.2f0, 1.2f0, npoints)
-	θ̇s = LinRange(-10f0, 10f0, npoints)
-	value_output = zeros(Float32, npoints, npoints)
-	policy_outputs = [zeros(Float32, npoints, npoints) for _ in 1:3]
-	x = s_ref.x
-	ẋ = s_ref.ẋ
-
-	policy_output = policy_and_value(s_ref)
-
-	policy_plot = plot(bar(y = policy_output.action_probabilities))
-
-	for i in 1:npoints
-		for j in 1:npoints
-			s = CartPoleState(x, θs[i], ẋ, θ̇s[j])
-			output = policy_and_value(s)
-			value_output[i, j] = output.state_value_estimate
-			for i_a in 1:3
-				policy_outputs[i_a][i, j] = output.action_probabilities[i_a]
-			end
-		end
-	end
-
-	reference_trace = scatter(x = [s_ref.θ], y = [s_ref.θ̇], name = "reference state", marker_color = "black", marker_symbol = "x")
-
-	value_plot = plot([heatmap(x = θs, y = θ̇s, z = value_output, name = "value function"), reference_trace], Layout(xaxis_title = "Pole Angle in Radians", yaxis_title = "Pole Angular Velocity", title = "Value Estimate for x = $x and ẋ = $ẋ"))
-	policy_plots = [plot([heatmap(x = θs, y = θ̇s, z = policy_outputs[i_a]), reference_trace], Layout(title = "Action $i_a", xaxis_title = "Pole Angle in Radians", yaxis_title = "Pole Angular Velocity", height = 350)) for i_a in 1:3]
-
-	@htl("""
-	$value_plot
-	<div style = "display: flex;">
-	$policy_plots
-	</div>
-	$policy_plot
-	""")
-	
-	# value_traces = [begin
-	# 	states = [CartPoleState(0f0, θ, 0f0, θ̇) for θ in θs]
-	# 	output = [policy_and_value(s) for s in states]
-	# 	scatter(x = θs, y = [a.state_value_estimate for a in output], name = "θ̇ = $θ̇")
-	# end
-	# for θ̇ in θ̇s]
-	# plot(value_traces, Layout(xaxis_title = "Pole Angle in Radians", yaxis_title = "State Value Estimate"))
-end
-  ╠═╡ =#
-
-# ╔═╡ af144759-fe66-4ad0-b378-e9eb4e859db4
-#=╠═╡
-plot_cartpole_policy(reinforce_test4.policy_and_value; s_ref = ep[1][ep_step])
-  ╠═╡ =#
-
-# ╔═╡ d4e87ac4-6008-43b2-aa06-e232ec2b2b5b
-#=╠═╡
-plot_cartpole_policy(reinforce_test5.policy_and_value; s_ref = CartPoleState(Float32(x), 0f0, Float32(ẋ), 0f0))
   ╠═╡ =#
 
 # ╔═╡ f9facbba-39d4-483e-9066-275603156db0
@@ -3432,6 +4124,11 @@ plot_mountaincar_values(mountaincar_test_train.estimate_state_value, mountaincar
 plot_mountaincar_values(mountaincar_continuous_test_train.estimate_state_value, mountaincar_continuous_test_train.policy_sample_action)
   ╠═╡ =#
 
+# ╔═╡ d82e7ab8-c372-4462-afb5-1617560cdb56
+#=╠═╡
+plot_mountaincar_values(mountaincar_continuous_test_train_beta.estimate_state_value, mountaincar_continuous_test_train_beta.policy_sample_action)
+  ╠═╡ =#
+
 # ╔═╡ ba645f6b-143f-4e83-9003-707770ae308d
 #=╠═╡
 function show_mountaincar_trajectory(π::Function, max_steps::Integer)
@@ -3455,13 +4152,13 @@ end
 
 # ╔═╡ ddbca73f-c692-46f2-95f3-a7dd849d33f7
 #=╠═╡
-show_mountaincar_trajectory(mountaincar_test_train.policy_sample_action, 10_000)
+show_mountaincar_trajectory(mountaincar_test_train.policy_sample_action, 1_000)
   ╠═╡ =#
 
 # ╔═╡ b5319d8b-0420-4ebf-b603-ea0b93365ac1
 #=╠═╡
-function show_mountaincar_continuous_trajectory(π::Function, max_steps::Integer)
-	states, actions, rewards, sterm, nsteps = runepisode(mountaincar_continuous_mdp, π; max_steps = max_steps)
+function show_mountaincar_continuous_trajectory(π::Function, max_steps::Integer; mdp = mountaincar_continuous_mdp)
+	states, actions, rewards, sterm, nsteps = runepisode(mdp, π; max_steps = max_steps)
 	positions = [s[1] for s in states]
 	velocities = [s[2] for s in states]
 	tr1 = scatter(x = positions, y = velocities, mode = "markers", showlegend = false)
@@ -3482,6 +4179,11 @@ end
 # ╔═╡ c87dba8c-9a96-41b3-9dc7-a6c088ec1eaf
 #=╠═╡
 show_mountaincar_continuous_trajectory(mountaincar_continuous_test_train.policy_sample_action, 10_000)
+  ╠═╡ =#
+
+# ╔═╡ a6be9a4c-d43b-4867-b7a2-07a46a9d0d8f
+#=╠═╡
+show_mountaincar_continuous_trajectory(mountaincar_continuous_test_train_beta.policy_sample_action, 1_000; mdp = mountaincar_continuous_beta_mdp)
   ╠═╡ =#
 
 # ╔═╡ f59a5dcd-9f4a-4336-a391-e64af35ef799
@@ -3514,6 +4216,7 @@ PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
@@ -3529,6 +4232,7 @@ PlutoPlotly = "~0.3.6"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.50"
 ProgressLogging = "~0.1.4"
+SpecialFunctions = "~2.5.0"
 StaticArrays = "~1.5.21"
 Statistics = "~1.11.1"
 StatsBase = "~0.33.21"
@@ -3541,7 +4245,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.4"
 manifest_format = "2.0"
-project_hash = "c763df6e6f757a1656705e8578f13dc90dbb61b6"
+project_hash = "56c8df638f6e5b883891558d07408ed68017ced3"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -4416,7 +5120,6 @@ version = "17.4.0+2"
 # ╠═e1493cea-19c4-475d-98a0-86d27fb04af1
 # ╠═3e5fc75b-61a5-49d5-b5bd-3d2847f5f72c
 # ╠═5334064b-5a16-4135-afa0-86a48291725b
-# ╠═9fc4e716-a663-437b-907c-089b311bc28a
 # ╠═5981f52b-d829-4c7d-b47b-33310f7d64a2
 # ╠═573878bb-020d-40f6-9329-3d5f91843010
 # ╟─8019bec9-1228-407b-9199-2fe29f26a981
@@ -4542,8 +5245,10 @@ version = "17.4.0+2"
 # ╠═11ea640c-3981-404d-87c6-4d3d0708a2b8
 # ╠═f8614042-7c94-4d47-a1b6-4e96676b4e8b
 # ╠═bc8a399b-8864-4473-89d2-e3b0a03d15b5
-# ╠═a8b40b8f-051a-4e6f-a079-ece4f32873de
-# ╟─36d514fa-b27a-4c6b-8399-9d108377b9b5
+# ╠═cc80848a-6834-4272-9152-e17b45448814
+# ╟─a8b40b8f-051a-4e6f-a079-ece4f32873de
+# ╠═36d514fa-b27a-4c6b-8399-9d108377b9b5
+# ╠═f7f4cfba-d8b2-4413-b6f6-f9b84fbffae3
 # ╠═c52c4cec-0ea8-4af3-831a-d284f0e086ee
 # ╟─d8222abf-139c-4220-8e92-cc987ec6900c
 # ╟─511a847f-234c-465e-8f4a-688e79d9b975
@@ -4557,48 +5262,104 @@ version = "17.4.0+2"
 # ╟─436c52d2-280b-4ca4-9360-d6587b8254c7
 # ╠═f0104778-81a6-417b-8501-f916e5e7f3af
 # ╠═1ac9296f-047b-4051-ba5c-0c23d5f9cde9
-# ╠═8b35661b-5075-4d63-bc31-044407f99acf
 # ╠═734573e5-547b-4dcc-89bb-412aa6cc42d6
-# ╠═128a551e-89ab-4441-a8c8-8ee331f36964
-# ╠═8bc280db-e57d-4e40-be46-1790f4f7d9e7
-# ╠═7afb6fb0-248a-4518-b94f-9876f81eca64
 # ╠═e96d592d-1e54-486d-8ad9-b857f85476e8
+# ╠═128a551e-89ab-4441-a8c8-8ee331f36964
+# ╠═9a9761fe-cfc7-49b1-9c46-4ef8e5a58c05
+# ╠═8bc280db-e57d-4e40-be46-1790f4f7d9e7
+# ╠═5aba4f96-e877-457e-8e95-18737348f99f
+# ╠═7afb6fb0-248a-4518-b94f-9876f81eca64
 # ╠═5b15d91e-7119-4f85-a54a-7d4f1fdaf097
-# ╠═7d94922e-dc9f-4953-b539-24aaa2c85b12
+# ╟─7d94922e-dc9f-4953-b539-24aaa2c85b12
 # ╠═42775fd1-5b27-48e0-abf1-9b22bb775e6d
 # ╟─da8d0bca-105b-4d0b-a73d-ee5c9059aeaf
+# ╠═8b35661b-5075-4d63-bc31-044407f99acf
+# ╟─d17a4bd0-5992-4247-912d-73d51758d2f3
+# ╠═352d2952-cb83-47d3-9078-2b2ef9927443
+# ╠═f27f2bcd-05b6-44fe-bf9e-a3e51556db7c
+# ╟─b87ff1a9-abff-40f7-a1d8-f751a1c8b060
+# ╠═5d434c83-c9ca-499f-8695-c7733031c2de
+# ╠═4c4e643b-d4b9-44f0-8d30-dc521bcc55ac
+# ╠═602a07dd-8928-4b44-97e5-01c5cbf38351
+# ╟─7dbb42a3-aa8c-47e5-b668-18e6325d4038
+# ╠═de3cba34-9842-44d1-9b79-47126c0a0751
+# ╠═1b102220-6d78-480d-a77f-0e57bad23dca
+# ╟─8e742d32-c074-4981-b35b-b596b64c869b
+# ╠═b2539398-fdbc-42a2-a8f3-d327358f3643
+# ╠═3c89209c-9202-4d5d-841c-ea34be369616
+# ╠═645e93e7-e92e-49c4-9757-8294fabf4e9b
+# ╠═0cd96c44-cae6-421f-9fae-26141600bef4
+# ╟─19dfabda-7049-4050-8662-0385529c0c5a
+# ╠═0574f5a0-72e7-4aa2-80ac-f4ce4f0fe7c2
+# ╟─966ef17c-23be-49dc-bc37-4cb52b34c049
+# ╠═f52fc4a9-f6dd-422d-aeae-6c327d1a7b62
+# ╟─5ffc271f-c73f-494a-9727-8d7516af2191
+# ╟─42d4600a-bf3c-45ac-b7f5-d23917713ff5
+# ╠═50ae94c4-70f3-4215-82bd-eb2227c2badf
+# ╠═eae6493e-81b6-4d99-a9c6-6e75d3b3dc27
+# ╠═0964133c-3a5b-433b-a8c4-a97813c37583
+# ╟─04b5929a-2058-49c9-963a-96c752a1d67d
+# ╠═64b38d1f-ecf9-4843-89a1-4c8953048265
+# ╠═7f77d574-8f65-4e1e-8f5f-6f1bcccc3fce
+# ╟─6acb549a-5d90-4457-a347-d22448ad8071
+# ╟─fad02876-efba-46a7-9cb7-43820528779f
+# ╠═db6ed0ea-c26b-4ea1-b4a1-7641f0f9c7ef
+# ╟─28ce6e60-59cf-408a-8081-b978507b3c72
+# ╠═fd58402f-da65-44cf-b81a-e21192fd0e63
+# ╟─5500fd8e-64cb-4af7-808d-230440746319
+# ╠═a9db3f85-ff56-4bbc-be87-47b893ef3b7b
+# ╠═00152954-dc98-4120-b94b-2ea4d987832b
+# ╠═46fea69b-599e-46ab-8455-d2da865d9a8e
+# ╠═d57375a5-b9e0-4742-b5f7-6a7da891604a
+# ╟─fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
+# ╠═04f42c09-8ab5-4233-b196-51c4aa2dcedb
 # ╟─735b548a-88f5-4a30-ab8f-dfb3d6401b2b
-# ╟─79c85707-ea09-4f6b-ad51-a2683c3923c0
+# ╟─60c21e9c-e42d-4f0b-a910-3b318440fbc8
+# ╟─09dd1440-5d09-421f-addc-b1ede43ff517
 # ╟─7ccadf01-fbba-4dfd-a5ad-770dab9946f9
 # ╟─beb01fb8-c77d-4b5c-a66d-3812415e04a3
 # ╟─68e6f17e-8c87-40f0-a673-1115ecd1b71d
 # ╟─692c1043-4eaf-491e-b8fe-368618867f99
 # ╟─3cfd63ad-b1a2-4b99-ae97-2ff10351e4f5
 # ╟─fd964539-2baf-4ff1-b286-5a0bb1b222c4
+# ╠═666a4e89-306b-4fb2-bdc4-3dda2c63153f
+# ╠═0b01ba67-3921-4f3f-a7e8-235190bc84eb
+# ╟─7bf209c8-ef0a-46d1-937e-b1a6e45dc62e
+# ╠═ad0009af-2cfc-4820-bd4a-698ad391f459
 # ╟─ae0f5a96-7a4b-47f9-be1e-e803a238a071
 # ╠═c8b47eac-2d45-419a-bec6-2ae0cdc59393
 # ╠═537270ba-122b-4f2b-880b-31d086766295
 # ╟─87ee21f3-16ca-4c8c-a0b9-f9e2fd258a91
+# ╠═b966b248-fb4d-457d-90f6-114370846242
 # ╠═f946c886-6246-4f98-a96f-f06984691ad8
 # ╠═bba13634-ff0e-47f7-a23b-8d56098f4ac6
+# ╠═b2082ab0-73a4-45a6-8772-a2e6e22b519a
 # ╠═5261651e-a51e-4e80-8e23-83a4c10e5259
-# ╠═10cdd16e-a337-4421-a7a0-6de4e4b60c0f
-# ╠═740a3f41-9302-481d-b373-762c0dea8eff
+# ╠═bfe7e41d-6318-4bd4-b892-287831876abc
 # ╠═f55afa58-962d-4551-8d95-a5b467d61adf
+# ╠═10cdd16e-a337-4421-a7a0-6de4e4b60c0f
+# ╠═54fff14b-cf53-47b0-9cfa-8b9ee33df54e
+# ╠═740a3f41-9302-481d-b373-762c0dea8eff
+# ╠═d41f1dd1-45fe-4456-9a01-ed47fd6704a7
 # ╠═f545c800-0bf3-491f-9d7d-42341cfdb573
 # ╠═5b868eba-c1af-49f6-8f93-79b78c319a6f
 # ╠═76eb6743-cac0-4174-9ba3-a0691c200b54
 # ╠═ba41f521-4ee2-42a6-bf18-078bfa4b875e
 # ╠═ba5d6311-daee-4abc-b2fb-fae2184ef3eb
+# ╠═ed93259c-7b8b-46d7-97fb-f194e0e04b3a
 # ╠═7d5c5e78-cdb9-4c1f-8b6d-53591f47ff00
 # ╠═d5020a8d-1dd7-403c-9d1f-665b95543943
 # ╟─2be8a812-4f21-4fe8-a2de-50497db0345a
 # ╠═056a8adc-92f4-4b33-90d9-4b3b4026bbbc
 # ╠═11b9beea-b0cd-45eb-84c6-151728894df0
 # ╠═b71145a4-2614-4f62-bfd2-7d5d1fecec56
+# ╠═4da20fd7-b897-4f26-bf2a-f08d66ddf90f
 # ╠═20776e09-7d9b-4db8-a060-7bceeec65b47
+# ╠═3e3c5897-809f-46e3-bb58-f115b082443e
 # ╠═55ba8725-0ddf-4196-a41d-3f3c490a8d84
+# ╠═dd8e8cd2-7b41-46c4-8530-adefb7aea684
 # ╠═13ebc12f-ff6f-4266-88d3-28d6df5fcf59
+# ╠═3d065608-eef2-4caa-b17d-ec60714e3d58
 # ╟─3c695d54-c30f-4f04-bd40-f5da53be2a95
 # ╠═3c316495-bb6c-41e2-a38f-ba867a319fbb
 # ╠═024dcd1a-8eaa-4a95-8037-2f578828309c
@@ -4676,6 +5437,14 @@ version = "17.4.0+2"
 # ╠═b8532822-179b-4cd5-a279-4b71dafb544a
 # ╠═d7f6ff79-3c0f-4f16-aa1c-3bc534ce580a
 # ╠═c87dba8c-9a96-41b3-9dc7-a6c088ec1eaf
+# ╠═d2729657-d0bf-4d39-8ec7-f242a1ad48d6
+# ╠═8e096fae-9941-49d8-ae87-c68b02f68da5
+# ╟─44f14d4f-7414-4c6f-883a-042ca261a403
+# ╠═6c5f51bb-a6be-447e-b73d-4f9c2885e809
+# ╠═4156d955-9daf-4429-b152-e8332980fb9e
+# ╠═d82e7ab8-c372-4462-afb5-1617560cdb56
+# ╠═a6be9a4c-d43b-4867-b7a2-07a46a9d0d8f
+# ╠═16113560-e911-47b4-abc4-641bbd246454
 # ╠═a7891c63-18d6-4c1f-ba67-adf7c547d334
 # ╠═7126aefd-b847-497a-9545-514e9b9afa71
 # ╠═1894ae1a-bb68-4de0-a4d2-ac5d02c49f09
