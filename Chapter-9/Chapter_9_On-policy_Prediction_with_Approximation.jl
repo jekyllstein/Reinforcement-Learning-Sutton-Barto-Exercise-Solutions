@@ -532,12 +532,10 @@ figure_9_1()
   ╠═╡ =#
 
 # ╔═╡ 49320a88-206e-4283-b3fc-a5d1ac41ddc4
-#=╠═╡
 function smooth_error(error_history, n)
 	l = length(error_history)
 	[mean(error_history[i-n:i]) for i in n+1:l]
 end
-  ╠═╡ =#
 
 # ╔═╡ 3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
 # ╠═╡ skip_as_script = true
