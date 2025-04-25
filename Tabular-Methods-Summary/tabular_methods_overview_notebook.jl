@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.4
+# v0.20.6
 
 using Markdown
 using InteractiveUtils
@@ -442,6 +442,7 @@ begin
 		all(eachindex(1:num_actions)) do i_a
 			rmap = ptf.reward_transition_map[i_a, i_s]
 			smap = ptf.state_transition_map[i_a, i_s]
+			(iszero(sum(smap)) && isempty(rmap)) && return false #if there are any invalid actions for a state then it isn't terminal
 			length(rmap) > 1 && return false
 			smap[i_s] != one(T) && return false
 			!iszero(first(rmap)) && return false
@@ -1563,8 +1564,9 @@ end
 begin 
 	#args... will represent either a state value function or a state-action value function with a policy as shown above
 	function bellman_state_action_value(ptf::TabularDeterministicTransition{T, 2}, i_s::Integer, i_a::Integer, γ::T, args...) where T<:Real
-		r = ptf.reward_transition_map[i_a, i_s]
 		i_s′ = ptf.state_transition_map[i_a, i_s]
+		iszero(i_s′) && return typemin(T)
+		r = ptf.reward_transition_map[i_a, i_s]
 		v′ = calculate_state_value(args..., i_s′)
 		r + (γ * v′)
 	end
@@ -1572,6 +1574,7 @@ begin
 	function bellman_state_action_value(ptf::TabularStochasticTransition{T, 2}, i_s::Integer, i_a::Integer, γ::T, args...) where T<:Real
 		state_transitions = ptf.state_transition_map[i_a, i_s]
 		reward_transitions = ptf.reward_transition_map[i_a, i_s]
+		isempty(reward_transitions) && return typemin(T) #if there are now reward transitions then the action is invalid
 		v_avg = zero(T)
 		@inbounds @simd for i in eachindex(reward_transitions)
 			r = reward_transitions[i]
@@ -5791,7 +5794,7 @@ Transducers = "~0.4.82"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.5"
 manifest_format = "2.0"
 project_hash = "c080370de5167442d60c6f98b32e0b22fecb52d7"
 
