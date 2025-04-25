@@ -4,6 +4,12 @@
 using Markdown
 using InteractiveUtils
 
+# ╔═╡ fac138d9-3c5d-44b0-a87c-b13872f19450
+using Memoize
+
+# ╔═╡ e034b9cb-f4ee-46f4-bea6-72c93c75d966
+using DataFrames
+
 # ╔═╡ 666a4e89-306b-4fb2-bdc4-3dda2c63153f
 using SpecialFunctions
 
@@ -1249,19 +1255,18 @@ end
 # ╔═╡ 1ac9296f-047b-4051-ba5c-0c23d5f9cde9
 const corridor_continuing_mdp = make_corridor_continuing_mdp()
 
-# ╔═╡ 9cbcf696-6086-4086-8f83-f441e82600b2
-
-
-# ╔═╡ 4d24fa19-6b84-4f00-a899-87d5f9e43442
-#=╠═╡
-hash((corridor_mdp, get_active_features))
-  ╠═╡ =#
+# ╔═╡ ba642a22-6623-482a-ab4a-81585b83e457
+@memoize Dict function average_continuing_runs(nruns::Integer, seed::Integer, α_θ::T, α_w::T, α_r̄::T, policy_params, algo, args...; kwargs...) where T<:Real
+	# @info "Running trials for continuing actor critic with binary encoding: $nruns $seed $α_θ $α_w $α_r̄ $mdp $λ_θ $λ_w $get_active_features $num_features"
+	Random.seed!(seed)
+	1:nruns |> Map() do _
+		x =algo(args...; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, policy_params = deepcopy(policy_params), kwargs...)
+		x.total_reward / x.total_steps
+	end |> foldxt(+) |> a -> a / nruns
+end
 
 # ╔═╡ e96d592d-1e54-486d-8ad9-b857f85476e8
-actor_critic_binary_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_binary_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
-
-# ╔═╡ 9a9761fe-cfc7-49b1-9c46-4ef8e5a58c05
-actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_linear_parameter_study(mdp, update_feature_vector!, num_features, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
+actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_linear_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
 
 # ╔═╡ 5aba4f96-e877-457e-8e95-18737348f99f
 actor_critic_fcann_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_fcann_parameter_study(mdp, update_feature_vector!, num_features, hidden_layers, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
@@ -1388,7 +1393,7 @@ const cartpole_tilecoding_setup = tile_coding_setup(cartpole_functions.min_vals,
 
 # ╔═╡ 8e742d32-c074-4981-b35b-b596b64c869b
 #=╠═╡
-@bind cartpole_continuing_binary_study_params create_actor_critic_continuing_params_UI(;λ_θ = 0.95f0, λ_w = 0.05f0, log2α_θ = -4, log2α_w = -15, α_r̄ = 0.005f0)
+@bind cartpole_continuing_binary_study_params create_actor_critic_continuing_params_UI(;λ_θ = 0.95f0, λ_w = 0.05f0, log2α_θ = -4, log2α_w = -16, α_r̄ = 0.005f0)
   ╠═╡ =#
 
 # ╔═╡ 19dfabda-7049-4050-8662-0385529c0c5a
@@ -1483,7 +1488,7 @@ const mountaincar_continuing_mdp = create_mountaincar_continuing_mdp()
 
 # ╔═╡ fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
 #=╠═╡
-@bind mountaincar_continuing_binary_params create_actor_critic_continuing_params_UI(λ_θ = 0.1f0, λ_w = 0.98f0)
+@bind mountaincar_continuing_binary_params create_actor_critic_continuing_params_UI(λ_θ = 0.1f0, λ_w = 0.98f0, log2α_θ = -5, log2α_w = -8)
   ╠═╡ =#
 
 # ╔═╡ f487f2dd-ad09-48ac-ae34-bf50cfa6ac7d
@@ -1493,11 +1498,8 @@ const mountaincar_continuing_mdp = create_mountaincar_continuing_mdp()
 
 # ╔═╡ 5d35e515-e2d3-443e-becf-eb28c25db346
 #=╠═╡
-@bind mountaincar_continuing_fcann_params create_actor_critic_continuing_params_UI()
+@bind mountaincar_continuing_fcann_params create_actor_critic_continuing_params_UI(; λ_θ = 0.85f0, λ_w = 0.95f0)
   ╠═╡ =#
-
-# ╔═╡ d6d9a628-e2ac-4a4d-8fb6-c88450f42e33
-#add new type of parameter study which randomly samples a range of every variable and saves the result for a particular problem, technique, and seed value 
 
 # ╔═╡ 735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 md"""
@@ -3157,7 +3159,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 
 	function_outputs = form_state_and_policy_function_outputs(update_feature_vector!, update_action_preferences!, value_function, x, action_preferences, policy_params, value_params)
 	
-	return (; step_rewards = step_rewards, total_reward = rtot, policy_parameters = policy_params, value_parameters = value_params, function_outputs...) 
+	return (; step_rewards = step_rewards, total_reward = rtot, total_steps = step - 1, policy_parameters = policy_params, value_parameters = value_params, function_outputs...) 
 end
 
 # ╔═╡ b71145a4-2614-4f62-bfd2-7d5d1fecec56
@@ -3321,55 +3323,12 @@ end
 actor_critic_with_eligibility_traces_binary_features(corridor_mdp, 0f0, 0f0, get_corridor_features, 1, 100_000, α_θ = 2f0 ^ -4, α_w = 2f0 ^ -10, policy_params = [0f0 3.7f0]).policy_and_value(1)
   ╠═╡ =#
 
-# ╔═╡ 734573e5-547b-4dcc-89bb-412aa6cc42d6
-#=╠═╡
-function actor_critic_binary_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	Random.seed!(seed)
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features(mdp, λ_θ, λ_w, get_active_features, num_features, max_steps; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, policy_params = copy(init_policy_params), value_params = copy(init_value_params), kwargs...) |> x -> x.total_reward / max_steps) |> foldxt(+) |> x -> x / nruns
-	end
-
-	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
-	end
-	for α_w in α_w_list]
-
-	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Step in the First <br> $max_steps Steps Averaged Over $nruns Runs", xaxis_type = "log", title = "Binary Feature Encoding with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
-end
-  ╠═╡ =#
-
-# ╔═╡ 7afb6fb0-248a-4518-b94f-9876f81eca64
-#=╠═╡
-corridor_continuing_parameter_study(args...; kwargs...) = actor_critic_binary_parameter_study(corridor_continuing_mdp, get_corridor_features, 1, args...; init_policy_params = [0f0 3.7f0], seed = 45, kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ 42775fd1-5b27-48e0-abf1-9b22bb775e6d
-#=╠═╡
-corridor_continuing_parameter_study(continuing_study_params, 5, 3, 100_000)
-  ╠═╡ =#
-
-# ╔═╡ 1b102220-6d78-480d-a77f-0e57bad23dca
-#=╠═╡
-cartpole_binary_continuing_parameter_study(args...; kwargs...) = actor_critic_binary_parameter_study(cartpole_continuing_mdp, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, args...; kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ b2539398-fdbc-42a2-a8f3-d327358f3643
-#=╠═╡
-if start_cartpole_continuing_binary_param_study > 0
-	cartpole_binary_continuing_parameter_study(cartpole_continuing_binary_study_params, 5, 3, 10_000)
-else
-	md"""
-	Waiting to run parameter study
-	"""
-end
-  ╠═╡ =#
-
 # ╔═╡ 8b35661b-5075-4d63-bc31-044407f99acf
 actor_critic_with_eligibility_traces_binary_features(corridor_continuing_mdp, 0.75f0, 0.25f0, get_corridor_features, 1, 1_000_000, α_θ = 0.00625f0, α_w = 0.0004f0, α_r̄ = 0.004f0, policy_params = [0f0 3.7f0]; save_step_rewards = true).policy_and_value(1)
 
 # ╔═╡ 3c89209c-9202-4d5d-841c-ea34be369616
 #=╠═╡
-const cartpole_continuing_test = actor_critic_with_eligibility_traces_binary_features(cartpole_continuing_mdp, 0.95f0, 0.05f0, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, 10_000, α_θ = .5f0, α_w = 1f-4, α_r̄ = 0.005f0, save_step_rewards = true)
+const cartpole_continuing_test = actor_critic_with_eligibility_traces_binary_features(cartpole_continuing_mdp, 0.95f0, 0.8f0, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, 30_000, α_θ = .125f0, α_w = 0.006f0, α_r̄ = 0.01f0, save_step_rewards = true)
   ╠═╡ =#
 
 # ╔═╡ 645e93e7-e92e-49c4-9757-8294fabf4e9b
@@ -3397,21 +3356,78 @@ function actor_critic_linear_episodic_parameter_study(mdp::StateMDP{T, S, A, P, 
 end
   ╠═╡ =#
 
-# ╔═╡ 128a551e-89ab-4441-a8c8-8ee331f36964
+# ╔═╡ 734573e5-547b-4dcc-89bb-412aa6cc42d6
 #=╠═╡
-function actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	Random.seed!(seed)
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_linear_features(mdp, λ_θ, λ_w, update_feature_vector!, num_features, max_steps; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, policy_params = copy(init_policy_params), value_params = copy(init_value_params), kwargs...) |> x -> x.total_reward / max_steps) |> foldxt(+) |> x -> x / nruns
+function actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_function::Function, num_features::Integer, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), binary_features = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	if binary_features
+		algo = actor_critic_with_eligibility_traces_binary_features
+		title_prefix = "Binary Feature Encoding"
+	else
+		algo = actor_critic_with_eligibility_traces_linear_features
+		title_prefix = "Linear Encoding"
 	end
+	
+	make_trace_data(α_θ_list, α_w) = [average_continuing_runs(nruns, seed, α_θ, α_w, α_r̄, init_policy_params, algo, mdp, λ_θ, λ_w, feature_function, num_features, max_steps; kwargs...) for α_θ in α_θ_list]
 
 	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
+		scatter(x = α_θ_list, y = make_trace_data(α_θ_list, α_w), name = "α_w = $α_w")
 	end
 	for α_w in α_w_list]
 
-	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Step in the First <br> $max_steps Steps Averaged Over $nruns Runs", xaxis_type = "log", title = "Linear Encoding with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
+	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Step in the First <br> $max_steps Steps Averaged Over $nruns Runs", xaxis_type = "log", title = "$title_prefix with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
 end
+  ╠═╡ =#
+
+# ╔═╡ ff4f977e-48df-4c12-845c-c245b4d39d6d
+function actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_function::Function, num_features::Integer, λ_θ_list::AbstractVector{T}, λ_w_list::AbstractVector{T}, α_r̄_list::AbstractVector{T}, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, num_tests::Integer, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), binary_features = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	if binary_features
+		algo = actor_critic_with_eligibility_traces_binary_features
+		title_prefix = "Binary Feature Encoding"
+	else
+		algo = actor_critic_with_eligibility_traces_linear_features
+		title_prefix = "Linear Encoding"
+	end
+
+	run_test(α_θ, α_w, α_r̄, λ_θ, λ_w) = average_continuing_runs(nruns, seed, α_θ, α_w, α_r̄, init_policy_params, algo, mdp, λ_θ, λ_w, feature_function, num_features, max_steps; kwargs...)
+
+	test_params = [(α_θ = rand(α_θ_list), α_w = rand(α_w_list), α_r̄ = rand(α_r̄_list), λ_θ = rand(λ_θ_list), λ_w = rand(λ_w_list)) for _ in 1:num_tests]
+
+	DataFrame([begin
+			   output = run_test(params...)
+			  (;params..., output = output)
+			   end
+			  for params in test_params])
+end
+
+# ╔═╡ 7afb6fb0-248a-4518-b94f-9876f81eca64
+#=╠═╡
+corridor_continuing_parameter_study(args...; kwargs...) = actor_critic_linear_parameter_study(corridor_continuing_mdp, get_corridor_features, 1, args...; init_policy_params = [0f0 3.7f0], seed = 45, binary_features=true, kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 42775fd1-5b27-48e0-abf1-9b22bb775e6d
+#=╠═╡
+corridor_continuing_parameter_study(continuing_study_params, 5, 3, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 1b102220-6d78-480d-a77f-0e57bad23dca
+#=╠═╡
+cartpole_binary_continuing_parameter_study(args...; kwargs...) = actor_critic_linear_parameter_study(cartpole_continuing_mdp, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, binary_features = true, args...; kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ b2539398-fdbc-42a2-a8f3-d327358f3643
+#=╠═╡
+if start_cartpole_continuing_binary_param_study > 0
+	cartpole_binary_continuing_parameter_study(cartpole_continuing_binary_study_params, 5, 3, 10_000; seed = 45)
+else
+	md"""
+	Waiting to run parameter study
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 64900586-ef92-48e4-839e-ff952a46671b
+#=╠═╡
+test_study = actor_critic_linear_parameter_study(cartpole_continuing_mdp, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, LinRange(.5f0, .95f0, 10), LinRange(0.5f0, .95f0, 10), [0.005f0, 0.01f0, 0.05f0], 2f0 .^ (-5:-1), 2f0 .^ (-10:-5), 100, 10_000; nruns = 40, seed = 45, binary_features = true) |> df -> sort(df, :output; rev=true)
   ╠═╡ =#
 
 # ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
@@ -3441,18 +3457,31 @@ end
 #=╠═╡
 function actor_critic_fcann_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, λ_θ::T, λ_w::T, α_r̄::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	Random.seed!(seed)
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_features, hidden_layers, update_feature_vector!, max_steps; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, kwargs...) |> x -> x.total_reward / max_steps) |> foldxt(+) |> x -> x / nruns
-	end
+	init_policy_params = FCANN.initializeparams_saxe(num_features, hidden_layers, length(mdp.actions))
+	make_trace_data(α_θ_list, α_w) = [average_continuing_runs(nruns, seed, α_θ, α_w, α_r̄, init_policy_params, actor_critic_with_eligibility_traces_fcann, mdp, λ_θ, λ_w, num_features, hidden_layers, update_feature_vector!, max_steps; kwargs...) for α_θ in α_θ_list]
 
 	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
+		scatter(x = α_θ_list, y = make_trace_data(α_θ_list, α_w), name = "α_w = $α_w")
 	end
 	for α_w in α_w_list]
 
 	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Step in the First <br> $max_steps Steps Averaged Over $nruns Runs", xaxis_type = "log", title = "$num_features Input, $hidden_layers Hidden Non Linear Approximation, λ_θ = $λ_θ, λ_w = $λ_w"))
 end
   ╠═╡ =#
+
+# ╔═╡ 11063fff-4d36-46d5-828f-dbed0f46b9cf
+function actor_critic_fcann_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, λ_θ_list::AbstractVector{T}, λ_w_list::AbstractVector{T}, α_r̄_list::AbstractVector{T}, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, num_tests::Integer, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	Random.seed!(seed)
+	init_policy_params = FCANN.initializeparams_saxe(num_features, hidden_layers, length(mdp.actions))
+
+	run_test(α_θ, α_w, α_r̄, λ_θ, λ_w) = average_continuing_runs(nruns, seed, α_θ, α_w, α_r̄, init_policy_params, actor_critic_with_eligibility_traces_fcann, mdp, λ_θ, λ_w, num_features, hidden_layers, update_feature_vector!, max_steps; kwargs...)
+	test_params = [(α_θ = rand(α_θ_list), α_w = rand(α_w_list), α_r̄ = rand(α_r̄_list), λ_θ = rand(λ_θ_list), λ_w = rand(λ_w_list)) for _ in 1:num_tests]
+	DataFrame([begin
+			   output = run_test(params...)
+			  (;params..., output = output)
+			   end
+			  for params in test_params])
+end
 
 # ╔═╡ 20776e09-7d9b-4db8-a060-7bceeec65b47
 function actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, args...; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
@@ -3823,12 +3852,17 @@ mountaincar_fcann_continuing_parameter_study(layer_size::Integer, num_layers::In
 # ╔═╡ cb70d400-3e9c-441c-b17c-e727e8c928f3
 #=╠═╡
 if start_mountaincar_continuing_fcann_param_study > 0
-	mountaincar_fcann_continuing_parameter_study(64, 4, mountaincar_continuing_fcann_params, 5, 3, 1000_000; seed = 45)
+	mountaincar_fcann_continuing_parameter_study(32, 3, mountaincar_continuing_fcann_params, 5, 3, 1_000_000; seed = 45)
 else
 	md"""
 	Waiting to run parameter study
 	"""
 end
+  ╠═╡ =#
+
+# ╔═╡ c926b6df-c40b-4c4c-8a95-ce9e41feb100
+#=╠═╡
+actor_critic_fcann_parameter_study(mountaincar_continuing_mdp, mountaincar_fcann_feature_setup.update_feature_vector!, mountaincar_fcann_feature_setup.num_features, [4, 4], 0.0f0:0.05f0:0.95f0, 0.0f0:0.05f0:0.95f0, [0.01f0, 0.005f0], 2f0 .^ (-20:-1), 2f0 .^ (-20:-1), 1_000, 1_000_000; seed = 45) |> df -> sort(df, :output; rev=true)
   ╠═╡ =#
 
 # ╔═╡ 61650a97-b353-4a85-b50b-93fee296ac7b
@@ -3853,9 +3887,14 @@ else
 end
   ╠═╡ =#
 
+# ╔═╡ 820752af-8966-4ee8-82f7-a40934522de5
+#=╠═╡
+test_study2 = actor_critic_fcann_parameter_study(cartpole_continuing_mdp, cartpole_vector_update!, cartpole_fcann_feature_setup.num_features, [4, 4], LinRange(0f0, .95f0, 20), LinRange(0.0f0, .95f0, 20), [0.005f0, 0.01f0, 0.05f0], 2f0 .^ (-8:-2), 2f0 .^ (-8:-2), 100, 100_000; nruns = 40, seed = 45) |> df -> sort(df, :output; rev=true)
+  ╠═╡ =#
+
 # ╔═╡ eae6493e-81b6-4d99-a9c6-6e75d3b3dc27
 #=╠═╡
-const cartpole_continuing_fcann_test = actor_critic_with_eligibility_traces_fcann(cartpole_continuing_mdp, 0.8f0, 0.1f0, cartpole_fcann_feature_setup.num_features, [4, 4], cartpole_vector_update!, 300_000, α_θ = 0.025f0, α_w = 0.1f0, α_r̄ = 0.05f0; save_step_rewards=true)
+const cartpole_continuing_fcann_test = actor_critic_with_eligibility_traces_fcann(cartpole_continuing_mdp, 0.25f0, 0.1f0, cartpole_fcann_feature_setup.num_features, [4, 4], cartpole_vector_update!, 300_000, α_θ = 0.015f0, α_w = 0.125f0, α_r̄ = 0.01f0; save_step_rewards=true)
   ╠═╡ =#
 
 # ╔═╡ 04b5929a-2058-49c9-963a-96c752a1d67d
@@ -4056,7 +4095,7 @@ const mountaincar_fcann_setup = fcann_feature_vector_setup(mountaincar_min_vals,
 
 # ╔═╡ d5ab6d24-dd4e-4410-a50e-fe3584b21cf9
 #=╠═╡
-const mountaincar_continuing_fcann_test = actor_critic_with_eligibility_traces_fcann(mountaincar_continuing_mdp, 0.1f0, 0.99f0, mountaincar_fcann_setup.num_features, [256, 16], mountaincar_fcann_setup.update_feature_vector!, 1000_000, α_θ = 0.00005f0, α_w = 0.0001f0, α_r̄ = 0.01f0; save_step_rewards=true)
+const mountaincar_continuing_fcann_test = actor_critic_with_eligibility_traces_fcann(mountaincar_continuing_mdp, 0.85f0, 0.95f0, mountaincar_fcann_setup.num_features, [32, 32, 32], mountaincar_fcann_setup.update_feature_vector!, 1_000_000, α_θ = 0.002f0, α_w = 0.002f0, α_r̄ = 0.01f0; save_step_rewards=true)
   ╠═╡ =#
 
 # ╔═╡ 10ee7709-0816-48d2-abe0-9be3dd04700f
@@ -4069,13 +4108,13 @@ const mountaincar_tilecoding_setup = tile_coding_setup(mountaincar_min_vals, mou
 
 # ╔═╡ d57375a5-b9e0-4742-b5f7-6a7da891604a
 #=╠═╡
-mountaincar_binary_continuing_parameter_study(args...; kwargs...) = actor_critic_binary_parameter_study(mountaincar_continuing_mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, args...; kwargs...)
+mountaincar_binary_continuing_parameter_study(args...; kwargs...) = actor_critic_linear_parameter_study(mountaincar_continuing_mdp, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, args...; binary_features=true, kwargs...)
   ╠═╡ =#
 
 # ╔═╡ 04f42c09-8ab5-4233-b196-51c4aa2dcedb
 #=╠═╡
 if start_mountaincar_continuing_param_study > 0
-	mountaincar_binary_continuing_parameter_study(mountaincar_continuing_binary_params, 5, 3, 100_000)
+	mountaincar_binary_continuing_parameter_study(mountaincar_continuing_binary_params, 5, 3, 100_000; seed = 45)
 else
 	md"""
 	Waiting to run parameter study
@@ -4085,7 +4124,7 @@ end
 
 # ╔═╡ b02ba928-5b9f-4695-b980-07988c788bb9
 #=╠═╡
-const mountaincar_continuing_tile_test = actor_critic_with_eligibility_traces_binary_features(mountaincar_continuing_mdp, 0.1f0, 0.98f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, 100_000, α_θ = 0.25f0, α_w = 0.004f0, α_r̄ = 0.01f0; save_step_rewards=true)
+const mountaincar_continuing_tile_test = actor_critic_with_eligibility_traces_binary_features(mountaincar_continuing_mdp, 0.1f0, 0.98f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, 200_000, α_θ = 0.5f0, α_w = 0.0025f0, α_r̄ = 0.005f0; save_step_rewards=true)
   ╠═╡ =#
 
 # ╔═╡ 98222fcd-b456-477c-90dd-844df36877e5
@@ -4715,6 +4754,11 @@ end
 show_mountaincar_trajectory(mountaincar_continuing_tile_test.policy_sample_action, 1000)
   ╠═╡ =#
 
+# ╔═╡ 3a37b53d-9174-4faa-9404-74a40c385b0a
+#=╠═╡
+show_mountaincar_trajectory(mountaincar_continuing_fcann_test.policy_sample_action, 1000)
+  ╠═╡ =#
+
 # ╔═╡ ddbca73f-c692-46f2-95f3-a7dd849d33f7
 #=╠═╡
 show_mountaincar_trajectory(mountaincar_test_train.policy_sample_action, 1_000)
@@ -4781,10 +4825,12 @@ html"""
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Memoize = "c03570c3-d221-55d1-a50c-7939bbd78826"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
@@ -4799,9 +4845,11 @@ Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]
 BenchmarkTools = "~1.3.2"
+DataFrames = "~1.7.0"
 Distributions = "~0.25.87"
 HypertextLiteral = "~0.9.4"
 LaTeXStrings = "~1.3.0"
+Memoize = "~0.4.4"
 PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.3.6"
 PlutoProfile = "~0.4.0"
@@ -4819,7 +4867,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "68fc3341f2b30a5208ad856ed4f3d28edfa57d21"
+project_hash = "695874c2ba63b66cdf77bceba1cf57321e617e46"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -4986,10 +5034,21 @@ version = "1.5.8"
     LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
+[[deps.Crayons]]
+git-tree-sha1 = "249fe38abf76d48563e2f4556bebd215aa317e15"
+uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
+version = "4.1.1"
+
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
 version = "1.16.0"
+
+[[deps.DataFrames]]
+deps = ["Compat", "DataAPI", "DataStructures", "Future", "InlineStrings", "InvertedIndices", "IteratorInterfaceExtensions", "LinearAlgebra", "Markdown", "Missings", "PooledArrays", "PrecompileTools", "PrettyTables", "Printf", "Random", "Reexport", "SentinelArrays", "SortingAlgorithms", "Statistics", "TableTraits", "Tables", "Unicode"]
+git-tree-sha1 = "fb61b4812c49343d7ef0b533ba982c46021938a6"
+uuid = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+version = "1.7.0"
 
 [[deps.DataStructures]]
 deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
@@ -5129,6 +5188,19 @@ git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
 uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
 version = "0.3.1"
 
+[[deps.InlineStrings]]
+git-tree-sha1 = "6a9fde685a7ac1eb3495f8e812c5a7c3711c2d5e"
+uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+version = "1.4.3"
+
+    [deps.InlineStrings.extensions]
+    ArrowTypesExt = "ArrowTypes"
+    ParsersExt = "Parsers"
+
+    [deps.InlineStrings.weakdeps]
+    ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
+    Parsers = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
+
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -5143,6 +5215,11 @@ weakdeps = ["Dates", "Test"]
     [deps.InverseFunctions.extensions]
     InverseFunctionsDatesExt = "Dates"
     InverseFunctionsTestExt = "Test"
+
+[[deps.InvertedIndices]]
+git-tree-sha1 = "6da3c4316095de0f5ee2ebd875df8721e7e0bdbe"
+uuid = "41ab1584-1d38-5bbf-9106-f11c6c58b48f"
+version = "1.3.1"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "e2222959fbc6c19554dc15174c81bf7bf3aa691c"
@@ -5256,6 +5333,12 @@ version = "1.11.0"
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.6+0"
+
+[[deps.Memoize]]
+deps = ["MacroTools"]
+git-tree-sha1 = "2b1dfcba103de714d31c033b5dacc2e4a12c7caa"
+uuid = "c03570c3-d221-55d1-a50c-7939bbd78826"
+version = "0.4.4"
 
 [[deps.MicroCollections]]
 deps = ["Accessors", "BangBang", "InitialValues"]
@@ -5383,6 +5466,12 @@ git-tree-sha1 = "7e71a55b87222942f0f9337be62e26b1f103d3e4"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 version = "0.7.61"
 
+[[deps.PooledArrays]]
+deps = ["DataAPI", "Future"]
+git-tree-sha1 = "36d8b4b899628fb92c2749eb488d884a926614d3"
+uuid = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
+version = "1.4.3"
+
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
 git-tree-sha1 = "5aa36f7049a63a1528fe8f7c3f2113413ffd4e1f"
@@ -5394,6 +5483,12 @@ deps = ["TOML"]
 git-tree-sha1 = "9306f6085165d270f7e3db02af26a400d580f5c6"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
 version = "1.4.3"
+
+[[deps.PrettyTables]]
+deps = ["Crayons", "LaTeXStrings", "Markdown", "PrecompileTools", "Printf", "Reexport", "StringManipulation", "Tables"]
+git-tree-sha1 = "1101cd475833706e4d0e7b122218257178f48f34"
+uuid = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
+version = "2.4.0"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -5469,6 +5564,12 @@ version = "0.5.1+0"
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 version = "0.7.0"
+
+[[deps.SentinelArrays]]
+deps = ["Dates", "Random"]
+git-tree-sha1 = "712fb0231ee6f9120e005ccd56297abbc053e7e0"
+uuid = "91c51154-3ec4-41a3-a24f-3f23e20d615c"
+version = "1.4.8"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -5559,6 +5660,12 @@ version = "1.3.2"
     [deps.StatsFuns.weakdeps]
     ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
     InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
+
+[[deps.StringManipulation]]
+deps = ["PrecompileTools"]
+git-tree-sha1 = "725421ae8e530ec29bcbdddbe91ff8053421d023"
+uuid = "892a3eda-7b42-436c-8928-eab12a02cf0e"
+version = "0.4.1"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
@@ -5834,18 +5941,18 @@ version = "17.4.0+2"
 # ╟─436c52d2-280b-4ca4-9360-d6587b8254c7
 # ╠═f0104778-81a6-417b-8501-f916e5e7f3af
 # ╠═1ac9296f-047b-4051-ba5c-0c23d5f9cde9
-# ╠═9cbcf696-6086-4086-8f83-f441e82600b2
-# ╠═4d24fa19-6b84-4f00-a899-87d5f9e43442
+# ╠═fac138d9-3c5d-44b0-a87c-b13872f19450
+# ╠═ba642a22-6623-482a-ab4a-81585b83e457
 # ╠═734573e5-547b-4dcc-89bb-412aa6cc42d6
 # ╠═e96d592d-1e54-486d-8ad9-b857f85476e8
-# ╠═128a551e-89ab-4441-a8c8-8ee331f36964
-# ╠═9a9761fe-cfc7-49b1-9c46-4ef8e5a58c05
+# ╠═ff4f977e-48df-4c12-845c-c245b4d39d6d
 # ╠═8bc280db-e57d-4e40-be46-1790f4f7d9e7
 # ╠═5aba4f96-e877-457e-8e95-18737348f99f
+# ╠═11063fff-4d36-46d5-828f-dbed0f46b9cf
 # ╠═7afb6fb0-248a-4518-b94f-9876f81eca64
 # ╠═5b15d91e-7119-4f85-a54a-7d4f1fdaf097
 # ╟─7d94922e-dc9f-4953-b539-24aaa2c85b12
-# ╟─42775fd1-5b27-48e0-abf1-9b22bb775e6d
+# ╠═42775fd1-5b27-48e0-abf1-9b22bb775e6d
 # ╟─da8d0bca-105b-4d0b-a73d-ee5c9059aeaf
 # ╠═8b35661b-5075-4d63-bc31-044407f99acf
 # ╟─d17a4bd0-5992-4247-912d-73d51758d2f3
@@ -5860,7 +5967,9 @@ version = "17.4.0+2"
 # ╠═1b102220-6d78-480d-a77f-0e57bad23dca
 # ╟─37a273b6-b104-46f0-987a-401dc1c97327
 # ╟─8e742d32-c074-4981-b35b-b596b64c869b
-# ╠═b2539398-fdbc-42a2-a8f3-d327358f3643
+# ╟─b2539398-fdbc-42a2-a8f3-d327358f3643
+# ╠═e034b9cb-f4ee-46f4-bea6-72c93c75d966
+# ╠═64900586-ef92-48e4-839e-ff952a46671b
 # ╠═3c89209c-9202-4d5d-841c-ea34be369616
 # ╟─645e93e7-e92e-49c4-9757-8294fabf4e9b
 # ╟─0cd96c44-cae6-421f-9fae-26141600bef4
@@ -5869,12 +5978,13 @@ version = "17.4.0+2"
 # ╟─966ef17c-23be-49dc-bc37-4cb52b34c049
 # ╠═f52fc4a9-f6dd-422d-aeae-6c327d1a7b62
 # ╟─2c5d221a-2469-49e1-9249-dfdc2457f2fa
-# ╠═5ffc271f-c73f-494a-9727-8d7516af2191
+# ╟─5ffc271f-c73f-494a-9727-8d7516af2191
 # ╟─42d4600a-bf3c-45ac-b7f5-d23917713ff5
 # ╠═50ae94c4-70f3-4215-82bd-eb2227c2badf
+# ╠═820752af-8966-4ee8-82f7-a40934522de5
 # ╠═eae6493e-81b6-4d99-a9c6-6e75d3b3dc27
 # ╠═0964133c-3a5b-433b-a8c4-a97813c37583
-# ╟─04b5929a-2058-49c9-963a-96c752a1d67d
+# ╠═04b5929a-2058-49c9-963a-96c752a1d67d
 # ╠═64b38d1f-ecf9-4843-89a1-4c8953048265
 # ╠═7f77d574-8f65-4e1e-8f5f-6f1bcccc3fce
 # ╟─6acb549a-5d90-4457-a347-d22448ad8071
@@ -5888,7 +5998,7 @@ version = "17.4.0+2"
 # ╠═46fea69b-599e-46ab-8455-d2da865d9a8e
 # ╠═d57375a5-b9e0-4742-b5f7-6a7da891604a
 # ╟─d3c1379f-acd6-4e15-be7e-a5dbe46a4f62
-# ╟─fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
+# ╠═fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
 # ╠═04f42c09-8ab5-4233-b196-51c4aa2dcedb
 # ╠═b02ba928-5b9f-4695-b980-07988c788bb9
 # ╠═98222fcd-b456-477c-90dd-844df36877e5
@@ -5897,13 +6007,14 @@ version = "17.4.0+2"
 # ╠═da3cb392-78f2-48b2-b0dc-5f016664798c
 # ╠═f0962801-0dfa-421f-8ffc-e64068e49913
 # ╠═c251a630-7114-4188-9323-8d8feb5c32e0
+# ╠═c926b6df-c40b-4c4c-8a95-ce9e41feb100
 # ╟─f487f2dd-ad09-48ac-ae34-bf50cfa6ac7d
-# ╟─5d35e515-e2d3-443e-becf-eb28c25db346
-# ╠═cb70d400-3e9c-441c-b17c-e727e8c928f3
+# ╠═5d35e515-e2d3-443e-becf-eb28c25db346
+# ╟─cb70d400-3e9c-441c-b17c-e727e8c928f3
 # ╠═d5ab6d24-dd4e-4410-a50e-fe3584b21cf9
 # ╠═10ee7709-0816-48d2-abe0-9be3dd04700f
 # ╠═c0876a48-ea18-494d-8bfc-e2bceb73b417
-# ╠═d6d9a628-e2ac-4a4d-8fb6-c88450f42e33
+# ╠═3a37b53d-9174-4faa-9404-74a40c385b0a
 # ╟─735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 # ╟─60c21e9c-e42d-4f0b-a910-3b318440fbc8
 # ╟─09dd1440-5d09-421f-addc-b1ede43ff517
