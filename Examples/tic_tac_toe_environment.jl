@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.4
+# v0.20.6
 
 using Markdown
 using InteractiveUtils
@@ -7,7 +7,7 @@ using InteractiveUtils
 # This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
 macro bind(def, element)
     #! format: off
-    quote
+    return quote
         local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
         local el = $(esc(element))
         global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
@@ -48,7 +48,7 @@ md"""
 """
 
 # ╔═╡ 52e59796-5eef-4630-98b8-65e62429abee
-const d4_symmetries = SVector{9}.([
+const d4_symmetries = SVector{9, UInt8}.([
 		[1, 2, 3, 4, 5, 6, 7, 8, 9], #identity
 		[3, 2, 1, 6, 5, 4, 9, 8, 7], #x axis flip
 		[7, 8, 9, 4, 5, 6, 1, 2, 3], #y axis flip
@@ -61,7 +61,7 @@ const d4_symmetries = SVector{9}.([
 
 # ╔═╡ 5ffdff02-3de1-4761-beb3-b701501a6fc3
 #indices to transform back after doing symmetry operation
-const d4_inverted = [SVector{9}(findfirst(==(i), v) for i in 1:9) for v in d4_symmetries]
+const d4_inverted = [SVector{9, UInt8}(findfirst(==(i), v) for i in 1:9) for v in d4_symmetries]
 
 # ╔═╡ be93b217-b9de-4183-a6d3-dd4574808597
 const BoardTTT = SVector{9, UInt8}
@@ -160,7 +160,7 @@ const status_functions = (score_functions..., is_o_move, valid_moves)
 
 # ╔═╡ 62bd6663-101d-45c6-8aad-0425da307d3a
 #rewards associated with arriving at a board with the following conditions for the X player.  rewards for the O player will be negative of this.  The value of draw differing from 0 is so it can be distinguished from an active board.  Also under these rewards a state with equal probability of win and loss would be 0 whereas a state with an expected draw would be valued at -0.5.
-rewardsX = NamedTuple(zip(Symbol.(score_functions), (1.0, -1.0, -0.5, 0.0)))
+rewardsX = NamedTuple(zip(Symbol.(score_functions), (1f0, -1f0, -0.5f0, 0f0)))
 
 # ╔═╡ 02237d67-ada1-488e-bfff-f5f51fca757d
 const BoardStatus = NamedTuple{Symbol.(status_functions)}
@@ -233,6 +233,9 @@ const symmetric_board_lookup = Dict(b => get_symmetric_board(b) for b in valid_t
 # ╔═╡ de2d1f87-1530-4d31-9d8c-9af007a44bec
 const symmetric_boards = unique(first(a) for a in values(symmetric_board_lookup))
 
+# ╔═╡ 01a099ff-c9cf-44d5-827a-f8d587871dcb
+const symmetric_board_index = makelookup(symmetric_boards)
+
 # ╔═╡ fa1ee379-3476-4636-83b4-3af562f52050
 #precompute the status of unique boards only
 const ttt_status_lookup = Dict(b => get_board_status(b) for b in symmetric_boards)
@@ -249,16 +252,99 @@ lookup_board_status(board) = lookup_board_status(BoardTTT(board))
 # ╔═╡ d0d5b687-cff4-48e4-ac6c-bf19d866aaca
 const active_ttt_boards = filter(b->ttt_status_lookup[b].is_active, symmetric_boards)
 
+# ╔═╡ 835ee149-b79b-4293-ba1f-714aa76eb141
+const active_ttt_board_indices = [symmetric_board_index[b] for b in active_ttt_boards]
+
+# ╔═╡ 844d31b2-373e-48ef-882d-eb73e6b10391
+const active_ttt_board_bits = BitVector(ttt_status_lookup[b].is_active for b in symmetric_boards)
+
 # ╔═╡ 7b807838-a724-4f18-b90c-e6cfd52f38aa
 const active_x_boards = filter(b -> !ttt_status_lookup[b].is_o_move, active_ttt_boards)
 
+# ╔═╡ b823c99e-fd6e-46dd-bc24-f080befdf922
+const active_x_board_indices = [symmetric_board_index[b] for b in active_x_boards]
+
+# ╔═╡ 287d846d-4eba-4745-adaa-613c638262da
+const active_x_board_bits = BitVector(!ttt_status_lookup[b].is_o_move for b in symmetric_boards)
+
 # ╔═╡ d78c7ca7-7125-4547-804a-a8cd193746ed
 const active_o_boards = filter(b -> ttt_status_lookup[b].is_o_move, active_ttt_boards)
+
+# ╔═╡ a93fb40b-7eda-48f6-a2ea-4afce95140a0
+const active_o_board_indices = [symmetric_board_index[b] for b in active_o_boards]
+
+# ╔═╡ 216b2401-a416-4a6e-9812-7ef7061b55b9
+const active_o_board_bits = BitVector(ttt_status_lookup[b].is_o_move for b in symmetric_boards)
+
+# ╔═╡ 36deaa30-0485-4012-a838-1011161e7a3e
+const inactive_boards = filter(b -> !ttt_status_lookup[b].is_active, symmetric_boards)
+
+# ╔═╡ 81ae3b51-b666-4c51-b17b-32bea5b99357
+const active_board_indices = [symmetric_board_index[b] for b in inactive_boards]
+
+# ╔═╡ ad943e14-28a1-406c-9f98-d8572dfa16a6
+const inactive_board_bits = BitVector(ttt_status_lookup[b].is_active for b in symmetric_boards)
 
 # ╔═╡ d52f66cd-c4c2-4750-b182-42e08a9a27f4
 md"""
 ## MDP Definitions
 """
+
+# ╔═╡ b1df7a1e-5319-41d2-b8cd-ca25d55fe1ea
+function π_random_ttt!(action_probabilities::Vector{T}, s::BoardTTT) where T<:Real
+	n = zero(T)
+	for i in eachindex(s)
+		x = iszero(s[i]) #check if action is valid
+		action_probabilities[i] = x
+		n += x
+	end
+	action_probabilities ./= n
+end
+
+# ╔═╡ 14b5a3cd-31d9-4392-bbb8-25286bcc2ff8
+π_random_ttt(s::BoardTTT; action_probabilities::Vector{T} = zeros(Float32, 9)) where T<:Real = π_random_ttt!(action_probabilities, s) 
+
+# ╔═╡ d90008a6-e2eb-4e1e-b9ce-9a909ff0325f
+symmetric_boards[760]
+
+# ╔═╡ 11e24ec6-4222-425b-afc1-5d44948b2392
+make_ttt_tabular_mdp(ptf::TabularStochasticTransition) = TabularMDP(symmetric_boards, UInt8.(1:9), ptf, () -> 760)
+
+# ╔═╡ 109a9bfd-92bb-4307-9d3e-0bfb737082ab
+const ttt_value_γ = 1f0
+
+# ╔═╡ 9cf13709-615b-4183-8397-c146f7f91252
+function get_symmetric_index(board::AbstractVector{I}) where I<:Integer
+	sym_board, rot = get_symmetric_board(board)
+	sym_index = symmetric_board_index[sym_board]
+	(index = sym_index, rot_inds = d4_inverted[rot])
+end
+
+# ╔═╡ ae128a72-bf33-40eb-8a47-3b6569a3af7b
+function make_π_value_iter(x_results, o_results)
+	function π(b)
+		board_index, rot_inds = get_symmetric_index(b)
+		status = get_board_status(b)
+		results = if status.is_o_move
+			o_results
+		else
+			x_results
+		end
+		results.optimal_policy[:, board_index]
+	end
+end
+
+# ╔═╡ 871202dd-4fe5-4a04-b11b-02534c729d8c
+get_symmetric_index(symmetric_boards[5])
+
+# ╔═╡ 7479eb78-0aab-4a28-b433-968aec5b980b
+d4_symmetries[8]
+
+# ╔═╡ 4016eb02-ff4c-46dc-8167-d8c2a05f4a1f
+value_iter_test.final_value[241]
+
+# ╔═╡ 45be8610-a480-435c-b4e4-33aff7f3aead
+#check to see if this policy makes invalid moves in any of the states, don't care about terminal states though since all actions are valid and do nothing
 
 # ╔═╡ 74c3970f-49a7-4e35-bcb0-e4fe53c9cd58
 struct TTTEnvironment{T, V}
@@ -331,8 +417,9 @@ function ttt_step(board, m; reward_func = get_reward_x)
 	newboard = symmetric_move(board, m)
 	(status, isym) = lookup_board_status(newboard)
 	r = reward_func(status)
-	finalboard = status.is_active ? newboard : ttt_environment.term_board
-	(finalboard, r, status.is_active)
+	(newboard, r, status.is_active)
+	# finalboard = status.is_active ? newboard : ttt_environment.term_board
+	# (finalboard, r, status.is_active)
 end
 
 # ╔═╡ 5c59c4a2-e4d7-4ed7-9daa-10a12f5378c2
@@ -344,10 +431,149 @@ function ttt_step(board::BoardTTT, m::UInt8, get_opponent_action::Function; kwar
 	ttt_step(newboard, m2; kwargs...)[[1, 2]]
 end
 
+# ╔═╡ 68b8fd79-09f9-43c5-bf53-b5b875d63c3f
+function make_ttt_ptfs(π_opponent::Function)
+	state_transition_map_x = Matrix{SparseVector{Float32, Int64}}(undef, 9, length(symmetric_boards))
+	reward_transition_map_x = Matrix{Vector{Float32}}(undef, 9, length(symmetric_boards))
+	state_transition_map_o = Matrix{SparseVector{Float32, Int64}}(undef, 9, length(symmetric_boards))
+	reward_transition_map_o = Matrix{Vector{Float32}}(undef, 9, length(symmetric_boards))
+
+	for i in eachindex(symmetric_boards)
+		b = symmetric_boards[i]
+		for i_a in 1:9
+			state_transitions = SparseVector(zeros(Float32, length(symmetric_boards)))
+			rewards = SparseVector(zeros(Float32, length(symmetric_boards)))
+			if ttt_status_lookup[b].is_active
+				if iszero(b[i_a])
+					(s′, r1, active) = ttt_step(b, i_a)
+					if active
+						prbs = π_opponent(s′)
+						for i_a2 in findall(!iszero, prbs)
+							(s′′, r2, active2) = ttt_step(s′, i_a2)
+							state_transitions[symmetric_board_index[s′′]] += prbs[i_a2]
+							rewards[symmetric_board_index[s′′]] += (r1 + r2)*prbs[i_a2]
+						end
+						for i_s′ in state_transitions.nzind
+							rewards[i_s′] /= state_transitions[i_s′]
+						end
+					else
+						state_transitions[symmetric_board_index[s′]] = 1f0
+						rewards[symmetric_board_index[s′]] = r1
+					end
+				end
+				reward_output = rewards[state_transitions.nzind]
+				
+				if ttt_status_lookup[b].is_o_move
+					state_transition_map_o[i_a, i] = state_transitions
+					reward_transition_map_o[i_a, i] = -reward_output
+					state_transition_map_x[i_a, i] = SparseVector(zeros(Float32, length(symmetric_boards)))
+					reward_transition_map_x[i_a, i] = Vector{Float32}()
+				else
+					state_transition_map_x[i_a, i] = state_transitions
+					reward_transition_map_x[i_a, i] = reward_output
+					state_transition_map_o[i_a, i] = SparseVector(zeros(Float32, length(symmetric_boards)))
+					reward_transition_map_o[i_a, i] = Vector{Float32}()
+				end
+			else
+				state_transitions[i] = 1f0
+				reward_output = [0f0]
+				state_transition_map_o[i_a, i] = state_transitions
+				reward_transition_map_o[i_a, i] = reward_output
+				state_transition_map_x[i_a, i] = state_transitions
+				reward_transition_map_x[i_a, i] = reward_output
+			end
+		end
+		
+	end
+
+	ptf_x = TabularStochasticTransition(state_transition_map_x, reward_transition_map_x)
+	ptf_o = TabularStochasticTransition(state_transition_map_o, reward_transition_map_o)
+	(ptf_x, ptf_o)
+end
+
+# ╔═╡ fef5f0c4-46d7-477c-a508-3c221129cc60
+function make_x_o_tabular_mdps(x_results, o_results)
+	π = make_π_value_iter(x_results, o_results)
+	ptfs = make_ttt_ptfs(π)
+	Tuple(make_ttt_tabular_mdp(ptf) for ptf in ptfs)
+end
+
 # ╔═╡ cb12f8b6-cec1-40fe-9b29-0acae1d3291b
 md"""
 # Solution Techniques
 """
+
+# ╔═╡ 16ebebb0-fe2f-4469-a834-8b7375cdb0dd
+md"""
+## Fixed Opponent
+
+If we specific an opponent, then we can treat the game as an MDP environment with the states matching those when one of the player is to move.  We could alternate training each player and improve that way or just stop at the optimal strategy vs the fixed opponent.
+"""
+
+# ╔═╡ 37f279ed-c1d6-446f-9e63-89553ad4f721
+md"""
+### Value Function Techniques
+"""
+
+# ╔═╡ dec67e3a-d798-48c8-b58a-9cfdfd057d36
+md"""
+#### Policy Iteration
+"""
+
+# ╔═╡ b8044db9-73af-4834-948d-9c2a800d251d
+md"""
+#### Value Iteration
+"""
+
+# ╔═╡ 1aa7f969-7382-4ec4-99ad-af9a7c8f8354
+md"""
+#### Sampling with Eligibility Traces
+"""
+
+# ╔═╡ aef1ba88-8b77-4f12-a88c-56ec3e6bdbc7
+md"""
+### Policy Gradient Techniques
+"""
+
+# ╔═╡ c180b1a8-9540-4da7-9ba8-932c8d48b8f2
+md"""
+#### Reinforce
+"""
+
+# ╔═╡ 9701cad5-7897-40ed-a3b4-9e9ead8bd790
+md"""
+#### Actor-Critic with Eligibility Traces
+"""
+
+# ╔═╡ e65a55a2-a7ba-4c65-82f7-d3c04f168ccc
+md"""
+### Planning Techniques
+"""
+
+# ╔═╡ 15d3b0d1-a6a5-4524-a07a-5dd2580aac92
+md"""
+#### Dyna-Q
+"""
+
+# ╔═╡ 6894f2a4-b844-434b-80cf-03b52558e043
+md"""
+#### Trajectory Sampling
+"""
+
+# ╔═╡ 3a84f6ff-e6ac-42a5-8939-420430defeb2
+md"""
+#### Tree Search
+"""
+
+# ╔═╡ 88de5309-557b-4ba9-b627-90495d769747
+md"""
+## Self-Play
+
+If we allow all game states for both players to exist, then the learning technique must change how the value function is defined depending on whose move it is.  The value function estimates the value of a state from the perspective of one of the players, and the states associated with that player will be handled as usual.  For the other set of states, the goal of maximizing the value fuction must be reversed to minimizing it.  That way both players can share the same value function and be optimized simultaneously.
+"""
+
+# ╔═╡ 2e454bf5-62fc-46fc-8076-74f1a6729fa7
+
 
 # ╔═╡ 0d3b384b-c602-4ccd-b335-987e378a4230
 md"""
@@ -558,6 +784,69 @@ function π_random_ttt(b)
 	v = 1/length(inds)
 	Dict(i => v for i in inds)
 end
+
+# ╔═╡ 3056e679-8006-4396-8bb4-e76cfd909970
+make_ttt_ptfs(π_random_ttt)
+
+# ╔═╡ f215e88d-8029-4c54-873c-e8413f32a04b
+const ttt_random_tabular_ptfs = make_ttt_ptfs(π_random_ttt)
+
+# ╔═╡ 22406fa6-fb9b-4d9e-84d8-daa336542563
+function make_x_o_tabular_mdps()
+	ptfs = make_ttt_ptfs(π_random_ttt)
+	Tuple(make_ttt_tabular_mdp(ptf) for ptf in ptfs)
+end
+
+# ╔═╡ aa250079-6cc1-4f3e-acf3-a0b0bce75c7c
+const x_rand_mdp, o_rand_mdp = make_x_o_tabular_mdps()
+
+# ╔═╡ 9d9ba389-4346-4d37-a5c7-b6a6cfddaedc
+const value_iter_x_vs_rand = value_iteration_v(x_rand_mdp, ttt_value_γ)
+
+# ╔═╡ f4c9243b-ea5c-45d2-9eea-a6793e8081dd
+const value_iter_o_vs_rand = value_iteration_v(o_rand_mdp, ttt_value_γ)
+
+# ╔═╡ 21480455-a98c-4d41-91ba-08d069cb2cbf
+const ttt_iter1_tabular_ptfs = make_ttt_ptfs(make_π_value_iter(value_iter_x_vs_rand, value_iter_o_vs_rand))
+
+# ╔═╡ 2f7f4c11-ecd4-40bf-bcf1-62a63e81c68b
+const test_episode_x = runepisode(x_rand_mdp; π = value_iter_x_vs_rand.optimal_policy)
+
+# ╔═╡ 2e57e843-0ab2-4338-b35b-afa5f606453b
+const x_value_iter1_mdp, o_value_iter1_mdp = make_x_o_tabular_mdps(value_iter_x_vs_rand, value_iter_o_vs_rand)
+
+# ╔═╡ 5fd3dfc2-3e47-474a-8b96-61459b05b4e7
+const value_iter_x_vs_iter1 = value_iteration_v(x_value_iter1_mdp, ttt_value_γ)
+
+# ╔═╡ efc0ed38-24dd-4d4a-ae44-a2dfd8bc239d
+const value_iter_o_vs_iter1 = value_iteration_v(o_value_iter1_mdp, ttt_value_γ)
+
+# ╔═╡ bc9965d2-437a-40e7-bced-30ccbb7867b7
+const x_value_iter2_mdp, o_value_iter2_mdp = make_x_o_tabular_mdps(value_iter_x_vs_iter1, value_iter_o_vs_iter1)
+
+# ╔═╡ 3ca15d74-a36d-4b45-b57c-cecd6c2a84c2
+const value_iter_x_vs_iter2 = value_iteration_v(x_value_iter2_mdp, ttt_value_γ)
+
+# ╔═╡ 494879df-0ecc-4610-9206-e5362bbf96d9
+const value_iter_o_vs_iter2 = value_iteration_v(o_value_iter2_mdp, ttt_value_γ)
+
+# ╔═╡ 68e65fd7-2885-4c28-9f58-bdc62d0fb9d5
+const x_value_iter3_mdp, o_value_iter3_mdp = make_x_o_tabular_mdps(value_iter_x_vs_iter2, value_iter_o_vs_iter2)
+
+# ╔═╡ 477452bc-12ff-4cea-bc3b-2207ec0a907d
+const value_iter_x_vs_iter3 = value_iteration_v(x_value_iter3_mdp, ttt_value_γ)
+
+# ╔═╡ a66beb65-f590-4c76-a5a8-8ba9e5829f04
+const value_iter_o_vs_iter3 = value_iteration_v(o_value_iter3_mdp, ttt_value_γ)
+
+# ╔═╡ 429bbe6d-3126-4e6f-852a-a232f129300c
+const x_value_iter4_mdp, o_value_iter4_mdp = make_x_o_tabular_mdps(value_iter_x_vs_iter3, value_iter_o_vs_iter3)
+
+# ╔═╡ 585d07a0-66e8-47dd-a655-845bbed0e79a
+const value_iter_x_vs_iter4 = value_iteration_v(x_value_iter4_mdp, ttt_value_γ)
+
+# ╔═╡ d8d3d75e-b35d-4077-a953-f2a83958b48a
+const value_iter_o_vs_iter4 = value_iteration_v(o_value_iter4_mdp, ttt_value_γ)
 
 # ╔═╡ 6ac696c7-9f40-45bb-a556-9507f0b10f87
 #compute the action probability distribution and value for a given board state from a value iteration result output
@@ -909,26 +1198,11 @@ const boardnodes = Dict(begin
 	end
 	for b in active_ttt_boards)
 
-# ╔═╡ 95c6b961-bbd2-4ab2-b948-5f3b19b86138
-@bind board4raw heatmap_board("fjehjkwio6786fe", zeros(9), ones(9))
-
-# ╔═╡ fac6efe9-2242-4da0-b491-d3055fe9c3dd
-board4 = UInt8.(board4raw)
-
-# ╔═╡ 84f191f1-0d5a-44dd-991e-6cfdfd2dbbee
-checkboard(state_symmetry_lookup[mapboard(board4)][1])
-
 # ╔═╡ d056f230-0310-48cc-98ea-dddc60f2a261
 #should address this problem of having values for states that should be terminal.  The value of every terminal state should be 0.0 and the symmetry map should turn every such state into the terminal state.  Also states where more than one player has 3 in a row should be eliminated from the MDP
 
-# ╔═╡ 5328c966-d0ca-4e02-bfcf-9a585fe8a6c6
-eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
-
 # ╔═╡ 63888652-d0e7-495d-9f03-4bf988441675
 #next step is to implement the HTML program for adding moves to the state and updating a board object.  Ideally we could recompute the policy as well but another cell could actually update the style for these grid elements which would change the appearance.  Yeah so I can make the HTML where the bound variable is the board and then another cell styles that board with the correct policy.  But then I would need to just stick with one policy per board.  Also wanna implement the reset button.
-
-# ╔═╡ a242cca3-e425-4dae-8908-f27c571a7f3a
-show_policy(board, f) = heatmap_board(hash(f), board, f(board))
 
 # ╔═╡ 8a334293-b568-4dcc-b9d5-cfd542a8c9f7
 function get_minimax_policy(minimaxvalues, board)
@@ -980,9 +1254,6 @@ end
 
 # ╔═╡ 8e31c353-e7fd-4d7d-b35a-cfb011f325fd
 (baseval, minimaxvalues, minimax_policy) = run_minimax(ttt_environment.init_board)
-
-# ╔═╡ 4dff1499-5799-4185-aee6-f8285009b2de
-(value = minimaxvalues[state_symmetry_lookup[mapboard(board4)][1]], actions =  show_policy(board4, s -> apply_sym_π(minimax_policy, board4)))
 
 # ╔═╡ 4f16565e-09bb-11f0-3729-7ffc5462cdc8
 md"""
@@ -1546,8 +1817,47 @@ end
 # ╔═╡ cfbf20c5-9605-4595-952a-a90cabadab65
 @bind testboard TTTBoard()
 
+# ╔═╡ c28b68c9-a732-4019-aff4-6d80bd595957
+testboard
+
 # ╔═╡ a99f68ab-9f7d-474f-ae0e-6e99c707006e
 get_board_status(testboard[1]), get_reward(testboard[1]), isvalid(testboard[1])
+
+# ╔═╡ 4a940b85-8f56-414a-a7a8-b2895605ae45
+@bind value_iter_fixed_board TTTBoard()
+
+# ╔═╡ 4ef908c9-a2a7-4f85-b98d-c9dab9fc3ac7
+const value_iter_rotated_board = get_symmetric_index(value_iter_fixed_board[1])
+
+# ╔═╡ 8b6786f7-220c-4daa-b707-376c2c7bc14c
+const value_iter_board1_status = get_board_status(value_iter_fixed_board[1])
+
+# ╔═╡ 9d2120cd-5582-4fa6-9a52-bad1121d9da3
+const value_iter_board1_result = value_iter_board1_status.is_o_move ? value_iter_o_vs_iter4 : value_iter_x_vs_iter4
+
+# ╔═╡ cb50cf2c-6adf-42de-be9a-085676876bbe
+md"""
+#### Value Iteration Policy Visualization
+
+The board below is colored according to the policy with green indicating likely moves.
+
+State Value for $(value_iter_board1_status.is_o_move ? "O" : "X") Player: $(round(value_iter_board1_result.final_value[value_iter_rotated_board.index] |> Float64; sigdigits = 3))
+"""
+
+# ╔═╡ 8ff4ceda-e4df-4652-b48f-4b9fe4bbce27
+value_iter_test.optimal_policy[:, symmetric_board_index[get_symmetric_board(value_iter_fixed_board[1])[1]]]
+
+# ╔═╡ b8a5f496-5727-48ab-804f-3dc027cca0f1
+get_symmetric_board(value_iter_fixed_board[1])
+
+# ╔═╡ c23d9164-d96d-43fe-b8de-f1b7c6c6d30f
+test_index = symmetric_board_index[get_symmetric_board(value_iter_fixed_board[1])[1]]
+
+# ╔═╡ 6fea4c9f-b70e-4e64-92bf-0436c1203516
+symmetric_boards[test_index]
+
+# ╔═╡ 079f86e4-337e-4cf2-a50b-042e351f65c7
+showboard(symmetric_boards[test_index])
 
 # ╔═╡ 436c72df-c0a1-428c-a005-25381c758deb
 @bind xplayboard TTTBoard()
@@ -1648,6 +1958,329 @@ function makeboardselector()
 end
   ╠═╡ =#
 
+# ╔═╡ ff6be080-7aed-4a8d-878a-13f447fd48ce
+function color_board(boardname::AbstractString, action_prbs::AbstractVector{T}) where T <: Real
+	mapcolor(x) = round(Int64, 255*(x .^(1/2)))
+	colors = [begin
+		c = mapcolor(x)
+		"rgb($(40), $(max(40, .9*c)), $(40))"
+	end
+	for x in action_prbs]
+	color_board(boardname, colors)
+end
+
+# ╔═╡ 369c4b38-3753-4931-a7f3-9a4f6ecf2fb8
+function color_board(boardname::AbstractString, colors::AbstractVector{T}) where T <: AbstractString
+	"""
+	<style>
+		$(mapreduce(a -> colorcell(boardname, a...), joinelements, enumerate(colors)))
+	</style>
+	"""
+end
+
+# ╔═╡ 6ada97f9-c1aa-4568-a951-b343e3a7d8ed
+#=╠═╡
+function compare_policies(π1::Matrix{Float32}, π2::Matrix{Float32})
+	inds = 1:size(π1, 2) |> Map(j -> any(π1[i, j] != π2[i, j] for i in 1:size(π1, 1))) |> collect |> findall
+
+	isempty(inds) && return md"""Policies are identical"""
+
+	boards1 = [make_ttt_board_raw(symmetric_boards[i]; cellsize = 20) for i in inds]
+	boards2 = [make_ttt_board_raw(symmetric_boards[i]; cellsize = 20) for i in inds]
+
+	colors1 = [color_board(boards1[i].id, π1[:, inds[i]]) for i in eachindex(inds)]
+	colors2 = [color_board(boards2[i].id, π2[:, inds[i]]) for i in eachindex(inds)]
+
+	board_html1 = [HTML(x.board) for x in boards1]
+	board_html2 = [HTML(x.board) for x in boards2]
+
+@htl(
+"""
+<span>
+<div style = "display: flex; flex-wrap: wrap;">
+$(zip(board_html1, board_html2) |> collect)
+</div>
+$(HTML(reduce(joinelements, colors1)))
+$(HTML(reduce(joinelements, colors2)))
+</span>
+"""
+)
+
+	
+		 # $(mapreduce(identity, joinelements, colors1))
+		 
+		 # $(mapreduce(identity, joinelements, colors2))
+end
+  ╠═╡ =#
+
+# ╔═╡ 6c8d5a2c-7a4d-49e5-961f-8729ab76273a
+#=╠═╡
+compare_policies(value_iter_x_vs_rand.optimal_policy, value_iter_x_vs_iter1.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ 1ff8a3a5-8b93-4819-97d2-e7f73abf3dcc
+#=╠═╡
+compare_policies(value_iter_o_vs_rand.optimal_policy, value_iter_o_vs_iter1.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ 9cf9c48f-6ca7-41aa-bc9b-0cf5d404e86a
+#=╠═╡
+compare_policies(value_iter_x_vs_iter1.optimal_policy, value_iter_x_vs_iter2.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ ee91b5ea-8bd6-4a1c-84cc-e1e6b9114c45
+#=╠═╡
+compare_policies(value_iter_o_vs_iter1.optimal_policy, value_iter_o_vs_iter2.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ 09c92c9d-9ba6-4ef6-a688-6a6c0e2486f7
+#=╠═╡
+compare_policies(value_iter_x_vs_iter2.optimal_policy, value_iter_x_vs_iter3.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ fa482e14-aa0c-4ae5-a894-e891f16cc3fd
+#=╠═╡
+compare_policies(value_iter_o_vs_iter2.optimal_policy, value_iter_o_vs_iter3.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ 5caf9528-6ae5-41ca-964e-4295d4010ac4
+#=╠═╡
+compare_policies(value_iter_x_vs_iter3.optimal_policy, value_iter_x_vs_iter4.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ 5c83b11b-7756-4b35-895b-ff08c1260f0b
+#=╠═╡
+compare_policies(value_iter_o_vs_iter3.optimal_policy, value_iter_o_vs_iter4.optimal_policy)
+  ╠═╡ =#
+
+# ╔═╡ ac994fa8-e45b-4656-a33f-e2e221044255
+#=╠═╡
+begin
+	function show_tabular_policy(board::BoardTTT, policy::Matrix; cellsize = 100)
+		sym_board, rot = get_symmetric_board(board)
+		(board_viz, id) = make_ttt_board_raw(board)
+		board_index = symmetric_board_index[sym_board]
+		policy_vector = policy[:, board_index]
+		rot_inds = d4_inverted[rot]
+		policy_vector_rot = policy_vector[rot_inds]
+		# @info "rotating indices with $rot_inds"
+		# @info "Original policy vector $policy_vector"
+		# @info "Updated policy vector $policy_vector_rot"
+		color_style = color_board(id, policy_vector_rot)
+		resize_style = resize_board(id, cellsize)
+		HTML("""	
+		$board_viz
+		$color_style
+		$(@htl("""$resize_style"""))
+		""")
+	end
+
+	function show_tabular_policy(board_index::Integer, policy::Matrix; cellsize = 100)
+		sym_board = symmetric_boards[board_index]
+		(board_viz, id) = make_ttt_board_raw(sym_board)
+		color_style = color_board(id, policy[:, board_index])
+		resize_style = resize_board(id, cellsize)
+		HTML("""	
+		$board_viz
+		$color_style
+		$(@htl("""$resize_style"""))
+		""")
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ e9c8a2b7-3e4d-4788-9496-8a0f15910d70
+#=╠═╡
+vcat([show_tabular_policy(board_index, value_iter_x_vs_rand.optimal_policy; cellsize=50) for board_index in test_episode_x[1]], make_ttt_board_raw(symmetric_boards[test_episode_x[4]], cellsize = 50).board |> HTML)
+  ╠═╡ =#
+
+# ╔═╡ ef532a60-e84c-45fd-8b83-e3ee77618410
+color_board(value_iter_fixed_board[2], value_iter_board1_result.optimal_policy[value_iter_rotated_board.rot_inds, value_iter_rotated_board.index]) |> HTML
+
+# ╔═╡ f7392c49-ee86-40ce-b7f1-b31e72326837
+function show_value_policy(value_policy, board, boardname)
+	v, prbs = value_policy_output(value_policy, board)
+	c = color_board(boardname, prbs)
+	htmlstr = if isa(v, Real)
+		joinelements(c, value_board(boardname, round(v, sigdigits = 2)))
+	else
+		c
+	end
+	HTML(htmlstr)
+end
+
+# ╔═╡ 0a9a139e-88c2-4405-8ada-61c57e39928f
+function heatmap_board(board, actions = zeros(9); cellsize = 100)
+	hash_str = hash((board, actions))
+	#push up non zero colors above linear range
+	mapcolor(x) = round(Int64, 255*(x .^(1/2)))
+	colors = [begin
+		c = mapcolor(x)
+		"rgb($(40), $(max(40, .9*c)), $(40))"
+	end
+	for x in actions]
+
+	function makecell(i)
+		"""
+		.grid-container$hash_str .gridcell.cell$i {
+			background-color: $(colors[i]);
+		}
+		"""
+	end
+
+	joinstr(a, b) =  """$a \n $b"""
+
+	function makehtmlcell(i, v)
+		str = if v == 1
+			" x"
+		elseif v == 2
+			" o"
+		else
+			""
+		end
+		"""<div class = "gridcell cell$i$str" data-cell$hash_str></div>"""
+	end
+
+	htmlcells = mapreduce(i -> makehtmlcell(i, board[i]), joinstr, eachindex(board))
+
+	cells = mapreduce(i -> makecell(i), joinstr, eachindex(actions))
+
+	gridstr = is_o_move(board) ? "o" : "x"
+	
+	HTML("""
+	<span class = "$hash_str">
+	<div class = "grid-container$hash_str $gridstr" id="grid-container$hash_str">
+		$htmlcells
+	</div>
+	
+	<style>
+		body {
+			margin: 0;
+		}
+		.grid-container$hash_str {
+			width: 100vw
+			height: 100vh;
+			display: grid;
+			justify-content: center;
+			align-content: center;
+			grid-template-columns: repeat(3, auto);
+			background-color: rgb(31, 31, 31);
+		}
+
+		.grid-container$hash_str .gridcell.x::before,
+		.grid-container$hash_str .gridcell.x::after,
+		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::before,
+		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::after {
+			content: '';
+			position: absolute;
+			width: 10px;
+			height: 90px;
+			background-color: black;
+		}
+
+		.grid-container$hash_str .gridcell.x::before,
+		.grid-container$hash_str.x .gridcell:hover::before {
+			transform: rotate(45deg);
+		}
+
+		.grid-container$hash_str .gridcell.x::after,
+		.grid-container$hash_str.x .gridcell:hover::after {
+			transform: rotate(-45deg);
+		}
+
+		.grid-container$hash_str .gridcell.o::before, 
+		.grid-container$hash_str.o .gridcell:hover:not(.x):not(.o)::before
+		{
+			content: '';
+			background-color: rgba(1, 1, 1, 0);
+			border: 10px solid black;
+			height: 70px;
+			width: 70px;
+			border-radius:50%;
+		}
+
+		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::before,
+		.grid-container$hash_str.x .gridcell:hover:not(.x):not(.o)::after {
+			background-color: gray;
+		}
+
+		.grid-container$hash_str.o .gridcell:hover:not(.x):not(.o)::before {
+			border-color: gray;
+		}
+		
+		.gridcell {
+			border: 1px solid black;
+			height: 100px;
+			width: 100px;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			position: relative;
+			cursor: pointer;
+		}
+
+		.gridcell.x, .gridcell.o {
+			cursor: not-allowed;
+		}
+
+		.gridcell:first-child,
+		.gridcell:nth-child(2),
+		.gridcell:nth-child(3) {
+			border-top: none;
+		}
+
+		.gridcell:nth-child(3),
+		.gridcell:nth-child(6),
+		.gridcell:nth-child(9) {
+			border-right: none;
+		}
+
+		.gridcell:nth-child(7),
+		.gridcell:nth-child(8),
+		.gridcell:nth-child(9) {
+			border-bottom: none;
+		}
+
+		.gridcell:nth-child(1),
+		.gridcell:nth-child(4),
+		.gridcell:nth-child(7) {
+			border-left: none;
+		}
+
+		$cells
+	</style>
+	$(resize_board(hash_str, cellsize).content)
+	</span> 
+	""")
+end
+
+# ╔═╡ 95c6b961-bbd2-4ab2-b948-5f3b19b86138
+@bind board4raw heatmap_board("fjehjkwio6786fe", zeros(9), ones(9))
+
+# ╔═╡ fac6efe9-2242-4da0-b491-d3055fe9c3dd
+board4 = UInt8.(board4raw)
+
+# ╔═╡ 84f191f1-0d5a-44dd-991e-6cfdfd2dbbee
+checkboard(state_symmetry_lookup[mapboard(board4)][1])
+
+# ╔═╡ a242cca3-e425-4dae-8908-f27c571a7f3a
+show_policy(board, f) = heatmap_board(hash(f), board, f(board))
+
+# ╔═╡ 4dff1499-5799-4185-aee6-f8285009b2de
+(value = minimaxvalues[state_symmetry_lookup[mapboard(board4)][1]], actions =  show_policy(board4, s -> apply_sym_π(minimax_policy, board4)))
+
+# ╔═╡ 41fc0344-fac6-4231-b12f-c4eb27598b38
+function eval_value_policy(board, results, name)
+	(newplayboard, inds) = state_symmetry_lookup[mapboard(board)]
+	invertinds = [findfirst(inds .== i) for i in 1:9]
+	!haskey(results[3], newplayboard) && return (value = "Not a valid state for first player", actions = heatmap_board(name, board, zeros(9))) 
+	πs = convertπs(results[3][newplayboard])
+	(value = results[1][end][newplayboard], actions = heatmap_board(name, board, [haskey(πs, UInt8(a)) ? πs[UInt8(a)] : 0.0 for a in 1:9][invertinds])) 
+end
+
+# ╔═╡ 5328c966-d0ca-4e02-bfcf-9a585fe8a6c6
+eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -1678,7 +2311,6 @@ PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.61"
 ProgressLogging = "~0.1.4"
 StaticArrays = "~1.9.13"
-Statistics = "~1.11.1"
 StatsBase = "~0.34.4"
 Transducers = "~0.4.84"
 """
@@ -1687,9 +2319,9 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "967a2aa9697bf04d488702953f3453db5cc9b108"
+project_hash = "fb175071a7c85444e2ee3da77dd1e4c18a1bb109"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2163,7 +2795,7 @@ version = "0.3.27+1"
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+4"
+version = "0.8.5+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
@@ -2602,6 +3234,7 @@ version = "17.4.0+2"
 # ╠═d5917084-6b70-4158-a32d-a2a9d375ac8a
 # ╠═857d205e-ff6d-4709-9b2e-f010bee240d1
 # ╟─cfbf20c5-9605-4595-952a-a90cabadab65
+# ╠═c28b68c9-a732-4019-aff4-6d80bd595957
 # ╠═a99f68ab-9f7d-474f-ae0e-6e99c707006e
 # ╠═a514f581-b3ec-41dd-a783-d60fbc56c255
 # ╠═830cfb4b-2bc5-425a-b9b6-a8b6fd0ced63
@@ -2614,13 +3247,78 @@ version = "17.4.0+2"
 # ╠═31538c97-d99c-43db-8a32-dbc6e2726920
 # ╠═b375c7eb-3b4c-4dff-af90-e6814b19cd34
 # ╠═de2d1f87-1530-4d31-9d8c-9af007a44bec
+# ╠═01a099ff-c9cf-44d5-827a-f8d587871dcb
 # ╠═fa1ee379-3476-4636-83b4-3af562f52050
 # ╠═52ee5e7b-19f4-4017-a803-ead3fd45b082
 # ╠═85dfb79c-1a06-45a6-af11-26b688ea0b3e
 # ╠═d0d5b687-cff4-48e4-ac6c-bf19d866aaca
+# ╠═835ee149-b79b-4293-ba1f-714aa76eb141
+# ╠═844d31b2-373e-48ef-882d-eb73e6b10391
 # ╠═7b807838-a724-4f18-b90c-e6cfd52f38aa
+# ╠═b823c99e-fd6e-46dd-bc24-f080befdf922
+# ╠═287d846d-4eba-4745-adaa-613c638262da
 # ╠═d78c7ca7-7125-4547-804a-a8cd193746ed
+# ╠═a93fb40b-7eda-48f6-a2ea-4afce95140a0
+# ╠═216b2401-a416-4a6e-9812-7ef7061b55b9
+# ╠═36deaa30-0485-4012-a838-1011161e7a3e
+# ╠═81ae3b51-b666-4c51-b17b-32bea5b99357
+# ╠═ad943e14-28a1-406c-9f98-d8572dfa16a6
 # ╟─d52f66cd-c4c2-4750-b182-42e08a9a27f4
+# ╠═b1df7a1e-5319-41d2-b8cd-ca25d55fe1ea
+# ╠═14b5a3cd-31d9-4392-bbb8-25286bcc2ff8
+# ╠═3056e679-8006-4396-8bb4-e76cfd909970
+# ╠═d90008a6-e2eb-4e1e-b9ce-9a909ff0325f
+# ╠═f215e88d-8029-4c54-873c-e8413f32a04b
+# ╠═ae128a72-bf33-40eb-8a47-3b6569a3af7b
+# ╠═11e24ec6-4222-425b-afc1-5d44948b2392
+# ╠═22406fa6-fb9b-4d9e-84d8-daa336542563
+# ╠═fef5f0c4-46d7-477c-a508-3c221129cc60
+# ╠═871202dd-4fe5-4a04-b11b-02534c729d8c
+# ╠═21480455-a98c-4d41-91ba-08d069cb2cbf
+# ╠═aa250079-6cc1-4f3e-acf3-a0b0bce75c7c
+# ╠═109a9bfd-92bb-4307-9d3e-0bfb737082ab
+# ╠═9d9ba389-4346-4d37-a5c7-b6a6cfddaedc
+# ╠═f4c9243b-ea5c-45d2-9eea-a6793e8081dd
+# ╠═2e57e843-0ab2-4338-b35b-afa5f606453b
+# ╠═bc9965d2-437a-40e7-bced-30ccbb7867b7
+# ╠═68e65fd7-2885-4c28-9f58-bdc62d0fb9d5
+# ╠═429bbe6d-3126-4e6f-852a-a232f129300c
+# ╠═5fd3dfc2-3e47-474a-8b96-61459b05b4e7
+# ╠═efc0ed38-24dd-4d4a-ae44-a2dfd8bc239d
+# ╠═3ca15d74-a36d-4b45-b57c-cecd6c2a84c2
+# ╠═494879df-0ecc-4610-9206-e5362bbf96d9
+# ╠═477452bc-12ff-4cea-bc3b-2207ec0a907d
+# ╠═a66beb65-f590-4c76-a5a8-8ba9e5829f04
+# ╠═585d07a0-66e8-47dd-a655-845bbed0e79a
+# ╠═d8d3d75e-b35d-4077-a953-f2a83958b48a
+# ╠═2f7f4c11-ecd4-40bf-bcf1-62a63e81c68b
+# ╠═6ada97f9-c1aa-4568-a951-b343e3a7d8ed
+# ╠═6c8d5a2c-7a4d-49e5-961f-8729ab76273a
+# ╠═1ff8a3a5-8b93-4819-97d2-e7f73abf3dcc
+# ╠═9cf9c48f-6ca7-41aa-bc9b-0cf5d404e86a
+# ╠═ee91b5ea-8bd6-4a1c-84cc-e1e6b9114c45
+# ╠═09c92c9d-9ba6-4ef6-a688-6a6c0e2486f7
+# ╠═fa482e14-aa0c-4ae5-a894-e891f16cc3fd
+# ╠═5caf9528-6ae5-41ca-964e-4295d4010ac4
+# ╠═5c83b11b-7756-4b35-895b-ff08c1260f0b
+# ╟─e9c8a2b7-3e4d-4788-9496-8a0f15910d70
+# ╠═ac994fa8-e45b-4656-a33f-e2e221044255
+# ╠═9cf13709-615b-4183-8397-c146f7f91252
+# ╟─cb50cf2c-6adf-42de-be9a-085676876bbe
+# ╟─4a940b85-8f56-414a-a7a8-b2895605ae45
+# ╠═4ef908c9-a2a7-4f85-b98d-c9dab9fc3ac7
+# ╠═8b6786f7-220c-4daa-b707-376c2c7bc14c
+# ╠═9d2120cd-5582-4fa6-9a52-bad1121d9da3
+# ╠═ef532a60-e84c-45fd-8b83-e3ee77618410
+# ╠═8ff4ceda-e4df-4652-b48f-4b9fe4bbce27
+# ╠═b8a5f496-5727-48ab-804f-3dc027cca0f1
+# ╠═7479eb78-0aab-4a28-b433-968aec5b980b
+# ╠═c23d9164-d96d-43fe-b8de-f1b7c6c6d30f
+# ╠═6fea4c9f-b70e-4e64-92bf-0436c1203516
+# ╠═079f86e4-337e-4cf2-a50b-042e351f65c7
+# ╠═4016eb02-ff4c-46dc-8167-d8c2a05f4a1f
+# ╠═45be8610-a480-435c-b4e4-33aff7f3aead
+# ╠═68b8fd79-09f9-43c5-bf53-b5b875d63c3f
 # ╠═74c3970f-49a7-4e35-bcb0-e4fe53c9cd58
 # ╠═ec450941-30ec-4bd1-8628-330760287e5f
 # ╠═1d7fccfb-10d3-47ae-a8f6-55d4a81344da
@@ -2631,6 +3329,20 @@ version = "17.4.0+2"
 # ╠═be80db21-c043-4a9b-8473-f2ab4a1e04ce
 # ╠═5c59c4a2-e4d7-4ed7-9daa-10a12f5378c2
 # ╟─cb12f8b6-cec1-40fe-9b29-0acae1d3291b
+# ╟─16ebebb0-fe2f-4469-a834-8b7375cdb0dd
+# ╠═37f279ed-c1d6-446f-9e63-89553ad4f721
+# ╟─dec67e3a-d798-48c8-b58a-9cfdfd057d36
+# ╟─b8044db9-73af-4834-948d-9c2a800d251d
+# ╟─1aa7f969-7382-4ec4-99ad-af9a7c8f8354
+# ╟─aef1ba88-8b77-4f12-a88c-56ec3e6bdbc7
+# ╟─c180b1a8-9540-4da7-9ba8-932c8d48b8f2
+# ╟─9701cad5-7897-40ed-a3b4-9e9ead8bd790
+# ╟─e65a55a2-a7ba-4c65-82f7-d3c04f168ccc
+# ╟─15d3b0d1-a6a5-4524-a07a-5dd2580aac92
+# ╟─6894f2a4-b844-434b-80cf-03b52558e043
+# ╟─3a84f6ff-e6ac-42a5-8939-420430defeb2
+# ╟─88de5309-557b-4ba9-b627-90495d769747
+# ╠═2e454bf5-62fc-46fc-8076-74f1a6729fa7
 # ╟─0d3b384b-c602-4ccd-b335-987e378a4230
 # ╠═90240ffc-fd88-44e6-9b6c-367361326996
 # ╠═2459ba2e-b0ba-4271-9b3e-7cb0e2b847fa
@@ -2809,5 +3521,10 @@ version = "17.4.0+2"
 # ╠═a90bbcb3-2119-41c3-b06b-66f59d60d0a5
 # ╠═e42a7b19-5be5-4b4e-bceb-cb4bba24ee60
 # ╠═febfb442-0f24-4c34-8104-ecbe43eeefc5
+# ╠═ff6be080-7aed-4a8d-878a-13f447fd48ce
+# ╠═369c4b38-3753-4931-a7f3-9a4f6ecf2fb8
+# ╠═f7392c49-ee86-40ce-b7f1-b31e72326837
+# ╠═0a9a139e-88c2-4405-8ada-61c57e39928f
+# ╠═41fc0344-fac6-4231-b12f-c4eb27598b38
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
