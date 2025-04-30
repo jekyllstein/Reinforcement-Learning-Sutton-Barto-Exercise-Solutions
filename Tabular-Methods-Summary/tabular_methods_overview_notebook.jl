@@ -307,7 +307,7 @@ const wind_values = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
-##### Deterministic gridworld transition display.  Given a state action pair defined below, shows the corresponding state in the grid highlighted in blue and the transition state outlined in bold.  The start and goal states are also shown in green and gold respectively.  Notice that if the selected state is the goal, then all transitions remain in that state.
+### Deterministic gridworld transition display.  Given a state action pair defined below, shows the corresponding state in the grid highlighted in blue and the transition state outlined in bold.  The start and goal states are also shown in green and gold respectively.  Notice that if the selected state is the goal, then all transitions remain in that state.
 """
   ╠═╡ =#
 
@@ -2676,7 +2676,7 @@ md"""
 #compute the state value of a policy using an afterstate value function, since the policy is now omitted, this uses the max operator instead of the policy distribution
 function bellman_state_value(ptf::TabularDeterministicTransition{T, 2}, i_s::Integer, W::Vector{T}) where T<:Real
 	v = typemin(T)
-	@inbounds @simd for i_a in 1:size(π, 1)
+	@inbounds @simd for i_a in 1:size(ptf.state_transition_map, 1)
 		i_y = ptf.state_transition_map[i_a, i_s]
 		r = ptf.reward_transition_map[i_a, i_s]
 		v = max(v, r + W[i_y])
@@ -6610,7 +6610,7 @@ version = "17.4.0+2"
 # ╟─6467d0ee-d551-4558-a765-aa832373d125
 # ╟─f218de8b-6003-4bd2-9820-48165cfde650
 # ╟─3a868cc5-4123-4b5f-be87-589430df389f
-# ╠═2e4bdce5-6188-4c22-a56b-7051c63aa165
+# ╟─2e4bdce5-6188-4c22-a56b-7051c63aa165
 # ╟─a205e421-5a92-4fec-b097-e9f2b75a5882
 # ╟─324d5470-00e2-4dc7-b8ef-ff4f90e288eb
 # ╟─744e866f-6352-4b9e-a534-0102b831833a

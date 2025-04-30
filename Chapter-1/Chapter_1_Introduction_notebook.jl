@@ -15,6 +15,59 @@ md"""
 # Chapter 1: Introduction
 """
 
+# ╔═╡ c05d4729-7713-4e88-a205-a3c3991927a0
+md"""
+## 1.1 Reinforcement Learning
+
+Reinforcement learning is learning what to do (what actions to take in each situation) so as to maximize a numerical reward signal.  The learner must experiement and discover which actions are most rewarding.  In the most interesting and challenging cases the learner must consider the impact of actions for all subsequent rewards as well.  We formalize the study of reinforcement learning using ideas from dynaimcal systems theory, specifically, as the optimal control of incompletely-known Markov decision prcoesses.  It is distinct from *supervised learning* in which an external supervisor provides a set of labeled examples that demonstrate intended or ideal behavior.  It is also distinct from *unsupervised learning* in which one tries to discover hidden relationships in unlabeled data.  In reinforcement leanring the goal is still to maximize something, but that something is the reward signal from the environment which is absent from the prior examples of machine learning.  Also, in reinforcement learning, the agent is presented with the final goal from the beginning rather than trying to solve the problem in a piecemeal fashion.
+"""
+
+# ╔═╡ 7db2dd64-e37e-4f05-aa44-49ad69324bc1
+md"""
+## 1.2 Examples
+
+A good way to understand reinforcement learning is to consider some of the examples and possible applications that have guided its development.
+
+- A master chess player makes a move.  The choice is informed by both planning -- anticipating possible replies and counterreplies -- and by immediate, intuitive judgements of the desirability of particular positions and moves.
+
+- An adaptive controller adjusts parameters of a petroleum refinery's operation in real time.  The controller optimizes the yield/cost/quality trade-off on the basis of specified marginal costs without sticking strictly to the set points originally suggested by engineers.
+- A gazelle calf struggles to its feet minutes after being born.  Half an hour later it is running at 20 miles per hour.
+- A mobile robot decides whether it should enter a new room in search of more trash to collect or start trying to find its way back to its battery recharging station.  It makes its decision based on the current charge level of its battery and how quickly and easily it has been able to find the recharger in the past.
+
+All of these examples involve *interaction* between an active decision-making agent and its environment within which the agent seeks to acheive a *goal* despite *uncertainty* about its environment.  The agents actions are permitted to affect the future state of the environment (e.g. the next chess position, level of resevoirs of the refinery, the robot's next location and future charge level of its battery), thereby affecting the actions and opportunities available to the agent at later times.  Correct choice requires taking into account indirect, delayed concequences of actions, and thus may require foresight or planning.
+
+At the same time, the effects of actions cannot be fully predicted; thus the agent must monitor the environment frequently and react appropriately.  All these examples involve goals that are explicit in the sense that the agent can judge progress toward its goal based on what it can sense directly.  The chess player knows whether or not he wins, the refinery controller knows how much petroleum is being produced, the gazelle calf knows when it falls, the mobile robot knows when its batteries run down.
+
+In all these examples, the agent can use its experience to improve its performance over time.  The chess player refines the intuition he uses to evaluate positions, thereby improving his play; the gazelle calf improves the efficiency with which it can run.  The knowledge the agent brings to the task at the start influences what is useful or easy to learn, but interaction with the environment is essential for adjusting behavior to exploit specific features of the task.
+"""
+
+# ╔═╡ 9accb6db-75b9-472c-aef4-5f186fcc3dc5
+md"""
+## 1.3 Elements of Reinforcement Learning
+
+Beyond the agent and the environment, one can identify four main subelements of a reinforcement learning system: a *policy*, a *reward signal*, a *value function*, and, optinally, a *model* of the environment.
+
+A *policy* defines the agent's way of behaving in a given state.  Roughtly speaking, it maps perceived states into actions taken when in those states.  In general a policy could be stochastic, specifying probabilities for each action.
+
+A *reward signal* defines the goal of a reinforcement learning problem.  On each time step, the environment sends to the reinforcement learning agent a single number called the *reward*.  The agent's sole objective is to maximize the total reward it receives over the long run.  The reward signal thus defines what are the good and bad events for the agent.  If an action taken results in low reward, then the policy may be changed to select some other action in that situation in the future.  In general the reward signal can also be stochastic functions of the state of the environment and the actions taken.
+
+Whereas the reward signal indicates what is good in an immediate sense, a *value function* specifies what is good in the long run.  Roughly speaking, the *value* of a state is the total amount of reward an agent can expect to accumulate over the future, starting from that state.  While rewards are given directly from the environment, values must be estimated from sequences of observations an agent makes over its entire lifetime.  In fact, the most important component of almost all reinforcement learning algorithms we consider is a method for efficiently estimating values.
+
+The fourth and final element of some reinforcement learning systems is a *model* of the environment.  This is something that mimics the behavior of the environment, or more generally, that allows inferences to be made about how the environment will behave.  Models are used for *planning*, by which we mean any way of deciding on a course of action by considering all possible future situations before they are actually experienced.  Methods for solving reinforcement learning problems that use models nad planning are called *model-based* methods, as opposed to the simpler *model-free* methods that are explicitly trial-and-error learners -- viewed as almost the *opposite* of planning.
+"""
+
+# ╔═╡ 453eab8b-df98-4088-adc3-6dfefaf9d3ec
+md"""
+## 1.4 Limitations and Scope
+
+Reinforcement learning relies on a concept of state or "how the environment is" at a particular time.  We assume that the state signal is handled by the environment itself and constitutes something repeatable and meaningful.  In other words, every time the agent sees a particular state, the behavior of the environment from actions taken should always be the same (not exactly the same in the case of a stochastic environment but the same in a probabalistic sense).  We then use the existence of states to estimate value functions and refine them from observations collected after being in those states.  There are other approaches to reinforcement learning in which a collection of static policies are set loose in an environment and then the most successful ones are selected and combined in some way with the hopes of producing a better policy.  This type of approach ignores the fact that these policies are mappings from states to actions and are thus less efficient.  While they may be suitable for problems in which the state of the environment is not known or poorly defined, they are outside the scope of this book.
+"""
+
+# ╔═╡ 3fc35adc-5bc7-46f9-a608-97d40a6545ab
+md"""
+## 1.5 An Extended Example: Tic-Tac-Toe
+"""
+
 # ╔═╡ f1fb61f6-4066-11ee-3c81-790e7afab21b
 md"""
 > ### *Exercise 1.1: Self-Play* 
@@ -365,6 +418,11 @@ version = "17.4.0+2"
 
 # ╔═╡ Cell order:
 # ╟─4394105f-ba75-4d38-97bb-7d97b685c734
+# ╟─c05d4729-7713-4e88-a205-a3c3991927a0
+# ╟─7db2dd64-e37e-4f05-aa44-49ad69324bc1
+# ╟─9accb6db-75b9-472c-aef4-5f186fcc3dc5
+# ╟─453eab8b-df98-4088-adc3-6dfefaf9d3ec
+# ╠═3fc35adc-5bc7-46f9-a608-97d40a6545ab
 # ╟─f1fb61f6-4066-11ee-3c81-790e7afab21b
 # ╟─dcbd0ceb-4d6c-4045-bbd1-ac51ffe232f9
 # ╟─937eaf38-b2fa-459f-a8ee-8857c294a823
