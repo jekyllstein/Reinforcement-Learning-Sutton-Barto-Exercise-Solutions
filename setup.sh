@@ -1,0 +1,1 @@
+julia --startup-file no --threads auto setup.jl
