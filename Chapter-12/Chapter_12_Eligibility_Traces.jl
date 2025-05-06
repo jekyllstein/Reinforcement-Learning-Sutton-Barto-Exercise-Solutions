@@ -2060,8 +2060,6 @@ end
 # ╔═╡ 8b6b5084-3972-4bd4-9ca2-423f1c627788
 md"""
 ### *Example: Mountain Car Sarsa(λ) Variations*
-
-Show similar parameter study for sarsa(λ) with different methods of traces and the true online version.  Can also add implementations of Sarsa(λ) that use q-learning and use the distribution function over output to bypass the action value estimation
 """
 
 # ╔═╡ 5bc128ec-2934-4aa5-a922-9017f647e1b3
@@ -2069,46 +2067,73 @@ md"""
 #### Sarsa(λ) Parameter Studies With Mountain Car Tile Coding
 """
 
+# ╔═╡ c19209dc-bddf-4390-95a9-fc1d1d836a8a
+md"""
+##### Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
+"""
+
 # ╔═╡ 5652f3fd-ec23-4dfb-a171-1e1ed0de275a
-#add button to run all parameter studies
+#=╠═╡
+@bind run_mountaincar_λ_study1 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
 
-# ╔═╡ 251a762a-0d78-419f-b38d-8000d1c072af
+# ╔═╡ 2c425a9a-49ae-48d3-8ab7-f3c12b081180
 md"""
-##### Sarsa$(λ)$ with $\epsilon = 0.01$
+##### Expected Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
 """
 
-# ╔═╡ 54a335f3-672d-4897-b181-e1ee31ba11e1
-md"""
-##### Expected Sarsa$(λ)$ with $\epsilon = 0.01$
-"""
+# ╔═╡ d7c7316d-aac3-4500-ac3c-0c21b9cf5215
+#=╠═╡
+@bind run_mountaincar_λ_study2 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
 
-# ╔═╡ 3086d674-49e4-48b9-ae98-9dede3e98fc8
+# ╔═╡ aea15e6d-9873-406b-993b-04717dad01c6
 md"""
-##### DP$(λ)$ with $\epsilon = 0.01$
+##### DP$$(λ)$$ with $$\epsilon = 0.01$$
 
 In this method the full transition distribution is used and only state values are estimated.
 """
 
-# ╔═╡ 978bb3cd-2b9f-4c73-9d1e-897efbc56f9d
+# ╔═╡ c57b4792-928a-4450-9364-786e9f186cc8
+#=╠═╡
+@bind run_mountaincar_λ_study3 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ b28f47cc-eda7-4961-b6b3-569753386249
 md"""
-##### True Online Sarsa$(λ)$ with $ϵ = 0.01$
+##### True Online Sarsa$$(λ)$$ with $$ϵ = 0.01$$
 
 Notice that here a slightly lower value of $\lambda$ is optimal which increases the degree of bootstrapping compared to Sarsa$(\lambda)$
 """
 
-# ╔═╡ e7beffa8-cea1-497f-80d5-278c3be17802
+# ╔═╡ 31633123-0249-4d15-b6fe-59480d3038eb
+#=╠═╡
+@bind run_mountaincar_λ_study4 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 48c87368-6f11-4330-9a29-3ecbf60cd146
 md"""
-##### True Online Expected Sarsa$(λ)$ with $ϵ = 0.01$
+##### True Online Expected Sarsa$$(λ)$$ with $$ϵ = 0.01$$
 
 Similar results to above as we'd expect for such a small value of $\epsilon$
 """
 
-# ╔═╡ 0385d4b6-9e60-4e0a-83dd-a9989bdb5cc8
+# ╔═╡ 831b925f-9f76-48e2-9de0-32724215c568
+#=╠═╡
+@bind run_mountaincar_λ_study5 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 438726e5-f9a1-4bf7-abda-e5bb0eb30c39
 md"""
-##### True Online DP$(λ)$ with $ϵ = 0.01$
+##### True Online DP$$(λ)$$ with $$ϵ = 0.01$$
 
 Bests results so far which also favor a higher value of $\lambda$ which indicates less reliance on bootstrapping.
 """
+
+# ╔═╡ 4d00dfcc-7b01-4335-95ba-0b31fa0e62ad
+#=╠═╡
+@bind run_mountaincar_λ_study6 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
 
 # ╔═╡ 0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
 md"""
@@ -2282,73 +2307,64 @@ function tile_coding_setup(min_value::S, max_value::S, tile_size::S, num_tilings
 	(num_features = num_features, get_active_features = f)
 end
 
+# ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
+#=╠═╡
+function run_mountaincar_λ_parameter_study(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list; algo = sarsa_λ, seed = rand(UInt64), ymin = 100, ymax = 400, kwargs...)
+	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
+	Random.seed!(seed)
+	mdp = algo == sarsa_λ ? MountainCarTask.mdp : MountainCarTask.dist_mdp
+	traces = [begin
+		y = [begin
+			1:num_trials |> Map() do _
+				output = algo(mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, save_episode_steps = true, kwargs...)
+				step_history = output.history.episode_steps
+				isempty(step_history) && return NaN
+				step_history[end] / length(step_history)
+			end |> foldxt(+) |> x -> x/num_trials
+		end
+		for α in α_list]
+		scatter(x = α_list, y = y, name = "λ = $λ")
+	end
+	for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Average Steps Per Episode Averaged <br> Over the First $num_steps Steps and $num_trials Runs", yaxis_range = [ymin, ymax], xaxis_type = "log"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 111cda26-bd25-49ed-9ba7-4ee8f71b063f
+#=╠═╡
+if run_mountaincar_λ_study1 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.025f0, 0.15f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ f1a8df55-a5ef-475e-a0c4-ed31b1c6c9f5
+#=╠═╡
+if run_mountaincar_λ_study3 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.005f0, 0.07f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ, ymin = 140, ymax = 200)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ cc14f0a2-d0bc-40fa-83fa-b99e62351282
+#=╠═╡
+if run_mountaincar_λ_study6 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.02f0, 6), [0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ, algo! = true_online_dp_λ!, ymin = 130, ymax = 200)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
 # ╔═╡ 66112956-63a3-4629-8fba-958ff04f59e2
 function run_mountaincar_dp_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs...)
 	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
 	output = dp_λ(MountainCarTask.dist_mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, kwargs...)
 end
 
-# ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
-#=╠═╡
-function run_mountaincar_sarsa_λ(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list; kwargs...)
-	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
-	traces = [begin
-		y = [begin
-			1:num_trials |> Map() do _
-				output = sarsa_λ(MountainCarTask.mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, save_episode_steps = true, kwargs...)
-				step_history = output.history.episode_steps
-				isempty(step_history) && return NaN
-				step_history[end] / length(step_history)
-			end |> foldxt(+) |> x -> x/num_trials
-		end
-		for α in α_list]
-		scatter(x = α_list, y = y, name = "λ = $λ")
-	end
-	for λ in λ_list]
-	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Average Steps Per Episode Averaged <br> Over the First $num_steps Steps and $num_trials Runs"))
-end
-  ╠═╡ =#
-
-# ╔═╡ 2fcbe12b-aed2-4815-ac20-307f23e41465
-#=╠═╡
-run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0]; ϵ = 0.01f0)
-  ╠═╡ =#
-
-# ╔═╡ 890e46ac-7cf5-43a9-8bb6-db3ee308212a
-#=╠═╡
-function run_mountaincar_dp_λ(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list; kwargs...)
-	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
-	traces = [begin
-		y = [begin
-			1:num_trials |> Map() do _
-				output = dp_λ(MountainCarTask.dist_mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, save_episode_steps = true, kwargs...)
-				step_history = output.history.episode_steps
-				isempty(step_history) && return NaN
-				step_history[end] / length(step_history)
-			end |> foldxt(+) |> x -> x/num_trials
-		end
-		for α in α_list]
-		scatter(x = α_list, y = y, name = "λ = $λ")
-	end
-	for λ in λ_list]
-	plot(traces)
-end
-  ╠═╡ =#
-
-# ╔═╡ 73d4314e-e34e-4f80-a800-9198a375465e
-#=╠═╡
-run_mountaincar_dp_λ(50_000, 12, 8, 40, Base.LogRange(0.005f0, 0.05f0, 8), [0f0, 0.5f0, 0.9f0, 0.92f0, 0.96f0, 0.99f0]; ϵ = 0.01f0)
-  ╠═╡ =#
-
-# ╔═╡ c3a8fe6b-ed40-42dd-9cfd-bd9d857682a8
-#=╠═╡
-run_mountaincar_dp_λ(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.02f0, 8), [0f0, 0.5f0, 0.8f0, 0.90f0, 0.96f0, 0.98f0, 0.99f0]; ϵ = 0.01f0, algo! = true_online_dp_λ!)
-  ╠═╡ =#
-
 # ╔═╡ 7a0f8a69-467b-4059-b717-97d8e7a7a5fd
-#=╠═╡
-const mountaincar_test_output = run_mountaincar_dp_λ(1_000_000, 12, 8, 0.003f0, 0.98f0, ϵ = 0.01f0, algo! = true_online_dp_λ!)
-  ╠═╡ =#
+const mountaincar_test_output = run_mountaincar_dp_λ(100_000, 12, 8, 0.001f0, 0.99f0, ϵ = 0.01f0, algo! = true_online_dp_λ!)
 
 # ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
 md"""
@@ -2540,9 +2556,13 @@ begin
 	end
 end
 
-# ╔═╡ d0188d56-7acd-47da-bb2b-0bd08c7453f3
+# ╔═╡ fb1bde32-35e4-4985-ad88-6b5408f3c7f7
 #=╠═╡
-run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0]; ϵ = 0.01f0, algo! = expected_sarsa_λ!)
+if run_mountaincar_λ_study2 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.025f0, 0.15f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, algo! = expected_sarsa_λ!, seed = 45, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
   ╠═╡ =#
 
 # ╔═╡ 771cca22-d61d-498a-98be-90fa59e09571
@@ -2765,9 +2785,13 @@ begin
 	end
 end
 
-# ╔═╡ 46fb8d4f-ec4a-49e7-b2c1-7b21feda4df1
+# ╔═╡ 6b449c6c-249e-4193-96ea-caccee683de0
 #=╠═╡
-run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, .1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0]; algo! = true_online_sarsa_λ!, ϵ = 0.01f0)
+if run_mountaincar_λ_study4 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_sarsa_λ!, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
   ╠═╡ =#
 
 # ╔═╡ b6d67598-b020-4626-a572-adfb9e75edba
@@ -2935,9 +2959,13 @@ begin
 	end
 end
 
-# ╔═╡ 6dd6d055-8882-48a8-a0a6-e5d36405e587
+# ╔═╡ d01f8b48-06c1-4dc7-afae-3a2e1b3ba751
 #=╠═╡
-run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, .1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0]; algo! = true_online_expected_sarsa_λ!, ϵ = 0.01f0)
+if run_mountaincar_λ_study5 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_expected_sarsa_λ!, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
   ╠═╡ =#
 
 # ╔═╡ 5062690c-96b9-450a-9927-6a6707dfc511
@@ -4289,7 +4317,7 @@ function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
 	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Learned Value Function"))
 	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)"))
 	@htl("""
-	<div style = "display:flex;">
+	<div style = "display:flex; height: 400px;">
 	$p1 
 	$p2
 	</div>
@@ -5236,33 +5264,37 @@ version = "17.4.0+2"
 # ╠═e323cbc2-1396-43fb-969a-1837bb60c5b5
 # ╟─4fa824ba-51a3-4f5a-a990-dd05bbf2526a
 # ╟─7aa62007-0685-40d2-88ab-9c03add8e75a
-# ╠═e047cce1-11a5-4bcb-8668-a767628da140
-# ╠═f5a8cc64-f7a3-44ef-b925-d11df6a414f6
+# ╟─e047cce1-11a5-4bcb-8668-a767628da140
+# ╟─f5a8cc64-f7a3-44ef-b925-d11df6a414f6
 # ╠═771cca22-d61d-498a-98be-90fa59e09571
 # ╠═b6d67598-b020-4626-a572-adfb9e75edba
 # ╠═ded7c8e0-f44c-44c9-afad-070d325c180b
 # ╟─8b6b5084-3972-4bd4-9ca2-423f1c627788
 # ╟─5bc128ec-2934-4aa5-a922-9017f647e1b3
-# ╠═5652f3fd-ec23-4dfb-a171-1e1ed0de275a
-# ╟─251a762a-0d78-419f-b38d-8000d1c072af
-# ╠═2fcbe12b-aed2-4815-ac20-307f23e41465
-# ╟─54a335f3-672d-4897-b181-e1ee31ba11e1
-# ╠═d0188d56-7acd-47da-bb2b-0bd08c7453f3
-# ╟─3086d674-49e4-48b9-ae98-9dede3e98fc8
-# ╠═73d4314e-e34e-4f80-a800-9198a375465e
-# ╟─978bb3cd-2b9f-4c73-9d1e-897efbc56f9d
-# ╠═46fb8d4f-ec4a-49e7-b2c1-7b21feda4df1
-# ╟─e7beffa8-cea1-497f-80d5-278c3be17802
-# ╠═6dd6d055-8882-48a8-a0a6-e5d36405e587
-# ╟─0385d4b6-9e60-4e0a-83dd-a9989bdb5cc8
-# ╠═c3a8fe6b-ed40-42dd-9cfd-bd9d857682a8
+# ╠═0324b4e2-2544-4bd6-b310-8a330b5a92c5
+# ╟─c19209dc-bddf-4390-95a9-fc1d1d836a8a
+# ╟─5652f3fd-ec23-4dfb-a171-1e1ed0de275a
+# ╟─111cda26-bd25-49ed-9ba7-4ee8f71b063f
+# ╟─2c425a9a-49ae-48d3-8ab7-f3c12b081180
+# ╟─d7c7316d-aac3-4500-ac3c-0c21b9cf5215
+# ╟─fb1bde32-35e4-4985-ad88-6b5408f3c7f7
+# ╟─aea15e6d-9873-406b-993b-04717dad01c6
+# ╟─c57b4792-928a-4450-9364-786e9f186cc8
+# ╟─f1a8df55-a5ef-475e-a0c4-ed31b1c6c9f5
+# ╟─b28f47cc-eda7-4961-b6b3-569753386249
+# ╟─31633123-0249-4d15-b6fe-59480d3038eb
+# ╟─6b449c6c-249e-4193-96ea-caccee683de0
+# ╟─48c87368-6f11-4330-9a29-3ecbf60cd146
+# ╟─831b925f-9f76-48e2-9de0-32724215c568
+# ╟─d01f8b48-06c1-4dc7-afae-3a2e1b3ba751
+# ╟─438726e5-f9a1-4bf7-abda-e5bb0eb30c39
+# ╟─4d00dfcc-7b01-4335-95ba-0b31fa0e62ad
+# ╟─cc14f0a2-d0bc-40fa-83fa-b99e62351282
 # ╟─0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
 # ╠═66112956-63a3-4629-8fba-958ff04f59e2
 # ╠═7a0f8a69-467b-4059-b717-97d8e7a7a5fd
 # ╠═798544c9-215c-4516-a196-b00350512d48
 # ╠═d4cd0741-1c01-407f-867c-2c804151c6fb
-# ╠═0324b4e2-2544-4bd6-b310-8a330b5a92c5
-# ╠═890e46ac-7cf5-43a9-8bb6-db3ee308212a
 # ╠═3ac75a88-6894-4c48-ae2a-30c822814888
 # ╠═cc263d1a-d098-472b-8a2f-92e1ddedfdc4
 # ╠═a51c4911-8878-4eef-9ed4-4402d380dc4d
