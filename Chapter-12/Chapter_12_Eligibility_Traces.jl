@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.4
+# v0.20.6
 
 using Markdown
 using InteractiveUtils
@@ -820,9 +820,6 @@ md"""
 #### Non-Linear Version of TD$(\lambda)$ with Neural Network
 """
 
-# ╔═╡ aa7cde6f-a723-4088-bada-edbc7085ce23
-#also need to extend the Broadcast function to handle the neural net parameters which are Vectors of Matrices
-
 # ╔═╡ cfb775b2-ecd8-4518-854f-384bf35ba9af
 begin
 	import Base.copyto!
@@ -904,7 +901,7 @@ function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integ
 
 	#update the gradient of the state value output with respect to the parameters
 	function update_gradient!(∇v::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x, params::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}})
-		FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v..., activations..., onesvec, dropout, res_layers)
+		FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v..., activations..., onesvec, dropout; resLayers = res_layers)
 		!isinf(maxnorm) && FCANN.scaleParams!(∇v..., maxnorm)
 		return activations[2][end][1]
 	end
@@ -946,12 +943,8 @@ end
 
 # ╔═╡ 3ab94b9e-4f50-4162-8b27-f6a81595f42f
 #=╠═╡
-test_fcann_tdλ_random_walk(0.01f0, [10, 10]; res_layers = 1, max_episodes = 1000_000, α = 0.001f0)
+test_fcann_tdλ_random_walk(0.5f0, [10, 10]; res_layers = 1, max_episodes = 1_000, α = 0.01f0)
   ╠═╡ =#
-
-# ╔═╡ 1f0108ab-6d04-4378-866b-123b1fe080db
-#add parameter study for this with different values of λ and α
-#add comparison to tabular solution which is exact and from the other chapter
 
 # ╔═╡ e99caf5c-7c13-4edd-b55b-dce93cc850c6
 md"""
@@ -987,6 +980,7 @@ begin
 		function update_gradient!(∇v, x, w)
 			∇v .= zero(T)
 			∇v[x[1]] = one(T)
+			return w[x[1]]
 		end
 
 		error_history = semi_gradient_TDλ!(parameters, state_representation, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, update_state_representation!, estimate_value, update_gradient!; kwargs...)
@@ -2075,6 +2069,9 @@ md"""
 #### Sarsa(λ) Parameter Studies With Mountain Car Tile Coding
 """
 
+# ╔═╡ 5652f3fd-ec23-4dfb-a171-1e1ed0de275a
+#add button to run all parameter studies
+
 # ╔═╡ 251a762a-0d78-419f-b38d-8000d1c072af
 md"""
 ##### Sarsa$(λ)$ with $\epsilon = 0.01$
@@ -2548,6 +2545,231 @@ end
 run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0]; ϵ = 0.01f0, algo! = expected_sarsa_λ!)
   ╠═╡ =#
 
+# ╔═╡ 771cca22-d61d-498a-98be-90fa59e09571
+begin
+	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
+	function true_online_sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, epkwargs...) where {T<:Real}
+		#set the state action values of all terminal states to 0
+		for i_s in eachindex(mdp.states)
+			if mdp.terminal_states[i_s]
+				state_action_values[:, i_s] .= zero(T)
+			end
+		end
+
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		#initialize episode
+		i_s = mdp.initialize_state_index()
+		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+		z .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			#take action and observe transition
+			(r, i_s′) = mdp.ptf(i_s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
+
+			q = state_action_values[i_a, i_s]
+			q′ = state_action_values[i_a′, i_s′]
+			
+			δ = r + γ*q′ - q
+
+			dt = z[i_a, i_s]
+			z .*= γ*λ
+
+			z[i_a, i_s] += one(T) - α*γ*λ*dt
+
+			state_action_values .+= α*(δ + q - q_old) .* z
+			state_action_values[i_a, i_s] -= α*(q - q_old)
+
+			if mdp.terminal_states[i_s′]
+				i_s = mdp.initialize_state_index()
+				i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				i_s = i_s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+
+	#true online sarsaλ for binary features
+	function true_online_sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		active_features = get_active_features(s)
+		update_action_values!(action_values, parameters, active_features)
+		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+		i_a = sample_action(action_values)
+		z .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+
+		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
+		function get_feature_values(m::Matrix{T}, i_a::Integer, active_features)
+			x = zero(T)
+			for i in active_features
+				x += m[i, i_a]
+			end
+			return x
+		end
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			q = get_feature_values(parameters, i_a, active_features)
+
+			#represents the portion of the eligibility trace update that depends on the current feature vector
+			dt =  one(T) - α*γ*λ*get_feature_values(z, i_a, active_features)
+
+			z .*= γ*λ
+
+			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
+			for i in active_features
+				parameters[i, i_a] -= α*(q - q_old)
+				z[i, i_a] += dt
+			end
+			
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			if mdp.isterm(s′)
+				q′ = zero(T)
+			else
+				active_features = get_active_features(s′)
+				update_action_values!(action_values, parameters, active_features)
+				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+				i_a′ = sample_action(action_values)
+				q′ = get_feature_values(parameters, i_a′, active_features)
+			end
+			
+			δ = r + γ*q′ - q
+
+			parameters .+= α*(δ + q - q_old) .* z
+			
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				active_features = get_active_features(s)
+				update_action_values!(action_values, parameters, active_features)
+				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+				i_a = sample_action(action_values)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+
+	#non-tabular problem with linear function approximation. 
+	function true_online_sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		function select_action!(action_values, parameters, ϵ, x)
+			for i_a in eachindex(action_values)
+				action_values[i_a] = dot(x, parameters[i_a])
+			end
+			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+			sample_action(action_values)
+		end
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		update_feature_vector!(feature_vector, s)
+		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+		z .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			q = dot(feature_vector, parameters[i_a])
+			dt = dot(z[i_a], feature_vector)
+			x2 .= one(T) .+ α*γ*λ*dt .* feature_vector
+
+			parameters[i_a] .-= α*(q - q_old) .* feature_vector
+			
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			
+			if mdp.isterm(s′)
+				q′ = zero(T)
+			else
+				update_feature_vector!(feature_vector, s′)
+				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
+				q′ = dot(feature_vector, parameters[i_a′])
+			end
+			
+			δ = r + γ*q′ - q
+			
+			for i_a in eachindex(mdp.actions)
+				z .*= γ*λ
+			end
+			z[i_a] .+ x2
+
+			for i_a in eachindex(mdp.actions)
+				parameters[i_a] .+= α*(δ + q - q_old) .* z[i_a]
+			end
+			
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				update_feature_vector!(feature_vector, s)
+				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+				#reset eligibility vector to 0 at the start of a new episode
+				for i_a in eachindex(mdp.actions) z .= zero(T) end
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+end
+
+# ╔═╡ 46fb8d4f-ec4a-49e7-b2c1-7b21feda4df1
+#=╠═╡
+run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, .1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0]; algo! = true_online_sarsa_λ!, ϵ = 0.01f0)
+  ╠═╡ =#
+
 # ╔═╡ b6d67598-b020-4626-a572-adfb9e75edba
 begin
 	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
@@ -2858,10 +3080,176 @@ md"""
 ### *HTD$(\lambda)$ Implementation*
 """
 
-# ╔═╡ 46fb8d4f-ec4a-49e7-b2c1-7b21feda4df1
-#=╠═╡
-run_mountaincar_sarsa_λ(50_000, 12, 8, 40, Base.LogRange(0.01f0, .1f0, 8), [0f0, 0.5f0, 0.8f0, 0.92f0, 0.96f0, 0.98f0, 0.99f0]; algo! = true_online_sarsa_λ!, ϵ = 0.01f0)
-  ╠═╡ =#
+# ╔═╡ b525e0c8-e673-448d-8143-2a9a8be342f5
+begin
+	#htdλ for binary features, WORK IN PROGRESS
+	function htd_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z_target::Matrix{T} = copy(parameters), z_behavior::Matrix{T} = copy(parameters), v::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		active_features = get_active_features(s)
+		update_action_values!(action_values, parameters, active_features)
+		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+		i_a = sample_action(action_values)
+		p_b = action_values[i_a]
+		make_greedy_policy!(action_values)
+		p_t = action_values[i_a]
+		ρ = p_t / p_b
+		z_target .= zero(T)
+		z_behavior .= zero(T)
+		q_old = zero(T)
+		ep = 1
+		step = 1
+
+		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
+		function get_feature_values(m::Matrix{T}, i_a::Integer, active_features)
+			x = zero(T)
+			for i in active_features
+				x += m[i, i_a]
+			end
+			return x
+		end
+		
+		while (ep <= max_episodes) && (step <= max_steps)
+			q = get_feature_values(parameters, i_a, active_features)
+
+			c = dot(z_target - z_behavior, v)
+			
+			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
+			for i in active_features
+				parameters[i, i_a] += α * c
+			end
+
+			z .*= γ*λ
+
+			
+			
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			if mdp.isterm(s′)
+				q′ = zero(T)
+				active_features = []
+			else
+				active_features = get_active_features(s′)
+				update_action_values!(action_values, parameters, active_features)
+				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+				i_a′ = sample_action(action_values)
+				q′ = get_feature_values(parameters, i_a′, active_features)
+			end
+			
+			δ = r + γ*q′ - q
+
+			for i in active_features
+				parameters[i, i_a′] -= γ*c
+			end
+			
+			parameters .+= α*δ .* z_target
+
+			v .+= β*δ .* z_target .- β*dot(z_behavior, v)
+			
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				active_features = get_active_features(s)
+				update_action_values!(action_values, parameters, active_features)
+				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+				i_a = sample_action(action_values)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				q_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				q_old = q′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+
+	#non-tabular problem with linear function approximation. 
+	# function true_online_sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+	# 	#initialize records
+	# 	episode_step_history = Vector{T}()
+	# 	step_rewards = Vector{T}()
+
+	# 	function select_action!(action_values, parameters, ϵ, x)
+	# 		for i_a in eachindex(action_values)
+	# 			action_values[i_a] = dot(x, parameters[i_a])
+	# 		end
+	# 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+	# 		sample_action(action_values)
+	# 	end
+	
+	# 	#initialize episode
+	# 	s = mdp.initialize_state()
+	# 	update_feature_vector!(feature_vector, s)
+	# 	i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+	# 	z .= zero(T)
+	# 	q_old = zero(T)
+	# 	ep = 1
+	# 	step = 1
+		
+	# 	while (ep <= max_episodes) && (step <= max_steps)
+	# 		q = dot(feature_vector, parameters[i_a])
+	# 		dt = dot(z[i_a], feature_vector)
+	# 		x2 .= one(T) .+ α*γ*λ*dt .* feature_vector
+
+	# 		parameters[i_a] .-= α*(q - q_old) .* feature_vector
+			
+	# 		#take action and observe transition
+	# 		(r, s′) = mdp.ptf(s, i_a)
+			
+	# 		save_step_rewards && push!(step_rewards, r)
+
+			
+	# 		if mdp.isterm(s′)
+	# 			q′ = zero(T)
+	# 		else
+	# 			update_feature_vector!(feature_vector, s′)
+	# 			i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
+	# 			q′ = dot(feature_vector, parameters[i_a′])
+	# 		end
+			
+	# 		δ = r + γ*q′ - q
+			
+	# 		for i_a in eachindex(mdp.actions)
+	# 			z .*= γ*λ
+	# 		end
+	# 		z[i_a] .+ x2
+
+	# 		for i_a in eachindex(mdp.actions)
+	# 			parameters[i_a] .+= α*(δ + q - q_old) .* z[i_a]
+	# 		end
+			
+	# 		if mdp.isterm(s′)
+	# 			s = mdp.initialize_state()
+	# 			update_feature_vector!(feature_vector, s)
+	# 			i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+	# 			#reset eligibility vector to 0 at the start of a new episode
+	# 			for i_a in eachindex(mdp.actions) z .= zero(T) end
+	# 			q_old = zero(T)
+	# 			ep += 1
+	# 			save_episode_steps && push!(episode_step_history, step)
+	# 		else
+	# 			s = s′
+	# 			i_a = i_a′
+	# 			q_old = q′
+	# 		end
+	# 		step += 1
+	# 	end
+		
+	# 	return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	# end
+end
 
 # ╔═╡ 9c9c5f0a-4079-4848-a822-ea9dcc460660
 md"""
@@ -3076,6 +3464,9 @@ end
 display_cartpole_episode(cartpole_episode_sample[1], [1])
   ╠═╡ =#
 
+# ╔═╡ f430c6c9-914f-4db9-962a-012871a91a71
+md"""Episode Step"""
+
 # ╔═╡ cb5f26a2-cca2-4450-ae84-3cebd702a086
 #=╠═╡
 @bind display_step Slider(1:length(cartpole_episode_sample[1]); show_value=true)
@@ -3289,24 +3680,27 @@ function cartpole_tilecoding_dp_λ_parameter_study(α_list, λ_list, max_steps; 
 end
   ╠═╡ =#
 
-# ╔═╡ 69d81c18-41bd-4088-a7ea-9f99f6d5d3ae
+# ╔═╡ bf139624-fd32-46b8-9d47-1c98f8b41f19
 #=╠═╡
-cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-4, 1f0, 8), [0f0, 0.5f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = dp_λ!)
+@bind run_param_studies CounterButton("Run Parameter Studies (could take several minutes)")
   ╠═╡ =#
 
-# ╔═╡ f0250661-45b9-4c0b-a441-f2d22707bb07
+# ╔═╡ be22308b-809d-4671-9d23-240f0acb9235
 #=╠═╡
-cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-4, 1f0, 8), [0.1f0, 0.2f0, 0.3f0, 0.4f0], 10_000; algo! = dp_λ!)
-  ╠═╡ =#
+if run_param_studies > 0
+	md"""
+	DP($\lambda$)
+	$(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-4, 1f0, 8), [0f0, 0.3f0, 0.5f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = dp_λ!))
 
-# ╔═╡ 38f9cd59-34ec-4e5a-8e39-bdd44183f8a8
-#=╠═╡
-cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-5, 1f-1, 8), [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = true_online_dp_λ!)
-  ╠═╡ =#
 
-# ╔═╡ 20c1dc55-aaae-40de-87e0-db86f7a4d460
-#=╠═╡
-cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-5, 1f-1, 8), [0.1f0, 0.2f0, 0.3f0, 0.4f0], 10_000; algo! = true_online_dp_λ!)
+	True Online DP($λ$)
+	$(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-5, 1f-1, 8), [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = true_online_dp_λ!))
+	"""
+else
+	md"""
+	Waiting to run carpole parameter studies
+	"""
+end
   ╠═╡ =#
 
 # ╔═╡ 0358288e-be4e-46c2-ac4c-16ace6f50187
@@ -3924,7 +4318,7 @@ function show_mountaincar_trajectory(π::Function, max_steps::Integer, name)
 	@htl("""
 	$mdname
 	Total Reward: $(sum(rewards))
-	<div style = "display:flex;">
+	<div style = "display:flex; height: 400px">
 	$p1 
 	$p2 
 	$p3
@@ -3948,11 +4342,13 @@ md"""
 function plot_cart(s::CartPoleState; xmin = -50, xmax = 50, θ̇_min = -10, θ̇_max = 10)
 	s.x
 	s.θ
+	rad_angle = string(round(s.θ; sigdigits = 2), " Rads")
+	deg_angle = string(round(rad2deg(s.θ); sigdigits = 2), "°")
 	t1 = scatter(x = [0, sin(s.θ)], y = [0, cos(s.θ)], mode = "lines", color = "black")
 	t2 = scatter(x = [sin(s.θ)], y = [cos(s.θ)], mode = "markers", color = "black")
-	p1 = plot([t1, t2], Layout(yaxis_range = [-.1, 1.2], xaxis_range = [-1.2, 1.2], xaxis_scaleanchor = "y"))
-	p2 = plot(scatter(x = [s.x], y = [0]), Layout(xaxis_range = [xmin, xmax]))
-	p3 = plot(indicator(mode = "gauge+number+delta", value = s.θ̇, title_text = "Angular Speed in Radians per Second", delta_reference = 0, gauge_axis_range = [-10, 10]))
+	p1 = plot([t1, t2], Layout(yaxis_range = [-.1, 1.2], xaxis_range = [-1.2, 1.2], xaxis_scaleanchor = "y", height = 200, showlegend = false, title = "Pole Angle", xaxis_tickvals = [], yaxis_tickvals = [], annotations = [attr(x = 1.75, y = 0.5, showarrow=false, text = rad_angle, font_size = 20), attr(x = -1.75, y = 0.5, showarrow=false, text = deg_angle, font_size = 20)]))
+	p2 = plot(bar(y = [0], x = [s.x], orientation = "h"), Layout(height = 200, yaxis = attr(tickvals = [], ticknames = []), xaxis_range = [xmin, xmax], xaxis_title = "Horizontal Position = $(s.x)"))
+	p3 = plot(indicator(mode = "gauge+number+delta", value = s.θ̇, title_text = "Angular Speed in Radians per Second", delta_reference = 0, gauge_axis_range = [-10, 10]), Layout(height = 200))
 	@htl("""
 	<div style = "display: flex;">
 	$p1 
@@ -3972,491 +4368,6 @@ plot_cart(cartpole_episode_sample[1][display_step])
 #=╠═╡
 plot_cart(throttle_episode[display_step2])
   ╠═╡ =#
-
-# ╔═╡ b9178bb8-bc09-4ebd-bdde-99f892d3cbec
-#=╠═╡
-plot(indicator(mode = "gauge+number+delta", value = 800, delta = attr(reference = 300), title = attr(text = "Speed"), gauge_axis = attr(range = [200, 1000]), domain = attr(x = [0, 1], y = [0, 1])))
-  ╠═╡ =#
-
-# ╔═╡ 52921345-ac7d-474a-aeef-eaff100f16e3
-DT = 1000
-
-# ╔═╡ c8aff973-f8da-48e5-b95e-26c8628212c6
-#=╠═╡
-buttons_attr = [attr(
-        label="Play",
-        method="animate",
-        args=[nothing, 
-            attr(
-              fromcurrent=true,
-              transition=(
-                duration=DT,
-              ),
-          frame=attr(
-            duration=DT,
-            redraw=true
-          )
-        )],
-          ),
-        attr(
-        label="Pause",
-        method="animate",
-        args=[
-          [nothing],
-          attr(
-            mode="immediate",
-            fromcurrent=true,
-            transition=attr(
-              duration=DT
-            ),
-            frame=attr(
-              duration=DT,
-              redraw=true
-            )
-          )
-        ],
-      )]
-  ╠═╡ =#
-
-# ╔═╡ 89b9731c-27ef-4b24-912d-b4fd092a4b28
-#=╠═╡
-@bind clock_tick Clock(max_value = 10)
-  ╠═╡ =#
-
-# ╔═╡ 7c6559e8-ca83-465a-8ed7-234e01f2ffbd
-#=╠═╡
-clock_tick
-  ╠═╡ =#
-
-# ╔═╡ b9a3e653-609e-432d-8132-b89d203da104
-#=╠═╡
-function animation_test(;n = 10)
-	x_points = [rand(-5:5) for i in 1:n]
-	y_points = [rand(-5:5) for i in 1:n]
-	traces = [scatter(x = [x_points[i]], y = [y_points[i]]) for i in 1:n]
-	# frames = PlotlyFrame[frame(name = "trace $i", traces = [0], data = (attr(x = [x_points[i]], y = [y_points[i]]))) for i in eachindex(traces)]
-	# layout = Layout(
- #        width=400, 
- #        height=400, 
- #        margin_b=90,
- #    # add buttons to play the animation
- #    updatemenus=[
- #    attr(
- #      x=0.5,
- #      y=0,
- #      yanchor="top",
- #      xanchor="center",
- #      showactive=true,
- #      direction="left",
- #      type="buttons",
- #      pad=attr(t=87, r=10),
- #      buttons=buttons_attr
- #    )]
- #    ) #end layout
-	# plotdata = Plot(traces[1], layout, frames)
-end
-  ╠═╡ =#
-
-# ╔═╡ f9e1a29d-1f6b-41fa-b5f7-6d8b08954c5a
-#=╠═╡
-traces = animation_test()
-  ╠═╡ =#
-
-# ╔═╡ d6cc216a-2a5d-41b9-84e8-1a074dba08a6
-#=╠═╡
-plot(traces[clock_tick])
-  ╠═╡ =#
-
-# ╔═╡ b525e0c8-e673-448d-8143-2a9a8be342f5
-begin
-	#htdλ for binary features, WORK IN PROGRESS
-	function htd_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z_target::Matrix{T} = copy(parameters), z_behavior::Matrix{T} = copy(parameters), v::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-	
-		#initialize episode
-		s = mdp.initialize_state()
-		active_features = get_active_features(s)
-		update_action_values!(action_values, parameters, active_features)
-		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-		i_a = sample_action(action_values)
-		p_b = action_values[i_a]
-		make_greedy_policy!(action_values)
-		p_t = action_values[i_a]
-		ρ = p_t / p_b
-		z_target .= zero(T)
-		z_behavior .= zero(T)
-		q_old = zero(T)
-		ep = 1
-		step = 1
-
-		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
-		function get_feature_values(m::Matrix{T}, i_a::Integer, active_features)
-			x = zero(T)
-			for i in active_features
-				x += m[i, i_a]
-			end
-			return x
-		end
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			q = get_feature_values(parameters, i_a, active_features)
-
-			c = dot(z_target - z_behavior, v)
-			
-			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
-			for i in active_features
-				parameters[i, i_a] += α * c
-			end
-
-			z .*= γ*λ
-
-			
-			
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			if mdp.isterm(s′)
-				q′ = zero(T)
-				active_features = []
-			else
-				active_features = get_active_features(s′)
-				update_action_values!(action_values, parameters, active_features)
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-				i_a′ = sample_action(action_values)
-				q′ = get_feature_values(parameters, i_a′, active_features)
-			end
-			
-			δ = r + γ*q′ - q
-
-			for i in active_features
-				parameters[i, i_a′] -= γ*c
-			end
-			
-			parameters .+= α*δ .* z_target
-
-			v .+= β*δ .* z_target .- β*dot(z_behavior, v)
-			
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				active_features = get_active_features(s)
-				update_action_values!(action_values, parameters, active_features)
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-				i_a = sample_action(action_values)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				q_old = zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				q_old = q′
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-
-	#non-tabular problem with linear function approximation. 
-	function true_online_sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		function select_action!(action_values, parameters, ϵ, x)
-			for i_a in eachindex(action_values)
-				action_values[i_a] = dot(x, parameters[i_a])
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
-	
-		#initialize episode
-		s = mdp.initialize_state()
-		update_feature_vector!(feature_vector, s)
-		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-		z .= zero(T)
-		q_old = zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			q = dot(feature_vector, parameters[i_a])
-			dt = dot(z[i_a], feature_vector)
-			x2 .= one(T) .+ α*γ*λ*dt .* feature_vector
-
-			parameters[i_a] .-= α*(q - q_old) .* feature_vector
-			
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			
-			if mdp.isterm(s′)
-				q′ = zero(T)
-			else
-				update_feature_vector!(feature_vector, s′)
-				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
-				q′ = dot(feature_vector, parameters[i_a′])
-			end
-			
-			δ = r + γ*q′ - q
-			
-			for i_a in eachindex(mdp.actions)
-				z .*= γ*λ
-			end
-			z[i_a] .+ x2
-
-			for i_a in eachindex(mdp.actions)
-				parameters[i_a] .+= α*(δ + q - q_old) .* z[i_a]
-			end
-			
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				update_feature_vector!(feature_vector, s)
-				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-				#reset eligibility vector to 0 at the start of a new episode
-				for i_a in eachindex(mdp.actions) z .= zero(T) end
-				q_old = zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				q_old = q′
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-end
-
-# ╔═╡ 771cca22-d61d-498a-98be-90fa59e09571
-begin
-	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
-	function true_online_sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, epkwargs...) where {T<:Real}
-		#set the state action values of all terminal states to 0
-		for i_s in eachindex(mdp.states)
-			if mdp.terminal_states[i_s]
-				state_action_values[:, i_s] .= zero(T)
-			end
-		end
-
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		#initialize episode
-		i_s = mdp.initialize_state_index()
-		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
-		z .= zero(T)
-		q_old = zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			#take action and observe transition
-			(r, i_s′) = mdp.ptf(i_s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
-
-			q = state_action_values[i_a, i_s]
-			q′ = state_action_values[i_a′, i_s′]
-			
-			δ = r + γ*q′ - q
-
-			dt = z[i_a, i_s]
-			z .*= γ*λ
-
-			z[i_a, i_s] += one(T) - α*γ*λ*dt
-
-			state_action_values .+= α*(δ + q - q_old) .* z
-			state_action_values[i_a, i_s] -= α*(q - q_old)
-
-			if mdp.terminal_states[i_s′]
-				i_s = mdp.initialize_state_index()
-				i_a = select_action!(action_values, state_action_values, ϵ, i_s)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				q_old = zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				i_s = i_s′
-				i_a = i_a′
-				q_old = q′
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-
-	#true online sarsaλ for binary features
-	function true_online_sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-	
-		#initialize episode
-		s = mdp.initialize_state()
-		active_features = get_active_features(s)
-		update_action_values!(action_values, parameters, active_features)
-		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-		i_a = sample_action(action_values)
-		z .= zero(T)
-		q_old = zero(T)
-		ep = 1
-		step = 1
-
-		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
-		function get_feature_values(m::Matrix{T}, i_a::Integer, active_features)
-			x = zero(T)
-			for i in active_features
-				x += m[i, i_a]
-			end
-			return x
-		end
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			q = get_feature_values(parameters, i_a, active_features)
-
-			#represents the portion of the eligibility trace update that depends on the current feature vector
-			dt =  one(T) - α*γ*λ*get_feature_values(z, i_a, active_features)
-
-			z .*= γ*λ
-
-			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
-			for i in active_features
-				parameters[i, i_a] -= α*(q - q_old)
-				z[i, i_a] += dt
-			end
-			
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			if mdp.isterm(s′)
-				q′ = zero(T)
-			else
-				active_features = get_active_features(s′)
-				update_action_values!(action_values, parameters, active_features)
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-				i_a′ = sample_action(action_values)
-				q′ = get_feature_values(parameters, i_a′, active_features)
-			end
-			
-			δ = r + γ*q′ - q
-
-			parameters .+= α*(δ + q - q_old) .* z
-			
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				active_features = get_active_features(s)
-				update_action_values!(action_values, parameters, active_features)
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-				i_a = sample_action(action_values)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				q_old = zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				q_old = q′
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-
-	#non-tabular problem with linear function approximation. 
-	function true_online_sarsa_λ!(parameters::Vector{Vector{T}}, feature_vector::Vector{T}, update_feature_vector!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, x2::Vector{T} = copy(feature_vector), z::Vector{Vector{T}} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		function select_action!(action_values, parameters, ϵ, x)
-			for i_a in eachindex(action_values)
-				action_values[i_a] = dot(x, parameters[i_a])
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
-	
-		#initialize episode
-		s = mdp.initialize_state()
-		update_feature_vector!(feature_vector, s)
-		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-		z .= zero(T)
-		q_old = zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			q = dot(feature_vector, parameters[i_a])
-			dt = dot(z[i_a], feature_vector)
-			x2 .= one(T) .+ α*γ*λ*dt .* feature_vector
-
-			parameters[i_a] .-= α*(q - q_old) .* feature_vector
-			
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			
-			if mdp.isterm(s′)
-				q′ = zero(T)
-			else
-				update_feature_vector!(feature_vector, s′)
-				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
-				q′ = dot(feature_vector, parameters[i_a′])
-			end
-			
-			δ = r + γ*q′ - q
-			
-			for i_a in eachindex(mdp.actions)
-				z .*= γ*λ
-			end
-			z[i_a] .+ x2
-
-			for i_a in eachindex(mdp.actions)
-				parameters[i_a] .+= α*(δ + q - q_old) .* z[i_a]
-			end
-			
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				update_feature_vector!(feature_vector, s)
-				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-				#reset eligibility vector to 0 at the start of a new episode
-				for i_a in eachindex(mdp.actions) z .= zero(T) end
-				q_old = zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				q_old = q′
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -4484,7 +4395,6 @@ PlutoPlotly = "~0.3.6"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.49"
 StaticArrays = "~1.9.10"
-Statistics = "~1.11.1"
 StatsBase = "~0.33.21"
 Transducers = "~0.4.84"
 """
@@ -4493,9 +4403,9 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "eeaf5e83f39dc2c9adbdb2cb6d84b3370de6d0e8"
+project_hash = "52f0e08d74c26001471ce64a62da0627b2421990"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -5249,7 +5159,7 @@ version = "17.4.0+2"
 # ╠═eefb36bb-d988-4f5d-bfbb-c3df2f869ab6
 # ╠═583d2f42-692a-4028-93cc-47c2e178c84e
 # ╟─176ee625-51c6-48f1-8f01-d3fb7008db6e
-# ╠═14b3b28e-1351-4b45-9a57-bfab846a2ffd
+# ╟─14b3b28e-1351-4b45-9a57-bfab846a2ffd
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
@@ -5262,14 +5172,12 @@ version = "17.4.0+2"
 # ╟─1d3144f8-fecf-4c8f-8e47-626ad94ed15a
 # ╠═24468748-009d-42a3-918d-4ba18b23c9ed
 # ╟─be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
-# ╠═aa7cde6f-a723-4088-bada-edbc7085ce23
 # ╠═cfb775b2-ecd8-4518-854f-384bf35ba9af
 # ╠═3c1fdc9c-42ad-4eae-9103-e834a1056878
 # ╠═43675f77-a930-424a-bf60-6362354317ed
 # ╟─f92b8423-b05f-4058-ac91-4b3c6d447820
 # ╠═3839f146-107c-45e9-bb94-b707982f4ce1
-# ╠═3ab94b9e-4f50-4162-8b27-f6a81595f42f
-# ╠═1f0108ab-6d04-4378-866b-123b1fe080db
+# ╟─3ab94b9e-4f50-4162-8b27-f6a81595f42f
 # ╟─e99caf5c-7c13-4edd-b55b-dce93cc850c6
 # ╠═900760f0-b253-4db7-8c4f-4ca34777198d
 # ╟─373a89e3-0b8d-49a0-982e-8bb300538429
@@ -5278,7 +5186,7 @@ version = "17.4.0+2"
 # ╠═b68f1171-6274-4d93-bf68-05b95cb5b2f8
 # ╠═da8c5f8b-5ab6-4a2b-93e8-18be4284b932
 # ╟─83a645f8-f806-4828-bc42-d24cfd26bad3
-# ╠═9a75dc05-883b-47a6-b8f0-ae0799c5fc19
+# ╟─9a75dc05-883b-47a6-b8f0-ae0799c5fc19
 # ╟─addedc75-375f-429f-8e2e-90ba2151dee0
 # ╟─5e1366cc-05cd-43b3-8a00-e56242a30d8f
 # ╠═4f9cbb26-6c9b-458a-b7e6-102f0dbf64cb
@@ -5335,8 +5243,9 @@ version = "17.4.0+2"
 # ╠═ded7c8e0-f44c-44c9-afad-070d325c180b
 # ╟─8b6b5084-3972-4bd4-9ca2-423f1c627788
 # ╟─5bc128ec-2934-4aa5-a922-9017f647e1b3
+# ╠═5652f3fd-ec23-4dfb-a171-1e1ed0de275a
 # ╟─251a762a-0d78-419f-b38d-8000d1c072af
-# ╟─2fcbe12b-aed2-4815-ac20-307f23e41465
+# ╠═2fcbe12b-aed2-4815-ac20-307f23e41465
 # ╟─54a335f3-672d-4897-b181-e1ee31ba11e1
 # ╠═d0188d56-7acd-47da-bb2b-0bd08c7453f3
 # ╟─3086d674-49e4-48b9-ae98-9dede3e98fc8
@@ -5397,6 +5306,7 @@ version = "17.4.0+2"
 # ╟─8b3c3da4-0ab2-4294-a6f6-84470669a5d9
 # ╠═91a7b6c3-17aa-43cf-93aa-4ecc5f5019dc
 # ╟─7fa7d6f4-87ac-4e7b-b09f-588800c97664
+# ╟─f430c6c9-914f-4db9-962a-012871a91a71
 # ╟─cb5f26a2-cca2-4450-ae84-3cebd702a086
 # ╠═61e6b0a3-a344-4fc6-b77c-36ef7cd138cd
 # ╟─b45914c8-766b-4509-a6e6-92b093fa83b8
@@ -5406,7 +5316,7 @@ version = "17.4.0+2"
 # ╟─2d28b4af-0302-4dc4-9462-1ac6a083375f
 # ╠═fbfdf045-e627-442e-8ecf-81e9c8007679
 # ╟─c03d9058-25f0-49a1-9283-9d7d7492afd2
-# ╠═38d20b01-e6a2-46fa-8d92-a1725565a7d8
+# ╟─38d20b01-e6a2-46fa-8d92-a1725565a7d8
 # ╠═b2277d3b-7bc3-42ec-a685-bf45c4285caf
 # ╟─798635bb-baf7-4069-8f40-a80f04d372ab
 # ╟─b762a7f7-0a84-47e8-9425-f8982665ab7c
@@ -5421,12 +5331,10 @@ version = "17.4.0+2"
 # ╠═d7cc1ac9-f457-4665-a230-6458fc03664e
 # ╟─8621eeab-2c9e-4228-a150-d7792b5ebccb
 # ╠═8612ce94-9933-4a60-ae62-3fc164748d3f
-# ╠═2bead4bf-0b97-4503-8971-c7c3ed1f8fff
+# ╟─2bead4bf-0b97-4503-8971-c7c3ed1f8fff
 # ╠═3795d653-f0ba-4191-a361-f41e8423e628
-# ╠═69d81c18-41bd-4088-a7ea-9f99f6d5d3ae
-# ╠═f0250661-45b9-4c0b-a441-f2d22707bb07
-# ╠═38f9cd59-34ec-4e5a-8e39-bdd44183f8a8
-# ╠═20c1dc55-aaae-40de-87e0-db86f7a4d460
+# ╟─bf139624-fd32-46b8-9d47-1c98f8b41f19
+# ╟─be22308b-809d-4671-9d23-240f0acb9235
 # ╟─0358288e-be4e-46c2-ac4c-16ace6f50187
 # ╟─2fb6e491-be69-44e8-ae2d-9cb13ec0b66f
 # ╠═67f08f89-698c-4aa4-80d5-1ebcb830fc0c
@@ -5459,13 +5367,5 @@ version = "17.4.0+2"
 # ╠═2e6c8ff9-4710-410d-b7e9-80563cc2af21
 # ╟─214ceb34-7e31-4c89-a328-a492244fd4cf
 # ╠═909104f3-44c2-44ae-8186-11fd74b3ba4e
-# ╠═b9178bb8-bc09-4ebd-bdde-99f892d3cbec
-# ╠═52921345-ac7d-474a-aeef-eaff100f16e3
-# ╠═c8aff973-f8da-48e5-b95e-26c8628212c6
-# ╠═f9e1a29d-1f6b-41fa-b5f7-6d8b08954c5a
-# ╠═89b9731c-27ef-4b24-912d-b4fd092a4b28
-# ╠═d6cc216a-2a5d-41b9-84e8-1a074dba08a6
-# ╠═7c6559e8-ca83-465a-8ed7-234e01f2ffbd
-# ╠═b9a3e653-609e-432d-8132-b89d203da104
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
