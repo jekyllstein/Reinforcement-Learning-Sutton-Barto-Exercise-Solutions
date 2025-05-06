@@ -62,7 +62,7 @@ jobs:
                     Export_cache_dir="pluto_state_cache",
                     Export_baked_notebookfile=false,
                     Export_baked_state=false,
-                    Export_exclude = ["Chapter-13/*", "Chapter-12/*", "TabularRL.jl/*"]
+                    Export_exclude = ["Chapter-13/*", "TabularRL.jl/*", "Examples/*"]
                     # more parameters can go here
                   )'
 
