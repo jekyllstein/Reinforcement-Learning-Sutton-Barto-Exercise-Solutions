@@ -3,7 +3,7 @@ module TabularRL
 using PrecompileTools: @setup_workload, @compile_workload
 import PlutoDevMacros
 
-include(joinpath("..", "..", "Tabular-Methods-Summary", "tabular_methods_overview_notebook.jl"))
+include("tabular_methods_overview_notebook.jl")
 
 #---------Types------------
 #dynamic programming mdp types
