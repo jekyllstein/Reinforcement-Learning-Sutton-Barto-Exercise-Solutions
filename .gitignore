@@ -5,3 +5,4 @@ settings.json
 *.ptx
 *backup [0-9].jl
 *.bin
+*Zone.Identifier
