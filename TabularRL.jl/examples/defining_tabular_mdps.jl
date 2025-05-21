@@ -66,7 +66,7 @@ julia> using TabularRL
 
 # ╔═╡ 761318f2-095b-4e3f-a320-061e9f50f166
 md"""
-## Automatic Setup in Notebooks
+## Automatic Setup with Pluto Notebooks
 
 Alternatively, you can clone the entire reinforcement learning exercise repository and have access to every notebook and package contained therein.  Check to see if you have `git` installed on your computer with `git --version`.  If you receive an error message or do not see a version number then [install git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git).
 
@@ -103,7 +103,7 @@ However, note that the secret and port number may differ on your system.  The UR
 
 # ╔═╡ 1519dfbc-e593-4f1e-9b09-9af8157b04b8
 md"""
-![](pluto_welcome.png)
+![pluto_welcome](https://raw.githubusercontent.com/jekyllstein/Reinforcement-Learning-Sutton-Barto-Exercise-Solutions/02a1ea29b5cf9e8ce783d23dadcb3f33995e48c9/TabularRL.jl/examples/pluto_welcome.jpeg)
 """
 
 # ╔═╡ 418687b7-73f4-476d-8eeb-9791830f44e3
@@ -111,10 +111,30 @@ md"""
 If you click in the text box under `Open a notebook` a navigation menu will appear that shows the directory structure.  If you open any of the `Chapter...` folders, you will see notebook files which can be opened and used interactively.  For our purposes, however, we will open a template notebook which loads all of the required tools.  This notebook is contained at `Examples/template.jl` and can be opened from the text box (see below).
 """
 
+# ╔═╡ 206588a7-0f0f-44a0-b982-abc4fdaa5582
+md"""
+![](https://raw.githubusercontent.com/jekyllstein/Reinforcement-Learning-Sutton-Barto-Exercise-Solutions/02a1ea29b5cf9e8ce783d23dadcb3f33995e48c9/TabularRL.jl/examples/template_opening.png)
+"""
+
 # ╔═╡ 20ebb844-bde2-41fd-a512-d62991e2f6d0
 md"""
 By default, the notebook will open in a preview mode (see below).  Click `Run notebook code` at the top to run the notebook and have access to all the tools.  From there you can add cells to the notebook and enter commands in them just like you would in the REPL.  The code examples which follow can work either in the REPL or the notebook.
 """
+
+# ╔═╡ 40475cd8-80d9-4090-9f92-61b746923517
+md"""
+![](https://raw.githubusercontent.com/jekyllstein/Reinforcement-Learning-Sutton-Barto-Exercise-Solutions/02a1ea29b5cf9e8ce783d23dadcb3f33995e48c9/TabularRL.jl/examples/template_notebook.png)
+"""
+
+# ╔═╡ 908e9a26-f0c3-4e51-995e-f3b474fbc477
+md"""
+# Basic Usage
+
+## Defining a Markov Reward Process
+"""
+
+# ╔═╡ 95efac9a-559b-4cb0-aaed-8116fa09f45a
+
 
 # ╔═╡ b328f330-368c-11f0-107d-4b2801866e56
 md"""
@@ -444,9 +464,13 @@ version = "17.4.0+2"
 # ╟─2d0a1689-93d6-4be8-a991-64a2f57f8475
 # ╟─12d83219-d470-40e9-8bee-a3db0b2bd2a8
 # ╟─761318f2-095b-4e3f-a320-061e9f50f166
-# ╠═1519dfbc-e593-4f1e-9b09-9af8157b04b8
+# ╟─1519dfbc-e593-4f1e-9b09-9af8157b04b8
 # ╟─418687b7-73f4-476d-8eeb-9791830f44e3
+# ╟─206588a7-0f0f-44a0-b982-abc4fdaa5582
 # ╟─20ebb844-bde2-41fd-a512-d62991e2f6d0
+# ╟─40475cd8-80d9-4090-9f92-61b746923517
+# ╟─908e9a26-f0c3-4e51-995e-f3b474fbc477
+# ╠═95efac9a-559b-4cb0-aaed-8116fa09f45a
 # ╟─b328f330-368c-11f0-107d-4b2801866e56
 # ╠═88fc8fef-c10b-408c-82d5-cb97c87aa363
 # ╠═98c33627-bd5e-4d9e-b3c0-0c215b3abc1c
