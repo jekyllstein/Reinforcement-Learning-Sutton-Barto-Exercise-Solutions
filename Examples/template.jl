@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.6
+# v0.20.8
 
 using Markdown
 using InteractiveUtils
@@ -101,7 +101,6 @@ PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.61"
 ProgressLogging = "~0.1.4"
 StaticArrays = "~1.9.13"
-Statistics = "~1.11.1"
 StatsBase = "~0.34.4"
 Transducers = "~0.4.84"
 """
@@ -110,9 +109,9 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "967a2aa9697bf04d488702953f3453db5cc9b108"
+project_hash = "fb175071a7c85444e2ee3da77dd1e4c18a1bb109"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -586,7 +585,7 @@ version = "0.3.27+1"
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+4"
+version = "0.8.5+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
