@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.6
+# v0.20.8
 
 using Markdown
 using InteractiveUtils
@@ -26,15 +26,19 @@ end
 md"""
 # Chapter 2: Multi-armed Bandits
 
+Reinforcement learning is distinct from other types of learning in its use of training information to *evaluate* actions taken rather than simply being *instructed*.  In supervised learning, correct actions would be given explicitely independent of the actual behavior.  Evaluative feedback, on the other hand depends entirely on the action taken.  
+
+In this chapter, we study evaluative feedback in a *nonassociative* setting, that is one in which the situation does not change.  In doing so, we avoid must of the complexity of the full reinforcement learning problem while introducing a technique that will be important throughtout the rest of the book.
+
 ## 2.1: A *k*-armed Bandit Problem
 
-Consider a repeated choice among *k* different options.  A numerical reward is chosen from a stationary probability distribution that depends only on the action selected.  The objective is to maximize the accumulated reward over some time period, let's say 1000 action selections or *time steps*.
+Consider a repeated choice among *k* different options.  A numerical reward is chosen from a stationary probability distribution that depends only on the action selected.  The objective is to maximize the accumulated reward over some time period, let's say 1000 action selections or *time steps*.  The *bandit* described here can be specified by $\Pr \{ r \mid a \}$ for all $a$ where $\Pr$ is some probability distribution with a well defined mean value: $\mathbb{E}[r \vert a] = r_a \; \forall a$.
 
 We denote the action selected on time step *t* as $$A_t,$$ and the corresponding reward as $$R_t.$$  The value then of an arbitrary action $$a$$, denoted $$q_*(a),$$ is the expected reward given that $a$ is selected:
 
 $$q_*(a) \doteq \mathbb{E}[R_t \vert A_t=a]$$
 
-If we know the values, then the problem is trivial, but we assume that we only have estimates of the values at a time step $a$ which we will denote $$Q_t(a).$$  At any given time step the greedy action is the one with the highest value estimate.  If we take non-greedy actions then we can improve our value estimate for other states.  To solve the problem in general we must balance *exploiting* the action estimated to be the best with *exploring* the values of other candidate actions.  What follows are various methods to balance these two choices.
+If we know the expected values, then the problem is trivial, but we assume that we only have estimates of the values at a time step $a$ which we will denote $$Q_t(a).$$  At any given time step, the greedy action is the one with the highest value estimate.  If we take non-greedy actions then we can improve our value estimate for other states.  To solve the problem in general we must balance *exploiting* the action estimated to be the best with *exploring* the values of other candidate actions.  What follows are various methods to balance these two choices.
 """
 
 # ╔═╡ 31d8fba9-cd28-4b2b-ba46-70a068b9ecad
@@ -57,7 +61,7 @@ md"""
 > ### *Exercise 2.1* 
 > In ϵ-greedy action selection, for the case of two actions and $$\epsilon = 0.5$$, what is the probability that the greedy action is selected?
 
-The greedy action will be selected in two cases, each of which has probability 0.5.  For case 1 the greedy action is explicitely taken so the probability of selecting the greedy action in this case is 1.  For case 2, we select an action randomly, so the probability of selecting the greedy action is $$\frac{\text{num greedy actions}}{\text{num total actions}}=0.5$$
+The greedy action could be selected in two cases, each of which has probability 0.5.  For case 1 the greedy action is selected with probability 1.  For case 2, we select an action randomly, so the probability of selecting the greedy action is $$\frac{\text{num greedy actions}}{\text{num total actions}}=0.5$$
 Since both cases are independent, the probabilities can be summed after multiplying each by the probability of that case which is 0.5 for both.
 
 $$P(a = a_{greedy}) = 0.5 \times (1 + 0.5) = 0.5 + 0.25 = 0.75$$
@@ -66,6 +70,9 @@ $$P(a = a_{greedy}) = 0.5 \times (1 + 0.5) = 0.5 + 0.25 = 0.75$$
 # ╔═╡ 083c721c-70dd-4ca3-8160-fc0b0531914f
 md"""
 ## 2.3 The 10-armed Testbed
+
+To roughly assess the relative effectiveness of the greedy and $\epsilon$-greedy action-value methods, we compare them numerically on a suite of test problems.  The tests are a set of 2000 randomly generated $k$-armed bandit problems with $k=10$.  For each bandit problem, the action values, $q_*(a), \; a = 1,\dots,10,$ were selected according to a normal (Gaussian) distribution with a mean of 0 and variance 1.  The probability distribution for the reward from each arm is then a gaussian with unit-variance and the appropriate mean corresponding to that arm.  For any learning method, can we measure its performance and behavior as it improves with experience over 1000 time steps when applied to one of the bandit problems.  This makes up one *run*.  Experiments results are obtained by repeating this process for 2000 independent runs, each with a different bandit problem.
+
 The following code recreates the 10-armed Testbed from section 2.3
 """
 
@@ -221,6 +228,8 @@ function action_value_testbed_plot(; k = 10, ϵ1 = 0.01, ϵ2 = 0.1, steps = 1000
 	### Figure 2.2
 	$fig22a
 	$fig22b
+
+	Average performance of the $$\epsilon$$-greedy action-value methods on the $k-armed testbed.  These data are averages over 2000 runs with different bandit problems.  All methods use sample averages as their action-value estimates.
 	"""
 end
 
@@ -324,8 +333,8 @@ The update formula for $$Q_{n+1}$$ when we obtain a new reward sample is derived
 
 $$\begin{flalign}
 Q_{n+1} &= \frac{1}{n} \sum_{i=1}^n R_i \\
-&= \frac{1}{n} \left ( R_n + \sum_{i=1}^{n-1} R_i \right ) \\
-&= \frac{1}{n} \left ( R_n + (n-1) \frac{1}{n-1} \sum_{i=1}^{n-1} R_i \right ) \\
+&= \frac{1}{n} \left ( R_n + \sum_{i=1}^{n-1} R_i \right ) \tag{separate final sum term}\\
+&= \frac{1}{n} \left ( R_n + (n-1) \frac{1}{n-1} \sum_{i=1}^{n-1} R_i \right ) \tag{multiply by 1} \\
 &= \frac{1}{n} \left ( R_n + (n-1) Q_n \right ) \tag{definition of Q} \\
 &= \frac{1}{n} \left ( R_n + n Q_n - Q_n \right ) \\
 &= Q_n + \frac{1}{n} \left [ R_n + Q_n \right ] \tag{2.3}
@@ -334,6 +343,8 @@ Q_{n+1} &= \frac{1}{n} \sum_{i=1}^n R_i \\
 The update rule (2.3) is of a form that occurs frequently whose general form is
 
 $$NewEstimate \leftarrow OldEstimate + StepSize \left [ Target - OldEstimate \right ] \tag{2.4}$$
+
+The expression $[Target - OldEstimate]$ is an *error* in the estimate.  It is reuced by taking a step toward the "Target."  The target is presumed to indicate a desireable direction in which to move, though it may be noisy.  In the case above, for example, the target is the nth reward.
 
 Notice that the step size parameter in this case is $$\frac{1}{n}$$ but in general it can be constant or depend on the step count and the action itself.  In this case it is denoted $$\alpha_t (a)$$.  The simple bandit algorithm that uses this incremental update rule is implemented above in section **2.3**. 
 """
@@ -349,11 +360,11 @@ In the case of a non-stationary problem, the sample-average method is not ideal 
 
 $$Q_{n+1} \doteq Q_n + \alpha [R_n - Q_n] \tag{2.5}$$
 
-By writing this as an explicite sum over all rewards, one can observe that this update rule computes a weights average whose weights exponentially decay into the past.  See a similar derivation in exercise 2.4.  In order to guarantee that Q converges to the true expected value, the step size parameter must obey the following relationships:
+By writing this as an explicit sum over all rewards, one can observe that this update rule computes a weight average whose weights exponentially decay into the past.  See a similar derivation in exercise 2.4.  In order to guarantee that Q converges to the true expected value, the step size parameter must obey the following relationships:
 
-$$\sum_{n=1}^\infty = \infty \quad \quad \text{and} \quad \quad \sum_{n=1}^\infty \alpha_n^2(a) < \infty \tag{2.7}$$
+$$\sum_{n=1}^\infty \alpha_n(a) = \infty \quad \quad \text{and} \quad \quad \sum_{n=1}^\infty \alpha_n^2(a) < \infty \tag{2.7}$$
 
-The first condition insures steps are large enough to overcome initial conditions and the second condition insures steps are small enough to converge.  These are both met by the sample average step size of $$\frac{1}{n}$$ for not by the constant step size.  That is desireable in a non-stationary environment where there is no stable value to converge to in the first place.  
+The first condition ensures steps are large enough to overcome initial conditions and the second condition insures steps are small enough to converge.  These are both met by the sample average step size of $$\frac{1}{n}$$ for not by the constant step size.  That is desireable in a non-stationary environment where there is no stable value to converge to in the first place.  
 """
 
 # ╔═╡ 78c45162-dc8e-4faf-b1a9-8c71be86dcee
@@ -481,6 +492,11 @@ end
 	Reward Drift Standard Deviation: $(Child(:σ, NumberField(0.001:0.001:0.1, default = 0.01)))
 	"""
 end)
+
+# ╔═╡ b26b3519-6ab4-4cc9-971d-de5e591cac86
+md"""
+The sample average method fails to improve at finding the optimal action after about 4000 time steps.  At this point in the learning process, it selects the optimal action about 45% of the time, while the constant step size averaging method continues to improve and approach the theoretical limit.  It will take many more samples for the sample average method to learn the new rewards since each new sample is weighted progressively less.  As the problem continues to change, the number of steps required to correct the estimates will grow infinitely large.
+"""
 
 # ╔═╡ 7748ab8a-d186-49a4-b6ab-d1bd9ea34990
 md"""
@@ -2645,6 +2661,7 @@ version = "17.4.0+2"
 # ╠═34f65898-cbcc-4832-afac-0f7a284e7f0b
 # ╟─276779a3-9332-46bd-b511-a33a2fea4b5f
 # ╟─d24bd737-9e09-441a-aa94-9279c80f566d
+# ╟─b26b3519-6ab4-4cc9-971d-de5e591cac86
 # ╟─7748ab8a-d186-49a4-b6ab-d1bd9ea34990
 # ╠═bb16115a-a2d9-4b8d-9937-96ab1cdd1ce2
 # ╟─9b625fc0-89bd-4064-a379-225e6a940af7

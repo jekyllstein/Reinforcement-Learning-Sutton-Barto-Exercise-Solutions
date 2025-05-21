@@ -313,6 +313,9 @@ make_ttt_tabular_mdp(ptf::TabularStochasticTransition) = TabularMDP(symmetric_bo
 # ╔═╡ 109a9bfd-92bb-4307-9d3e-0bfb737082ab
 const ttt_value_γ = 1f0
 
+# ╔═╡ d92d52c1-d38a-4b03-9c59-e542c2bdde13
+#next step is to see when the values also converge even if the policy remains unchanged
+
 # ╔═╡ 9cf13709-615b-4183-8397-c146f7f91252
 function get_symmetric_index(board::AbstractVector{I}) where I<:Integer
 	sym_board, rot = get_symmetric_board(board)
@@ -336,6 +339,9 @@ end
 
 # ╔═╡ 871202dd-4fe5-4a04-b11b-02534c729d8c
 get_symmetric_index(symmetric_boards[5])
+
+# ╔═╡ 2180c6dc-1f6d-4976-bd0f-cc8153e6b87d
+#what is the ϵ greedy policy for ttt for different values and how does it differ from greedy
 
 # ╔═╡ 7479eb78-0aab-4a28-b433-968aec5b980b
 d4_symmetries[8]
@@ -812,6 +818,11 @@ const ttt_iter1_tabular_ptfs = make_ttt_ptfs(make_π_value_iter(value_iter_x_vs_
 # ╔═╡ 2f7f4c11-ecd4-40bf-bcf1-62a63e81c68b
 const test_episode_x = runepisode(x_rand_mdp; π = value_iter_x_vs_rand.optimal_policy)
 
+# ╔═╡ 5a962d71-b56b-4166-8320-71c6baed452b
+#=╠═╡
+1:100_000 |> Map(_ -> runepisode(x_rand_mdp; π = value_iter_x_vs_rand.optimal_policy)[3][end]) |> tcollect |> x -> histogram(x = x) |> plot
+  ╠═╡ =#
+
 # ╔═╡ 2e57e843-0ab2-4338-b35b-afa5f606453b
 const x_value_iter1_mdp, o_value_iter1_mdp = make_x_o_tabular_mdps(value_iter_x_vs_rand, value_iter_o_vs_rand)
 
@@ -847,6 +858,11 @@ const value_iter_x_vs_iter4 = value_iteration_v(x_value_iter4_mdp, ttt_value_γ)
 
 # ╔═╡ d8d3d75e-b35d-4077-a953-f2a83958b48a
 const value_iter_o_vs_iter4 = value_iteration_v(o_value_iter4_mdp, ttt_value_γ)
+
+# ╔═╡ 18f5244f-c88a-4e84-9b5b-a8d8c2b76b23
+#=╠═╡
+@bind strat_select Select([(value_iter_x_vs_rand, value_iter_o_vs_rand) => "Strat 1", (value_iter_x_vs_iter4, value_iter_o_vs_iter4) => "Strat 2"])
+  ╠═╡ =#
 
 # ╔═╡ 6ac696c7-9f40-45bb-a556-9507f0b10f87
 #compute the action probability distribution and value for a given board state from a value iteration result output
@@ -1832,10 +1848,8 @@ const value_iter_rotated_board = get_symmetric_index(value_iter_fixed_board[1])
 # ╔═╡ 8b6786f7-220c-4daa-b707-376c2c7bc14c
 const value_iter_board1_status = get_board_status(value_iter_fixed_board[1])
 
-# ╔═╡ 9d2120cd-5582-4fa6-9a52-bad1121d9da3
-const value_iter_board1_result = value_iter_board1_status.is_o_move ? value_iter_o_vs_iter4 : value_iter_x_vs_iter4
-
 # ╔═╡ cb50cf2c-6adf-42de-be9a-085676876bbe
+#=╠═╡
 md"""
 #### Value Iteration Policy Visualization
 
@@ -1843,9 +1857,7 @@ The board below is colored according to the policy with green indicating likely 
 
 State Value for $(value_iter_board1_status.is_o_move ? "O" : "X") Player: $(round(value_iter_board1_result.final_value[value_iter_rotated_board.index] |> Float64; sigdigits = 3))
 """
-
-# ╔═╡ 8ff4ceda-e4df-4652-b48f-4b9fe4bbce27
-value_iter_test.optimal_policy[:, symmetric_board_index[get_symmetric_board(value_iter_fixed_board[1])[1]]]
+  ╠═╡ =#
 
 # ╔═╡ b8a5f496-5727-48ab-804f-3dc027cca0f1
 get_symmetric_board(value_iter_fixed_board[1])
@@ -1858,6 +1870,9 @@ symmetric_boards[test_index]
 
 # ╔═╡ 079f86e4-337e-4cf2-a50b-042e351f65c7
 showboard(symmetric_boards[test_index])
+
+# ╔═╡ 8ff4ceda-e4df-4652-b48f-4b9fe4bbce27
+value_iter_test.optimal_policy[:, symmetric_board_index[get_symmetric_board(value_iter_fixed_board[1])[1]]]
 
 # ╔═╡ 436c72df-c0a1-428c-a005-25381c758deb
 @bind xplayboard TTTBoard()
@@ -1980,7 +1995,9 @@ end
 
 # ╔═╡ 6ada97f9-c1aa-4568-a951-b343e3a7d8ed
 #=╠═╡
-function compare_policies(π1::Matrix{Float32}, π2::Matrix{Float32})
+function compare_value_iter_results(result1::NamedTuple, result2::NamedTuple)
+	π1 = result1.optimal_policy
+	π2 = result2.optimal_policy
 	inds = 1:size(π1, 2) |> Map(j -> any(π1[i, j] != π2[i, j] for i in 1:size(π1, 1))) |> collect |> findall
 
 	isempty(inds) && return md"""Policies are identical"""
@@ -1991,66 +2008,65 @@ function compare_policies(π1::Matrix{Float32}, π2::Matrix{Float32})
 	colors1 = [color_board(boards1[i].id, π1[:, inds[i]]) for i in eachindex(inds)]
 	colors2 = [color_board(boards2[i].id, π2[:, inds[i]]) for i in eachindex(inds)]
 
-	board_html1 = [HTML(x.board) for x in boards1]
-	board_html2 = [HTML(x.board) for x in boards2]
-
+	boards_html = [HTML("""<div> <div style = "display: flex;"><div>$(round(result1.final_value[inds[i]], sigdigits = 2)) $(x[1].board)</div><div>$(round(result2.final_value[inds[i]], sigdigits = 2)) $(x[2].board)</div> <div style = "background-color: white; width: 2px; margin: 5px; height: 90px;"></div></div> </div>""") for (i, x) in enumerate(zip(boards1, boards2))]
 @htl(
 """
 <span>
+States for which the policies differ.  Above each policy heatmap is the corresponding value function
 <div style = "display: flex; flex-wrap: wrap;">
-$(zip(board_html1, board_html2) |> collect)
+$boards_html
 </div>
 $(HTML(reduce(joinelements, colors1)))
 $(HTML(reduce(joinelements, colors2)))
 </span>
 """
 )
-
-	
-		 # $(mapreduce(identity, joinelements, colors1))
-		 
-		 # $(mapreduce(identity, joinelements, colors2))
 end
   ╠═╡ =#
 
 # ╔═╡ 6c8d5a2c-7a4d-49e5-961f-8729ab76273a
 #=╠═╡
-compare_policies(value_iter_x_vs_rand.optimal_policy, value_iter_x_vs_iter1.optimal_policy)
+compare_value_iter_results(value_iter_x_vs_rand, value_iter_x_vs_iter1)
   ╠═╡ =#
 
 # ╔═╡ 1ff8a3a5-8b93-4819-97d2-e7f73abf3dcc
 #=╠═╡
-compare_policies(value_iter_o_vs_rand.optimal_policy, value_iter_o_vs_iter1.optimal_policy)
+compare_value_iter_results(value_iter_o_vs_rand, value_iter_o_vs_iter1)
   ╠═╡ =#
 
 # ╔═╡ 9cf9c48f-6ca7-41aa-bc9b-0cf5d404e86a
 #=╠═╡
-compare_policies(value_iter_x_vs_iter1.optimal_policy, value_iter_x_vs_iter2.optimal_policy)
+compare_value_iter_results(value_iter_x_vs_iter1, value_iter_x_vs_iter2)
   ╠═╡ =#
 
 # ╔═╡ ee91b5ea-8bd6-4a1c-84cc-e1e6b9114c45
 #=╠═╡
-compare_policies(value_iter_o_vs_iter1.optimal_policy, value_iter_o_vs_iter2.optimal_policy)
+compare_value_iter_results(value_iter_o_vs_iter1, value_iter_o_vs_iter2)
   ╠═╡ =#
 
 # ╔═╡ 09c92c9d-9ba6-4ef6-a688-6a6c0e2486f7
 #=╠═╡
-compare_policies(value_iter_x_vs_iter2.optimal_policy, value_iter_x_vs_iter3.optimal_policy)
+compare_value_iter_results(value_iter_x_vs_iter2, value_iter_x_vs_iter3)
   ╠═╡ =#
 
 # ╔═╡ fa482e14-aa0c-4ae5-a894-e891f16cc3fd
 #=╠═╡
-compare_policies(value_iter_o_vs_iter2.optimal_policy, value_iter_o_vs_iter3.optimal_policy)
+compare_value_iter_results(value_iter_o_vs_iter2, value_iter_o_vs_iter3)
   ╠═╡ =#
 
 # ╔═╡ 5caf9528-6ae5-41ca-964e-4295d4010ac4
 #=╠═╡
-compare_policies(value_iter_x_vs_iter3.optimal_policy, value_iter_x_vs_iter4.optimal_policy)
+compare_value_iter_results(value_iter_x_vs_iter3, value_iter_x_vs_iter4)
   ╠═╡ =#
 
 # ╔═╡ 5c83b11b-7756-4b35-895b-ff08c1260f0b
 #=╠═╡
-compare_policies(value_iter_o_vs_iter3.optimal_policy, value_iter_o_vs_iter4.optimal_policy)
+compare_value_iter_results(value_iter_o_vs_iter3, value_iter_o_vs_iter4)
+  ╠═╡ =#
+
+# ╔═╡ b83d7292-5082-43d5-bc3b-fa6c93c67a32
+#=╠═╡
+compare_value_iter_results(value_iter_x_vs_iter4, value_iter_x_vs_rand)
   ╠═╡ =#
 
 # ╔═╡ ac994fa8-e45b-4656-a33f-e2e221044255
@@ -2089,13 +2105,10 @@ begin
 end
   ╠═╡ =#
 
-# ╔═╡ e9c8a2b7-3e4d-4788-9496-8a0f15910d70
-#=╠═╡
-vcat([show_tabular_policy(board_index, value_iter_x_vs_rand.optimal_policy; cellsize=50) for board_index in test_episode_x[1]], make_ttt_board_raw(symmetric_boards[test_episode_x[4]], cellsize = 50).board |> HTML)
-  ╠═╡ =#
-
 # ╔═╡ ef532a60-e84c-45fd-8b83-e3ee77618410
+#=╠═╡
 color_board(value_iter_fixed_board[2], value_iter_board1_result.optimal_policy[value_iter_rotated_board.rot_inds, value_iter_rotated_board.index]) |> HTML
+  ╠═╡ =#
 
 # ╔═╡ f7392c49-ee86-40ce-b7f1-b31e72326837
 function show_value_policy(value_policy, board, boardname)
@@ -2280,6 +2293,17 @@ end
 
 # ╔═╡ 5328c966-d0ca-4e02-bfcf-9a585fe8a6c6
 eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
+
+# ╔═╡ 9d2120cd-5582-4fa6-9a52-bad1121d9da3
+# ╠═╡ disabled = true
+#=╠═╡
+const value_iter_board1_result = value_iter_board1_status.is_o_move ? value_iter_o_vs_rand : value_iter_x_vs_rand#value_iter_o_vs_iter4 : value_iter_x_vs_iter4
+  ╠═╡ =#
+
+# ╔═╡ 124519d9-b8b3-492b-a3af-36c48553bc52
+#=╠═╡
+const value_iter_board1_result = value_iter_board1_status.is_o_move ? strat_select[2] : strat_select[1]
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -3293,6 +3317,7 @@ version = "17.4.0+2"
 # ╠═d8d3d75e-b35d-4077-a953-f2a83958b48a
 # ╠═2f7f4c11-ecd4-40bf-bcf1-62a63e81c68b
 # ╠═6ada97f9-c1aa-4568-a951-b343e3a7d8ed
+# ╠═d92d52c1-d38a-4b03-9c59-e542c2bdde13
 # ╠═6c8d5a2c-7a4d-49e5-961f-8729ab76273a
 # ╠═1ff8a3a5-8b93-4819-97d2-e7f73abf3dcc
 # ╠═9cf9c48f-6ca7-41aa-bc9b-0cf5d404e86a
@@ -3301,21 +3326,25 @@ version = "17.4.0+2"
 # ╠═fa482e14-aa0c-4ae5-a894-e891f16cc3fd
 # ╠═5caf9528-6ae5-41ca-964e-4295d4010ac4
 # ╠═5c83b11b-7756-4b35-895b-ff08c1260f0b
-# ╟─e9c8a2b7-3e4d-4788-9496-8a0f15910d70
+# ╠═b83d7292-5082-43d5-bc3b-fa6c93c67a32
+# ╠═5a962d71-b56b-4166-8320-71c6baed452b
 # ╠═ac994fa8-e45b-4656-a33f-e2e221044255
 # ╠═9cf13709-615b-4183-8397-c146f7f91252
 # ╟─cb50cf2c-6adf-42de-be9a-085676876bbe
+# ╠═2180c6dc-1f6d-4976-bd0f-cc8153e6b87d
 # ╟─4a940b85-8f56-414a-a7a8-b2895605ae45
+# ╟─18f5244f-c88a-4e84-9b5b-a8d8c2b76b23
 # ╠═4ef908c9-a2a7-4f85-b98d-c9dab9fc3ac7
 # ╠═8b6786f7-220c-4daa-b707-376c2c7bc14c
 # ╠═9d2120cd-5582-4fa6-9a52-bad1121d9da3
+# ╠═124519d9-b8b3-492b-a3af-36c48553bc52
 # ╠═ef532a60-e84c-45fd-8b83-e3ee77618410
-# ╠═8ff4ceda-e4df-4652-b48f-4b9fe4bbce27
 # ╠═b8a5f496-5727-48ab-804f-3dc027cca0f1
 # ╠═7479eb78-0aab-4a28-b433-968aec5b980b
 # ╠═c23d9164-d96d-43fe-b8de-f1b7c6c6d30f
 # ╠═6fea4c9f-b70e-4e64-92bf-0436c1203516
 # ╠═079f86e4-337e-4cf2-a50b-042e351f65c7
+# ╠═8ff4ceda-e4df-4652-b48f-4b9fe4bbce27
 # ╠═4016eb02-ff4c-46dc-8167-d8c2a05f4a1f
 # ╠═45be8610-a480-435c-b4e4-33aff7f3aead
 # ╠═68b8fd79-09f9-43c5-bf53-b5b875d63c3f

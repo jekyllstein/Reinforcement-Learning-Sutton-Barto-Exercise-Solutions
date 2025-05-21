@@ -1892,7 +1892,7 @@ begin
 
 	struct TabularMRPTransitionSampler{T <: Real, F <: Function} <: AbstractTabularTransition{T, 1}
 		step::F
-		function TabularTransitionSampler(step::F) where {F<:Function}
+		function TabularMRPTransitionSampler(step::F) where {F<:Function}
 			(r, i_s′) = step(1)
 			new{typeof(r), F}(step)
 		end
