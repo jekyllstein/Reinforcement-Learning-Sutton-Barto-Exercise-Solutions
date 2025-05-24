@@ -23,7 +23,7 @@ end
 # ╔═╡ 318b398a-d8f2-4f39-a45d-fd9023961bf8
 # ╠═╡ skip_as_script = true
 #=╠═╡
-include(joinpath(@__DIR__, "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
+include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
   ╠═╡ =#
 
 # ╔═╡ 35d59eae-77fd-11ef-2790-35dd5a834060

@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.6
+# v0.20.8
 
 using Markdown
 using InteractiveUtils
@@ -30,7 +30,7 @@ end
 
 # ╔═╡ 7cf26604-9c2b-4a77-9674-7d4dac2f99f0
 begin
-	include(joinpath(@__DIR__, "..", "Chapter-9", "Chapter_9_On-policy_Prediction_with_Approximation.jl"))
+	include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-11", "Chapter_11_Off_policy_Methods_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-12", "Chapter_12_Eligibility_Traces.jl"))
@@ -319,124 +319,31 @@ where the gradients are column vectors of partial derivatives with respect to th
 md"""
 ### Notes on Probability Distributions
 
-In order to prove the policy gradient theorem, we must manipulate terms that are probability distributions over states and visit steps.  In order to build intuition for these distributions, we can visualize how data is being averaged with the sort corridor example.  The following function simulates many episodes in the environment with a stochastic policy that has some probability of moving left regardless of the state.  The simulation keeps track of the visit count for a given state and the visit step.  The result of the accumulation is a matrix who's columns contain the number of times each state was visited on every step of an episode across all of the simulated episodes.  If we divide each count by the number of episodes simulated, then we have an unbiased sample of the expected count per episode.
-"""
+In order to prove the policy gradient theorem, we must manipulate terms that are probability distributions over states and visit steps.  In order to build intuition for these distributions, we can visualize how data is being averaged with the sort corridor example.  The following function simulates many episodes in the environment with a stochastic policy that has some probability of moving left regardless of the state.  The simulation keeps track of the visit count for a given state and the visit step.  The result of the accumulation is a matrix who's columns contain the number of times each state was visited on every step of an episode across all of the simulated episodes.  If we divide each count by the number of episodes simulated, then we have an unbiased sample of the probability of visiting a state on each step $k$ of an episode: $\Pr \{ S_k = s \mid \pi \}$ such that $\sum_{s \in \mathcal{S}^+} \Pr \{ S_k = s \mid \pi \} = 1$.
 
-# ╔═╡ 98229733-a71e-44ca-a52a-b7229cf8b422
-md"""
-The probability transition function is normalized over all possible transition states $p(s^\prime \vert s, a)$.  Let's say we also have a policy function $\pi(a \vert s)$ which is normalized over actions.  Now if we combine the two, we can arrive at a new distribution over transition states: $p(s^\prime \vert s, \pi) = \sum_a \pi(a \vert s) p(s^\prime \vert s, a)$ which is the probability of transitioning from $s$ to $s^\prime$ under the policy.  We can see that this distribution is normalized over the transition states as well: $\sum_{s^\prime} p(s^\prime \vert s, \pi) = \sum_{s^\prime, a} \pi(a \vert s) p(s^\prime \vert s, a) = \sum_a \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) = 1 \times 1 = 1$.
-
-What if we consider two steps into the future though?  Now we have $\sum_{s^\prime}\sum_{a^\prime}\pi(a^\prime \vert s^\prime)p(s^{\prime \prime} \vert s^\prime, a^\prime)\sum_a \pi(a \vert s) p(s^\prime \vert s, a) = \sum_{s^\prime}p(s^{\prime \prime} \vert s^\prime, \pi) p(s^\prime \vert s, \pi)$.  It would appear as though we can just put the two probabilities together and consider a new distribution over $s^{\prime \prime}$ which is $p(s^{\prime \prime} \vert s, \pi, 2)$ where instead of one step this now occurs over two steps, but how is this distribution normalized?  In the case of the one step, transition, we saw that its sum over all transition states is 1 as expected.  If we sum this over all $s^{\prime \prime}$ what is the result?  We already know that $\sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime , \pi) = 1$
-
-$\sum_{s^{\prime \prime}} \sum_{s^\prime} p(s^{\prime \prime} \vert s^\prime, \pi) p(s^\prime \vert s, \pi) = \sum_{s^\prime} p(s^\prime \vert s, \pi) \sum_{s^{\prime \prime}} p(s^{\prime \prime} \vert s^\prime, \pi) = 1 \times 1 = 1$
-
-However, the only reason this distribution is also normalized is because we are summing over all states including terminal states.  Let's say that one or more of the $s^\prime$ in the original transition are terminal.  In that case, the only possible $s^{\prime \prime}$ state would be the same terminal state.  Moreover, when a terminal state is reached, we consider the episode to be over even though in theory we could keep counting steps that remain in the same state.  So if we exclude terminal states, then we are tracking a different probability which includes the probability that we have not yet entered a terminal state.  This subtle distinction only applies to episodic problems but is key to defining what we mean by the visit count since we are excluding terminal states from the *on-policy distribution*.  Note that by definition, a terminal state has a value of 0 so it is meaningless to include it in the value error objective.  We are always guaranted to have the correct value simply by knowing it is a terminal state.
-
-Since the quantity $\eta(s)$ is the average number of time steps spent in a state $s$ during an episode, it cannot have a well defined meaning if we include terminal states because if we include them, they would be visited an infinite number of times.  By the convention that an *episode* only includes non-terminal states, then those are the only visit counts we are interested it.
+Note that this distribution is only normalized over the sum of all states including terminal states which is denoted in episodic problems by the notation $\mathcal{S}^+$.  The notation $\mathcal{S}$ excludes all terminal states, so if we sum the above probabilities over that set on a given step $k$ we calculate the probability that we are NOT in a terminal state by the time we reach step $k$: $\sum_\mathcal{S} \Pr \{ S_k = s \mid \pi \} = \Pr \{ T \gt k \mid \pi \}$ where we use the notation that $T$ is the step of termination for a particular episode.
 """
 
 # ╔═╡ 41d62de1-2c92-41ee-9430-b9ca3007afd9
 md"""
-Each row in the above matrix would be a probability distribution over states except for the fact that some of the cases are missing due to having reached a terminal state earlier.  Therefore, we can say that each row of the matrix is the probability distribution accross states for a given time step multiplied by the probability of reaching that time step or multiplied by one minus the probability of being in a terminal state at that time step.  If we added a fourth column for the terminal states, then each row would be a proper distribution.  In fact, that might be a good idea to add for clarity.
+The above matrix represents an estimate of $\Pr \{ S_k = s \mid \pi \}$; however note that the terminal states are excluded from the rows.  This corridor problem only has three non-terminal states.  If we sum across each row, then we have the probability of reaching that step prior to terminating.  The vector defined below measures the probability of an episode terminating prior to each step.  Notably, this probablity is 0 for the first three steps since no policy starting from the left can terminate that quickly.  As expected, the probability of terminating under the random policy grows with time approaching 1.
 """
 
-# ╔═╡ 4d2b2407-2ff0-4aaf-b019-6d0880a65c87
+# ╔═╡ 135f205a-f87e-4691-8e87-d317d6312c84
 md"""
-Each value represents the probability that an episode reaches that number of steps.  Let's say we want to know something like $\eta(s)$ or the expected number of visits to state $s$.  We can compute that as follows $\sum_k \Pr \{T > k \} \mu_k(s)$
+The plots below visualize these distributions for the corridor problem starting with the normalized distributions per step which include the terminal states.  If we continued to create these plots for larger values of $k$, then the distribution would collapse to a value of 1 for being in a terminal state.  In order to calculate other distributions such as the stationary state distribution, it is necessary to renormalize these probabilities by excluding the terminal states:
 
-$\mathbb{E}[T] = \sum_k k \times \Pr \{T = k \} = \sum_k k \times \left ( \Pr \{T \geq k - 1 \} - \Pr \{ T \geq k \} \right ) = \Pr \{T \geq 0 \} - \Pr \{T \geq 1 \} + 2 \Pr \{T \geq 1 \} - 2 \Pr \{T \geq 2 \} + \cdots = 1 + \Pr \{ T \geq 1 \} + \Pr \{T \geq 2 \} + \cdots$
-"""
+#### On-policy Distributions
+$$\begin{flalign}
+&\mu_{k, \pi}(s) = \Pr\{S_k = s \mid \pi \} \; \forall s \in \mathcal{S}^+ \tag{state visits per step}\\
+&\Pr \{ T \leq k \vert \pi \} = 1 - \sum_{s \in \mathcal{S}} \Pr\{S_k = s \mid \pi \} \; \forall k \tag{Chance of terminating already (distribution function not density)}\\
+&\mu_\pi(s) = \frac{\sum_k \Pr \{ S_k = s \mid \pi \}}{\sum_{k} \sum_{s \in \mathcal{S}} \Pr \{ S_k = s \mid \pi \}} \; \forall s \in \mathcal{S} \tag{non-terminal state visits}\\
+&\mu_\pi(s, k) = \frac{\Pr \{ S_k = s \mid \pi \}}{\sum_{k} \sum_{s \in \mathcal{S}} \Pr \{ S_k = s \mid \pi \}} \; \forall s \in \mathcal{S} \tag{non-terminal state and step visits}\\
+\end{flalign}$$
 
-# ╔═╡ 1f81f5d6-f4aa-44cd-8c05-4344f02c9ef9
-md"""
-We can call the above function $\eta(s, k)$ which represents the expected number of visits to a state $s$ on step $k$ of an episode.  If instead we want to calculate the expected visits to a state on any step, we can take the sum of this function over all $k$: $\eta(s) = \sum_k \eta(s, k)$.  
+Note that final two distributions are only defined for non-terminal states.  If we tried to include terminal states we would be unable to normalize the distribution since $\lim_{k \rightarrow \infty} \Pr \{ S_k = S_T \mid \pi \} = 1$ and we would have a diverging sum in the denominator.  The only reason these calculation is possible is that the probabilities reach zero quickly enough at higher $k$ for the non-terminal states.
 
-How does this quantity relate to probability distributions?  We know that we can transform the above function into a probability distribution over states for each step of an episode by dividing each row by the sum of the row: $\mu_k(s) = \frac{\eta(s, k)}{\sum_{s^\prime} \eta(s^\prime, k)}$.  Similarly, we can calculate the probability that an episode lasts at least $k$ steps by summing over the columns: $\Pr \{k \geq n \} = \sum_s \eta(s, k)$.
-
-There is also the probability that after $k$ steps we are in state $s$ which is the probability that an episode lasts at least $k$ steps multipled by the probability that on step $k$ we are in state $s$: $\frac{\eta(s, k)}{\sum_{s^\prime} \eta(s^\prime, k)} \sum_s \eta(s, k) = \eta(s, k)$.
-
-How can we relate this to an expected value?  Let's say we want to know the expected number of times a state $s$ is visited under the policy.  Using the definition of expected value we would first calculate the probability of such a visit occurring such that if we took the sum over all possible visits we would get a value of 1: $\mu_s(k) = \Pr \{ S_k = s \}$ and $\sum_k \mu_s(k) = 1$.  Then we would multiply each probability by the quantity which in this case is the number of visits to state $s$ on step $k$.
-"""
-
-# ╔═╡ de411385-7f05-4b2b-9b42-b75ec3a43ff0
-md"""
- $\mu(s, k)$ is the joint probability distribution across state and step.  For the corridor problem we see that step 1 and state 1 has a probability of about 8.3%.  Since we know the average total steps is about 12, then this corresponds to the fact that on average if we sample a step in an episode we'd select the first step about 8.3% of the time and the state on this step would always be state 1.  As the steps increase, the probability becomes distributed across the states and also declines.
-"""
-
-# ╔═╡ bdf26006-e2da-40ab-b4c5-2fadd7366bb4
-md"""
- $\mu(k) = \sum_s \mu(s, k)$ is the probability distribution across steps.  We can see in the above problem that as expected the first three steps all have equal probability because we are guaranteed to have three steps no matter what.  Each subsequent probability declines since there is some chance of an episode being completed before reaching that step.  The sum over these first three steps is 25% indicating that under this policy one quarter of all episodes end in the fastest possible time.
-"""
-
-# ╔═╡ a452a5b0-a108-4432-848e-547a6e73bac6
-md"""
- $\mu(s) = \sum_k \mu(s, k)$ is the probability distribution across states which is also equivalent to the percentage of the time we expect to spend in each state.
-"""
-
-# ╔═╡ 054b13d4-4389-4bc7-8074-db947040d1af
-9.82+.75
-
-# ╔═╡ 07f6a4c2-3f7f-4a3a-84f7-f2af70d55647
-4*0.25
-
-# ╔═╡ 9e698b1d-527f-47d9-95e3-01b22b6c5752
-md"""
- $\eta(k) = \mathbb{E}[k] = \sum_k k \times \mu(k)$ is the expected number of steps in an episode
-"""
-
-# ╔═╡ a0a5c163-6c35-46d1-b312-42f666bce9a3
-md"""
-$\eta(s) = \sum_k \eta(s, k) \mu(s, k)$
-$\eta(k) = \sum_s \eta(s, k) \mu(s, k)$
-$\eta = \sum_s \sum_k \eta(s, k) \mu(s, k)$
-$\mathbb{E}[x] = \sum_{x \in \mathcal{X}} x \Pr\{ X = x \}$
-
-For the expected value calculation $\sum_{x \in \mathcal{X}} \Pr \{ X = x\} = 1$
-
-If we wan the expected number of steps of an episode for example, we need to first calculate the probability across steps which we can do by takin the univariate distribution and summing accross states.  Then we have the probability as a function of k.  Then we just sum and multiply by k when we sum over the probabilities.
-
-$\mathbb{E}[k] = \eta = \sum_s \sum_k k \mu(s, k)$
-
-$\eta(s) = \eta \mu(s) = \mu(s)\sum_{s^\prime}\sum_k k \mu(s^\prime, k) = \sum_{k^\prime} \mu(s, k^\prime) \sum_{s^\prime}\sum_k k \mu(s^\prime, k)= \sum_{k^\prime} \mu(s, k^\prime) \sum_k k \sum_{s^\prime} \mu(s^\prime, k) = \mu(s) \sum_k k \mu(k) = \sum_k k \mu(s) \mu(k)$
-"""
-
-# ╔═╡ f6281f84-46e6-4023-8e32-9af4aa6dbb23
-md"""
-We can index the above matrix with the visit step $k$ and the state $s$: $\eta(s, k)$ refers of the expected visit count of state $s$ on step $k$.  $\eta(s, k)$ can be normalized into a probability distribution in several ways.  For all of the distributions we have the condition that $\Pr \{S_0 = 1 \} = 1$ and a specific policy $\pi$ is being followed both of which are omitted in the expressions below.
-
-Also note that $\eta(s) = \sum_k \eta(s, k)$ is the expected visits to a state during an episode and that $\eta(k) = \sum_s \eta(s, k)$ is the expected visits to a step count during an episode (this one is always less than 1) and $\sum_s \sum_k \eta(s, k) = \sum_s \eta(s) = \sum_k \eta(k) = \eta$ which is the expected number of steps in an episode.
-
-##### Full Probability Distribution
-Data is normalized across the entire visit count and each count is a separate probability.  This distribution is the most granular as it contains the probability of being in a specific state and a specific time step such that $\sum_s \sum_k \mu(s, k) = 1$: 
-
-$\mu(s, k) = \frac{\eta(s, k)}{\sum_{x \in \mathcal{S}} \sum_{t \in \{1, 2, \dots \}} \eta(x, t)}$
-
-##### Probability Distribution Across Steps
-Data is summed across states but normalized for all visit counts.  Specifies the probability of being at a particular step regardless of the state such that $\sum_k \mu(k) = 1$: 
-
-$\mu(k) =  \sum_s \frac{\eta(s, k)}{\sum_{k^\prime} \sum_{s^\prime} \eta(s^\prime, k^\prime)} = \sum_s \mu(s, k)$
-
-##### Stationary State Distribution
- $\mu(s)$ is the first distribution considered and is simply the probability of being in a particular state independent of the step count such that $\sum_s \mu(s) = 1$: 
-
-$\mu(s) = \sum_k \frac{\eta(s, k)}{\sum_{s^\prime} \sum_{k^\prime} \eta(s^\prime, k^\prime)} = \sum_k \mu(s, k)$
-
-##### Probability Distribution Across Steps For a Single State
-The same distribution across steps except instead of being for each state, data is partitioned per state and only normalized for the visit counts to that state.  The subscript on $\mu$ indicates that $s$ is fixed for the distribution rather than being a random variable and it obeys the property $\sum_k \mu_s(k) = 1$: 
-
-$\mu_s(k) = \frac{\eta(s, k)}{\sum_{k^\prime} \eta(s, k^\prime)}$
-
-##### Probability Distribution Across States For a Single Step
-Similar to the stationary state distribution except taken on a specific time step rather than across all time steps.  The subscript on $\mu$ indicates that $k$ is fixed for the distribution rather than being a random variable and it obeys the property $\sum_s \mu_k(s) = 1$:
-
-$\mu_k(s) = \frac{\eta(s, k)}{\sum_{s^\prime} \eta(s^\prime, k)}$
-
-Note that $\sum_k \mu_k(s) = \eta \sum_k \frac{\mu(s, k)}{\sum_{s^\prime} \eta(s^\prime, k)}$
-"""
-
-# ╔═╡ b138572c-0d5d-49b7-81c8-6e81dd09a502
-md"""
-Since every episode starts in state one, the first row of the matrix only has a count for state 1 and that count equals the total number of simulations.  From there the simulations branch and distribute the visits to subsequent steps and states.  The final rows contain samples from episodes that lasted longer than all of the others and are thus lower probability events with fewer samples.  From these counts, we can form several different probability distributions depending on how we sum and normalize the data.  The plots below summarize all of the typical distributions that are of interest and also used in the earlier proof.
+The plots below visualize the four expressions above.  The second expression notably is not a probability density but a cummulative distribution function since it includes a sum of all probabilities that meet the condition.
 """
 
 # ╔═╡ ca360680-afc9-4dd9-9351-493643f91575
@@ -449,17 +356,22 @@ md"""
 @bind dist_plot_p Slider(0.1f0:0.1f0:.9f0; default = 0.5f0, show_value=true) |> confirm
   ╠═╡ =#
 
-# ╔═╡ 336a4c44-32ae-43f9-a23e-98f079023343
+# ╔═╡ 98229733-a71e-44ca-a52a-b7229cf8b422
 md"""
-$\begin{flalign}
-\eta(s) &= h(s) + \sum_{\bar{s}} \eta(\bar{s}) \sum_a \pi(a \vert \bar{s}) p(s \vert \bar{s}, a) \; \forall s \in \mathcal{S} \tag{9.2}\\
-\mu(s) &= \frac{\eta(s)}{\sum_{s^\prime} \eta(s^\prime)} \tag{9.3}
-\end{flalign}$
+The probability transition function is normalized over all possible transition states $\sum_{s^\prime \in \mathcal{S}^+} p(s^\prime \vert s, a) = 1$.  If we only take the sum of $\mathcal{S}$ then we instead get the probability that after a single transition we have NOT reached a terminal state.  Let's say we also have a policy function $\pi(a \vert s)$ which is normalized over actions: $\sum_a \pi(a \vert s) = 1$.  Now if we combine the two, we can arrive at a new distribution over transition states: $p(s^\prime \vert s, \pi) = \sum_a \pi(a \vert s) p(s^\prime \vert s, a)$ which is the probability of transitioning from $s$ to $s^\prime$ under the policy.  We can see that this distribution is normalized over the transition states as well as long as we include the terminal state: $\sum_{s^\prime \in \mathcal{S}^+} p(s^\prime \vert s, \pi) = \sum_{s^\prime \in \mathcal{S}^+, a} \pi(a \vert s) p(s^\prime \vert s, a) = \sum_a \pi(a \vert s) \sum_{s^\prime \in \mathcal{S}^+} p(s^\prime \vert s, a) = 1 \times 1 = 1$.  If instead we take the sum over $\mathcal{S}$ we simply get the probability of NOT terminating in one step.
+
+What if we consider two steps into the future though?  Now we have $\sum_{s^\prime}\sum_{a^\prime}\pi(a^\prime \vert s^\prime)p(s^{\prime \prime} \vert s^\prime, a^\prime)\sum_a \pi(a \vert s) p(s^\prime \vert s, a) = \sum_{s^\prime}p(s^{\prime \prime} \vert s^\prime, \pi) p(s^\prime \vert s, \pi)$.  It would appear as though we can just put the two probabilities together and consider a new distribution over $s^{\prime \prime}$ which is $p(s^{\prime \prime} \vert s, \pi, 2)$ where instead of one step this now occurs over two steps, but how is this distribution normalized?  In the case of the one step, transition, we saw that its sum over all transition states is 1 as expected.  If we sum both transition states over only $\mathcal{S}$ rather than $\mathcal{S}^+$ what is the result?  We already know that $\sum_{s^{\prime \prime} \in \mathcal{S}^+} p(s^{\prime \prime} \vert s^\prime , \pi) = \Pr \{ S_1 \neq S_T \ \vert S_0 = s^\prime, \pi \}$ that is the probability that after transitioning out of $s^\prime$ under the policy $\pi$ we have not reached a terminal state.
+
+$\sum_{s^{\prime \prime} \in \mathcal{S}} \sum_{s^\prime \in \mathcal{S}} p(s^{\prime \prime} \vert s^\prime, \pi) p(s^\prime \vert s, \pi) = \sum_{s^\prime \in \mathcal{S}} p(s^\prime \vert s, \pi) \sum_{s^{\prime \prime} \in \mathcal{S}} p(s^{\prime \prime} \vert s^\prime, \pi) = \Pr \{ S_2 \neq S_T \vert S_0 = s, \pi \}$ which is to say the probability that after two transitions from $s$ we are not in a terminal state under the policy $\pi$.
+
+For the derivations that follow, we always take sums of these distributions over $\mathcal{S}$.  For episodic problems, the on policy distribution $\mu_\pi(s)$ which is the probability of being in a state $s$ during an episode always excludes the terminal state.  That is because if there is a non-zero probability of reaching a terminal state under a policy, then considering all possible episodes we may have an infinite number of visits to the terminal state.  Technically the episodes have infinite length but we are only interested in the portion of the episode that preceeds the terminal state for the purpose of calculating probabilities.  The more careful statement about the on policy distribution is that it measures the probability of being in a state during the non-terminal part of an episode.  If we try to include the terminal states, then we cannot have a proper normalized definition of the on-policy distribution.  Moreover, we have no need to measure the value of a terminal state accurately, since we always know it to be 0.  The on policy distribution is used to formulate the value error objective function and it should only include states for which the value estimation is non-trivial.
 """
 
 # ╔═╡ 37a8ef7e-e859-4ef0-81e2-76c02a324031
 md"""
 ### Policy Gradient Theorem Proof
+
+In all cases below when a sum over states is taken, it is assumed to be over the set of non-terminal states: $\sum_s \implies \sum_{s \in \mathcal{S}}$  Note that for the case of the value function this is identical to the sum over $\mathcal{S}^+$ because the state-action values are always zero for terminal states.
 
 $\begin{flalign}
 \nabla v_\pi(s) &= \nabla \left [ \sum_a \pi(a \vert s) q_\pi(s, a) \right ] \text{, } \forall s \in \mathcal{S} \tag{definitiong of value functions and expected value} \\
@@ -535,7 +447,7 @@ $\begin{flalign}
 
 If we count terms along the diagonal, we see that each value of $k$ has exactly $k$ terms, matching the expected value calculation.
 
-Moreover, if we take the original probability and divide it by this double sum, we have a true bivariate on policy probability distribution across states and steps $\mu_\pi(s, k)$ such that if we sum over $k$, we recover $\mu_\pi(s)$: 
+What if we wanted to calculate the bivariate distribution over states and steps where we ignore the terminal states $\mu_\pi(s, k)$ such that $\sum_{s \in \mathcal{S}} \sum_k \mu_\pi(s, k) = 1$.  This probability represents the chance of sampling a particular step and state simultaneously from a unbiased sample of non-terminal states in an episode.  Luckily we can break down this probability into two components: 1) the probability of reaching a step k without terminating 2) the probability of being in a non-terminal state on step k.  We saw already that 1) is just $\sum_{s \in \mathcal{S}} \Pr \{ s_0 \rightarrow s, k, \pi \}$ and 2) we can calculate by normalizing those probabilities over only the non-terminal states: $\frac{\Pr \{ s_0 \rightarrow s, k, \pi \}}{\sum_{s \in \mathcal{S}} \Pr \{ s_0 \rightarrow s, k, \pi \} }$.  By multiplying these two together we see that the probability is just the original distribution but where the domain of possible input values is $s \in \mathcal{S}$ and all possible steps $k$.  Therefore, we can transform this into a normalized bivariate distribution by dividing by its sum over those two sets:
 
 $\mu_\pi(s, k) = \frac{\Pr \{ s_0 \rightarrow s, k, \pi \}}{\sum_{x \in \mathcal{S}} \sum_{t = 0}^\infty \Pr \{ s_0 \rightarrow x, t, \pi \}}$
 
@@ -1498,6 +1410,12 @@ const cartpole_tilecoding_setup = tile_coding_setup(cartpole_functions.min_vals,
 @bind cartpole_continuing_binary_study_params create_actor_critic_continuing_params_UI(;λ_θ = 0.95f0, λ_w = 0.05f0, log2α_θ = -4, log2α_w = -16, α_r̄ = 0.005f0)
   ╠═╡ =#
 
+# ╔═╡ 64900586-ef92-48e4-839e-ff952a46671b
+# ╠═╡ disabled = true
+#=╠═╡
+test_study = actor_critic_linear_parameter_study(cartpole_continuing_mdp, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, LinRange(.5f0, .95f0, 10), LinRange(0.5f0, .95f0, 10), [0.005f0, 0.01f0, 0.05f0], 2f0 .^ (-5:-1), 2f0 .^ (-10:-5), 100, 10_000; nruns = 40, seed = 45, binary_features = true) |> df -> sort(df, :output; rev=true)
+  ╠═╡ =#
+
 # ╔═╡ 19dfabda-7049-4050-8662-0385529c0c5a
 #=╠═╡
 @bind sref_cartpole_binary PlutoUI.combine() do Child
@@ -1531,6 +1449,12 @@ md"""
 	Num Layers: $(Child(NumberField(1:10, default = 2)))
 	"""
 end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ 820752af-8966-4ee8-82f7-a40934522de5
+# ╠═╡ disabled = true
+#=╠═╡
+test_study2 = actor_critic_fcann_parameter_study(cartpole_continuing_mdp, cartpole_vector_update!, cartpole_fcann_feature_setup.num_features, [4, 4], LinRange(0f0, .95f0, 20), LinRange(0.0f0, .95f0, 20), [0.005f0, 0.01f0, 0.05f0], 2f0 .^ (-8:-2), 2f0 .^ (-8:-2), 100, 100_000; nruns = 40, seed = 45) |> df -> sort(df, :output; rev=true)
   ╠═╡ =#
 
 # ╔═╡ 0964133c-3a5b-433b-a8c4-a97813c37583
@@ -1591,6 +1515,12 @@ const mountaincar_continuing_mdp = create_mountaincar_continuing_mdp()
 # ╔═╡ fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
 #=╠═╡
 @bind mountaincar_continuing_binary_params create_actor_critic_continuing_params_UI(λ_θ = 0.1f0, λ_w = 0.98f0, log2α_θ = -5, log2α_w = -8)
+  ╠═╡ =#
+
+# ╔═╡ c926b6df-c40b-4c4c-8a95-ce9e41feb100
+# ╠═╡ disabled = true
+#=╠═╡
+actor_critic_fcann_parameter_study(mountaincar_continuing_mdp, mountaincar_fcann_feature_setup.update_feature_vector!, mountaincar_fcann_feature_setup.num_features, [4, 4], 0.0f0:0.05f0:0.95f0, 0.0f0:0.05f0:0.95f0, [0.01f0, 0.005f0], 2f0 .^ (-20:-1), 2f0 .^ (-20:-1), 1_000, 1_000_000; seed = 45) |> df -> sort(df, :output; rev=true)
   ╠═╡ =#
 
 # ╔═╡ f487f2dd-ad09-48ac-ae34-bf50cfa6ac7d
@@ -2138,39 +2068,9 @@ end
 const corridor_state_counts = collect_state_distributions()
   ╠═╡ =#
 
-# ╔═╡ d5dd8da7-8ad7-4d1b-bc5c-5b05973483ab
+# ╔═╡ 62e677ac-2070-4f6b-9df2-90849d89fa9f
 #=╠═╡
-sum(corridor_state_counts; dims = 2)
-  ╠═╡ =#
-
-# ╔═╡ bac46913-da02-4dc0-ac7c-52a0f2c24244
-#=╠═╡
-sum(corridor_state_counts; dims = 2) |> sum
-  ╠═╡ =#
-
-# ╔═╡ 46b48159-e2ac-4893-9059-891fd9c01c0b
-#=╠═╡
-sum(corridor_state_counts)
-  ╠═╡ =#
-
-# ╔═╡ 6207bb61-cdd4-4020-9f39-0f190392f368
-#=╠═╡
-const corridor_distribution = corridor_state_counts ./ sum(corridor_state_counts)
-  ╠═╡ =#
-
-# ╔═╡ 7fc64e8e-544d-4ee6-8539-4d7d1693d277
-#=╠═╡
-sum(corridor_distribution; dims = 2)
-  ╠═╡ =#
-
-# ╔═╡ f7863174-8818-49df-8f4f-2cd65328fbb7
-#=╠═╡
-sum(corridor_distribution; dims = 1)
-  ╠═╡ =#
-
-# ╔═╡ 1e405b55-4e6a-41e4-a1c3-803e598e40b9
-#=╠═╡
-sum((5:size(corridor_distribution, 1)+1) .* sum(corridor_distribution; dims = 2)[4:end])
+const corridor_terminal_probabilities = 1 .- sum(corridor_state_counts, dims = 2)
   ╠═╡ =#
 
 # ╔═╡ bba13634-ff0e-47f7-a23b-8d56098f4ac6
@@ -3557,11 +3457,6 @@ else
 end
   ╠═╡ =#
 
-# ╔═╡ 64900586-ef92-48e4-839e-ff952a46671b
-#=╠═╡
-test_study = actor_critic_linear_parameter_study(cartpole_continuing_mdp, s -> cartpole_tilecoding_setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)), cartpole_tilecoding_setup.num_features, LinRange(.5f0, .95f0, 10), LinRange(0.5f0, .95f0, 10), [0.005f0, 0.01f0, 0.05f0], 2f0 .^ (-5:-1), 2f0 .^ (-10:-5), 100, 10_000; nruns = 40, seed = 45, binary_features = true) |> df -> sort(df, :output; rev=true)
-  ╠═╡ =#
-
 # ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
 function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, input_length::Integer, hidden_layers::Vector{Int64}, update_feature_vector!::Function, args...; policy_params::FCANNParams = FCANN.initializeparams_saxe(input_length, hidden_layers, length(mdp.actions)), reslayers = 0, l2 = 0f0, dropout = 0f0, use_μP = true, activation_list = fill(true, length(hidden_layers)), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
 	setup = setup_fcann_policy_and_value_arguments(policy_params, input_length, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
@@ -3992,11 +3887,6 @@ else
 end
   ╠═╡ =#
 
-# ╔═╡ c926b6df-c40b-4c4c-8a95-ce9e41feb100
-#=╠═╡
-actor_critic_fcann_parameter_study(mountaincar_continuing_mdp, mountaincar_fcann_feature_setup.update_feature_vector!, mountaincar_fcann_feature_setup.num_features, [4, 4], 0.0f0:0.05f0:0.95f0, 0.0f0:0.05f0:0.95f0, [0.01f0, 0.005f0], 2f0 .^ (-20:-1), 2f0 .^ (-20:-1), 1_000, 1_000_000; seed = 45) |> df -> sort(df, :output; rev=true)
-  ╠═╡ =#
-
 # ╔═╡ 61650a97-b353-4a85-b50b-93fee296ac7b
 const cartpole_fcann_feature_setup = fcann_feature_vector_setup(cartpole_setup.min_vals, cartpole_setup.max_vals)
 
@@ -4017,11 +3907,6 @@ else
 	Waiting to run parameter study
 	"""
 end
-  ╠═╡ =#
-
-# ╔═╡ 820752af-8966-4ee8-82f7-a40934522de5
-#=╠═╡
-test_study2 = actor_critic_fcann_parameter_study(cartpole_continuing_mdp, cartpole_vector_update!, cartpole_fcann_feature_setup.num_features, [4, 4], LinRange(0f0, .95f0, 20), LinRange(0.0f0, .95f0, 20), [0.005f0, 0.01f0, 0.05f0], 2f0 .^ (-8:-2), 2f0 .^ (-8:-2), 100, 100_000; nruns = 40, seed = 45) |> df -> sort(df, :output; rev=true)
   ╠═╡ =#
 
 # ╔═╡ eae6493e-81b6-4d99-a9c6-6e75d3b3dc27
@@ -4496,34 +4381,39 @@ import HypertextLiteral.@htl
 #=╠═╡
 function plot_state_distributions(p_left; kwargs...)
 	state_visits = collect_state_distributions(;p = p_left, kwargs...)
+	η = sum(state_visits)
 	μ = sum(state_visits, dims=1)[:]
-	μ_ks = eachcol(state_visits)
-	p1 = plot(bar(x = 1:3, y = μ ./ sum(μ)), Layout(yaxis_range = [0, 1], xaxis_tickvals = [1, 2, 3], xaxis_title = "State", yaxis_title = "Probability of Being in State", title = "Stationary State Distribution"))
-	traces1 = [bar(y = v ./ sum(v), name = "state $i") for (i, v) in enumerate(μ_ks)]
-	p2 = plot(traces1, Layout(xaxis_range = [-1, 50], xaxis_title = "Episode Step", yaxis_title = "Probability of Being in Specified State <br> at Each Time Step", title = "Step Distribution For Each State"))
+	
+	μs_plot = plot(bar(x = 1:3, y = μ ./ sum(μ)), Layout(yaxis_range = [0, 1], xaxis_tickvals = [1, 2, 3], xaxis_title = "State", yaxis_title = "Probability", title = "Stationary State Distribution"))
 
+	p_not_term = sum(state_visits, dims = 2)
+	pterm = 1 .- p_not_term
+	
+	termplot = plot(pterm, Layout(xaxis_title = "Step", yaxis_title = "Probability", title = "Probability of Episode Terminating On or Before Step"))
+		
 	(n, m) = size(state_visits)
 	plots = [begin
 		v = state_visits[k, :][:]
-		t = bar(x = 1:3, y = v ./ sum(v), name = "k = $k")
-		p = plot(t, Layout(width = 200, height = 230, yaxis_range = [0, 1], xaxis_title = "State", yaxis_title = "State Probability",  title = "Step $k"))
+		vterm = pterm[k]
+		t = bar(x = 1:4, y = [v; vterm], name = "k = $k")
+		p = plot(t, Layout(width = 270, height = 250, yaxis_range = [0, 1], xaxis = attr(tickvals = 1:4, ticktext = ["1", "2", "3", "Term"], title = "State"), yaxis_title = "Probability",  title = "Step $k"))
 	end
-	for k in vcat(1:5, 10:10:50, n-4:n)]
+	for k in vcat(1:5, 10:10:50)]
 	full_p = plot(heatmap(x = 0:20, y = 1:3, z = state_visits[1:21, :]' ./ sum(state_visits)), Layout(xaxis_title = "Step", yaxis_title = "State", title = "Probability Over States and Steps", yaxis_tickvals = [1, 2, 3]))
-	μ_k = sum(state_visits, dims=2)[:] ./ sum(state_visits)
-	μ_k_plot = plot([scatter(y = μ_k, name = "density function"), scatter(y = cumsum(μ_k), name = "distribution function")], Layout(xaxis_title = "Step", yaxis_title = "Probability", title = "Episode Step Probabilities", xaxis_range = [0, 50]))
+	
 	# p3 = plot(traces2)
 	@htl("""
-	Policy Probability for Left Action is $p_left
-	$full_p
-	$μ_k_plot
-	<div style = "display:flex; height: 500px;">
-	$p1
-	$p2
-	</div>
-	Stationary State Distribution at Different Steps
-	<div style = "display: flex; flex-wrap: wrap;">
+	Policy Probability for Left Action is $p_left and Average Episode Length is $η
+	<h2>State Distribution Per Step Including Terminal State</h2>
+	<div style = "display: flex; flex-wrap: wrap; max-width: 1350px;">
 	$plots
+	</div>
+	 <div style = "display:flex; height: 500px; max-width: 1350px;">
+	$termplot
+	$μs_plot
+	</div>
+	<div style = "max-width: 1350px;">
+	$full_p
 	</div>
 	""")
 end
@@ -5943,38 +5833,21 @@ version = "17.4.0+2"
 # ╟─406638af-1e08-44d2-9ee4-97aa9294a94b
 # ╟─aa450da4-fe84-4eea-b6c4-9820b7982437
 # ╟─fdd3f4fd-4706-4d6b-b150-6ee6b4b370cb
-# ╠═98229733-a71e-44ca-a52a-b7229cf8b422
 # ╠═0c9986bb-54c0-4b08-9c29-4bfb0b68b54e
-# ╠═54f559b6-8a62-4a42-894d-c56e41d5ebef
-# ╠═41d62de1-2c92-41ee-9430-b9ca3007afd9
-# ╠═d5dd8da7-8ad7-4d1b-bc5c-5b05973483ab
-# ╠═bac46913-da02-4dc0-ac7c-52a0f2c24244
-# ╠═4d2b2407-2ff0-4aaf-b019-6d0880a65c87
-# ╠═1f81f5d6-f4aa-44cd-8c05-4344f02c9ef9
-# ╠═46b48159-e2ac-4893-9059-891fd9c01c0b
-# ╠═6207bb61-cdd4-4020-9f39-0f190392f368
-# ╟─de411385-7f05-4b2b-9b42-b75ec3a43ff0
-# ╠═7fc64e8e-544d-4ee6-8539-4d7d1693d277
-# ╟─bdf26006-e2da-40ab-b4c5-2fadd7366bb4
-# ╠═f7863174-8818-49df-8f4f-2cd65328fbb7
-# ╟─a452a5b0-a108-4432-848e-547a6e73bac6
-# ╠═1e405b55-4e6a-41e4-a1c3-803e598e40b9
-# ╠═054b13d4-4389-4bc7-8074-db947040d1af
-# ╠═07f6a4c2-3f7f-4a3a-84f7-f2af70d55647
-# ╠═9e698b1d-527f-47d9-95e3-01b22b6c5752
-# ╟─a0a5c163-6c35-46d1-b312-42f666bce9a3
-# ╟─f6281f84-46e6-4023-8e32-9af4aa6dbb23
-# ╟─b138572c-0d5d-49b7-81c8-6e81dd09a502
+# ╟─54f559b6-8a62-4a42-894d-c56e41d5ebef
+# ╟─41d62de1-2c92-41ee-9430-b9ca3007afd9
+# ╟─62e677ac-2070-4f6b-9df2-90849d89fa9f
+# ╟─135f205a-f87e-4691-8e87-d317d6312c84
 # ╟─ca360680-afc9-4dd9-9351-493643f91575
 # ╟─4a39f9a7-72d4-44ad-895a-742cd1291f92
-# ╠═9cf3dc5f-8a25-479f-93db-06e34f0d37a0
+# ╟─9cf3dc5f-8a25-479f-93db-06e34f0d37a0
 # ╠═16fcc2d0-9f2f-4226-9dcc-6d86248cab26
-# ╠═336a4c44-32ae-43f9-a23e-98f079023343
+# ╟─98229733-a71e-44ca-a52a-b7229cf8b422
 # ╟─37a8ef7e-e859-4ef0-81e2-76c02a324031
 # ╟─339b4d2b-2237-46a3-9867-ecc3332856c1
 # ╟─05b0fcad-628b-48d2-aa24-f6f562dbb660
 # ╟─17d07ef4-7c0a-47cc-a701-32c60336571b
-# ╠═76b03e72-da04-4530-8534-6d6468268cbd
+# ╟─76b03e72-da04-4530-8534-6d6468268cbd
 # ╟─2a586e46-66e4-461a-85c8-5817e4d1aa43
 # ╟─90d3b96b-ad2b-405c-951b-f48ec7ccf24a
 # ╟─f924eb30-d1cc-4941-8fb5-ff70ad425ab9

@@ -79,7 +79,7 @@ Clone the repository to your system inside a directory where you have read/write
 Navigate inside of the repository directory where you should find the following shell scripts: `setup.sh`, `start.sh`, `update.sh`.  Note that you may need to make these files executable with 
 
 ```shell
-> chmod +x setup.sh```
+> chmod +x setup.sh
 ```
 
 You can begin by running the start shell script which will automatically run the setup script if this is your first time using the repository:

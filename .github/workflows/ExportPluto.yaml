@@ -48,9 +48,11 @@ jobs:
               run: |
                 julia -e 'using Pkg
                   Pkg.activate("TabularRL.jl")
-                  Pkg.instantiate()
+                  Pkg.resolve()
+                  using TabularRL
                   Pkg.activate("ApproximationUtils.jl")
-                  Pkg.instantiate()
+                  Pkg.resolve()
+                  using ApproximationUtils
                   Pkg.activate(mktempdir())
                   Pkg.add([
                     Pkg.PackageSpec(name="PlutoSliderServer", version="1"),
@@ -62,7 +64,7 @@ jobs:
                     Export_cache_dir="pluto_state_cache",
                     Export_baked_notebookfile=false,
                     Export_baked_state=false,
-                    Export_exclude = ["Chapter-13/*", "TabularRL.jl/examples/test_notebook.jl", "TabularRL.jl/examples/rubiks_cube.jl", "Examples/*"]
+                    Export_exclude = ["TabularRL.jl/examples/test_notebook.jl", "TabularRL.jl/examples/rubiks_cube.jl", "Examples/*"]
                     # more parameters can go here
                   )'
 
