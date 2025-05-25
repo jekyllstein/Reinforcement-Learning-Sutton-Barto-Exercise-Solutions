@@ -1,0 +1,467 @@
+### A Pluto.jl notebook ###
+# v0.20.6
+
+using Markdown
+using InteractiveUtils
+
+# ╔═╡ 10021908-6ebe-4682-b993-a1cdd73a4aa2
+begin
+	using PlutoUI
+	TableOfContents()
+end
+
+# ╔═╡ 4394105f-ba75-4d38-97bb-7d97b685c734
+md"""
+# Chapter 1: Introduction
+"""
+
+# ╔═╡ c05d4729-7713-4e88-a205-a3c3991927a0
+md"""
+## 1.1 Reinforcement Learning
+
+Reinforcement learning is learning what to do (what actions to take in each situation) so as to maximize a numerical reward signal.  The learner must experiement and discover which actions are most rewarding.  In the most interesting and challenging cases the learner must consider the impact of actions for all subsequent rewards as well.  We formalize the study of reinforcement learning using ideas from dynaimcal systems theory, specifically, as the optimal control of incompletely-known Markov decision prcoesses.  It is distinct from *supervised learning* in which an external supervisor provides a set of labeled examples that demonstrate intended or ideal behavior.  It is also distinct from *unsupervised learning* in which one tries to discover hidden relationships in unlabeled data.  In reinforcement leanring the goal is still to maximize something, but that something is the reward signal from the environment which is absent from the prior examples of machine learning.  Also, in reinforcement learning, the agent is presented with the final goal from the beginning rather than trying to solve the problem in a piecemeal fashion.
+"""
+
+# ╔═╡ 7db2dd64-e37e-4f05-aa44-49ad69324bc1
+md"""
+## 1.2 Examples
+
+A good way to understand reinforcement learning is to consider some of the examples and possible applications that have guided its development.
+
+- A master chess player makes a move.  The choice is informed by both planning -- anticipating possible replies and counterreplies -- and by immediate, intuitive judgements of the desirability of particular positions and moves.
+
+- An adaptive controller adjusts parameters of a petroleum refinery's operation in real time.  The controller optimizes the yield/cost/quality trade-off on the basis of specified marginal costs without sticking strictly to the set points originally suggested by engineers.
+- A gazelle calf struggles to its feet minutes after being born.  Half an hour later it is running at 20 miles per hour.
+- A mobile robot decides whether it should enter a new room in search of more trash to collect or start trying to find its way back to its battery recharging station.  It makes its decision based on the current charge level of its battery and how quickly and easily it has been able to find the recharger in the past.
+
+All of these examples involve *interaction* between an active decision-making agent and its environment within which the agent seeks to acheive a *goal* despite *uncertainty* about its environment.  The agents actions are permitted to affect the future state of the environment (e.g. the next chess position, level of resevoirs of the refinery, the robot's next location and future charge level of its battery), thereby affecting the actions and opportunities available to the agent at later times.  Correct choice requires taking into account indirect, delayed concequences of actions, and thus may require foresight or planning.
+
+At the same time, the effects of actions cannot be fully predicted; thus the agent must monitor the environment frequently and react appropriately.  All these examples involve goals that are explicit in the sense that the agent can judge progress toward its goal based on what it can sense directly.  The chess player knows whether or not he wins, the refinery controller knows how much petroleum is being produced, the gazelle calf knows when it falls, the mobile robot knows when its batteries run down.
+
+In all these examples, the agent can use its experience to improve its performance over time.  The chess player refines the intuition he uses to evaluate positions, thereby improving his play; the gazelle calf improves the efficiency with which it can run.  The knowledge the agent brings to the task at the start influences what is useful or easy to learn, but interaction with the environment is essential for adjusting behavior to exploit specific features of the task.
+"""
+
+# ╔═╡ 9accb6db-75b9-472c-aef4-5f186fcc3dc5
+md"""
+## 1.3 Elements of Reinforcement Learning
+
+Beyond the agent and the environment, one can identify four main subelements of a reinforcement learning system: a *policy*, a *reward signal*, a *value function*, and, optinally, a *model* of the environment.
+
+A *policy* defines the agent's way of behaving in a given state.  Roughtly speaking, it maps perceived states into actions taken when in those states.  In general a policy could be stochastic, specifying probabilities for each action.
+
+A *reward signal* defines the goal of a reinforcement learning problem.  On each time step, the environment sends to the reinforcement learning agent a single number called the *reward*.  The agent's sole objective is to maximize the total reward it receives over the long run.  The reward signal thus defines what are the good and bad events for the agent.  If an action taken results in low reward, then the policy may be changed to select some other action in that situation in the future.  In general the reward signal can also be stochastic functions of the state of the environment and the actions taken.
+
+Whereas the reward signal indicates what is good in an immediate sense, a *value function* specifies what is good in the long run.  Roughly speaking, the *value* of a state is the total amount of reward an agent can expect to accumulate over the future, starting from that state.  While rewards are given directly from the environment, values must be estimated from sequences of observations an agent makes over its entire lifetime.  In fact, the most important component of almost all reinforcement learning algorithms we consider is a method for efficiently estimating values.
+
+The fourth and final element of some reinforcement learning systems is a *model* of the environment.  This is something that mimics the behavior of the environment, or more generally, that allows inferences to be made about how the environment will behave.  Models are used for *planning*, by which we mean any way of deciding on a course of action by considering all possible future situations before they are actually experienced.  Methods for solving reinforcement learning problems that use models nad planning are called *model-based* methods, as opposed to the simpler *model-free* methods that are explicitly trial-and-error learners -- viewed as almost the *opposite* of planning.
+"""
+
+# ╔═╡ 453eab8b-df98-4088-adc3-6dfefaf9d3ec
+md"""
+## 1.4 Limitations and Scope
+
+Reinforcement learning relies on a concept of state or "how the environment is" at a particular time.  We assume that the state signal is handled by the environment itself and constitutes something repeatable and meaningful.  In other words, every time the agent sees a particular state, the behavior of the environment from actions taken should always be the same (not exactly the same in the case of a stochastic environment but the same in a probabalistic sense).  We then use the existence of states to estimate value functions and refine them from observations collected after being in those states.  There are other approaches to reinforcement learning in which a collection of static policies are set loose in an environment and then the most successful ones are selected and combined in some way with the hopes of producing a better policy.  This type of approach ignores the fact that these policies are mappings from states to actions and are thus less efficient.  While they may be suitable for problems in which the state of the environment is not known or poorly defined, they are outside the scope of this book.
+"""
+
+# ╔═╡ 3fc35adc-5bc7-46f9-a608-97d40a6545ab
+md"""
+## 1.5 An Extended Example: Tic-Tac-Toe
+
+Consider the game of tic-tac-toe with two players playing on a three-by-three board.  Let's assume we are playing against an imperfect player, one whose play is sometimes incorrect and allows us to win.  For the moment, in fact, let us consider draws and losses to be equally bad for us.  How might we construct a player that will find the imperfections in its opponent's play and learn to maximize its chances of winning?
+
+Although this is a simple problem, it cannot be readily solved in a satisfactory way through classical techniques.  For example, the classical "minimax" solution from game theory is not correct here because it assumes a particular way of playing by the opponent.  For example, a minimax player would never reach a game state from which it could lose, even if in fact it always won from that state because of incorrect play by the opponent.  Classical optimization methods for sequential decision problems, such as dynamic programming, can *compute* an optimal solution for any opponent, but require as input a complete specification of that opponent, including the probabilities with which the opponent makes each move in each board state.  Let us assume that this information is not available a priori for this problem, as it is not for the vast majority of problems of practical interest.  On the other hand, such information can be estimated from experience, in this case by playing many games against the opponent.  About the best one can do on this problem is first to learn a model of the opponent's behavior, up to some level of confidence, and then apply dynamic programming to compute an optimal solution given the approximate opponent model.  In the end, this is not that different from some of the reinforcement learning methods we examine later in this book.
+
+An evolutionary method applied to this problem would search the space of possible policies for one with a high probability of winning against the opponent.  For each policy considered, an estimate of its winning probability would be obtained by playing some number of games against the opponent.  This evaulation would then direct which policy or policies were considered next and we could apply any number of optimization methods.
+
+Using a value function approach, we would first set up a table of numbers, one for each possible state of the game.  Each number will be the latest estimate of the probability of our winning from that state.  We treat this estimate as the state's *value*, and the whole table is the learned value function.  State A has a higher value than state B, or is considered "better" than state B, if the current estimate of the probability of winning from A is higher than it is from B.  Assuming we always play Xs, then for all states with three Xs in a row the probability of winning is 1, because we have already won.  Similarly, for all states with three Os in a row, or that are filled up, the correct probability is 0, as we cannot win from them.  We set the initial values of all the other states to 0.5, representing a guess that we have a 50% chance fo winning.
+
+We then play many games against the opponent.  To select our moves we examine the states that would result from each of our possible moves (one for each blank space on the board) and look up their current values in the table.  Most of the time we move *greedily*, selecting the move that leads to the state with the greatest value, that is, with the highest estimated probability of winning.  Occasionally, however, we select randomly from among the other moves instead.  These are called *exploratory* moves because they cause us to experience states that we might otherwise never see.
+
+While we are playing, we change the values of the states in which we find ourselves during the game.  We attempt to make them more accurate estimates of the probabilities of winning.  To do this, we "back up" the value of the state after each greedy move to the state before the move.  More precisely, the current value of the earlier state is updated to be closer to the value of the later state.  This can be done by moving the earlier state's value a fraction of the way toward the value of the later state.  If we let $S_t$ denote the state before the greedy move ,and $S_{t+1}$ the state after that move, then the update to the estimated value of $S_t$, denoted $V(S_t)$, can be written as
+
+$V(S_t) \leftarrow V(S_t) + \alpha \left [ V(S_{t+1}) - V(S_t) \right ]$
+
+where $\alpha$ is a small positive fraction called the *step-size parameter*, which influences the rate of learning.  This update rule is an example of a *temporal-difference* learning method, so called because its changes are based on a difference, $V(S_{t+1}) - V(S_t)$, between estimates at two successive times.
+
+If the step-size parameter is reduced properly over time, then this method converges, for any fixed opponent, to the true probabilities of winning from each state given optimal play by our player.  Furthermore, the greedy moves taken are in fact optimal moves for this imperfect opponent.  If the step-size parameter is not reduced all the way to zero over time, then this player also plays well against opponents that slowly change their way of playing.
+"""
+
+# ╔═╡ c494c41d-d9bd-4795-933d-20e1681189fc
+md"""
+This example highlights the advantages of value function approaches over evolutionary methods which search the policy space.  Evolutionary methods must fix a policy and play a large number of games against the opponent.  The frequency of wins gives an unbiased estimate of the probability of winning with that policy, and can be used to direct the next policy selection.  But each policy change is made only after many games, and only the final outcome of each game is used: what happens *during* the games is ignored.  For example, if the player iwns, then *all* of its behavior in the game is given credit, independently of how specific moves might have been critical to win.  Credit is even given to moves that never occurred!  Value function methods, in contrast, allow individual states to be evaluated.  In the end, both methods search the space of policies, but learning a value function takes advantage of information available during the course of play.  
+
+This example highlights the key features of reinforcement learning: learning while iteracting with the environment (opposing player) and feedback based on a clear goal (winning the game).  It is striking that the reinforcement learning agent can set up multi-move traps to exploit the opponent without explicitely searching over possible sequences of future states and actions.
+
+Although this is a two person game, reinforcement learning can apply to any environment in which an agent can get feedback.  It just so happens that the opponent is a critical part of this environment but we could just as easily have a game with more than two players as well as simply a natural environment where many external forces participate in feedback to the agent.  We can also apply it to situations where actions continue indefinitely and feedback occurs throughout.
+
+Tic-tac-toe has a relatively small, finite state set, but we can also apply reinforcement learning to problems with large or infinite state spaces.  In those problems we will never see all possible states, so in these cases we need to use some function approximation technique that can generalize from past experience.  That way, when a new state is encountered, the previously seen states can still provide useful information to the agent through the learned value function.  How well this generalization happens depends on how the states are represented and the type of function approximation used, but artifical neural networks have been shown to succeed in many cases including the Gerry Tesauro backgammon agent from the mid 90s.
+
+The tic-tac-toe player could also look ahead to the possible states that would result from a move.  This lookahead requires some model of the environment, but we can also apply reinforcement learning without a model.  The rest of the book will cover a variety of model and model-free approaches.  While the moves in tic-tac-toe are very simple, a general reinforcement learning problem could have actions that represent entire optimization algorithms on their own.  The concept of "state" and "action" is completely general as long as both satisfy the Markov property of having well defined behavior that is consistent through time.
+"""
+
+# ╔═╡ f1fb61f6-4066-11ee-3c81-790e7afab21b
+md"""
+> ### *Exercise 1.1: Self-Play* 
+> Suppose, instead of playing against a random opponent, the reinforcement learning algorithm described above played against itself, with both sides learning. What do you think would happen in this case? Would it learn a different policy for selecting moves?
+
+With self play learning, the value function would include a value for every game state rather than just X moves.  Let us assume that the value represents the value for the X player.  In that case the policy that the O player should follow would be to select the move that leads to the lowest value state transition rather than the highest for the X player.  If we use temporal difference learning, sampling moves from this policy, then eventually it will converge to the value function for the minimax solution in which both sides exhibit optimal play.  The exploration parameter in the training process must be large enough that the entire state space is explored, otherwise there will not be accurate value estimates for certain states.  This policy would never lose to a suboptimal opponent, but it may fail to exploit situations that could lead to a win, since only draws are possible against a perfect opponent.  For example, in perfect play no starting move is preferable over another because any starting move results in a draw.  But against an opponent that plays randomly, certain moves like in the corners, lead to more game states with winning paths if the opponent makes mistakes.
+"""
+
+# ╔═╡ dcbd0ceb-4d6c-4045-bbd1-ac51ffe232f9
+md"""
+> ### *Exercise 1.2: Symmetries* 
+> Many tic-tac-toe positions appear different but are really the same because of symmetries. How might we amend the learning process described above to take advantage of this? In what ways would this change improve the learning process? Now think again. Suppose the opponent did not take advantage of symmetries.  In that case, should we? Is it true, then, that symmetrically equivalent positions should necessarily have the same value?
+
+The value function table can be modified so that symmetrically equivalent positions are mapped to the same value rather than storing a separate value for each position.  The value function table will be shorter in this case and all data from symmetrically equivalent positions would contribute to the value estimate for that position.  Thus, learning should happen faster with more efficient use of data.  If we play an opponent that does not treat equivalent positions the same, then we should not consider the symmetries for our value function.  If our opponent reacts differently to these moves then it is important that we estimate separate value for each state in order to capitalize on those differences in behavior.
+"""
+
+# ╔═╡ 937eaf38-b2fa-459f-a8ee-8857c294a823
+md"""
+> ### *Exercise 1.3: Greedy Play* 
+> Suppose the reinforcement learning player was greedy, that is, it always played the move that brought it to the position that it rated the best. Might it learn to play better, or worse, than a nongreedy player? What problems might occur?
+
+When we begin the learning process, the value function is an inaccurate estimation that is continually updated.  The first move or set of moves that lead to a winning outcome will be followed by the greedy policy unless in future sampling they in fact lead to losing outcomes.  In either case the greedy policy will converge to playing the first set of moves that on average are marginally better than the average outcome.  This policy is not necessarily the optimal one and would not have accurate value function estimates for states that are never explored.  A non-greedy player will explore some additional moves that may not have a higher value estimate at the moment.  However after the value function is updated there is a greater chance of finding a move that has a higher value that what was previously considered optimal.  The greedy player could also get stuck in a bad policy because it has inaccurate value estimates for the other states.  Unless a player is allowed to explore the entire state space, it is not guaranteed to find the optimal policy.
+"""
+
+# ╔═╡ 29760a2e-d509-4d0e-8331-cd5de8723321
+md"""
+> ### *Exercise 1.4: Learning from Exploration* 
+> Suppose learning updates occurred after all moves, including exploratory moves. If the step-size parameter is appropriately reduced over time (but not the tendency to explore), then the state values would converge to a different set of probabilities. What (conceptually) are the two sets of probabilities computed when we do, and when we do not, learn from exploratory moves? Assuming that we do continue to make exploratory moves, which set of probabilities might be better to learn? Which would result in more wins?
+
+The two sets of probabilities represent two different value functions.  The original method that does not update after exploritory moves represents the value estimates for the greedy optimal policy; that is the policy that only considers moves that maximize the value estimate of the state transition.  If we also update from exploritory moves, then we are calculating the value estimate for a policy that takes exploratory moves with some fixed probability.  Then the policy optimization is occuring under the constraint that sometimes random moves are made, so the algorithm will find the best policy under that restriction.  If we call the probability of making random exploratory moves $\epsilon$, then this type of optimal policy can be called the $\epsilon$-greedy policy since it makes greedy moves $1 - \epsilon$ percent of the time.  The formal definition of this type of policy appears in subsequent chapters.  Since this policy is restricted, it will result in a worse final policy with fewer wins than the policy that ignores exploritory moves for learning updates..  Also, if we plan to eventually follow the greedy policy with respect to the value function when we deploy the agent, the value function will no longer accurately represent the policy being followed as it will have failed to converge to the optimal greedy policy (converging instead to the optimal $\epsilon$-greedy policy.  If, however, we consider an agent that continues to make exploratory moves after being deployed, then updating after exploratory moves will lead to a more accurate value function for that agent's policy.  It should lead to more wins than the original method because it accounts for a certain degree of random moves in the future.
+"""
+
+# ╔═╡ 20d261de-4121-4b81-8ead-f3022f8efedc
+md"""
+> ### *Exercise 1.5: Other Improvements* 
+> Can you think of other ways to improve the reinforcement learning player? Can you think of any better way to solve the tic-tac-toe problem as posed?
+
+Since the game is very simple, rather than estimating the value function and updating it with one forward step perhaps we could see what happens to the value function multiple steps into the future considering every possible response from our opponent.  That way we could explore more of the action space even if the opponent does not actually play those moves.  Even if we ignore all the value function estimation techniques, we can do this type of exhaustive search to just evaluate every starting position and subsequent positions to see which states lead to wins, losses, and draws.  This approach would simply simulate all the game states and have a policy based on every possible outcome from each state.  For a game this simple that approach is possible, but for games with many more states such an exhaustive search is intractable.  Also having a different reward assigned to draws and losses would help an agent distinguish between the two outcomes.  It may not increase the win rate, but it could avoid losses in cases where a draw is possible. 
+"""
+
+# ╔═╡ 7f53cffe-982e-426e-a76b-f2dce514a518
+md"""
+# Dependencies
+"""
+
+# ╔═╡ 65014025-5486-4e80-942b-e765aa3808c7
+html"""
+	<style>
+		main {
+			margin: 0 auto;
+			max-width: min(1600px, 90%);
+			padding-left: max(10px, 5%);
+			padding-right: max(10px, 5%);
+			font-size: max(10px, min(24px, 2vw));
+		}
+	</style>
+	"""
+
+# ╔═╡ 00000000-0000-0000-0000-000000000001
+PLUTO_PROJECT_TOML_CONTENTS = """
+[deps]
+PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+
+[compat]
+PlutoUI = "~0.7.60"
+"""
+
+# ╔═╡ 00000000-0000-0000-0000-000000000002
+PLUTO_MANIFEST_TOML_CONTENTS = """
+# This file is machine-generated - editing it directly is not advised
+
+julia_version = "1.11.5"
+manifest_format = "2.0"
+project_hash = "8aa109ae420d50afa1101b40d1430cf3ec96e03e"
+
+[[deps.AbstractPlutoDingetjes]]
+deps = ["Pkg"]
+git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+uuid = "6e696c72-6542-2067-7265-42206c756150"
+version = "1.3.2"
+
+[[deps.ArgTools]]
+uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
+version = "1.1.2"
+
+[[deps.Artifacts]]
+uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+version = "1.11.0"
+
+[[deps.Base64]]
+uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+version = "1.11.0"
+
+[[deps.ColorTypes]]
+deps = ["FixedPointNumbers", "Random"]
+git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
+uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
+version = "0.11.5"
+
+[[deps.CompilerSupportLibraries_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
+version = "1.1.1+0"
+
+[[deps.Dates]]
+deps = ["Printf"]
+uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+version = "1.11.0"
+
+[[deps.Downloads]]
+deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
+uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
+version = "1.6.0"
+
+[[deps.FileWatching]]
+uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
+
+[[deps.FixedPointNumbers]]
+deps = ["Statistics"]
+git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
+version = "0.8.5"
+
+[[deps.Hyperscript]]
+deps = ["Test"]
+git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
+uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
+version = "0.0.5"
+
+[[deps.HypertextLiteral]]
+deps = ["Tricks"]
+git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+version = "0.9.5"
+
+[[deps.IOCapture]]
+deps = ["Logging", "Random"]
+git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
+uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
+version = "0.2.5"
+
+[[deps.InteractiveUtils]]
+deps = ["Markdown"]
+uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+version = "1.11.0"
+
+[[deps.JSON]]
+deps = ["Dates", "Mmap", "Parsers", "Unicode"]
+git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
+uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+version = "0.21.4"
+
+[[deps.LibCURL]]
+deps = ["LibCURL_jll", "MozillaCACerts_jll"]
+uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
+version = "0.6.4"
+
+[[deps.LibCURL_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
+uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+version = "8.6.0+0"
+
+[[deps.LibGit2]]
+deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
+uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+version = "1.11.0"
+
+[[deps.LibGit2_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
+uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+version = "1.7.2+0"
+
+[[deps.LibSSH2_jll]]
+deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
+uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
+version = "1.11.0+1"
+
+[[deps.Libdl]]
+uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+version = "1.11.0"
+
+[[deps.LinearAlgebra]]
+deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
+uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+version = "1.11.0"
+
+[[deps.Logging]]
+uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+version = "1.11.0"
+
+[[deps.MIMEs]]
+git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
+uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
+version = "0.1.4"
+
+[[deps.Markdown]]
+deps = ["Base64"]
+uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+version = "1.11.0"
+
+[[deps.MbedTLS_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
+version = "2.28.6+0"
+
+[[deps.Mmap]]
+uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+version = "1.11.0"
+
+[[deps.MozillaCACerts_jll]]
+uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
+version = "2023.12.12"
+
+[[deps.NetworkOptions]]
+uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
+version = "1.2.0"
+
+[[deps.OpenBLAS_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
+uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
+version = "0.3.27+1"
+
+[[deps.Parsers]]
+deps = ["Dates", "PrecompileTools", "UUIDs"]
+git-tree-sha1 = "8489905bcdbcfac64d1daa51ca07c0d8f0283821"
+uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
+version = "2.8.1"
+
+[[deps.Pkg]]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+version = "1.11.0"
+
+    [deps.Pkg.extensions]
+    REPLExt = "REPL"
+
+    [deps.Pkg.weakdeps]
+    REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+
+[[deps.PlutoUI]]
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
+git-tree-sha1 = "eba4810d5e6a01f612b948c9fa94f905b49087b0"
+uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+version = "0.7.60"
+
+[[deps.PrecompileTools]]
+deps = ["Preferences"]
+git-tree-sha1 = "5aa36f7049a63a1528fe8f7c3f2113413ffd4e1f"
+uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+version = "1.2.1"
+
+[[deps.Preferences]]
+deps = ["TOML"]
+git-tree-sha1 = "9306f6085165d270f7e3db02af26a400d580f5c6"
+uuid = "21216c6a-2e73-6563-6e65-726566657250"
+version = "1.4.3"
+
+[[deps.Printf]]
+deps = ["Unicode"]
+uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+version = "1.11.0"
+
+[[deps.Random]]
+deps = ["SHA"]
+uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+version = "1.11.0"
+
+[[deps.Reexport]]
+git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+uuid = "189a3867-3050-52da-a836-e630ba90ab69"
+version = "1.2.2"
+
+[[deps.SHA]]
+uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+version = "0.7.0"
+
+[[deps.Serialization]]
+uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+version = "1.11.0"
+
+[[deps.Statistics]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+version = "1.11.1"
+
+    [deps.Statistics.extensions]
+    SparseArraysExt = ["SparseArrays"]
+
+    [deps.Statistics.weakdeps]
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.TOML]]
+deps = ["Dates"]
+uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+version = "1.0.3"
+
+[[deps.Tar]]
+deps = ["ArgTools", "SHA"]
+uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
+version = "1.10.0"
+
+[[deps.Test]]
+deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
+uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+version = "1.11.0"
+
+[[deps.Tricks]]
+git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
+uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
+version = "0.1.9"
+
+[[deps.URIs]]
+git-tree-sha1 = "67db6cc7b3821e19ebe75791a9dd19c9b1188f2b"
+uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
+version = "1.5.1"
+
+[[deps.UUIDs]]
+deps = ["Random", "SHA"]
+uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+version = "1.11.0"
+
+[[deps.Unicode]]
+uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+version = "1.11.0"
+
+[[deps.Zlib_jll]]
+deps = ["Libdl"]
+uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
+version = "1.2.13+1"
+
+[[deps.libblastrampoline_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
+version = "5.11.0+0"
+
+[[deps.nghttp2_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
+version = "1.59.0+0"
+
+[[deps.p7zip_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
+version = "17.4.0+2"
+"""
+
+# ╔═╡ Cell order:
+# ╟─4394105f-ba75-4d38-97bb-7d97b685c734
+# ╟─c05d4729-7713-4e88-a205-a3c3991927a0
+# ╟─7db2dd64-e37e-4f05-aa44-49ad69324bc1
+# ╟─9accb6db-75b9-472c-aef4-5f186fcc3dc5
+# ╟─453eab8b-df98-4088-adc3-6dfefaf9d3ec
+# ╟─3fc35adc-5bc7-46f9-a608-97d40a6545ab
+# ╟─c494c41d-d9bd-4795-933d-20e1681189fc
+# ╟─f1fb61f6-4066-11ee-3c81-790e7afab21b
+# ╟─dcbd0ceb-4d6c-4045-bbd1-ac51ffe232f9
+# ╟─937eaf38-b2fa-459f-a8ee-8857c294a823
+# ╟─29760a2e-d509-4d0e-8331-cd5de8723321
+# ╟─20d261de-4121-4b81-8ead-f3022f8efedc
+# ╟─7f53cffe-982e-426e-a76b-f2dce514a518
+# ╠═10021908-6ebe-4682-b993-a1cdd73a4aa2
+# ╠═65014025-5486-4e80-942b-e765aa3808c7
+# ╟─00000000-0000-0000-0000-000000000001
+# ╟─00000000-0000-0000-0000-000000000002
