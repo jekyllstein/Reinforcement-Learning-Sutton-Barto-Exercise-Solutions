@@ -16,6 +16,9 @@ macro bind(def, element)
     #! format: on
 end
 
+# ╔═╡ 23baa5a7-fc2c-4dfd-9d9a-67f2be3a842d
+using HypertextLiteral
+
 # ╔═╡ 1fb1a518-e5ec-4777-80bc-bb55e8172100
 begin
 	using Random, Base.Threads, PlutoPlotly, PlutoUI, PlutoProfile, Latexify, LaTeXStrings, SpecialFunctions, Distributions, Statistics, StatsBase
@@ -32,7 +35,7 @@ In this chapter, we study evaluative feedback in a *nonassociative* setting, tha
 
 ## 2.1: A *k*-armed Bandit Problem
 
-Consider a repeated choice among *k* different options.  A numerical reward is chosen from a stationary probability distribution that depends only on the action selected.  The objective is to maximize the accumulated reward over some time period, let's say 1000 action selections or *time steps*.  The *bandit* described here can be specified by $\Pr \{ r \mid a \}$ for all $a$ where $\Pr$ is some probability distribution with a well defined mean value: $\mathbb{E}[r \vert a] = r_a \; \forall a$.
+Consider a repeated choice among *k* different options.  A numerical reward is chosen from a stationary probability distribution that depends only on the action selected.  The objective is to maximize the accumulated reward over some time period, let's say 1000 action selections or *time steps*.  The *bandit* described here can be specified by $\Pr \{ r \vert a \}$ for all $a$ where $\Pr$ is some probability distribution with a well defined mean value: $\mathbb{E}[r \vert a] = r_a \; \forall a$.
 
 We denote the action selected on time step *t* as $$A_t,$$ and the corresponding reward as $$R_t.$$  The value then of an arbitrary action $$a$$, denoted $$q_*(a),$$ is the expected reward given that $a$ is selected:
 
@@ -289,32 +292,63 @@ For each case the long run cumulative reward is just this long term expected rew
 #pdf for the maximum of n iid standard normals
 fmax(x, n) = n*pdf(Normal(), x)*cdf(Normal(), x)^(n-1)
 
+# ╔═╡ 68dae756-81a0-41e1-b88c-da0ef8ed03a5
+fapprox(k) = sqrt(log(k^2 / (2*π*log(k^2 / (2*π))))) * (1 + MathConstants.γ / log(k))
+
+# ╔═╡ 21e56374-35e6-4488-b8da-15e383017c77
+md"""
+### Bandit Arm Reward Distributions
+
+If we generate $k$ values from a standard normal distribution to define our random bandit problem, the best action reward will follow a distribution that is the maximum value from a set of $k$ gaussians: $R_{\max} \sim \max_k X_k$ where $X_k \sim \mathcal{N}(0, 1)$.  Another way of characterizing this distribution is with the cummulative distribution function CDF: $f(x) = \Pr \{ X \leq x \}$ where $X$ is our random variable in question.  Since $X$ is a maximum of $k$ other random variables, then the distribution function is actually the product of the probability that every single random variable that is included in the maximum is less than or equal to $x$: $f(x) = \Pi_k \Pr \{ X_k \leq x \}$ where $X_k \sim \mathcal{N}(0, 1)$.  Let's call the CDF of a standard normal random variable $F_g(x)$ and the density function $f_g(x)$.  Our desired CDF is then $F(x) = F_g(x)^k$ while the desired density function is just $f(x) = \frac{d}{dx} \left ( F(x) \right ) = k F_g(x)^{k-1} \frac{d}{dx} \left (F_g(x) \right ) = k f_g(x) F_g(x)^{k-1}$ using the fact that the derivative of the CDF is the density function.
+
+$R_\max \sim k f_g(x) F_g(x)^{k-1}$
+
+where $f_g(x) = \frac{1}{\sqrt{2 \pi}} e^{-\frac{x^2}{2}}$ and $F_g(x) = \int_{-\infty}^x f_g(x) = \Phi(x) = \frac{1}{2} \left [ 1 + \operatorname{erf} \left ( \frac{x}{\sqrt{2}} \right ) \right ]$ and $\operatorname{erf}(x) = \frac{1}{\pi} \int_{-x}^x e^{-t^2} dt$
+
+In order to calculate an expected value for $R_\max$ we would need to evaluate $\int x k f_g(x) F_g(x)^{k-1} dx$.  Numerically this is not difficult, but obtaining an exact answer is challenging.  We can, however, write down an upper bound for the expected value.  That is $\mathbb{E}[R_\max] \leq \sqrt{2 \ln(k)}$.  For $k=10$ this upper bound is $(sqrt(2*log(10))) which is quite a bit higher than the numerical approximation of ≈ 1.54.
+
+Alternatively, we can try to calculate the expected value in the asymptotic limit of large values of $k$ in which case we get a much more complicated formula:
+
+$\lim_{k \rightarrow \infty} \mathbb{E}[R_\max] = \sqrt{\ln \left ( \frac{k^2}{2\pi \ln \left ( \frac{k^2}{2\pi} \right)} \right )} \left ( 1 + \frac{\gamma}{\ln(k)} + o \left ( \frac{1}{\ln (k)} \right ) \right )$
+
+where $\gamma$ is the Euler-Mascheroni constant $\approx 0.5772$
+
+For $k = 10$, this approximation is $(fapprox(10)) which is much closer than the upper bound but still not very accurate.  The error term does not shrink very quickly due to the logarithm in the denominator and for $$k=10$$ it is still quite high $(1/log(10)) which is roughly the percent error on the final value.
+"""
+
 # ╔═╡ 8b8a9449-04b7-4901-9a2c-fbbdc33dfdfa
 function visualize_bandit_dist(;n = 10, samples = 100_000)
+	upperbound = sqrt(2*log(n))
+	limit_value = fapprox(n)
 	maxdist = [maximum(randn(n)) for _ in 1:samples]
 	(mn, mx) = extrema(maxdist)
-	rval = LinRange(mn, mx, 100_00)
+	rval = LinRange(mn, mx, samples)
 	Δ = rval[2] - rval[1]
 	rpdf = fmax.(rval, n)
 	rankdist = mapreduce(a -> sort(randn(n)), +, 1:samples) ./ samples
 	expected_reward = sum(rval .* rpdf) * Δ
 	# t1 = histogram(x = maxdist) 
-	t2 = scatter(x = rval, y = rpdf)
-	p1 = plot(t2)
-	p2 = bar(x = 1:n, y = rankdist) |> a -> PlutoPlotly.plot(a, Layout(xaxis_title = "Reward Rank", yaxis_title = "Mean Reward of Arm"))
-	md"""
-	#### Distribution of Best Action Reward for a Random $n Armed Bandit, Expected Value Estimate = $(round(expected_reward, sigdigits = 4))
-	$p1
-
-	#### Expected Value of Mean Reward for Arms Ranked from 1 to $n
-	$p2
-	"""
+	t2 = scatter(x = rval, y = rpdf, name = "True Density Function")
+	t1 = scatter(x = [expected_reward, expected_reward], y = [0, 1], name = "Expected Value Empirical", mode = "lines", line_color = "black", line_dash = "dash")
+	t3 = scatter(x = [upperbound, upperbound], y = [0, 1], name = "Expected Value Upper Bound", mode = "lines", line_color = "red")
+	t4 = scatter(x = [limit_value, limit_value], y = [0, 1], name = "Expected Value Asymptotic Limit", mode = "lines", line_color = "black")
+	p1 = plot([t2, t1, t3, t4], Layout(xaxis_title = "Reward Value", yaxis_title = "Probability", yaxis_range = [0, 1], xaxis_range = [0, 5], legend_orientation = "h", height = 500))
+	p2 = bar(x = 1:n, y = rankdist) |> a -> PlutoPlotly.plot(a, Layout(xaxis_title = "Reward Rank", yaxis_title = "Mean Reward of Arm", height = 500))
+	p3 = plot([scatter(x = 3:10000, y = fapprox.(3:10000), name = "Asymptotic Expectation"), scatter(x = 3:10000, y = sqrt.(2 .* log.(3:10000)), name = "Upper Bound")], Layout(xaxis_title = "Number of Arms", yaxis_title = "Expected Maximum Reward", xaxis_type = "log"))
+	@htl("""
+	<div style = "display: flex;">
+		<div>
+		<h4>Distribution of Mean Reward for Best Action of a Random $n Armed Bandit, Expected Value Estimate = $(round(expected_reward, sigdigits = 4))</h4>
+		$p1
+		</div>
+		<div>
+		<h4>Expected Value of Mean Reward for Arms Ranked from 1 to $n</h4>
+		$p2
+		</div>
+	</div>
+	$p3
+	""")
 end
-
-# ╔═╡ 21e56374-35e6-4488-b8da-15e383017c77
-md"""
-### Bandit Arm Reward Distributions
-"""
 
 # ╔═╡ 2bce1b80-2133-40a0-9367-fc2d491f6245
 md"""
@@ -327,7 +361,7 @@ visualize_bandit_dist(n = n_arms_vis, samples = 100_000)
 # ╔═╡ e07a27c5-0c9a-4893-a1cf-cf565ab78761
 md"""
 ## 2.4 Incremental Implementation
-The sample-average for the action-value estimate is defined as $$Q_n \dot = \frac{R_1+R_2+\cdots+R_{n-1}}{n-1}$$.  To compute this we can maintain a record of every reward and every time we accumulate a new reward recompute the entire average.  However that is inefficient in terms of computational and memory resources.  It is possible to instead maintain a single value for the estimate at step n (and n itself) and update it incrementally every time we obtain a new reward.
+The sample-average for the action-value estimate is defined as $$Q_n \doteq \frac{R_1+R_2+\cdots+R_{n-1}}{n-1}$$.  To compute this we can maintain a record of every reward and every time we accumulate a new reward recompute the entire average.  However that is inefficient in terms of computational and memory resources.  It is possible to instead maintain a single value for the estimate at step n (and n itself) and update it incrementally every time we obtain a new reward.
 
 The update formula for $$Q_{n+1}$$ when we obtain a new reward sample is derived below:
 
@@ -1950,6 +1984,7 @@ html"""
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
@@ -1962,6 +1997,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 Distributions = "~0.25.100"
+HypertextLiteral = "~0.9.5"
 LaTeXStrings = "~1.3.0"
 Latexify = "~0.16.1"
 PlutoPlotly = "~0.3.9"
@@ -1977,7 +2013,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "e132e3e69367953a11779eec4e0da33f117bf4f7"
+project_hash = "f21de35885520a560b2e561fef975fa539e2832c"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2646,9 +2682,10 @@ version = "17.4.0+2"
 # ╟─79082409-3182-4e0b-9c8c-37a94543fee9
 # ╟─965da91b-6a3f-456c-89ce-461c31e0fb7e
 # ╟─464d43c0-cd59-49e6-88f6-12a767677418
+# ╟─21e56374-35e6-4488-b8da-15e383017c77
 # ╠═85b3dbc4-2e02-4924-b3e5-887a1a557a2b
 # ╠═8b8a9449-04b7-4901-9a2c-fbbdc33dfdfa
-# ╟─21e56374-35e6-4488-b8da-15e383017c77
+# ╠═68dae756-81a0-41e1-b88c-da0ef8ed03a5
 # ╟─2bce1b80-2133-40a0-9367-fc2d491f6245
 # ╟─4be9e81b-c3de-4c79-97b5-b41c03e0f187
 # ╟─e07a27c5-0c9a-4893-a1cf-cf565ab78761
@@ -2810,6 +2847,7 @@ version = "17.4.0+2"
 # ╟─f78846a8-076a-4a87-b1d0-4f830e2bca27
 # ╟─4afd6c2c-632e-4196-ab36-4d314ed9ec96
 # ╟─36602c38-8b29-4158-b299-94015a333762
+# ╠═23baa5a7-fc2c-4dfd-9d9a-67f2be3a842d
 # ╠═1fb1a518-e5ec-4777-80bc-bb55e8172100
 # ╠═c9c2aa04-15a2-446a-839c-bcf724b0f57a
 # ╟─00000000-0000-0000-0000-000000000001
