@@ -35,7 +35,7 @@ In this chapter, we study evaluative feedback in a *nonassociative* setting, tha
 
 ## 2.1: A *k*-armed Bandit Problem
 
-Consider a repeated choice among *k* different options.  A numerical reward is chosen from a stationary probability distribution that depends only on the action selected.  The objective is to maximize the accumulated reward over some time period, let's say 1000 action selections or *time steps*.  The *bandit* described here can be specified by $\Pr \{ r \vert a \}$ for all $a$ where $\Pr$ is some probability distribution with a well defined mean value: $\mathbb{E}[r \vert a] = r_a \; \forall a$.
+Consider a repeated choice among *k* different options.  A numerical reward is chosen from a stationary probability distribution that depends only on the action selected.  The objective is to maximize the accumulated reward over some time period, let's say 1000 action selections or *time steps*.  The *bandit* described here can be specified by $\Pr \{ r \vert a \}$ for all $a$ from $1$ to $k$ where $\Pr$ is some probability distribution with a well defined mean value: $\mathbb{E}[r \vert a] = r_a \; \forall a \in \set{1, 2, \dots k}$.
 
 We denote the action selected on time step *t* as $$A_t,$$ and the corresponding reward as $$R_t.$$  The value then of an arbitrary action $$a$$, denoted $$q_*(a),$$ is the expected reward given that $a$ is selected:
 
@@ -50,7 +50,7 @@ md"""
 
 The true value is the mean reward when that action is selected.  One way to estimate this is by averaging the rewards actually received:
 
-$$Q_t(a) \doteq \frac{\text{sum of rewards when } a \text{ taken prior to } t}{\text{number of times } a \text{ taken prior to } t} = \frac{\sum_{i=1}^{t-1}R_i \cdot \mathbf{1}_{A_i=a}}{\sum_{i=1}^{t-1} \mathbf{1}_{A_i=a}} \tag{2.1}$$
+$$Q_t(a) \doteq \frac{\text{sum of rewards when } a \text{ taken prior to } t}{\text{number of times } a \text{ taken prior to } t} = \frac{\sum_{i=1}^{t-1}R_i \cdot \mathbb{1}_{A_i=a}}{\sum_{i=1}^{t-1} \mathbb{1}_{A_i=a}} \tag{2.1}$$
 
 If the denominator is zero then we instead define $$Q_t(a)$$ by some default value such as 0.  We call this the *sample-average* method for estimating action values because each estmiate is an average of the sample of relevant rewards.
 
@@ -371,7 +371,7 @@ Q_{n+1} &= \frac{1}{n} \sum_{i=1}^n R_i \\
 &= \frac{1}{n} \left ( R_n + (n-1) \frac{1}{n-1} \sum_{i=1}^{n-1} R_i \right ) \tag{multiply by 1} \\
 &= \frac{1}{n} \left ( R_n + (n-1) Q_n \right ) \tag{definition of Q} \\
 &= \frac{1}{n} \left ( R_n + n Q_n - Q_n \right ) \\
-&= Q_n + \frac{1}{n} \left [ R_n + Q_n \right ] \tag{2.3}
+&= Q_n + \frac{1}{n} \left [ R_n - Q_n \right ] \tag{2.3}
 \end{flalign}$$
 
 The update rule (2.3) is of a form that occurs frequently whose general form is
@@ -609,7 +609,7 @@ md"""
 > ### *Exercise 2.6: Mysterious Spikes* 
 > The results shown in Figure 2.3 should be quite reliable because they are averages over 2000 individual, randomly chosen 10-armed bandit tasks.  Why, then, are there oscillations and spikes in the early part of the curve for the optimistic method? In other words, what might make this method perform particularly better or worse, on average, on particular early steps?
 
-The spike occurs on step 11.  Due to the initial Q values it is almost 100% likely that a given run will sample each of the 10 possible actions once before repeating any.  For this not to be the case, one of the samples would have to exceed the initial value of 5.0 which has a probability near zero since the expected q value for the best arm is around 1.539 which unit variance.  That would mean that at any given step only 10% of the runs would select the optimal action and indeed for the first 10 steps about 10% of the runs are selecting the optimal action as we'd expect from random chance.  
+The spike occurs on step 11.  Due to the initial Q values it is almost 100% likely that a given run will sample each of the 10 possible actions once before repeating any.  For this not to be the case, one of the samples would have to exceed the initial value of 5.0 which has a probability near zero since the expected q value for the best arm is around 1.539 with unit variance.  That would mean that at any given step only 10% of the runs would select the optimal action and indeed for the first 10 steps about 10% of the runs are selecting the optimal action as we'd expect from random chance.  
 
 On the 11th step, the Q value estimate for each action is $$(0.9 \times 5) + (0.1 \times action\_reward)$$.  The optimal action will be selected on this step as long as the reward produced by the best action exceeded all the others.  Empirically, that probability is ~44% which is similar to the probability calculated for the expected value of the best action of ~1.539 exceeding the rewards from the other 9 arms.  For those 44% of the runs that do select the optimal action, they will obtain a reward with expected value 1.539.  If they received that reward during both samples, then the Q value estimate will be $$0.9 \times ((0.9 \times 5) + (0.1 \times 1.539)) + (0.1 \times 1.539) \approx 4.34$$.  Let's consider the second best arm which has an expected q value of ~1.  The updated estimate for that arm after receiving a reward equal to the expected value is $$0.9 \times 0.5 + 0.1 \times 1 \approx 4.6$$.  Following the same reasoning for the third best arm, the value is about 4.57.  In fact even a reward of zero will produce an estimate of $$0.9 \times 5 = 4.5$$ which still exceeds the estimate for the optimal action in our scenario.  That explains why the percentage of optimal actions drops in the 12th step because it is expected that the estimate of the action selected on step 11 will drop below at least one of the other arms, thus changing the maximizing action selection to a worse one.
 """
@@ -617,15 +617,15 @@ On the 11th step, the Q value estimate for each action is $$(0.9 \times 5) + (0.
 # ╔═╡ cb93c588-3dfa-45f4-9d83-f2de26cb1cea
 md"""
 > ### *Exercise 2.7: Unbiased Constant-Step-Size Tick* 
-> In most of this chapter we have used sample averages to estimate action values because sample averages do not produce the initial bias that constant step sizes do (see analysis leading to (2.6)).  However, sample averages are not a completely satisfactory solution because they may perform poorly on nonstationary problems.  Is it possible to avoid the bias of constant sample sizes while retaining their advantages on nonstationary problems?  One way is to use a step size of $$\beta_n \dot= \alpha / \bar{o}_n,$$ 
+> In most of this chapter we have used sample averages to estimate action values because sample averages do not produce the initial bias that constant step sizes do (see analysis leading to (2.6)).  However, sample averages are not a completely satisfactory solution because they may perform poorly on nonstationary problems.  Is it possible to avoid the bias of constant sample sizes while retaining their advantages on nonstationary problems?  One way is to use a step size of $$\beta_n \doteq \alpha / \bar{o}_n,$$ 
 >to process the nth reward for a particular action, where $$\alpha>0$$ is a conventional constant step size, and $$\bar{o}_n$$ is a trace of one that starts at 0:
-> $$\bar{o}_n \dot= \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1}), \text{ for } n \geq 0, \text{ with } \bar{o}_0 \dot= 0.$$
+> $$\bar{o}_n \doteq \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1}), \text{ for } n \geq 0, \text{ with } \bar{o}_0 \doteq 0.$$
 > Carry out an analysis like that in (2.6) to show that $$Q_n$$ is an exponential recency-weighted average *without initial bias*.
 """
 
 # ╔═╡ c695b7f9-76ca-419b-924d-8338a42c8188
 md"""
-$$Q_{n+1} = Q_n + \beta_n[R_n - Q_n]$$ where $$\beta_n \dot= \alpha / \bar{o}_n $$ and $$\bar{o}_n \dot= \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1})$$
+$$Q_{n+1} = Q_n + \beta_n[R_n - Q_n]$$ where $$\beta_n \doteq \alpha \bar{o}_n$$  and  $$\bar{o}_n \doteq \bar{o}_{n-1}+\alpha(1-\bar{o}_{n-1})$$
 
 $$\bar{o}_n = \bar{o}_{n-1} + \alpha(1-\bar{o}_{n-1})=\bar{o}_{n-1}(1-\alpha)+\alpha$$
 
@@ -670,7 +670,7 @@ Q_n&=\sum_{i=1}^{n} \left[ R_i\frac{\alpha}{1-(1-\alpha)^i}\prod_{j=i+1}^n \left
 Examining the product term on its own, we can see it simplifies.
 
 $$\prod_{j=i+1}^n \left( \frac{1-(1-\alpha)^{j-1}}{1-(1-\alpha)^j} \right)$$
-$$\frac{1-(1-\alpha)^{i}}{1-(1-\alpha)^{i+1}}\frac{1-(1-\alpha)^{i+1}}{1-(1-\alpha)^{i+2}}\cdots\frac{1-(1-\alpha)^{n-1}}{1-(1-\alpha)^{n}}=\frac{1-(1-\alpha)^i}{1-(1-\alpha)^n} \text{ for i≤n}$$
+$$\frac{1-(1-\alpha)^{i}}{1-(1-\alpha)^{i+1}}\frac{1-(1-\alpha)^{i+1}}{1-(1-\alpha)^{i+2}}\cdots\frac{1-(1-\alpha)^{n-1}}{1-(1-\alpha)^{n}}=\frac{1-(1-\alpha)^i}{1-(1-\alpha)^n} \text{ for i ≤ n}$$
 
 Replacing this expression for the product in the expression for $$Q_n$$ we have:
 
@@ -689,7 +689,7 @@ md"""
 
 We can choose to explore non-greedy actions based on the probability that they are better than optimal.  This probability always exists due to the uncertainty inherent in our value estimates.  One way to implement this concept is to select actions according to:
 
-$$A_t \doteq \operatorname*{argmax}_a \left [ Q_t(a) + c \sqrt{\frac{\ln{t}}{N_t(a)}}\right ] \tag{2.10}$$
+$$A_t \doteq \operatorname*{argmax}_a \left ( Q_t(a) + c \sqrt{\frac{\ln{t}}{N_t(a)}} \right ) \tag{2.10}$$
 
 where $$N_t(a)$$ is the number of times that action $a$ has been selected prior to time t and $$c>0$$ controls the degree of exploration.  This idea is called *upper confidence bound* (UCB) action selection.  Note that is $$N_t(a)=0$$ then that action will be selected or a random selection will be made among all actions with zero counts.  See below for a comparison between the ϵ-greedy exploration method and the UCB method with the ability to change parameters for both methods.
 """
@@ -2711,7 +2711,7 @@ version = "17.4.0+2"
 # ╟─d4ce45ae-613e-41ee-b626-69b0dbcf6452
 # ╟─cb93c588-3dfa-45f4-9d83-f2de26cb1cea
 # ╟─c695b7f9-76ca-419b-924d-8338a42c8188
-# ╟─23b99305-c8d9-4129-85fb-a5e4aabc4a31
+# ╠═23b99305-c8d9-4129-85fb-a5e4aabc4a31
 # ╠═8fac4109-2e0d-4366-9118-018221e0b910
 # ╟─093f312b-d70d-4bf7-bd53-8a1c7b2bee31
 # ╟─0de99ee5-d94d-4d07-8cef-a6f9caf5e742
