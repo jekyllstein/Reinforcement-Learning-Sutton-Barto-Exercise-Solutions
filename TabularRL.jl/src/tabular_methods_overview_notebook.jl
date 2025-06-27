@@ -734,10 +734,11 @@ begin
 			if isterm(i_s)
 				if continuing
 					state_transition_map[:, i_s] .= i_start
+					reward_transition_map[:, i_s] .= stepreward
 				else
 					state_transition_map[:, i_s] .= i_s
+					reward_transition_map[:, i_s] .= 0f0
 				end
-				reward_transition_map[:, i_s] .= 0f0
 			else
 				for a in actions
 					i_a = action_index[a] #get index for action
@@ -1189,6 +1190,16 @@ State values for the random policy.  Notice that at a discount rate of $\gamma=1
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""Select Discount Rate for State Policy Evaluation: $(@bind γ_gridworld_policy_evaluation Slider(0.01f0:0.01f0:1f0; show_value=true, default = 1f0))"""
+  ╠═╡ =#
+
+# ╔═╡ e8fb7296-ecaf-48a4-a15c-cb994e399387
+#=╠═╡
+@bind ex_3_5_params PlutoUI.combine() do Child
+	md"""
+	Discount Rate: $(Child(:γ, Slider(0.1f0:0.1f0:1.f0; default = 0.9f0, show_value=true)))
+	Reward Boost: $(Child(:c, NumberField(0:100)))
+	"""
+end
   ╠═╡ =#
 
 # ╔═╡ cb96b24a-65aa-4832-bc7d-093f0c951f83
@@ -5236,6 +5247,39 @@ show_grid_value(windy_gridworld, windy_gridworld_random_policy_evaluation.value_
 show_grid_value(stochastic_gridworld, stochastic_gridworld_random_policy_evaluation.value_function, "gridworld_random_values"; square_pixels = 50)
   ╠═╡ =#
 
+# ╔═╡ 75513920-f739-4d9d-b2e7-598a7905c854
+#=╠═╡
+function ex_3_5_grid(γ, c)
+	mdp1 = make_deterministic_gridworld(;stepreward = 0f0 + Float32(c), termreward=10f0+c, continuing=false)
+	mdp2 = make_deterministic_gridworld(;stepreward = 0f0 + Float32(c), termreward=10f0+c, continuing=true)
+
+	solution1 = policy_evaluation_v(mdp1, example_gridworld_random_policy, γ)
+	solution2 = policy_evaluation_v(mdp2, example_gridworld_random_policy, γ)
+
+	v1 = copy(solution1.value_function)
+	v1 .-= minimum(solution1.value_function[findall(.!mdp1.terminal_states)])
+	v1[findall(mdp1.terminal_states)] .= 0f0
+
+	@htl("""
+	<div style = "display: flex; justify-content: space-around;">
+	<div>
+	Episodic Values Relative to Minimum Non-Terminal Value
+	$(show_grid_value(mdp1, v1, "solution_values_351"; square_pixels = 50))
+	</div>
+	<div>
+	Continuing Values Relative to Minimum
+	$(show_grid_value(mdp2, solution2.value_function .- minimum(solution2.value_function), "solution_values_352"; square_pixels = 50))
+	</div>
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 822d6b66-5c1f-4abe-87d0-a10db0f309f7
+#=╠═╡
+ex_3_5_grid(ex_3_5_params...)
+  ╠═╡ =#
+
 # ╔═╡ f856ecc7-53e9-47e4-9869-abca0f19a98b
 #=╠═╡
 show_grid_value(differential_gridworld, differential_policy_evaluation_v(differential_gridworld, π_list_differential[3]; θ = 1f-6).value_function, "fdfs", square_pixels = 40)
@@ -6581,8 +6625,11 @@ version = "17.4.0+2"
 # ╟─900a2ece-9638-49fc-afbe-e012f9520b48
 # ╟─0f6cc7a9-4184-471f-86d5-4ad0c0e495ce
 # ╟─91ca282d-e857-41d7-b99d-d9449b82da09
-# ╠═5b53ef57-12d1-45e2-ad1e-28c490c336a6
-# ╟─966eae0d-7556-4ff9-b9f7-d47a736524a4
+# ╟─5b53ef57-12d1-45e2-ad1e-28c490c336a6
+# ╟─e8fb7296-ecaf-48a4-a15c-cb994e399387
+# ╟─822d6b66-5c1f-4abe-87d0-a10db0f309f7
+# ╠═75513920-f739-4d9d-b2e7-598a7905c854
+# ╠═966eae0d-7556-4ff9-b9f7-d47a736524a4
 # ╟─cb96b24a-65aa-4832-bc7d-093f0c951f83
 # ╟─7df4fcbb-2f5f-4d59-ba0c-c7e635bb0503
 # ╟─4f0f052d-b461-4040-b5ff-46aac74a24de
