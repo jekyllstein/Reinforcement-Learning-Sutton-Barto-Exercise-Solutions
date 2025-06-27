@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.3
+# v0.20.8
 
 using Markdown
 using InteractiveUtils
@@ -13,12 +13,47 @@ begin
 end
   ╠═╡ =#
 
-# ╔═╡ 17f36458-139b-4f8b-aba9-d0dd586dd82c
+# ╔═╡ 1c7d2750-3625-4eed-8408-53626b67d749
 md"""
 # Chapter 3: Finite Markov Decision Processes
 
+Finite Markov decision processes or MDPs are a mathematical framework to study the idealized reinforcement learning problem.  These tasks involve sequential decision making where actions affect not just immediate rewards but also subsequent situations or states which in turn also affect future rewards.  In the bandit problem we sought to learn a value estimate for each action $q_*(a)$.  In MDPs we estimate the value of $q_*(s, a)$ which includes both the state $s$ and the action $a$.  These state-dependent quantities are essential to accurately assigning credit for long-term consequences of individual action selections.
+
 ## 3.1 The Agent-Environment Interface
 
+MDPs are meant to be a straightforward framing of the problem of learning from interaction to achieve a goal.  The learner and decision maker is called the *agent*.  The thing it interacts with, comprising everything outside the agent, is called the *environment*.  These interact continually, the agent selecting actions and the environment responding to these actions and presenting new situations to the agent.  The environment also gives rise to rewards, special numerical values that the agent seeks to maximize over time through its choice of actions.
+
+More specifically, the agent and environment interact at each of a sequence of discrete time steps, $t=0,1,2,3,\dots$.  At each time step $t$, the agent receives some representation of the environment's *state*, $S_t \in \mathcal{S}$, and on that basis selects an *action*, $A_t \in \mathcal{A}(s)$.  One time step later, in part as a concequence of its action, the agent receives a numerical *reward*, $R_{t+1} \in \mathcal{R} \subset \mathbb{R}$ and finds itself in a new state, $S_{t+1}$.  The MDP and agent together thereby give rise to a sequence of *trajectory* that begins like this:
+
+$S_0,A_0, R_1, S_1, A_1, R_2, S_2, A_2, R_3, \dots \tag{3.1}$
+
+In a *finite* MDP, the sets of states, actions, and rewards all have a finite number of elements.  In this case, the random variables $R_t$ and $S_t$ have well defined discrete probability distributions dependent only on the preceding state and action.  That is, for particular values of these random variables, $s^\prime \in \mathcal{S}$ and $r \in \mathcal{R}$, there is a probability of those values occurring at time $t$, given particular values of the preceding state and action: 
+
+$p(s^\prime, r \vert s, a) \doteq \Pr \{ S_t = s^\prime, R_t = r \mid S_{t-1} = s, A_{t-1}=a \}, \tag{3.2}$
+
+for all $s^\prime, s \in \mathcal{S}, r \in \mathcal{R}, \text{ and } a \in \mathcal{A}(s)$.  The function $p$ defines the *dynamics* of the MDP.  The dynamics function $p : \mathcal{S} \times \mathcal{R} \times \mathcal{S} \times \mathcal{A} \rightarrow [0,1]$ is an ordinary deterministic function of four arguments.  The '|' in the middle of it comes from the notation for conditional probability, but here it just reminds us that $p$ satisfies a probability distribution for each choice of $s$ and $a$, that is, that
+
+$\sum_{s^\prime \in \mathcal{S}}\sum_{r \in \mathcal{R}} p(s^\prime, r \vert s, a) = 1, \text{ for all } s \in \mathcal{S}, a \in \mathcal{A}(s). \tag{3.3}$
+
+In a *Markov* decision process, the probabilities given by $p$ completely characterize the environment's dynamics.  That is, the probability of each possible value for $S_t$ and $S_t$ depends on the immediately preceding state and action, $S_{t-1}$ and $A_{t-1}$, and, given them, not at all on earlier states and actions.  This is best viewed as a restriction not on the decision process, but on the *state*.  The state must include information about all aspects of the past agent-environment interaction that make a difference for the future.  If it does, then the state is said to have the *Markov property*.  We will assume the Markov property throughout this book.
+
+From the four-argument dynamics function, $p$, one can compute anything else one might want to know about the environment, such as the *state-transition probabilities* (which we denote, with a slight abuse of notation, as a three-argument function $p : \mathcal{S} \times \mathcal{S} \times \mathcal{A} \rightarrow [0, 1]$),
+
+$p(s^\prime \vert s, a) \doteq \Pr \{ S_t = s^\prime \mid S_{t-1} = s, A_{t-1} = a \} = \sum_{r \in \mathcal{R}} p(s^\prime, r \vert s, a). \tag{3.4}$
+
+We can also compute the expected rewards for state-action pairs as a two-argument function $r : \mathcal{S} \times \mathcal{A} \rightarrow \mathbb{R}$:
+
+$r(s, a) \doteq \mathbb{E}[R_t \mid S_{t-1} = s, A_{t-1} = a] = \sum_{r \in \mathcal{R}} r \sum_{s^\prime \in \mathcal{S}} p(s^\prime, r \vert s, a), \tag{3.5}$
+
+and the expected rewrads for state-action-next-state triples as a three-argument function $r : \mathcal{S} \times \mathcal{A} \times \mathcal{S} \rightarrow \mathbb{R},$,
+
+$r(s, a, s^\prime) \doteq \mathbb{E}[R_t \mid S_{t-1} = s, A_{t-1} = a, S_t = s^\prime] = \sum_{r \in \mathcal{R}} r \frac{p(s^\prime, r \vert s, a)}{p(s^\prime \vert s, a)}. \tag{3.6}$
+
+
+"""
+
+# ╔═╡ e7a4f148-bf74-44f3-98e7-e4d9b4cac5ab
+md"""
 > ### *Exercise 3.1*
 > Devise three example tasks of your own that fit into the MDP framework, identifying for each its states, actions, and rewards. Make the three examples as *different* from each other as possible. The framework is abstract and flexible and can be applied in many different ways. Stretch its limits in some way in at least one of your examples.
 
@@ -65,30 +100,117 @@ md"""
 
 | $s$ | $a$ | $s'$ | $r$ | $p(s',r \vert s,a)$ |
 | --- | --- | --- | --- | --- |
-| high | search | high | $r_{search}$ | $\alpha$ |
-| high | search | low | $r_{search}$ | $1-\alpha$ |
-| low | search | low | $r_{search}$ | $\beta$ |
+| high | search | high | $r_{\text{search}}$ | $\alpha$ |
+| high | search | low | $r_{\text{search}}$ | $1-\alpha$ |
+| low | search | low | $r_{\text{search}}$ | $\beta$ |
 | low | search | high | -3  | $1-\beta$ |
-| high | wait | high | $r_{wait}$ | 1   |
-| low | wait | low | $r_{wait}$ | 1   |
+| high | wait | high | $r_{\text{wait}}$ | 1   |
+| low | wait | low | $r_{\text{wait}}$ | 1   |
 | low | recharge | high | 0   | 1   |
 """
 
-# ╔═╡ 768833aa-ceee-4fe8-958f-c00b778ec764
+# ╔═╡ f376a2e1-69d3-46ca-9bc2-33e447c6834b
+md"""
+## 3.2 Goals and Rewards
+
+In reinforcement learning, the purpose or goal of the agent is formalized in terms of a special signal, called the reward, passing from the environment to the agent. At each time step, the reward is a simple number, $R_t \in \mathbb{R}$. Informally, the agent’s goal is to maximize the total amount of reward it receives. This means maximizing not immediate reward, but cumulative reward in the long run. We can clearly state this informal idea as the reward hypothesis:
+
+>That all of what we mean by goals and purposes can be well thought of as the maximization of the expected value of the cumulative sum of a received scalar signal (called reward).
+
+
+The use of a reward signal to formalize the idea of a goal is one of the most distinctive
+features of reinforcement learning.
+
+Although formulating goals in terms of reward signals might at first appear limiting, in practice it has proved to be flexible and widely applicable.  The best way to see this is to consider examples of how it has been, or could be, used.  For example, to make a robot learn how to escape a maze, the reward is often -1 for every time step that passes prior to escape; this encourages the agent to escape as quickly as possible.  For an agent to learn to play a win/loss/draw game the natural rewards are +1 for winning, -1 for losing, and 0 for draws and all nonterminal positions.
+
+If we want an agent to do something for us, we must provide rewards to it in a raw that in maximizing them the agent will also acheive our goals.  It is thus critical that the rewards truly indicate what we want accomplished.  In particular, the reward signal is not the place to impart to the agent prior knowledge about *how* to acheive what we want to do.  For example, a chess-playing agent should be rewarded only for actually winning, not for achieving subgoals such as taking its opponent's pieces or gaining control of the center of hte board.  If achieving these shorts of subgoals were rewarded, then the agent might find a way to achieve them without achieving the real goal.  For example, it might find a way to take the opponent's pieces even at the cost of losing the game.  **The reward signal is your way of communicating to the agent *what* you want achieved, not *how* you want it achieved.**
+"""
+
+# ╔═╡ 6a85a90d-f345-4604-9637-086a71928af5
 md"""
 ## 3.3 Returns and Episodes
 
+Now we formalize the notation for describing in detail the cummulative long term reward of an agent.  If the sequence of rewards after time step $t$ is denoted, $R_{t+1}, R_{t+2}, R_{t+3}, \dots$, then what precise aspect of this sequence do we wish to maximize?  In general, we seek to maximize the *expected return*, where the return, denoted $G_t$, is defined as some specific function of the reward sequence.  In the simplest case the return is the sum of the rewards:
+
+$G_t \doteq R_{t+1}+R_{t+2}+R_{t+3} + \cdots + R_T, \tag{3.7}$
+
+where $T$ is a final time step.  This approach makes sense in applications in which there is a natural notation of the final time step, that is, when the agent-environment interaction breaks naturally into subsequences, which we call *episodes*, such as plays of a agame, trips through a maze, or any sort of repeated interaction.  Each episode ends in a special state called the *terminal state*, followed by a reset to a standard starting state or to a sample from a standard distribution of starting states which is independent from the previous episode.  Thus the episodes can all be considered to independently end in the same terminal state, with different rewards for different outcomes.  Tasks with episodes of this kind are called *episodic tasks*.  In episodic tasks we sometimes need to distinguish the set of all nonterminal states, denoted $\mathcal{S}$, from the set of all states plus the terminal state, denoted $\mathcal{S}^+$.  The time of termination, $T$, is a random variable that normally varies from episode to episode.
+
+On the other hand, in many cases the agent-environment interaction does not break naturally into identifiable episodes, but goes on continually without limit.  For example, this would be the natural way to formulate an on-going process-control task.  We call these *continuing tasks*.  The return formulation (3.7) is problematic for continuing tasks because the final time step would be $T = \infty$, and the return, which is what we are trying to maximize, could easily be infinite.
+
+To fix these problems we need the concept of *discounting*.  According to this approach, the agent tries to select actions so that the sum of the discounted rewards it receives over the future is maximized.  In particular, it chooses $A_t$ to maximize the expected *discounted return:*
+
+$G_t \doteq R_{t+1}+\gamma R_{t+2}+ \gamma^2 R_{t+3} + \cdots = \sum_{k = 0}^\infty \gamma^k R_{t+k+1}, \tag{3.8}$
+
+where $\gamma$ is a parameter, $0 \leq \gamma \leq 1$, called the *discount rate.*
+
+The discount rate determines the present value of future rewards: a reward received $k$ time steps in the future is woth only $\gamma^{k-1}$ times what it would be worth if it were received immediately.  If $\gamma \lt 1$, the infinite sum in (3.8) has a finite value as long as the reward sequence $\{ R_k \}$ is bounded.  If $\gamma = 0$, the agent is "myopic" in being concerned only to maximize (3.8) by separately maximizing each immediate reward.  But in general, acting to maximize immediate reward can reduce access to future rewards so that the return is reduced.  As $\gamma$ approaches 1, the return objective takes future rewards into account more strongly, the agent becomes more farsighted.
+
+Returns at successive time steps are related to each other in a way that is important for the theory and algorithms of reinforcement learning:
+
+$\begin{flalign}
+G_t &\doteq R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \gamma^3 R_{t+4} + \cdots \\
+&= R_{t+1} + \gamma (R_{t+2} + \gamma R_{t+3} + \gamma^2 R_{t+4} + \cdots) \tag{using definition with variable replacement}\\
+&= R_{t+1} + \gamma G_{t+1}
+\end{flalign}$
+
+Note that this works for all time steps $t \lt T$, even if termination occurs at $t+1$, provided we define $G_T = 0$.
+
+Note that although the return (3.8) is a sum of an infinite number of terms, it is still finite if the return is nonzero and constant if $\gamma \lt 1$.  For example, if the reward is a constant +1, then the return is
+
+$G_t = \sum_{k=0}^\infty \gamma^k = \frac{1}{1-\gamma} \tag{3.10}$
+"""
+
+# ╔═╡ 12fa078b-6b5a-4c25-97a2-38fd9d65cf52
+md"""
 > ### *Exercise 3.5*
 > The equations in Section 3.1 are for the continuing case and need to be modified (very slightly) to apply to episodic tasks. Show that you know the modifications needed by giving the modified version of (3.3).
 
-From Section 3.1 we have equation (3.3):
+From Section 3.1 we have the following equations.  Written below each is the modified version for episodic tasks and an explanation:
 
-$\sum_{s' \in \mathcal{S}}\sum_{r \in \mathcal{R}}p(s',r|s,a)=1, \text{ for all } s\in\mathcal{S},a\in\mathcal{A}(s)$
+$\begin{flalign}
 
-In the episodic case there is an additional state outside of $\mathcal{S}$ called the terminal state, and the union of this with every other state is denoted $\mathcal{S}^+$. So equation (3.3) still applies, but only if we ensure that there is some non-zero probability of entering the terminal state.  The modified version of equation 3.3 is:
+&S_0, A_0, R_1, S_1, A_1, R_2, S_2, A_2, R_3, \dots \tag{3.1} \\
+&S_0, A_0, R_1, S_1, A_1, R_2, \dots, S_{T-1}, A_{T-1}, R_T, S_T \tag{3.1'}
+\end{flalign}$
 
-$\sum_{s^ \prime \in \mathcal{S}^+}\sum_{r \in \mathcal{R}}p(s^ \prime,r|s,a)=1, \text{ for all } s\in\mathcal{S},a\in\mathcal{A}(s)$
+Instead of continuing indefinitely, in an episodic task there is always a transition into a terminal state at step $T$ which concludes the episode.  No actions or future transitions occur after reaching $S_T$
 
+$\begin{flalign}
+p(s^\prime, r \vert s, a) &\doteq \Pr \{ S_t = s^\prime, R_t = r \mid S_{t-1} = s, A_{t-1} = a \}, \forall s^\prime, s \in \mathcal{S}, r \in \mathcal{R}, a \in \mathcal{A}(s). \tag{3.2} \\
+p(s^\prime, r \vert s, a) &\doteq \Pr \{ S_t = s^\prime, R_t = r \mid S_{t-1} = s, A_{t-1} = a \}, \forall s \in \mathcal{S}, s^\prime \in \mathcal{S}^+, r \in \mathcal{R}, a \in \mathcal{A}(s) \tag{3.2'} \\
+p(s^\prime, 0 \vert s, a) &\doteq 1, \forall s, s^\prime \in \mathcal{S}^+ \setminus \mathcal{S}, a \in \mathcal{A}(s) \tag{3.2''}\\
+p(s^\prime, r \vert s, a) &\doteq 0, \forall s \in \mathcal{S}^+ \setminus \mathcal{S}, s^\prime \in \mathcal{S}, r \in \mathcal{R}, a \in \mathcal{A}(s)  \tag{3.2'''}\\
+\end{flalign}$
+
+The probability transition function for an episodic task is defined for all state action pairs in the set of nonterminal states.  However, for the transition states, we must also include the set of terminal states in the possibilities.  Moreover, if we begin with a terminal state, denoted above by the set difference operator $\mathcal{S}^+ \setminus \mathcal{S}$, then the only possible transitions are to the same terminal state with a reward of 0.  All other transitions are forbidden.  These extra equations are only needed to formally define why there is no need to write down transitions beyond the terminal state.  They have no impact on the discounted return.  Alternatively, one can choose to not even define the transition function from terminal states which is true of the definition 3.2'.  The other two equations are only included for completeness.
+
+$\begin{flalign}
+\sum_{s' \in \mathcal{S}}\sum_{r \in \mathcal{R}}p(s',r|s,a) &= 1, \text{ for all } s\in\mathcal{S},a\in\mathcal{A}(s) \tag{3.3}\\
+\sum_{s^ \prime \in \mathcal{S}^+}\sum_{r \in \mathcal{R}}p(s^ \prime,r|s,a) &= 1, \text{ for all } s\in\mathcal{S},a\in\mathcal{A}(s) \tag{3.3'}\\
+\sum_{s^ \prime \in \mathcal{S}}\sum_{r \in \mathcal{R}}p(s^ \prime,r|s,a) &= \Pr \{ S_t \neq S_T \mid S_{t-1} = s, A_{t-1} = a \}, \text{ for all } s\in\mathcal{S},a\in\mathcal{A}(s) \tag{3.3''}\\
+\end{flalign}$
+
+To cover the entire probability space we must sum over every possible transition states which is the space $\mathcal{S}^+$. If we leave 3.3 unmodified, then this sum equals the probability of not entering a terminal state after a single step transition out of $s$ with action $a$.
+
+$\begin{flalign}
+p(s^\prime \vert s, a) &\doteq \Pr \{ S_t = s^\prime \mid S_{t-1} = s, A_{t-1} = a \} = \sum_{r \in \mathcal{R}} p(s^\prime, r \vert s, a) \tag{3.4}\\
+\end{flalign}$
+
+does not require any modification, but we must note that the first argument can take on terminal state values as well.
+
+$\begin{flalign}
+r(s, a) &\doteq \mathbb{E}[R_t \mid S_{t-1} = s, A_{t-1} = a] = \sum_{r \in \mathcal{R}} r \sum_{s^\prime \in \mathcal{S}} p(s^\prime, r \vert s, a), \tag{3.5} \\
+r(s, a) &\doteq \mathbb{E}[R_t \mid S_{t-1} = s, A_{t-1} = a] = \sum_{r \in \mathcal{R}} r \sum_{s^\prime \in \mathcal{S}^+} p(s^\prime, r \vert s, a), \tag{3.5'} \\
+\end{flalign}$
+
+The sum over transition states must include terminal states.
+
+$\begin{flalign}
+r(s, a, s^\prime) &\doteq \mathbb{E}[R_t \mid S_{t-1} = s, A_{t-1} = a, S_t = s^\prime] = \sum_{r \in \mathcal{R}} r \frac{p(s^\prime, r \vert s, a)}{p(s^\prime \vert s, a)} \tag{3.6} \\
+\end{flalign}$
+
+does not require any modification, but we must note that the third argument can take terminal state values as well.
 """
 
 # ╔═╡ 9ce34899-c8d0-428f-a3d3-91f0bf37198e
@@ -171,39 +293,87 @@ G_t&=\frac{1}{1-\gamma} \tag{3.10 equality}
 \end{flalign}$
 """
 
-# ╔═╡ e9a973b7-889b-404e-bc31-1ad1b02f3864
+# ╔═╡ 5bd4bc89-4aa4-4513-ac0c-60f3aa062f0f
+md"""
+## 3.4 Unified Notation for Episodic and Continuing Tasks
+
+$G_t \doteq \sum_{k = t+1}^T \gamma^{k-t-1}R_k \tag{3.11}$
+
+including the possibility that $T = \infty$ or $\gamma = 1$ (but not both).
+"""
+
+# ╔═╡ 33665bd0-49be-4e93-acee-a8da79e1be77
 md"""
 ## 3.5 Policies and Value Functions
 
-> ### *Exercise 3.11* 
-> If the current state is $S_t$, and actions are selected according to a stochastic policy $\pi$, then what is the expectation of $R_{t+1}$ in terms of $\pi$ and the four-argument function $p(s',r|s,a) \dot{=}Pr\{S_t=s', R_t=r|S_{t-1}=s,A_{t-1}=a\}$
+A value function represents *how good* it is for the agent to be in a given state (or how good it is to perform a given action in a given state).  The notion of how good is defined in terms of the expected return.  Of course, the future rewards depend on the actions taken, so value functions are defined with respect to a policy.
 
-$$\mathbb{E}[R_{t+1}]=\sum_{r \in \mathcal{R}}r\times Pr\{R_{t+1}=r|S_t=s\}$$
+A policy is a mapping from states to the probabilities of selecting each possible action.  If the agent is following a policy $\pi$ at time $t$, then $\pi(a \vert s)$ is the probability that $A_t = a$ if $S_t = s$.  Like $p$, $\pi$ is an ordinary function; the "|" in the middle of $\pi(a \vert s)$ merely reminds us that it defines a probability distribution over $a \in \mathcal{A}(s)$ for each $s \in \mathcal{S}$.  Reinforcement learning methods specify how the agent's policy is changed as a result of its experience.
+"""
+
+# ╔═╡ 7582815d-da34-41b6-90f4-b2602e7a81f3
+md"""
+> ### *Exercise 3.11* 
+> If the current state is $S_t$, and actions are selected according to a stochastic policy $\pi$, then what is the expectation of $R_{t+1}$ in terms of $\pi$ and the four-argument function $p(s',r|s,a) \doteq \Pr\{S_t=s', R_t=r \mid S_{t-1}=s,A_{t-1}=a\}$
+
+$$\mathbb{E}_\pi[R_{t+1} \mid S_t = s]=\sum_{r \in \mathcal{R}}r\times \Pr\{R_{t+1}=r \mid S_t=s, A_t \sim \pi(s) \}$$
 
 $\begin{flalign}
-Pr\{R_{t+1}=r|S_t = s\} &= \mathbb{E}_\pi \left [ \sum_{s^\prime \in \mathcal{S}}Pr\{S_{t+1} = s^\prime, R_{t+1}=r|S_t = s, A_t = a\} \right ] \\
-&= \mathbb{E}_\pi \left [ \sum_{s^\prime \in \mathcal{S}}p(s^\prime, r \vert s, a) \right ] \\
+\Pr\{R_{t+1}=r \mid S_t = s, A_t \sim \pi(s) \} &= \mathbb{E}_\pi \left [ \sum_{s^\prime \in \mathcal{S}}\Pr\{S_{t+1} = s^\prime, R_{t+1}=r \mid S_t = s\} \right ] \\
+&= \sum_{a \in \mathcal{S}} \pi(a \vert s) \left [ \sum_{s^\prime \in \mathcal{S}}\Pr\{S_{t+1} = s^\prime, R_{t+1}=r \mid S_t = s, A_t = a \} \right ] \\
 &=\sum_{a \in \mathcal{A(s)}}\pi(a|s)\sum_{s' \in \mathcal{S}}p(s', r|s,a) \\
 &\therefore \\
-\mathbb{E}[R_{t+1}] &=\sum_{r \in \mathcal{R}} \left[ r \times \left[ \sum_{a \in \mathcal{A(s)}}\pi(a|s) \left[ \sum_{s' \in \mathcal{S}}p(s', r|s,a) \right] \right] \right]
+\mathbb{E}_\pi[R_{t+1} \mid S_t = s] &=\sum_{r \in \mathcal{R}} \left[ r \times \left[ \sum_{a \in \mathcal{A(s)}}\pi(a|s) \left[ \sum_{s' \in \mathcal{S}}p(s', r|s,a) \right] \right] \right]
 \end{flalign}$
 """
 
-# ╔═╡ 7ecbbbd8-9823-41d3-8d38-10c81b59216a
+# ╔═╡ fe901beb-2fca-4850-9429-b27ec96d784e
+md"""
+---
+"""
+
+# ╔═╡ a4c34cb9-1195-4ab9-8036-fcc0de9f5ffb
+md"""
+The *value function* of a state $s$ under a policy $\pi$, denoted $v_\pi(s)$, is the expected return when starting in $s$ and following $\pi$ thereafter.  For MDPs, we can define $v_\pi$ formally by 
+
+$v_\pi(s) \doteq \mathbb{E}_\pi [G_t \mid S_t = s ] = \mathbb{E}_\pi \left [ \sum_{k = 0}^\infty \gamma^k R_{t+k+1} \; \middle\vert \; S_t = s \right ], \forall s \in \mathcal{S}, \tag{3.12}$
+
+where $\mathbb{E}_\pi[\cdot]$ denotes the expected value of a random variable given that the agent follows policy $\pi$, and $t$ is any time step.  Note that the value of the terminal state, if any, is always zero.  We call this function $v_\pi$ the *state-value function for policy $\pi$*.
+
+Similarly, we define the value of taking action $a$ in state $s$ under a policy $\pi$, denoted $q_\pi(s, a)$, as the expected return starting from $s$, taking the action $a$, and thereafter following policy $\pi$:
+
+$q_\pi(s, a) \doteq \mathbb{E}_\pi [G_t \mid S_t = s, A_t = a] = \mathbb{E}_\pi \left [ \sum_{k = 0}^\infty \gamma^k R_{t+k+1} \; \middle\vert \; S_t = s, A_t = a \right ], \forall s \in \mathcal{S}, a \in \mathcal{A}(s). \tag{3.13}$
+
+We call $q_\pi$ the *action-value function for policy $\pi$*.
+"""
+
+# ╔═╡ 2eb0bad0-7185-4745-8141-fe97201b06a4
 md"""
 > ### *Exercise 3.12* 
 > Give an equation for $v_{\pi}$ in terms of $q_{\pi}$ and $\pi$.
+"""
 
-From (3.12) we have 
-$$v_{\pi}(s)= \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \vert S_t=s \right], \text{ for all } s \in \mathcal{S}$$
+# ╔═╡ 6f9ea632-dfb8-4647-8550-78e4138317fd
+md"""
 
-and from (3.13) we have
+$\begin{flalign}
+v_{\pi}(s) &= \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \; \middle\vert \; S_t=s \right], \text{ for all } s \in \mathcal{S} \tag{3.12}\\
+q_{\pi}(s, a) &= \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \; \middle\vert \; S_t=s, A_t = a \right], \text{ for all } s \in \mathcal{S}, a \in \mathcal{A}(s) \tag{3.13}\\
+\end{flalign}$
 
-$$q_{\pi}(s,a)= \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \vert S_t=s,A_t=a\right]$$
+Note that expected values have the following property:
 
-So we need to average q over the actions, weighting them by the probability of taking those actions.
+$\begin{flalign}
+\mathbb{E}[X] &= \sum_x x \times \Pr \{X = x \} \tag{expected value definition}\\
+&= \sum_x x \sum_y \Pr \{X = x, Y = y \} \tag{joint probability definition}\\
+&= \sum_x x \sum_y \Pr \{Y = y \} \Pr \{X = x \mid Y = y \} \tag{conditional probability definition}\\
+&= \sum_y \Pr \{Y = y \} \sum_x x \times \Pr \{X = x \mid Y = y \} \tag{rearranging sum order}\\
+&= \sum_y \Pr \{Y = y \} \mathbb{E}[X \mid Y = y] \tag{expected value definition}\\
+\end{flalign}$
 
-$$v_{\pi}(s)= \sum_{a \in \mathcal{A(s)}}\pi(a|s)q_{\pi}(s, a)$$
+So we can always preserve an expected value by conditioning it on something and taking the sum of that conditional expectation weighted by the probability of each conditional value.  Returning to the two value function definitions, $q_\pi(s, a)$ is the expected value of $v_\pi(s)$ conditioned on a particular value of $A_t = a$.  Using the above property we can compute the expected value for $v_\pi(s)$ by summing $q_\pi(s)$ weighted by the probability of each action.  Those probabilities are given by policy function $\pi(a \vert s)$.
+
+$v_\pi(s) = \sum_{a \in \mathcal{A}(s)} \pi(a \vert s)q_\pi(s, a)$
 """
 
 # ╔═╡ db2157d9-abc1-43c1-8d37-0fe5e803667c
@@ -211,19 +381,34 @@ md"""
 > ### *Exercise 3.13* 
 > Give an equation for $$q_{\pi}$$ in terms of $$v_{\pi}$$ and $$p(s',r|s,a)$$
 
+From (3.13) we have
+
 $\begin{flalign}
-q_{\pi}(s,a) & = \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \mid S_t=s,A_t=a \right] \\
-
-&=\mathbb{E}_{\pi} \left [ R_{t+1} + \sum_{k=1}^{\infty} \gamma^k R_{t+k+1} \mid S_t=s,A_t=a \right] \\
-
-&=\sum_{r, s^\prime} p(s^\prime, r \vert s, a) \left [ r + \gamma \mathbb{E}_{\pi} \left[ \sum_{k=1}^{\infty} \gamma^{k-1} R_{t+k+1} \vert S_{t+1}=s^\prime\right] \right ] \tag{by 3.5} \\
-
-&=\sum_{r, s^\prime} p(s^\prime, r \vert s, a) \left [ r + \gamma \mathbb{E}_{\pi} \left[ \sum_{k=0}^{\infty} \gamma^{k} R_{t+k+2} \vert S_{t+1}=s^\prime\right] \right ] \\
-
-&=\sum_{r, s^\prime} p(s^\prime, r \vert s, a) \left [ r + \gamma \mathbb{E}_{\pi} \left[ G_{t+1} \mid S_{t+1} = s^\prime \right ] \right ] \tag{by 3.9} \\
-
-&=\sum_{r \in \mathcal{R}} \sum_{s ^ \prime \in \mathcal{S}} p(s^ \prime, r|s, a) \left ( r + \gamma v_\pi (s^\prime) \right ) \tag{by 3.12} \\
+q_{\pi}(s,a) &= \mathbb{E}_{\pi} \left[ G_t \mid S_t=s,A_t=a\right] \\
+&= \mathbb{E}_{\pi} \left[ R_{t+1} + \gamma G_{t+1} \mid S_t=s,A_t=a\right] \tag{separating first sum term}\\
+&= \sum_{s^\prime, r} r \times p(s^\prime, r \vert s, a) + \gamma \mathbb{E}_{\pi} \left[ G_{t+1} \mid S_t=s,A_t=a\right] \tag{expected value definition}\\
+&= \sum_{s^\prime, r} r \times p(s^\prime, r \vert s, a) +  \gamma \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \mathbb{E}_{\pi} \left[ G_{t+1} \mid S_{t+1}=s^\prime \right] \tag{conditional expectation definition}\\
+&= \sum_{s^\prime, r} r \times p(s^\prime, r \vert s, a) +  \gamma \sum_{s^\prime, r} p(s^\prime, r \vert s, a) v_\pi(s^\prime) \tag{value function definition}\\
+&= \sum_{s^\prime, r} p(s^\prime, r \vert s, a) (r + \gamma v_\pi(s^\prime))\\
 \end{flalign}$
+
+Note that $G_{t+1}$ only depends on $S_{t+1}$ and not any previous state.  However, we must evaluate the probability of every possible value of $S_{t+1}$ given the assumption that $S_t = s$ and $A_t = a$.  Those probabilities are given by $p(s^\prime \vert s, a) = \sum_r p(s^\prime, r \vert s, a)$ which is seen in the fourth line above.  We can then omit the condition on $S_t$ and $A_t$ since it is present in the probability transition function.
+"""
+
+# ╔═╡ fb893169-9457-4ce7-9c92-2d55bd8e7295
+md"""
+We can derive recursive relationships for value functions similar to what we have already derived for the return (3.9).  For any policy $\pi$ and any state $s$, the following consistency condition holds between the value of $s$ and the value of its possible successor states:
+
+$\begin{flalign}
+v_\pi(s) &\doteq \mathbb{E}_\pi[G_t \mid S_t = s]\\
+&= \mathbb{E}_\pi[R_{t+1} + \gamma G_{t+1} \mid S_t = s] \tag{by (3.9)}\\
+&= \sum_a \pi(a \vert s) \sum_{s^\prime} \sum_r p(s^\prime, r \vert s, a) \left [r + \gamma \mathbb{E}_\pi[G_{t+1} \vert S_{t+1} = s^\prime]\right] \\
+&= \sum_a \pi(a \vert s) \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [r + \gamma v_\pi(s^\prime)\right], \text{ for all } s \in \mathcal{S} \tag{3.14} \\
+\end{flalign}$
+
+The final expression is an expected value where we sum over the three variables of $a, s^\prime, r$ and compute the return observed for every combination.  Equation (3.14) is the *Bellman equation for* $v_\pi$.  It expresses a relationship between the value of a state and the values of its successor states.
+
+The value function $v_\pi$ is the unique solution to its Bellman equation.  We show in subsequent chapters how this Bellman equation forms the basis of a number of ways to compute, approximate, and learn $v_\pi$.
 """
 
 # ╔═╡ 7e4d7ca2-c4a2-49a0-a2cd-cd1e50a048de
@@ -238,6 +423,7 @@ $$v_{\pi}(s)=\sum_a\pi(a|s)\sum_{s',r}p(s',r|s,a)\left[r+\gamma v_{\pi}(s')\righ
 The value function in Figure 3.2 shows a policy in which each of the four possible actions is selected with equal probability so we can consider each action component of the sum separately.
 
 north case: for a move north from the center, the agent with 100% probability receives a reward of 0 and ends up in the square directly north of the current square which has a value estimate. So the sums can be replaced with the certain outcomes and the term becomes.  
+
 $$\sum_{s',r}p(s',r|s,north)\left[r+\gamma v_{\pi}(s')\right], \text{ for all } s\in\mathcal{S}$$
 $$0+0.9 \times 2.3=2.07$$
 
@@ -321,13 +507,13 @@ On early timesteps the additional value is near zero because the numerator takes
 
 For the agent's value function, the expected value of the return is what is relevant:
 
-$\mathbb{E}_\pi[G^\prime_t \vert S_t = s] = \mathbb{E}_\pi[G_t \vert S_t = s] + \frac{c}{1 - \gamma}\left [1 - \mathbb{E}_\pi[\gamma^{T-t} \vert S_t = s] \right ]$
+$\mathbb{E}_\pi[G^\prime_t \mid S_t = s] = \mathbb{E}_\pi[G_t \mid S_t = s] + \frac{c}{1 - \gamma}\left [1 - \mathbb{E}_\pi[\gamma^{T-t} \mid S_t = s] \right ]$
 
 The impact on the value function will be:
 
-$v^\prime_\pi(s) = v_\pi(s) + \frac{c}{1 - \gamma}\left [1 - \mathbb{E}_\pi[\gamma^{T-t} \vert S_t = s] \right ]$
+$v^\prime_\pi(s) = v_\pi(s) + \frac{c}{1 - \gamma}\left [1 - \mathbb{E}_\pi[\gamma^{T-t} \mid S_t = s] \right ]$
 
-So it seems that rather than each value being shifted by a constant, there is also a factor that depends on an expected value related to the number of steps until termination.  Since each state could be a different number of steps away from termination, the value function will fundamentally change.  States that are far from termination will be valued higher by a factor close to $\frac{c}{1 - \gamma}$ whereas states that are close to termination will have a value that is increased by a smaller factor.  This effect is reversed if c is negative.  Let's say that c is large and positive in the gridword task.  If the states that produce reward are terminal states, then the agent would value states higher than avoid them for additional time steps because once the episode ends, the opportunity to accumulate more values of c is over.  Similarly, if c was largely negative, then an agent may value states that approach a low reward terminal state transition, if it avoids taking too many steps towards a higher reward terminal state transition that would accumulate too many penalties of c along the way.  So, in the case of episodes that are expected to be of finite length, the shifting of rewards fundamentally changes the task. 
+So it seems that rather than each value being shifted by a constant, there is also a factor that depends on an expected value related to the number of steps until termination.  Since each state could be a different number of steps away from termination, the value function will fundamentally change.  States that are far from termination will be valued higher by a factor close to $\frac{c}{1 - \gamma}$ whereas states that are close to termination will have a value that is increased by a smaller factor.  This effect is reversed if c is negative.  Let's say that c is large and positive in a maze task where exiting the maze produces a reward of 1+c and terminates the episode while all other transitions produce a reward of c.  Normally, the states close to the exit would have the highest value, but the agent will accumulate the most reward far away from the exit since it will have more chances to accumulate values of c.
 """
 
 # ╔═╡ b5871733-c403-4b39-8b51-2f3941c8a634
@@ -339,11 +525,11 @@ md"""
 Following the example in (3.14) but for $q_{\pi}(s, a)$ intsead of $v_{\pi}(s)$ we have:
 
 $\begin{flalign}
-q_{\pi}(s,a) & \doteq \mathbb{E}_\pi [G_t|S_t=s,A_t=a] \\
-&= \mathbb{E}_\pi [R_{t+1}+\gamma G_{t+1}|S_t=s,A_t=a]\\
-&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma\mathbb{E}_\pi [G_{t+1}|S_{t+1}=s'] \right]\\
-&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')\mathbb{E}_\pi [G_{t+1}|S_{t+1}=s',A_{t+1}=a'] \right]\\
-&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')q_{\pi}(s',a') \right], \text{ for all } s \in \mathcal{S}, a \in \mathcal{A(s)}\\
+q_{\pi}(s,a) & \doteq \mathbb{E}_\pi [G_t \mid S_t=s,A_t=a] \\
+&= \mathbb{E}_\pi [R_{t+1}+\gamma G_{t+1} \mid S_t=s,A_t=a] \tag{by (3.9)} \\
+&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma\mathbb{E}_\pi [G_{t+1} \mid S_{t+1}=s'] \right] \tag{expected value definition}\\
+&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')\mathbb{E}_\pi [G_{t+1} \mid S_{t+1}=s',A_{t+1}=a'] \right] \tag{policy expectation definition}\\
+&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')q_{\pi}(s',a') \right], \text{ for all } s \in \mathcal{S}, a \in \mathcal{A(s)} \tag{state-action value definition}\\
 \end{flalign}$
 """
 
@@ -382,6 +568,43 @@ $$q_\pi(s,a)=\sum_{r,s'}p(s',r|s,a)(r+\gamma v_\pi(s')) \text{ for all } r\in\ma
 # ╔═╡ 65457924-9c1f-4e13-834f-22b68e7e9062
 md"""
 ## 3.6 Optimal Policies and Optimal Value Functions
+
+The *optimal state-value function* is defined as:
+
+$v_*(s) \doteq \max_\pi v_\pi(s), \forall s \in \mathcal{S} \tag{3.15}$
+
+Optimal policies also share the same *optimal action-value function*, defined as:
+
+$q_*(s, a) \doteq \max_\pi q_\pi(s, a), \forall s \in \mathcal{S}, a \in \mathcal{A}(s) \tag{3.16}$
+
+For the state-action pair $(s, a)$, this function gives the expected return for taking action $a$ in state $s$ and thereafter following an optimal policy.  Thus, we can write $q_*$ in terms of $v_\pi$ as follows:
+
+$q_*(s, a) = \mathbb{E}[R_{t+1} + \gamma v_*(S_{t+1}) \mid S_t = s, A_t = a]. \tag{3.17}$
+
+Because $v_*$ is the value function for a policy, it must satisfy the self-consistency condition given by the Bellman equation for state values (3.14).  Because it is the optimal value function, however, $v_*$'s consistency condition can be written in a special form without reference to any specific policy.  This is the Bellman equation for $v_*$, or the *Bellman optimality equation*.  Intuitively, the Bellman optimality equation expresses the fact that the value of a state under an optimal policy must equal the expected return for the best action from that state:
+
+$\begin{flalign}
+v_*(s) &= \max_{a \in \mathcal{A}(s)} q_{\pi_*}(s, a) \\
+&= \max_a \mathbb{E}_{\pi_*}[G_t \mid S_t = s, A_t = a] \tag{definition of q}\\
+&= \max_a \mathbb{E}_{\pi_*}[R_{t+1} + \gamma G_{t+1} \mid S_t = s, A_t = a] \tag{by (3.9)}\\
+&= \max_a \mathbb{E}[R_{t+1} + \gamma v_*(S_{t+1}) \mid S_t = s, A_t = a] \tag{3.18}\\
+&= \max_a \sum_{s^\prime, r} p(s^\prime, r \vert s, a)[r + \gamma v_*(s^\prime)] \tag{3.19}
+\end{flalign}$
+
+The last two equations follow from the definitions of the expected value and the existence of an optimal policy.  They are two forms of the Bellman optimality equation for $v_*$.  The Bellman optimality equation for $q_*$ is:
+
+$\begin{flalign}
+q_*(s, a) &= \mathbb{E} \left [ R_{t+1} + \gamma \max_{a^\prime} q_*(S_{t+1}, a^\prime) \; \middle\vert \; S_t = s, A_t = a \right ]\\
+&= \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + \gamma \max_{a^\prime} q_*(s^\prime, a^\prime) \right ] \tag{3.20}
+\end{flalign}$
+
+For finite MDPs, the Bellman optimality equation for $v_*$ (3.19) has a unique solution.  The Bellman optimality equation is actually a system of equations, one for each state, so if there are $n$ states, then there are $n$ equations and $n$ unknowns.  If the dynamics $p$ of the environment are known, then in principle one can solve this system of equations for $v_*$ using any of a variety of methods for solving systems of nonlinear equations.  One can solve a related set of equations for $q_*$.
+
+Once one has $v_*$, it is relatively easy to determine an optimal policy.  For each state $s$, there will be one or more actions at which the maximum is obtained in the Bellman optimality equation.  Any policy that assigns nonzero probability only to these actions is an optimal policy.  You can think of this as a one-step search.  If you have the optimal value function, $v_*$, then the actions that appear best after a one-step search will be optimal actions.  Another way of saying this is that any policy that is *greedy* with respect to the optimal evaluation function $v_*$ is an optimal policy.  The term greedy is used in computer science to describe any search or decision procedure that selects alternatives based only on local or immediate considerations, without considering the possibility that such a selection may prevent future access to even better alternatives.  Consequently, it describes policies that select actions based only on short-term consequences.  The beauty of $v_*$ is that if one uses it to evaluate the short-term consequences of actions -- specifically, the one-step consequences -- then a greedy policy is actually optimal in the long-term sense in which we are interested because $v_*$ already takes into account the reward consequences of all possible future behavior.  By means of $v_*$, the optimal expected long-term return is turned into a quantity that is locally and immediatley available for each state.  Hence, a one-step-ahead search yields the long-term optimal actions.
+
+Having $q_*$ makes choosing optimal actions even easier.  With $q_*$, the agent does not even have to do a one-step-ahead search: for any state $s$, it cacn simply find any action that maximizes $q_*(s, a)$.  The action-value function effectively caches the results of all one-step-ahead searches.  It provides the optimal expected long-term return as a value that is locally and immediately available for each state-action pair.  **Hence, at the cost of representing a function of state-action pairs, instead of just states, the optimal action-value function allows optimal actions to be selected without having to know anything about the possible successor states and their values, that is, without having ot know anything about the environment's dynamics.**
+
+Explicitely solving the Bellman optimality equation provides one route to finding an optimal policy, and thus to solving the reinforcement learning problem.  Often this is not possible either due to lack of knowledge about the environment or a lack of computational resources.  When we do not have these limitations, the methods of dynamic programming can be used to solve these equations in an iterative process which will be introduced in Chapter 4.  Many other methods introduced later can be understood as approximately solving the Bellman optimality equation, usuing actual experienced transitions in place of knowledge of the expected transitions.
 """
 
 # ╔═╡ 0433fbf6-c753-4621-8ef3-8229cf77b9b2
@@ -560,6 +783,15 @@ q_*(s,a)&=\sum_{s',r}p(s',r|s,a)\left[r+\gamma \max_{a'} \left [ q_*(s',a') \rig
 \end{flalign}$
 """
 
+# ╔═╡ 445163e2-c345-4679-acda-c8657c2b5564
+md"""
+## 3.7 Optimality and Approximation
+
+Often agents cannot execute an optimal policy, but it is a useful theoretical ideal for agents to approximate.  We may have the resources to represent a problem and begin approaching a solution, but the time required to converge to an optimal policy may be impractically long.  In these cases, an agent must decide to step computing at a certain point to actually begin taking actions.  If a problem has a small enough state space, then such an approximate solution could be stored as a table of values in memory.  Such problems are called the *tabular* case and the corresponding methods are *tabular* methods.  If the number of states is too large to represent in this manner, then some sort of parameterized function representation may be required to cover the state space.
+
+Since our value function approach approximates values for individual states, we have the option of putting more computational effort into states that occur frequently when following close to optimal behavior.  This prioritization is another way to make approximation more useful since we really only need accurate values for states that are visited while following the optimal policy.  If these states turn out to be a tiny fraction of the total, then we may have a very accurate approximation where it matters despite having a very poor representation of the entire value function.
+"""
+
 # ╔═╡ 4ca58fcf-3115-4100-9f83-b8a389e4eaa0
 md"""
 # Dependencies and Settings
@@ -593,7 +825,7 @@ PlutoUI = "~0.7.52"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.2"
+julia_version = "1.11.5"
 manifest_format = "2.0"
 project_hash = "7b68b9ca367436795e4fde755dda7ecca58c89d7"
 
@@ -975,19 +1207,28 @@ version = "17.4.0+2"
 """
 
 # ╔═╡ Cell order:
-# ╟─17f36458-139b-4f8b-aba9-d0dd586dd82c
+# ╟─1c7d2750-3625-4eed-8408-53626b67d749
+# ╟─e7a4f148-bf74-44f3-98e7-e4d9b4cac5ab
 # ╟─c5abf826-9ce8-4319-a2e5-6cf7fcc61400
 # ╟─85905a6e-1807-4b77-b313-dbadb8b898c8
 # ╟─090c50ed-6772-457a-afbb-cf2cde0e2ec4
-# ╟─768833aa-ceee-4fe8-958f-c00b778ec764
+# ╟─f376a2e1-69d3-46ca-9bc2-33e447c6834b
+# ╟─6a85a90d-f345-4604-9637-086a71928af5
+# ╟─12fa078b-6b5a-4c25-97a2-38fd9d65cf52
 # ╟─9ce34899-c8d0-428f-a3d3-91f0bf37198e
 # ╟─9a3d9a79-e44a-40e5-b7bb-947f3327c598
 # ╟─1b42d235-5f48-4625-a83e-48b50cbbc347
 # ╟─30513c5c-20fe-4a31-9a59-67b73fa1e3a7
 # ╟─08ad2c4f-a3c1-4d9b-aafc-9b2394f68f53
-# ╟─e9a973b7-889b-404e-bc31-1ad1b02f3864
-# ╟─7ecbbbd8-9823-41d3-8d38-10c81b59216a
+# ╟─5bd4bc89-4aa4-4513-ac0c-60f3aa062f0f
+# ╟─33665bd0-49be-4e93-acee-a8da79e1be77
+# ╟─7582815d-da34-41b6-90f4-b2602e7a81f3
+# ╟─fe901beb-2fca-4850-9429-b27ec96d784e
+# ╟─a4c34cb9-1195-4ab9-8036-fcc0de9f5ffb
+# ╟─2eb0bad0-7185-4745-8141-fe97201b06a4
+# ╟─6f9ea632-dfb8-4647-8550-78e4138317fd
 # ╟─db2157d9-abc1-43c1-8d37-0fe5e803667c
+# ╟─fb893169-9457-4ce7-9c92-2d55bd8e7295
 # ╟─7e4d7ca2-c4a2-49a0-a2cd-cd1e50a048de
 # ╟─be824355-6fab-4367-ab09-4efaa96b9aae
 # ╟─97a605e6-31dc-4ba9-acc5-e0d81093c3ee
@@ -1008,6 +1249,7 @@ version = "17.4.0+2"
 # ╟─fdd8ca66-00e7-4ce3-85ec-52cafc27bdba
 # ╟─cfb040e5-663f-491d-a949-81ad7630a1f3
 # ╟─2ecb796a-4d41-11ee-2293-2f0ee0eeff79
+# ╟─445163e2-c345-4679-acda-c8657c2b5564
 # ╟─4ca58fcf-3115-4100-9f83-b8a389e4eaa0
 # ╠═86d53794-2251-47d5-a45e-f1da53cd8ef5
 # ╠═5d96ee10-24c0-4bf5-82a1-9050200066c5
