@@ -596,8 +596,9 @@ begin
 	This function initializes the state value function for a tabular MDP. Each element of the vector represents the value of being in a particular state represented by the index.
 	"""
 	initialize_state_value(mdp; kwargs...) = initialize_state_value(mdp.ptf)
-	initialize_state_value(ptf::TabularTransitionDistribution{T, 2}; init_value = zero(T)) where {T<:Real} = ones(T, size(ptf.state_transition_map, 2)) .* T(init_value)
-	initialize_state_value(ptf::TabularTransitionDistribution{T, 1}; init_value = zero(T)) where {T<:Real} = ones(T, length(ptf.state_transition_map)) .* T(init_value)
+	initialize_state_value(mrp::TabularMRP{T, S, P, F}; init_value::Real = zero(T)) where {T<:Real, S, P, F<:Function} = ones(T, length(mrp.states)) .* T(init_value)
+	initialize_state_value(ptf::TabularTransitionDistribution{T, 2}; init_value::Real = zero(T)) where {T<:Real} = ones(T, size(ptf.state_transition_map, 2)) .* T(init_value)
+	initialize_state_value(ptf::TabularTransitionDistribution{T, 1}; init_value::Real = zero(T)) where {T<:Real} = ones(T, length(ptf.state_transition_map)) .* T(init_value)
 end
 
 # ╔═╡ 7ad411b4-cfa3-489d-8e5e-3c8b3a9f4a46
@@ -1196,7 +1197,9 @@ md"""Select Discount Rate for State Policy Evaluation: $(@bind γ_gridworld_poli
 #=╠═╡
 @bind ex_3_5_params PlutoUI.combine() do Child
 	md"""
-	Discount Rate: $(Child(:γ, Slider(0.1f0:0.1f0:1.f0; default = 0.9f0, show_value=true)))
+	Absolute and relative value functions for gridworld in which a constant value is added to the reward for every step.  This is the scenario for exercise 3.16 in the book.
+	
+	Discount Rate: $(Child(:γ, Slider(0.5f0:0.05f0:1.f0; default = 0.9f0, show_value=true)))
 	Reward Boost: $(Child(:c, NumberField(0:100)))
 	"""
 end
@@ -2747,7 +2750,8 @@ function mrp_evaluation!(value_estimate::Vector{T}, ptf::TabularTransitionDistri
 end
 
 # ╔═╡ 70d6fe79-bce0-4883-94f3-8ceb1334c020
-function mrp_evaluation(mdp::TabularMRP, γ::Real; V = initialize_state_value(mdp), kwargs...) 		@assert (γ < 1) || any(mdp.terminal_states)
+function mrp_evaluation(mdp::TabularMRP, γ::Real; V = initialize_state_value(mdp), kwargs...) 		
+	@assert (γ < 1) || any(mdp.terminal_states)
 	mrp_evaluation!(V, mdp.ptf, γ; kwargs...)
 end
 
@@ -5249,7 +5253,7 @@ show_grid_value(stochastic_gridworld, stochastic_gridworld_random_policy_evaluat
 
 # ╔═╡ 75513920-f739-4d9d-b2e7-598a7905c854
 #=╠═╡
-function ex_3_5_grid(γ, c)
+function ex_3_5_grid(γ, c; square_pixels = 40)
 	mdp1 = make_deterministic_gridworld(;stepreward = 0f0 + Float32(c), termreward=10f0+c, continuing=false)
 	mdp2 = make_deterministic_gridworld(;stepreward = 0f0 + Float32(c), termreward=10f0+c, continuing=true)
 
@@ -5263,12 +5267,22 @@ function ex_3_5_grid(γ, c)
 	@htl("""
 	<div style = "display: flex; justify-content: space-around;">
 	<div>
+	Episodic Values
+	$(show_grid_value(mdp1, solution1.value_function, "solution_values_351_raw"; square_pixels = square_pixels))
+	</div>
+	<div>
+	Continuing Values
+	$(show_grid_value(mdp2, solution2.value_function, "solution_values_352_raw"; square_pixels = square_pixels))
+	</div>
+	</div>
+	<div style = "display: flex; justify-content: space-around;">
+	<div>
 	Episodic Values Relative to Minimum Non-Terminal Value
-	$(show_grid_value(mdp1, v1, "solution_values_351"; square_pixels = 50))
+	$(show_grid_value(mdp1, v1, "solution_values_351"; square_pixels = square_pixels))
 	</div>
 	<div>
 	Continuing Values Relative to Minimum
-	$(show_grid_value(mdp2, solution2.value_function .- minimum(solution2.value_function), "solution_values_352"; square_pixels = 50))
+	$(show_grid_value(mdp2, solution2.value_function .- minimum(solution2.value_function), "solution_values_352"; square_pixels = square_pixels))
 	</div>
 	</div>
 	""")
