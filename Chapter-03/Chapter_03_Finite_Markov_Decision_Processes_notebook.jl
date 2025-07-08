@@ -316,14 +316,15 @@ md"""
 > ### *Exercise 3.11* 
 > If the current state is $S_t$, and actions are selected according to a stochastic policy $\pi$, then what is the expectation of $R_{t+1}$ in terms of $\pi$ and the four-argument function $p(s',r|s,a) \doteq \Pr\{S_t=s', R_t=r \mid S_{t-1}=s,A_{t-1}=a\}$
 
-$$\mathbb{E}_\pi[R_{t+1} \mid S_t = s]=\sum_{r \in \mathcal{R}}r\times \Pr\{R_{t+1}=r \mid S_t=s, A_t \sim \pi(s) \}$$
+$$\mathbb{E}_\pi[R_{t+1} \mid S_t = s] \doteq \sum_{r \in \mathcal{R}}r\times \Pr\{R_{t+1}=r \mid S_t=s, A_t \sim \pi(a \vert s) \}$$
 
 $\begin{flalign}
-\Pr\{R_{t+1}=r \mid S_t = s, A_t \sim \pi(s) \} &= \mathbb{E}_\pi \left [ \sum_{s^\prime \in \mathcal{S}}\Pr\{S_{t+1} = s^\prime, R_{t+1}=r \mid S_t = s\} \right ] \\
-&= \sum_{a \in \mathcal{S}} \pi(a \vert s) \left [ \sum_{s^\prime \in \mathcal{S}}\Pr\{S_{t+1} = s^\prime, R_{t+1}=r \mid S_t = s, A_t = a \} \right ] \\
+\Pr\{R_{t+1}=r \mid S_t = s, A_t \sim \pi(s) \}  &= \sum_{a \in \mathcal{A}(s)} \pi(a \vert s)  \Pr\{R_{t+1}=r \mid S_t = s, A_t = a \} \\
+&= \sum_{a \in \mathcal{A}(s)} \pi(a \vert s)  p(r \vert s, a) \\
 &=\sum_{a \in \mathcal{A(s)}}\pi(a|s)\sum_{s' \in \mathcal{S}}p(s', r|s,a) \\
 &\therefore \\
-\mathbb{E}_\pi[R_{t+1} \mid S_t = s] &=\sum_{r \in \mathcal{R}} \left[ r \times \left[ \sum_{a \in \mathcal{A(s)}}\pi(a|s) \left[ \sum_{s' \in \mathcal{S}}p(s', r|s,a) \right] \right] \right]
+\mathbb{E}_\pi[R_{t+1} \mid S_t = s] &=\sum_{r \in \mathcal{R}} \left[ r \times \left[ \sum_{a \in \mathcal{A(s)}}\pi(a|s) \left[ \sum_{s' \in \mathcal{S}}p(s', r|s,a) \right] \right] \right] \\
+&=\sum_{a \in \mathcal{A(s)}}\pi(a|s) \left[ \sum_{r \in \mathcal{R}} r \sum_{s' \in \mathcal{S}}p(s', r|s,a) \right]
 \end{flalign}$
 """
 
@@ -368,7 +369,7 @@ $\begin{flalign}
 &= \sum_x x \sum_y \Pr \{X = x, Y = y \} \tag{joint probability definition}\\
 &= \sum_x x \sum_y \Pr \{Y = y \} \Pr \{X = x \mid Y = y \} \tag{conditional probability definition}\\
 &= \sum_y \Pr \{Y = y \} \sum_x x \times \Pr \{X = x \mid Y = y \} \tag{rearranging sum order}\\
-&= \sum_y \Pr \{Y = y \} \mathbb{E}[X \mid Y = y] \tag{expected value definition}\\
+&= \sum_y \Pr \{Y = y \} \mathbb{E}[X \mid Y = y] \tag{expected value definition (A)}\\
 \end{flalign}$
 
 So we can always preserve an expected value by conditioning it on something and taking the sum of that conditional expectation weighted by the probability of each conditional value.  Returning to the two value function definitions, $q_\pi(s, a)$ is the expected value of $v_\pi(s)$ conditioned on a particular value of $A_t = a$.  Using the above property we can compute the expected value for $v_\pi(s)$ by summing $q_\pi(s)$ weighted by the probability of each action.  Those probabilities are given by policy function $\pi(a \vert s)$.
@@ -385,14 +386,16 @@ From (3.13) we have
 
 $\begin{flalign}
 q_{\pi}(s,a) &= \mathbb{E}_{\pi} \left[ G_t \mid S_t=s,A_t=a\right] \\
-&= \mathbb{E}_{\pi} \left[ R_{t+1} + \gamma G_{t+1} \mid S_t=s,A_t=a\right] \tag{separating first sum term}\\
+&= \mathbb{E}_{\pi} \left[ R_{t+1} + \gamma G_{t+1} \mid S_t=s,A_t=a\right] \tag{by (3.9)}\\
 &= \sum_{s^\prime, r} r \times p(s^\prime, r \vert s, a) + \gamma \mathbb{E}_{\pi} \left[ G_{t+1} \mid S_t=s,A_t=a\right] \tag{expected value definition}\\
-&= \sum_{s^\prime, r} r \times p(s^\prime, r \vert s, a) +  \gamma \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \mathbb{E}_{\pi} \left[ G_{t+1} \mid S_{t+1}=s^\prime \right] \tag{conditional expectation definition}\\
+&= \sum_{s^\prime, r} r \times p(s^\prime, r \vert s, a) +  \gamma \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \mathbb{E}_{\pi} \left[ G_{t+1} \mid S_{t+1}=s^\prime \right] \tag{by (A) see above}\\
 &= \sum_{s^\prime, r} r \times p(s^\prime, r \vert s, a) +  \gamma \sum_{s^\prime, r} p(s^\prime, r \vert s, a) v_\pi(s^\prime) \tag{value function definition}\\
 &= \sum_{s^\prime, r} p(s^\prime, r \vert s, a) (r + \gamma v_\pi(s^\prime))\\
 \end{flalign}$
 
-Note that $G_{t+1}$ only depends on $S_{t+1}$ and not any previous state.  However, we must evaluate the probability of every possible value of $S_{t+1}$ given the assumption that $S_t = s$ and $A_t = a$.  Those probabilities are given by $p(s^\prime \vert s, a) = \sum_r p(s^\prime, r \vert s, a)$ which is seen in the fourth line above.  We can then omit the condition on $S_t$ and $A_t$ since it is present in the probability transition function.
+Note that $G_{t+1}$ only depends on $S_{t+1}$ and not any previous state.  However, we must evaluate the probability of every possible value of $S_{t+1}$ given the assumption that $S_t = s$ and $A_t = a$.  Those probabilities are given by $p(s^\prime \vert s, a) = \sum_r p(s^\prime, r \vert s, a)$ which is seen in the fourth line above.  Note that for this first transition, there is no dependence on the policy since the action is already specified.
+
+---
 """
 
 # ╔═╡ fb893169-9457-4ce7-9c92-2d55bd8e7295
@@ -402,7 +405,7 @@ We can derive recursive relationships for value functions similar to what we hav
 $\begin{flalign}
 v_\pi(s) &\doteq \mathbb{E}_\pi[G_t \mid S_t = s]\\
 &= \mathbb{E}_\pi[R_{t+1} + \gamma G_{t+1} \mid S_t = s] \tag{by (3.9)}\\
-&= \sum_a \pi(a \vert s) \sum_{s^\prime} \sum_r p(s^\prime, r \vert s, a) \left [r + \gamma \mathbb{E}_\pi[G_{t+1} \vert S_{t+1} = s^\prime]\right] \\
+&= \sum_a \pi(a \vert s) \sum_{s^\prime} \sum_r p(s^\prime, r \vert s, a) \left [r + \gamma \mathbb{E}_\pi[G_{t+1} \vert S_{t+1} = s^\prime]\right] \tag{by ex 3.11 and 3.13}\\
 &= \sum_a \pi(a \vert s) \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [r + \gamma v_\pi(s^\prime)\right], \text{ for all } s \in \mathcal{S} \tag{3.14} \\
 \end{flalign}$
 
@@ -469,15 +472,24 @@ $$G_t'=\sum_{k=0}^{T-t-1} \gamma^k (c+R_{t+k+1})=\sum_{k=0}^{T-t-1}c\gamma^k+\ga
 
 Unlike in the previous case, the sum term does not become a constant of $c$ and $\gamma$, but is a sum of the form $\sum_{k=0}^{N}\gamma^k$ which can be simplified as follows:
 
-$$S = \sum_{k=0}^N \gamma^k=\gamma^0+\gamma^1+\gamma^2+\cdots+\gamma^N$$
-$$S\gamma =\gamma^1+\gamma^2+\cdots+\gamma^{N+1}=S-1+\gamma^{N+1}$$
-$$S(\gamma-1)=-1+\gamma^{N+1} \implies S=\frac{\gamma^{N+1}-1}{\gamma-1}$$
+$\begin{flalign}
+S &= \sum_{k=0}^N \gamma^k \\
+&=\gamma^0+\gamma^1+\gamma^2+\cdots+\gamma^N \\
+&= 1 + \gamma + \gamma^2 + \cdots + \gamma^N \\
+&\therefore \\
+\gamma S &= \gamma+\gamma^2+\cdots+ \gamma^N + \gamma^{N+1} \\
+&= \left ( 1 + \gamma + \gamma^2 + \cdots + \gamma^N \right ) + \gamma^{N-1} - 1 \tag{add and substract 1}\\
+&=S +\gamma^{N+1} - 1 \tag{definition of S} \\
+&\therefore \\
+\gamma S - S &= \gamma^{N+1} - 1 \\  
+S&=\frac{\gamma^{N+1}-1}{\gamma-1}
+\end{flalign}$
 
 Substituting this into the modified equation for G we get:
 
 $$G_t'=c\frac{\gamma^{T-t}-1}{\gamma-1} + G_t = \left( G_t+\frac{c}{1-\gamma}\right) + \frac{c\gamma^{T-t}}{\gamma-1}$$
 
-The part of this equation in parentheses is identical to what we had in the continuing case, but there is an additional term that depends on T (the total episode length) and t (the step we are on of the current episode). To see what this term does to G, we can plot its value for each step of an episode.
+The part of this equation in parentheses is identical to what we had in the continuing case, but there is an additional term that depends on T (the total episode length) and t (the step we are on of the current episode). To see what this term does to G, we can plot its value for each step of an episode and a value of $c = 1$.
 """
 
 # ╔═╡ c12ca18c-0780-4c02-9396-82b97f019bc6
@@ -513,7 +525,7 @@ The impact on the value function will be:
 
 $v^\prime_\pi(s) = v_\pi(s) + \frac{c}{1 - \gamma}\left [1 - \mathbb{E}_\pi[\gamma^{T-t} \mid S_t = s] \right ]$
 
-So it seems that rather than each value being shifted by a constant, there is also a factor that depends on an expected value related to the number of steps until termination.  Since each state could be a different number of steps away from termination, the value function will fundamentally change.  States that are far from termination will be valued higher by a factor close to $\frac{c}{1 - \gamma}$ whereas states that are close to termination will have a value that is increased by a smaller factor.  This effect is reversed if c is negative.  Let's say that c is large and positive in a maze task where exiting the maze produces a reward of 1+c and terminates the episode while all other transitions produce a reward of c.  Normally, the states close to the exit would have the highest value, but the agent will accumulate the most reward far away from the exit since it will have more chances to accumulate values of c.
+So it seems that rather than each value being shifted by a constant, there is also a factor that depends on an expected value related to the number of steps until termination.  A state very far from termination will receive a boost of $\frac{c}{1 - \gamma}$ which is 10 in the case of $c = 1$ and $\gamma = 0.9$.  The states closest to termination (one step away) will only get 10% of that bonus.  Since each state could be a different number of steps away from termination, the value function will fundamentally change.  This effect is reversed if c is negative.  Let's say that c is large and positive in a maze task where exiting the maze produces a reward of 1+c and terminates the episode while all other transitions produce a reward of c.  Normally, the states close to the exit would have the highest value, but the agent will accumulate the most reward far away from the exit since it will have more chances to accumulate values of c.
 """
 
 # ╔═╡ b5871733-c403-4b39-8b51-2f3941c8a634
@@ -527,9 +539,9 @@ Following the example in (3.14) but for $q_{\pi}(s, a)$ intsead of $v_{\pi}(s)$ 
 $\begin{flalign}
 q_{\pi}(s,a) & \doteq \mathbb{E}_\pi [G_t \mid S_t=s,A_t=a] \\
 &= \mathbb{E}_\pi [R_{t+1}+\gamma G_{t+1} \mid S_t=s,A_t=a] \tag{by (3.9)} \\
-&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma\mathbb{E}_\pi [G_{t+1} \mid S_{t+1}=s'] \right] \tag{expected value definition}\\
-&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')\mathbb{E}_\pi [G_{t+1} \mid S_{t+1}=s',A_{t+1}=a'] \right] \tag{policy expectation definition}\\
-&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a', s')q_{\pi}(s',a') \right], \text{ for all } s \in \mathcal{S}, a \in \mathcal{A(s)} \tag{state-action value definition}\\
+&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma\mathbb{E}_\pi [G_{t+1} \mid S_{t+1}=s'] \right] \tag{expected value def}\\
+&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a' \vert s')\mathbb{E}_\pi [G_{t+1} \mid S_{t+1}=s',A_{t+1}=a'] \right] \tag{policy expectation def}\\
+&=\sum_{s',r} p(s',r|s,a)\left[r+\gamma \sum_{a'} \pi(a'\vert s')q_{\pi}(s',a') \right], \text{ for all } s \in \mathcal{S}, a \in \mathcal{A(s)} \tag{state-action value def}\\
 \end{flalign}$
 """
 
@@ -555,11 +567,11 @@ md"""
 
 The diagram shows a root for the action value estimate and all of the (future state, reward) pairs that are possible from that action. Since there is a distribution over these pairs, we can write the equation in terms of expected value:
 
-$$q_\pi(s,a)=\mathbb{E}[R_{t+1}+\gamma v_\pi(S_{t+1})|S_t=s,A_t=a] $$
+$$q_\pi(s,a)=\mathbb{E}[R_{t+1}+\gamma v_\pi(S_{t+1}) \mid S_t=s,A_t=a] $$
 
 From equation 3.2 we have:
 
-$$p(s',r|s,a) \doteq \text{Pr}\{S_t=s',R_t=r|S_{t-1}=s,A_{t-1}=a\}$$
+$$p(s',r|s,a) \doteq \text{Pr}\{S_t=s',R_t=r \mid S_{t-1}=s,A_{t-1}=a\}$$
 Since this provides the probability for each (future-state, reward) pair that is possible after the current (state, action) pair, we can directly compute the expected action value:
 
 $$q_\pi(s,a)=\sum_{r,s'}p(s',r|s,a)(r+\gamma v_\pi(s')) \text{ for all } r\in\mathcal{R},s'\in\mathcal{S}$$
@@ -568,6 +580,8 @@ $$q_\pi(s,a)=\sum_{r,s'}p(s',r|s,a)(r+\gamma v_\pi(s')) \text{ for all } r\in\ma
 # ╔═╡ 65457924-9c1f-4e13-834f-22b68e7e9062
 md"""
 ## 3.6 Optimal Policies and Optimal Value Functions
+
+Solving a reinforcement learning task means roughtly, finding a policy that achieves a lot of reward over the long run.  For finite MDPs, we can precisely define an optimal policy in the following way.  Value functions define a partial ordering over policies.  A policy $\pi$ is defined to be better than or equal to a policy $\pi^\prime$ if its expected return is greater than or equal to that of $\pi^\prime$ for all states.  In other words, $\pi \geq \pi^\prime \iff v_\pi(s) \geq v_{\pi^\prime}(s)  \; \forall s \in \mathcal{S}$.  There is always at least one policy that is better than or equal to all other policies.  This is an *optimal policy*.  Although there may be more than one, we donte all the optimal policies by $\pi_*$.  They share the same state-value function defined below.
 
 The *optimal state-value function* is defined as:
 
@@ -635,7 +649,7 @@ For $\gamma \not=0$, we can calculate the future discounted reward of each polic
 $$G_{\pi_{\text{left}}}=1+\gamma^2+\gamma^4+\cdots=\frac{1}{1-\gamma^2}$$
 $$G_{\pi_{\text{right}}}=2\times(\gamma+\gamma^3+\cdots)=\frac{2\gamma}{1-\gamma^2}=2\gamma G_{\pi_{\text{left}}}$$
 
-So it is clear that if $\gamma>0.5$ then $\pi_{right}$ is more optimal than $\pi_{left}$ and they are equal if $\gamma=0.5$.
+So it is clear that if $\gamma>0.5$ then $\pi_{\text{right}}$ is more optimal than $\pi_{\text{left}}$ and they are equal if $\gamma=0.5$.
 """
 
 # ╔═╡ 7ca226e2-0d8e-4f31-94e1-b0f5301f32ba
@@ -718,10 +732,13 @@ md"""
 > ### *Exercise 3.27* 
 > Give an equation for $\pi_*$ in terms of $q_*$.
 
-$\pi_*(s) = \begin{cases}
-1 & a = \underset{a \in \mathcal{A}(s)}{\mathrm{argmax}}[q_*(s,a)]\\
+Given a state $s$, define $N(s)$ as the number of actions that satisfy $q_*(s, a) = \max_{a \in \mathcal{A}(s)}[q_*(s, a)]$
+$\pi_*(a \vert s) = \begin{cases}
+\frac{1}{N(s)} & q_*(s, a) = \underset{a \in \mathcal{A}(s)}{\max}[q_*(s,a)]\\
 0 & \text{else}
 \end{cases}$
+
+Assigning an equal probability to all maximizing actions is just one of an infinite number of ways to define the optimal policy.  Any distribution that assigns a non-zero probability to one or all maximizing actions and 0 to all others is also optimal.
 """
 
 # ╔═╡ cfb040e5-663f-491d-a949-81ad7630a1f3
@@ -729,14 +746,12 @@ md"""
 > ### *Exercise 3.28* 
 > Give an equation for $\pi_*$ in terms of $v_*$ and the four-argument $p$.
 
-In exercise 3.27 for the case of $\pi_* = 1$, we can rewrite the expression in terms of $v_*$ by using the expression in exercise 3.26:
-
-$\underset{a \in \mathcal{A}(s)}{\mathrm{argmax}}[q_*(s,a)]=\underset{a \in \mathcal{A}(s)}{\mathrm{argmax}} \left [ \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \right ]$
+Note that $q_*(s, a) = \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')]$ from exercise 3.26 and replace it into the answer for exercise 3.27 
 
 So the expression for the optimal policy is just:
 
 $\pi_*(s) = \begin{cases}
-1 & a = \underset{a \in \mathcal{A}(s)}{\mathrm{argmax}} \left [ \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \right ] \\
+\frac{1}{N(s)} & \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] = \underset{a \in \mathcal{A}(s)}{\max} \left [ \sum_{r,s'}p(s',r|s,a)[r+\gamma v_*(s')] \right ] \\
 0 & \text{else}
 \end{cases}$
 """
