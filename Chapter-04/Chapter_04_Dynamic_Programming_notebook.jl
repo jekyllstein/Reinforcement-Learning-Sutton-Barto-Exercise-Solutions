@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.3
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
@@ -7,7 +7,7 @@ using InteractiveUtils
 # This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
 macro bind(def, element)
     #! format: off
-    quote
+    return quote
         local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
         local el = $(esc(element))
         global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
@@ -29,12 +29,16 @@ end
 # ╔═╡ 4017d910-3635-4ffa-ac1b-919a7bff1e6e
 md"""
 # Chapter 4: Dynamic Programming
+
+The term dynamic programming (DP) refers to a collection of algorithms that can be used to compute optimal policies given a perfect model of the environment as a Markov decision process (MDP).  While the assumptions of DP often make it impractical, most of the algorithms in the book can be viewed as ways to approximate the ideal of DP algorithms with less computation and without access to a perfect model of the environment.
+
+For this chapter, we assume that the environment is a finite MDP with a finite set of states, actions, and rewards: $\mathcal{S}, \mathcal{A}, \mathcal{R}$.  The dynamics are given by a set of probabilities $p(s^\prime, r \vert s , a), \; \forall s \in \mathcal{S}, a \in \mathcal{A}(s), r \in \mathcal{R} \subset \mathbb{R}, s^\prime \in \mathcal{S}^+$ ($\mathcal{S}^+$ is $\mathcal{S}$ plus a terminal state if the problem is episodic).  If we violate the finite state/action space assumption, we must either quantize the space and apply finite MDP methods or use function approximation methods which are much more powerful and explored in Part II.
+
+The key idea of DP, and of most reinforcement learning generally, is to use value functions to organize and structure the search for good policies.  In this chapter we show how DP can be used to compute the value functions described in Chapter 3.  Once we have the optimal value functions $v_*, q_*$, we can easily obtain optimal policies.  Those functions satisfy the *Bellman optimality equations* shown below for the *state-value function* as well as the *state-action value function*:
 """
 
 # ╔═╡ fb497aa8-9d34-48e6-ae85-72df30c1adf3
 md"""
-Throughout this chapter we explore methods to solve the *Bellman optimality equations*.  Below are the equations for the *state-value function* as well as the *state-action value funtion*:
-
 $\begin{flalign}
 	v_*(s) &= \max_a \mathbb{E}[R_{t+1}+\gamma v_*(S_{t+1}) \vert S_t = s, A_t = a] \\
 	&= \max_a \sum_{s^\prime,r}p(s^\prime,r\vert s,a)\left [ r + \gamma v_*(s^\prime) \right ] \tag{4.1}
@@ -43,16 +47,20 @@ $\begin{flalign}
 or
 
 $\begin{flalign}
-	q_*(s,a) &= \mathbb{E} \left [ R_{t+1}+\gamma \max_{a^\prime} q_*(S_{t+1}, a^\prime) \bigg | S_t = s, A_t = a \right ] \\
+	q_*(s,a) &= \mathbb{E} \left [ R_{t+1}+\gamma \max_{a^\prime} q_*(S_{t+1}, a^\prime) \: \middle \vert \: S_t = s, A_t = a \right ] \\
 	&= \max_a \sum_{s^\prime,r}p(s^\prime,r\vert s,a)\left [ r + \gamma \max_{a^\prime} q_*(s^\prime, a^\prime) \right ] \tag{4.2}
 \end{flalign}$
 
 for all $s \in \mathcal{S}, \: a \in \mathcal{A}(s)$, and $s^\prime \in \mathcal{S}^+$
+
+DP algorithms work by turning these self-consistency equations into operators which act to update existing estimates of the value function.
 """
 
 # ╔═╡ 55276004-877e-47c0-b5b5-49dbe29aa6f7
 md"""
 ## 4.1 Policy Evaluation (Prediction)
+
+First we consider how to compute the state-value function $v_\pi$ for an arbitrary policy $\pi$.  This is called *policy evaluation* in the DP literature.  We also refer to it as the *prediction problem*.
 """
 
 # ╔═╡ 772d17b0-6fbc-4309-b55b-d17f9b4d3ddf
@@ -68,7 +76,7 @@ v_\pi(s) &\doteq \mathbb{E}_\pi [G_t \mid S_t = s] \\
 
 where $\pi(a \vert s)$ is the probability of taking action $a$ in state $s$ under policy $\pi$.  The existence and uniqueness of $v_\pi$ are guaranteed as long as either $\gamma < 1$ or eventual termination is guaranteed from all states under the policy $\pi$.
 
-If we have the probability transition function $p(s^\prime, r \vert s, a)$, then (4.4) is a system of $\left | \mathcal{S} \right |$ simultaneous linear equations which can be solved tediously with linear algebra techniques.  However, there is an alternative iterative solution method that makes use of the Bellman equation for $v_\pi$ (4.4), turning it into an update rule.
+If we have the probability transition function $p(s^\prime, r \vert s, a)$, then (4.4) is a system of $\left | \mathcal{S} \right |$ simultaneous linear equations in | $\mathcal{S}$ | unknowns which can be solved tediously with linear algebra techniques.  However, there is an alternative iterative solution method that makes use of the Bellman equation for $v_\pi$ (4.4), turning it into an update rule.  Consider a sequence of approximate value functions $v_0, v_1, v_2, \dots,$ each mapping $\mathcal{S}^+$ to $\mathbb{R}$.  The initial approximation, $v_0$, is chosen arbitrarily (except that the terminal state, if any, must be given a value 0).  Each successive approximation is obtained by using the Bellman equation shown below:
 
 $\begin{flalign}
 v_{k+1}(s) &\doteq \mathbb{E}_\pi [R_{t+1} + \gamma v_k(S_{t+1}) \mid S_t = s] \\
@@ -96,15 +104,11 @@ begin
 		states::Vector{S}
 		actions::Vector{A}
 		rewards::Vector{T}
-		# ptf::Dict{Tuple{S, A}, Matrix{T}}
 		ptf::Array{T, 4}
-		action_scratch::Vector{T}
-		state_scratch::Vector{T}
-		reward_scratch::Vector{T}
 		state_index::Dict{S, Int64}
 		action_index::Dict{A, Int64}
 		function FiniteMDP{T, S, A}(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A}
-			new(states, actions, rewards, ptf, Vector{T}(undef, length(actions)), Vector{T}(undef, length(states)+1), Vector{T}(undef, length(rewards)), Dict(zip(states, eachindex(states))), Dict(zip(actions, eachindex(actions))))
+			new(states, actions, rewards, ptf, Dict(zip(states, eachindex(states))), Dict(zip(actions, eachindex(actions))))
 		end	
 	end
 	FiniteMDP(states::Vector{S}, actions::Vector{A}, rewards::Vector{T}, ptf::Array{T, 4}) where {T <: Real, S, A} = FiniteMDP{T, S, A}(states, actions, rewards, ptf)
@@ -120,31 +124,11 @@ function bellman_value!(V::Vector{T}, mdp::FiniteMDP{T, S, A}, π::Matrix{T}, γ
 			x = zero(T)
 			for (i_r, r) in enumerate(mdp.rewards)
 				@inbounds @fastmath @simd for i_s′ in eachindex(V)
-					# mdp.action_scratch[i_a] += mdp.ptf[i_s′, i_r, i_s, i_a] * (r + γ * V)
 					x += mdp.ptf[i_s′, i_r, i_a, i_s] * (r + γ * V[i_s′])
 				end
-				# mdp.state_scratch .= (r .+ γ .* V) .* mdp.ptf[:, i_r, i_a, i_s]
-				# x += sum(mdp.state_scratch)
 			end
-			# mdp.action_scratch[i_a] = x
 			newvalue += x * π[i_a, i_s]
 		end
-		# mdp.action_scratch .*= π[:, i_s]
-		# newvalue = sum(mdp.action_scratch)
-
-		# newvalue = dot(mdp.action_scratch, π[:, i_s])
-
-		# for i in eachindex(mdp.actions)
-			# newvalue += π[i, i_s] * mdp.action_scratch
-		# newvalue = π[:, i_s]' * mdp.action_scratch
-		# newvalue = π[:, i_s]' * [sum(mdp.ptf[:, :, i_s, i_a]' * (mdp.rewards' .+ γ .* V)) for i_a in eachindex(mdp.actions)]
-
-		#convert this loop over actions into a matrix operation with the policy vector, need to loop over rewards in that case instead of actions and that means that the ptf representation needs to be different where the rewards are what separates things rather than the S,A tuple.  Could be a map from states to a matrix which is the action/newstate matrix so it matches where every matrix has actions in the rows and states in the columns.  Then there would just be a list of these matrices for each reward, but in the case of only having 1 reward, this would just be a single matrix
-		# for (i_a, a) in enumerate(mdp.actions)
-		# 	#this is the probability distribution across rewards and states for the transition
-		# 	rdist = mdp.ptf[(s, a)]
-		# 	newvalue += sum(π[i_a, i_s] * rdist * (mdp.rewards' .+ (γ .* V)))
-		# end
 		delt = max(delt, abs(newvalue - V[i_s]) / (eps(zero(T)) + abs(newvalue)))
 		V[i_s] = newvalue
 	end
@@ -610,9 +594,7 @@ md"""
 """
 
 # ╔═╡ 7dcb5621-17ce-4794-b70e-e639e5068a18
-md"""
-Click here to reset value: $(@bind reset_k Button())
-"""
+@bind reset_k Button("Reset Middle Value")
 
 # ╔═╡ 7e9fe05a-c447-4a41-8c61-67c9a899411c
 begin
@@ -663,22 +645,28 @@ gridworld_display_modified = HTML("""
 md"""
 In the first case, we can never re-enter state 15 from any other state, so we can use the average of the value function in the states it transitions into.  
 
-$v_{\pi}(15) = -1 + 0.25 \times \left ( v_{\pi}(12) + v_{\pi}(13) + v_{\pi}(14)+ v_{\pi}(15) \right )$ 
-$v_\pi(15) = -1 + 0.25 \times (-22 + -20 + -14 + v_\pi(15))$
-
-Solving for the value at 15 yields:
-
-$v_\pi(15) = \frac{0.25 \times -56 - 1}{0.75}=-20$
+$\begin{flalign}
+v_{\pi}(15) &= -1 + 0.25 \times \left ( v_{\pi}(12) + v_{\pi}(13) + v_{\pi}(14)+ v_{\pi}(15) \right ) \\
+&= -1 + 0.25 \times (-22 + -20 + -14 + v_\pi(15)) \\
+&= -1 + (0.25 \times -56) + 0.25 v_\pi(15) \\
+&\therefore \\
+v_\pi(15) &= \frac{4}{3} \left ( -1 +  - 14 \right ) \\
+&= 4 \times -5 = -20
+\end{flalign}$
 
 In the second case, the value function at 13 and 15 become coupled because transitions back and forth are allowed.  We can write down new Bellman equations for the equiprobable policy π of these states:
 
-$v_{\pi}(13) = -1 + \frac{1}{4}(v_{\pi}(9) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15))$
-$v_{\pi}(15) = -1 + \frac{1}{4}(v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15))$
+$\begin{flalign}
+v_{\pi}(13) &= -1 + \frac{1}{4}(v_{\pi}(9) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15)) \\
+v_{\pi}(15) &= -1 + \frac{1}{4}(v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12) + v_{\pi}(15))
+\end{flalign}$
 
 In the second equation we can simplify to get an equation for state 15 in terms of just 3 others.
 
-$v_{\pi}(15) \times \frac{3}{4} = -1 + \frac{1}{4}(v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12))$
-$v_{\pi}(15) = \frac{1}{3}(-4 + v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12))$
+$\begin{flalign}
+v_{\pi}(15) &= \frac{4}{3} \left ( -1 + \frac{1}{4}(v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12)) \right) \\
+&= \frac{1}{3} (-4 + v_{\pi}(13) + v_{\pi}(14) + v_{\pi}(12))
+\end{flalign}$
 
 Let's try to approximate the new value at state 15 by substituting in the known values of the unmodified states.
 
@@ -824,7 +812,7 @@ action-value equivalent
 $q_{k+1}(s,a) = \sum_{s',r} p(s',r|s,a)[r + \gamma \sum_{a'} \pi(a'|s') q_k(s',a')]$
 """
 
-# ╔═╡ aa2e7334-af07-4152-8f21-e80bdcdd979b
+# ╔═╡ 2cd858d9-f41c-4a23-a983-668dcf331a7e
 md"""
 ## 4.2 Policy Improvement
 
@@ -836,8 +824,106 @@ If this is true for all $s \in \mathcal{S}$ then the policy $\pi^\prime$ must be
 
 $v_{\pi^\prime}(s) \geq v_\pi(s) \tag{4.8}$
 
-Starting with $\pi$ consider a new policy that chooses action $a$ at state $s$ instead of the usual action:  $\pi^\prime(s) = a \neq \pi(s)$.  If $q_\pi(s, a) > v_\pi(s)$, then this new policy is better than $\pi$ since $v_{\pi^\prime}(s) \geq q_\pi(s, a) > v_\pi(s)$.  This relationship is shown in the proof of the policy improvement theorem which relies upon expanding out the expression for $q_\pi$ and repeatedly applying the inequality (4.7).  
+Starting with $\pi$ consider a new policy that chooses action $a$ at state $s$ which is not necessarily equal to the selection under $\pi$:  $\pi^\prime(s) = a \neq \pi(s) \; \forall s$.  If $q_\pi(s, a) > v_\pi(s)$, then this new policy is better than $\pi$ since $v_{\pi^\prime}(s) \geq q_\pi(s, a) > v_\pi(s)$.  This relationship is shown in the proof of the policy improvement theorem which relies upon expanding out the expression for $q_\pi$ and repeatedly applying the inequality (4.7).
+"""
 
+# ╔═╡ d3b43fd1-9b45-4e41-ba10-7402e85ddb28
+md"""
+### Proof by Induction
+An alternative proof can use mathematical induction which is a method of proving a series of statements that are indexed by natural numbers $n$.  The idea is to show a statement holds for all natural numbers by first proving the statement for $n=0$ and then showing that if the statement holds for $n=k$ it must also hold for $n = k+1$.  This combination of proofs is enough to justify the statement holds for all $n$ that exceed the base case.  Formally, we have a statement $P(n)$ which can exist for all natural numbers $P(0), P(1), \dots$.  To apply induction we must prove $P(0)$ as well as $P(k) \implies P(k+1)$.
+
+The base case need not be $n=0$.  Induction will still hold for all statements $P(n>b)$ where $b$ is the number of the case proven outright.  The reason why induction lends itself to the policy improvement theorem is that we can think of the theorem's claim as a statement about how many times we should expect an improvement in the state value by taking actions according to a new policy $\pi^\prime$.  We would like to show that *always* taking actions according to the new policy is better, but we can build up to that claim by first considering taking a single action and using induction to prove that continuing to take actions under the new policy is always better even in the limit of infinitely many times.
+"""
+
+# ╔═╡ ddde2596-9e93-42db-880a-341b7f94de98
+md"""
+#### Premise
+
+We have an MDP environment and a policy $\pi$ which selects actions in that environment.  We can define both value functions of this policy in the usual manner for a continuing problem:
+
+$\begin{flalign}
+v_\pi(s) &\doteq \mathbb{E}_\pi [G_t \mid S_t = s] \\
+q_\pi(s, a) &\doteq \mathbb{E}_\pi [G_t \mid S_t = s, A_t = a]
+\end{flalign}$
+
+where $\mathbb{E}_\pi$ means that we assume that all future unspecified actions are selected according to the policy $\pi$.  We can also write the state value function in a more verbose way that emphasizes its close connection to the action-value function.
+
+$\begin{flalign}
+v_\pi(s) &= \mathbb{E}_\pi [G_t \mid S_t = s, A_t \sim \pi(s)] \\
+&= q_\pi(s, \pi(s)) \\
+\end{flalign}$
+
+In other words, by omitting the condition on $A_t$, it is assumed that this action is selected by the policy $\pi$, but we are also free to include that fact explicitely which means we can write everything in terms of $q_\pi$ if desired.
+
+Now consider a new deterministic policy $\pi^\prime$ with the following property which is also stated above in (4.7):
+
+$q_\pi(s, \pi^\prime(s)) \geq v_\pi(s) \: \forall s \tag{4.7}$
+
+In other words, selecting an action according to $\pi^\prime$ and thereafter following the policy $\pi$ produces an equal or higher expected return from every state.  Notice that the meaning of the action-value function of the policy $\pi$ is the return under $\pi$ after first selecting a specific action in $s$ which is not necessarily the same as $\pi(s)$.  In this case, the action is selected according to the new policy $\pi^\prime$ but all future actions will be selected according to $\pi$.  We can also rewrite (4.7) as:
+
+$q_\pi(s, \pi^\prime(s)) \geq q_\pi(s, \pi(s)) \: \forall s \tag{4.7'}$
+"""
+
+# ╔═╡ 718c2425-e723-47ff-bc32-6b60d14dbf55
+md"""
+#### Induction Statements
+Our induction *statements* $P(n)$ will mean the following: Starting from $s$ and selecting actions according to $\pi^\prime$ $n$ times followed by selecting actions according to $\pi$ will produce an expected return equal to or better than $v_\pi(s)$.  More formally, we can write these statements as:
+
+$\begin{flalign}
+P(n) : \; &\mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{n-1} R_n + \gamma^n \mathbb{E}_\pi[G_n \mid S_n] \mid S_0 = s \right ] \geq v_\pi(s) \\
+: \; &\mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{n-1} R_n + \gamma^n v_\pi(S_{n}) \mid S_0 = s \right ] \geq v_\pi(s) \\
+: \; &\mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{n-1} R_n + \gamma^n q_\pi(S_{n}, \pi(S_n)) \mid S_0 = s \right ] \geq v_\pi(s) \\
+\end{flalign}$
+
+Also note that extending this forward to $n+1$ means that we also select according to $\pi^\prime$ for $A_n$.  Since we've already written $A_n$ explicitely as $\pi(S_n)$, we can simply replace this value with $\pi^\prime(S_n)$:
+
+$\begin{flalign}
+P(n+1) : \; &\mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{n-1} R_n + \gamma^n q_\pi(S_{n}, \pi^\prime(S_n)) \mid S_0 = s \right ] \geq v_\pi(s) \\
+\end{flalign}$
+"""
+
+# ╔═╡ 14e9c886-be8b-4e6a-ac38-563b98e559e6
+md"""
+#### Base Case
+We will use $n=1$ to define our base case which means that 1 action is selected according to $\pi^\prime$ and every subsequent action is selected according to $\pi$.  Therefore, the following must hold true:
+
+$\begin{flalign} 
+\mathbb{E}_{\pi^\prime}[R_1 + \gamma v_\pi(s) \mid S_0 = s] &\geq v_\pi(s) \tag{P(1)}\\
+\mathbb{E}[R_1 + \gamma q_\pi(S_1, \pi(S_1)) \mid S_0 = s, A_0 = \pi^\prime(s)] &\geq v_\pi(s) \tag{expectation under policy} \\
+q_\pi(s, \pi^\prime(s)) &\geq v_\pi(s) \tag{definition of action-value function}\\
+\end{flalign}$
+
+The final expression is true by (4.7)
+"""
+
+# ╔═╡ f20dcf1b-a8e3-4f8f-92e5-5495d21afd69
+md"""
+#### Induction Step
+Now we assume that $P(k)$ holds true, and we must prove that $P(k+1)$ also holds under that assumption.  Both statements are restated below using the version of the expression derived with the action-value function.
+
+$\begin{flalign}
+P(k) : \;&\mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{k-1} R_k + \gamma^k q_\pi(S_{k}, \pi(S_k)) \mid S_0 = s \right ] \geq v_\pi(s) \\
+P(k+1) : \; &\mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{k-1} R_k + \gamma^k q_\pi(S_{k}, \pi^\prime(S_k)) \mid S_0 = s \right ] \geq v_\pi(s) \\
+\end{flalign}$
+
+We are always free to separate expected value expressions according to $\mathbb{E}[A+B] = \mathbb{E}[A] + \mathbb{E}[B]$.
+
+$\begin{flalign}
+v_\pi & \leq \mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{k-1} R_k + \gamma^k q_\pi(S_{k}, \pi^\prime(S_k)) \mid S_0 = s \right ] \tag{P(k+1)}\\
+v_\pi & \leq \mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{k-1} R_k + \gamma^k \left( q_\pi(S_{k}, \pi^\prime(S_k)) + q_\pi(S_{k}, \pi(S_k)) - q_\pi(S_{k}, \pi(S_k)) \right ) \mid S_0 = s \right ] \tag{adding 0}\\
+v_\pi & \leq \mathbb{E}_{\pi^\prime} \left [ R_1 + \gamma R_2 + \cdots + \gamma^{k-1} R_k + \gamma^k q_\pi(S_k, \pi(S_k)) \mid S_0 = s \right ] + \gamma^k \mathbb{E}_{\pi^\prime} \left [ q_\pi(S_{k}, \pi^\prime(S_k)) - q_\pi(S_{k}, \pi(S_k)) \mid S_0 = s \right ] \tag{separating terms} \\
+v_\pi & \leq v_\pi(s) + \gamma^k \mathbb{E}_{\pi^\prime} \left [ q_\pi(S_{k}, \pi^\prime(S_k)) - q_\pi(S_{k}, \pi(S_k)) \mid S_0 = s \right ] \tag{by P(k)} \\
+0 & \leq \mathbb{E}_{\pi^\prime} \left [ q_\pi(S_{k}, \pi^\prime(S_k)) - q_\pi(S_{k}, \pi(S_k)) \mid S_0 = s\right ] \\
+0 & \leq  \sum_{s^\prime} \Pr \{ S_k = s^\prime \mid S_0 = s, A_{0, 1, \dots k-1} \sim \pi^\prime \} \left ( q_\pi(s^\prime, \pi^\prime(s^\prime)) - q_\pi(s^\prime, \pi(s^\prime)) \right ) \\
+\end{flalign}$
+
+By (4.7') the difference in action-value functions is greater than or equal to 0 as are probabilities.  So a sum of values, all of which are greater than or equal to 0 must also be greater than or equal to 0.  The probability expression is just the distribution over states at step $k$ given actions are selected by $\pi^\prime$.  We need not know this distribution to finish the proof.  Simply knowing that it exists and is well defined by the Markov property is enough.
+
+---
+"""
+
+# ╔═╡ f5aaa3fa-8b52-46ca-b8dd-f4c4b6c5ecae
+md"""
 One way of creating such a policy is using action-value function of the original policy:
 
 $\begin{flalign}
@@ -1795,16 +1881,16 @@ G_t & \doteq \sum_{k=0}^\infty \gamma^k R_{t+k+1} \text{ or } \sum_{k = t+1} ^ T
 md"""
 ## Policy Expectations
 $\begin{flalign}
-\mathbb{E}_\pi [R_{t+1} \vert S_t = s] &\doteq \sum_a \pi(a \vert s) \mathbb{E} [R_{t+1} \vert S_t = s, A_t = a] \\
+\mathbb{E}_\pi [R_{t+1} \mid S_t = s] &\doteq \sum_a \pi(a \vert s) \mathbb{E} [R_{t+1} \mid S_t = s, A_t = a] \\
 & = \sum_a \pi(a \vert s) \sum_r r \sum_{s^\prime} \Pr \{S_{t+1} = s^\prime, R_{t+1} = r  \mid S_t = s, A_t = a \} \\
 & = \sum_a \pi(a \vert s) \sum_r r \sum_{s^\prime} p(s^\prime, r \vert s, a) \\
 
-\mathbb{E}_\pi [R_{t+2} \vert S_t = s] &\doteq \sum_{s^\prime, r, a} \pi(a \vert s) p(s^\prime, r \vert s, a) \sum_{a^\prime} \pi(a^\prime \vert s^\prime) \sum_{r^\prime} r^\prime \Pr \{ R_{t+2} = r^\prime \vert S_{t+1} = s^\prime, A_{t+1} = a^\prime \} \\
-&= \sum_{s^\prime, r, a} \pi(a \vert s) p(s^\prime, r \vert s, a) \mathbb{E}_\pi [R_{t+2} \vert S_{t+1} = s^\prime] \\
+\mathbb{E}_\pi [R_{t+2} \mid S_t = s] &\doteq \sum_{s^\prime, r, a} \pi(a \vert s) p(s^\prime, r \vert s, a) \sum_{a^\prime} \pi(a^\prime \vert s^\prime) \sum_{r^\prime} r^\prime \Pr \{ R_{t+2} = r^\prime \mid S_{t+1} = s^\prime, A_{t+1} = a^\prime \} \\
+&= \sum_{s^\prime, r, a} \pi(a \vert s) p(s^\prime, r \vert s, a) \mathbb{E}_\pi [R_{t+2} \mid S_{t+1} = s^\prime] \\
 
 
-\mathbb{E}_\pi [G_{t+1} \vert S_t = s] &= \mathbb{E}_\pi [R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \vert S_t = s] \\
-&= \sum_a \pi(a \vert s) \sum_r r \sum_{s^\prime} p(s^\prime, r \vert s, a) + \gamma\mathbb{E}_\pi [R_{t+2} + \gamma R_{t+3} + \cdots \vert S_t = s] \\
+\mathbb{E}_\pi [G_{t+1} \mid S_t = s] &= \mathbb{E}_\pi [R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \mid S_t = s] \\
+&= \sum_a \pi(a \vert s) \sum_r r \sum_{s^\prime} p(s^\prime, r \vert s, a) + \gamma\mathbb{E}_\pi [R_{t+2} + \gamma R_{t+3} + \cdots \mid S_t = s] \\
 \end{flalign}$
 """
 
@@ -1833,6 +1919,8 @@ $\begin{flalign}
 v_*(s) &\doteq \max_\pi v_\pi(s) \: \forall \: s \in \mathcal{S} \tag{3.15} \\
 &= \max_{a \in \mathcal{A}(s)} q_{*}(s, a) \: \forall \: s \in \mathcal{S} \tag{meaning of optimal}\\
 &= \max_{a \in \mathcal{A}(s)} \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + γ v_* (s^\prime) \right ] \quad \forall s \in \mathcal{S} \tag{by (3.21) (3.19)}\\
+&= \max_{a \in \mathcal{A}(s)} \left [ r(s, a) + \gamma \sum_{s^\prime} p(s^\prime \vert s, a) v_* (s^\prime) \right ]  \quad \forall s \in \mathcal{S} \\
+
 q_*(s, a) &\doteq \max_\pi q_\pi(s, a) \: \forall \: s \in \mathcal{S} \text{ and } a \in \mathcal{A}(s) \tag{3.16} \\
 &=\mathbb{E} \left [ R_{t+1} + \gamma v_* (S_{t+1}) \mid S_t = s, A_t = a \right ] \tag{3.17} \\
 &= \sum_{s^\prime, r} p(s^\prime, r \vert s, a) \left [ r + γ v_* (s^\prime) \right ] \tag{exp value def (3.21)} \\
@@ -1851,10 +1939,10 @@ html"""
 	<style>
 		main {
 			margin: 0 auto;
-			max-width: min(2000px, 90%);
+			max-width: min(1600px, 90%);
 	    	padding-left: max(10px, 5%);
 	    	padding-right: max(10px, 5%);
-			font-size: max(10px, min(18px, 2vw));
+			font-size: max(10px, min(24px, 2vw));
 		}
 	</style>
 	"""
@@ -1882,7 +1970,7 @@ PlutoUI = "~0.7.58"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.2"
+julia_version = "1.11.6"
 manifest_format = "2.0"
 project_hash = "f2fbd997abab1b09bba38eda6f1fb780b896fc02"
 
@@ -2364,7 +2452,13 @@ version = "17.4.0+2"
 # ╟─68a01f8e-769b-4362-b12a-48733e8b8dba
 # ╟─e4bfdaca-3f3d-43bb-b8aa-7536adbff662
 # ╟─35e1ffe5-d36a-449d-aa73-c618e2855042
-# ╟─aa2e7334-af07-4152-8f21-e80bdcdd979b
+# ╟─2cd858d9-f41c-4a23-a983-668dcf331a7e
+# ╟─d3b43fd1-9b45-4e41-ba10-7402e85ddb28
+# ╟─ddde2596-9e93-42db-880a-341b7f94de98
+# ╟─718c2425-e723-47ff-bc32-6b60d14dbf55
+# ╟─14e9c886-be8b-4e6a-ac38-563b98e559e6
+# ╟─f20dcf1b-a8e3-4f8f-92e5-5495d21afd69
+# ╟─f5aaa3fa-8b52-46ca-b8dd-f4c4b6c5ecae
 # ╟─67b06f3b-13df-4b27-ad80-d112432e8f42
 # ╟─87718a9d-5624-4f18-9dbc-34458dd917fd
 # ╠═160c59b0-a5ea-4046-b79f-7a6a6fc8db7e
