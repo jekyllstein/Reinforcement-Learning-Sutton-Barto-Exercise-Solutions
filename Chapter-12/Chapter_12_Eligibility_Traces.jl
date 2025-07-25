@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.6
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
@@ -2168,6 +2168,12 @@ function sarsa_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episo
 	(value_function = value_function, greedy_policy = greedy_policy, history = history)
 end
 
+# ╔═╡ 2c8beba6-4436-4603-88f2-20f847c5e916
+function test_sarsa_λ(; kwargs...)
+	mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
+	sarsa_λ(mdp, 1f0, -.5f0, 10, 100; kwargs...)
+end
+
 # ╔═╡ a36d205c-9a77-4b24-8e57-7bfceee9f4af
 #=╠═╡
 function gridworld_sarsaλ_parameter_study(mdp, steps; nruns = 50, λ_list = [0f0, 0.5f0, 0.6f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
@@ -2364,7 +2370,10 @@ function run_mountaincar_dp_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs
 end
 
 # ╔═╡ 7a0f8a69-467b-4059-b717-97d8e7a7a5fd
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_test_output = run_mountaincar_dp_λ(100_000, 12, 8, 0.001f0, 0.99f0, ϵ = 0.01f0, algo! = true_online_dp_λ!)
+  ╠═╡ =#
 
 # ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
 md"""
@@ -4431,7 +4440,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.5"
+julia_version = "1.11.6"
 manifest_format = "2.0"
 project_hash = "52f0e08d74c26001471ce64a62da0627b2421990"
 
@@ -5241,6 +5250,7 @@ version = "17.4.0+2"
 # ╠═21479229-c2ad-425f-98bb-77717ab40b02
 # ╟─0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
 # ╠═c5edfcbf-8d31-4dc4-b9d0-1a5439540710
+# ╠═2c8beba6-4436-4603-88f2-20f847c5e916
 # ╠═cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
 # ╟─31926565-8c2f-42a9-bc73-4f3001a38bf4
 # ╠═8c95178c-8e75-4036-b0cb-bec936dcbd28

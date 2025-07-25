@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.8
 
 using Markdown
 using InteractiveUtils
@@ -22,6 +22,8 @@ end
 # ╔═╡ e7c4aad1-562f-4027-b64b-39859ac8abbb
 md"""
 # Environment Description
+
+A group of brave knights fights for survival against a zombie horde.  On each step if there are more zombies present than knights then each knight must defend themselves against a single zombie and they either kill the zombie or get bitten and become a zombie themselves.  The probability of their success is $p$.  Any excess of zombies or knights will be idle on those steps as they wait their turn to face off.  The process continues until one side is eliminated. 
 """
 
 # ╔═╡ 00e79eb9-93aa-4afc-b665-aa410a1d3a9b
@@ -34,10 +36,88 @@ md"""
 ## MDP Definitions
 """
 
+# ╔═╡ 004bb492-e9a0-4cce-8ac7-0b5cf2cdab50
+function step(nk::Integer, nz::Integer, p::Real)
+	n = min(nk, nz)
+	nz′ = nz
+	nk′ = nk
+	for i in 1:n
+		failure = rand() < p
+		δz = ifelse(failure, 1, -1)
+		δk = ifelse(failure, -1, 0)
+		nz′ += δz
+		nk′ += δk
+	end
+	return nk′, nz′
+end	
+
+# ╔═╡ a35667f0-8234-4504-9675-f3a2b5f65af7
+function step_dist(nk::Integer, nz::Integer, p::Real)
+	outcomes = [(nk′, nz′) for nk′ in max(0, nk - nz):nk for nz′ in max(0, nz - nk):nz + min(nk, nz)]
+end	
+
+# ╔═╡ 8c4142d4-674c-47dc-93cd-5261f4142229
+function mrp_step(s::Tuple{Int64, Int64}, p::T) where T<:Real
+	iszero(min(s...)) && return (zero(T), s)
+	s′ = step(s..., p)
+	r = T(iszero(s′[2]))
+	return (r, s′)
+end
+
+# ╔═╡ 0b4f8644-726e-4e68-83ad-aad128d0b664
+function make_zombie_mrp(ntot::Integer, p::T) where T<:Real
+	states = [(nk, nz) for nk in 0:ntot for nz in 0:ntot - nk]
+	state_lookup = makelookup(states)
+	function step(i_s::Integer; p = p) 
+		(r, s′) = mrp_step(states[i_s], p)
+		i_s′ = state_lookup[s′]
+		return (r, i_s′)
+	end
+	ptf = TabularMRPTransitionSampler(step)
+
+	init_state(;nz = rand(1:ntot-1), nk = rand(1:ntot-nz)) = state_lookup[(nk, nz)]
+	terminal_states = BitVector([any(iszero, s) for s in states])
+	TabularMRP(states, ptf, init_state, BitVector(terminal_states), state_lookup)
+end
+
+# ╔═╡ 792ebd38-7423-49cd-a26a-ab1b97fac328
+zombie_mrp = make_zombie_mrp(100, 0.5f0)
+
+# ╔═╡ e4151e9c-3a40-4953-b39c-4fe455ac7399
+runepisode(zombie_mrp; i_s0 = zombie_mrp.state_index[(99, 1)])
+
+# ╔═╡ 64da58db-2896-455b-be4d-471aa2eee8d4
+function calculate_success(n, p; ntrials = 100)
+	mrp = make_zombie_mrp(n, p)
+	output = zeros(Float32, n, n)
+	for nhuman in 1:n
+		for nzombie in 1:n - nhuman
+			output[nhuman, nzombie] = 1:ntrials |> Map(_ -> runepisode(mrp; i_s0 = zombie_mrp.state_index[(nhuman, nzombie)])[2][end]) |> foldxt(+) 
+		end
+	end
+	output ./= ntrials
+end
+
+# ╔═╡ ccfa4618-ccf0-4c35-85c9-ef316f54c8ec
+#=╠═╡
+plot(heatmap(x = 1:100, y = 1:100, z = calculate_success(100, 0.5f0; ntrials = 1000)), Layout(yaxis_title = "Initial Number of Humans", xaxis_title = "Initial Number of Zombies", yaxis_scaleanchor = "x", height = 800))
+  ╠═╡ =#
+
 # ╔═╡ cb12f8b6-cec1-40fe-9b29-0acae1d3291b
 md"""
 # Solution Techniques
 """
+
+# ╔═╡ 958dbd85-ff54-47ae-b6aa-4b243a418326
+solution = td0_prediction(zombie_mrp, 1f0; α = 1f-2, max_steps = 10_000_000_000)
+
+# ╔═╡ eb6e6e22-3aa9-46b1-8306-ba11055262fc
+[(state = zombie_mrp.states[i], zombie_fraction = zombie_mrp.states[i][2] / sum(zombie_mrp.states[i]), success_rate = solution[i]) for i in findall(abs.(solution .- 0.5f0) .< 0.01f0)]
+
+# ╔═╡ 9ed60772-eb08-4261-9e58-4857b9cf5174
+#=╠═╡
+plot(heatmap(x = [zombie_mrp.states[i][1] for i in eachindex(solution)], y = [zombie_mrp.states[i][2] for i in eachindex(solution)], z = solution), Layout(yaxis_scaleanchor = "x"))
+  ╠═╡ =#
 
 # ╔═╡ 4f16565e-09bb-11f0-3729-7ffc5462cdc8
 md"""
@@ -109,7 +189,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.6"
+julia_version = "1.11.5"
 manifest_format = "2.0"
 project_hash = "fb175071a7c85444e2ee3da77dd1e4c18a1bb109"
 
@@ -986,10 +1066,21 @@ version = "17.4.0+2"
 """
 
 # ╔═╡ Cell order:
-# ╠═e7c4aad1-562f-4027-b64b-39859ac8abbb
+# ╟─e7c4aad1-562f-4027-b64b-39859ac8abbb
 # ╠═00e79eb9-93aa-4afc-b665-aa410a1d3a9b
-# ╠═d52f66cd-c4c2-4750-b182-42e08a9a27f4
+# ╟─d52f66cd-c4c2-4750-b182-42e08a9a27f4
+# ╠═004bb492-e9a0-4cce-8ac7-0b5cf2cdab50
+# ╠═a35667f0-8234-4504-9675-f3a2b5f65af7
+# ╠═8c4142d4-674c-47dc-93cd-5261f4142229
+# ╠═0b4f8644-726e-4e68-83ad-aad128d0b664
+# ╠═792ebd38-7423-49cd-a26a-ab1b97fac328
+# ╠═e4151e9c-3a40-4953-b39c-4fe455ac7399
+# ╠═ccfa4618-ccf0-4c35-85c9-ef316f54c8ec
+# ╠═64da58db-2896-455b-be4d-471aa2eee8d4
 # ╠═cb12f8b6-cec1-40fe-9b29-0acae1d3291b
+# ╠═958dbd85-ff54-47ae-b6aa-4b243a418326
+# ╠═eb6e6e22-3aa9-46b1-8306-ba11055262fc
+# ╠═9ed60772-eb08-4261-9e58-4857b9cf5174
 # ╟─4f16565e-09bb-11f0-3729-7ffc5462cdc8
 # ╠═9a4d0c70-ca15-4201-8a2e-56af95a60290
 # ╠═acfabeef-f268-4c7f-a07c-4c05d1333305

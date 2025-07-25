@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.4
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
@@ -2944,7 +2944,6 @@ PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.5.0"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.60"
-Statistics = "~1.11.1"
 Transducers = "~0.4.84"
 """
 
@@ -2952,9 +2951,9 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "f96742aa2407e40995be21bd65f67a020afa7644"
+project_hash = "5ac6c7be719e074f2668c6b58cbbdbc752c21e54"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]

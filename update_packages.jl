@@ -4,7 +4,7 @@ manifest_paths = [
     "TabularRL.jl",
     "ApproximationUtils.jl/",
     "NonTabularRL.jl",
-    "PlutoStartup.jl"
+    "PlutoStartup"
 ]
 
 for path in manifest_paths

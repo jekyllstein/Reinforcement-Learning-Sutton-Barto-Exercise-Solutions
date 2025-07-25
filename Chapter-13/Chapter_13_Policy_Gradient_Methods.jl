@@ -1,14 +1,20 @@
 ### A Pluto.jl notebook ###
-# v0.20.8
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ fac138d9-3c5d-44b0-a87c-b13872f19450
+# ╠═╡ skip_as_script = true
+#=╠═╡
 using Memoize
+  ╠═╡ =#
 
 # ╔═╡ e034b9cb-f4ee-46f4-bea6-72c93c75d966
+# ╠═╡ skip_as_script = true
+#=╠═╡
 using DataFrames
+  ╠═╡ =#
 
 # ╔═╡ 666a4e89-306b-4fb2-bdc4-3dda2c63153f
 using SpecialFunctions
@@ -39,7 +45,7 @@ end
 # ╔═╡ 36a6e43f-6bcf-4c27-bfbb-047760e77ada
 md"""
 # Chapter 13 Policy Gradient Methods Introduction
-Instead of selection actions based on *action-value estimates* we learn a *parameterized policy* with parameters $\boldsymbol{θ}$.  $\pi(a|s, \boldsymbol{\theta}) = \text{Pr}\{A_t=a|S_t=s, \boldsymbol{\theta}_t=\boldsymbol{\theta\}}$ denotes the probability that action *a* is taken at time *t* given that the environment is in state *s* at time *t* with parameter $\boldsymbol{θ}$.  
+Instead of selection actions based on *action-value estimates* we learn a *parameterized policy* with parameters $\boldsymbol{θ}$.  $\pi(a|s, \boldsymbol{\theta}) = \text{Pr}\{A_t=a \mid S_t=s, \boldsymbol{\theta}_t=\boldsymbol{\theta\}}$ denotes the probability that action *a* is taken at time *t* given that the environment is in state *s* at time *t* with parameter $\boldsymbol{θ}$.  
 
 We consider methods that improve the policy parameter using the gradient of some scalar performance measure $J(\boldsymbol{\theta})$ with respect to the policy parameters.  We follow gradient ascent since we are trying to maximize this value and methods that use this approach are called *policy gradient methods*.  Methods that learn approximations to both policy and value functions are often called *actor-critic methods*, where 'actor' is a reference to the learned policy, and 'critic' refers to the learned value function, usually a state-value function.
 ## 13.1 Policy Approximation and its Advantages
@@ -1267,9 +1273,13 @@ function make_corridor_continuing_mdp()
 end
 
 # ╔═╡ 1ac9296f-047b-4051-ba5c-0c23d5f9cde9
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const corridor_continuing_mdp = make_corridor_continuing_mdp()
+  ╠═╡ =#
 
 # ╔═╡ ba642a22-6623-482a-ab4a-81585b83e457
+#=╠═╡
 @memoize Dict function average_continuing_runs(nruns::Integer, seed::Integer, α_θ::T, α_w::T, α_r̄::T, policy_params, algo, args...; kwargs...) where T<:Real
 	# @info "Running trials for continuing actor critic with binary encoding: $nruns $seed $α_θ $α_w $α_r̄ $mdp $λ_θ $λ_w $get_active_features $num_features"
 	Random.seed!(seed)
@@ -1278,6 +1288,7 @@ const corridor_continuing_mdp = make_corridor_continuing_mdp()
 		x.total_reward / x.total_steps
 	end |> foldxt(+) |> a -> a / nruns
 end
+  ╠═╡ =#
 
 # ╔═╡ e96d592d-1e54-486d-8ad9-b857f85476e8
 actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_r̄::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, max_steps::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_linear_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, params.α_r̄, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), max_steps; kwargs...)
@@ -3356,7 +3367,9 @@ actor_critic_with_eligibility_traces_binary_features(corridor_mdp, 0f0, 0f0, get
   ╠═╡ =#
 
 # ╔═╡ 8b35661b-5075-4d63-bc31-044407f99acf
+#=╠═╡
 actor_critic_with_eligibility_traces_binary_features(corridor_continuing_mdp, 0.75f0, 0.25f0, get_corridor_features, 1, 1_000_000, α_θ = 0.00625f0, α_w = 0.0004f0, α_r̄ = 0.004f0, policy_params = [0f0 3.7f0]; save_step_rewards = true).policy_and_value(1)
+  ╠═╡ =#
 
 # ╔═╡ 3c89209c-9202-4d5d-841c-ea34be369616
 #=╠═╡
@@ -3411,6 +3424,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ ff4f977e-48df-4c12-845c-c245b4d39d6d
+#=╠═╡
 function actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_function::Function, num_features::Integer, λ_θ_list::AbstractVector{T}, λ_w_list::AbstractVector{T}, α_r̄_list::AbstractVector{T}, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, num_tests::Integer, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), binary_features = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	if binary_features
 		algo = actor_critic_with_eligibility_traces_binary_features
@@ -3430,6 +3444,7 @@ function actor_critic_linear_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F
 			   end
 			  for params in test_params])
 end
+  ╠═╡ =#
 
 # ╔═╡ 7afb6fb0-248a-4518-b94f-9876f81eca64
 #=╠═╡
@@ -3497,6 +3512,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 11063fff-4d36-46d5-828f-dbed0f46b9cf
+#=╠═╡
 function actor_critic_fcann_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, λ_θ_list::AbstractVector{T}, λ_w_list::AbstractVector{T}, α_r̄_list::AbstractVector{T}, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, num_tests::Integer, max_steps::Integer; nruns::Integer = 100, seed = rand(UInt64), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	Random.seed!(seed)
 	init_policy_params = FCANN.initializeparams_saxe(num_features, hidden_layers, length(mdp.actions))
@@ -3509,6 +3525,7 @@ function actor_critic_fcann_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3
 			   end
 			  for params in test_params])
 end
+  ╠═╡ =#
 
 # ╔═╡ 20776e09-7d9b-4db8-a060-7bceeec65b47
 function actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, args...; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
@@ -3699,7 +3716,10 @@ function create_cartpole_mdps(;
 end
 
 # ╔═╡ 024dcd1a-8eaa-4a95-8037-2f578828309c
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const cartpole_mdps  = create_cartpole_mdps()
+  ╠═╡ =#
 
 # ╔═╡ 822e4d69-2582-4956-858e-06ecb091e76a
 #=╠═╡
@@ -3718,7 +3738,9 @@ end
   ╠═╡ =#
 
 # ╔═╡ cf1859d6-f889-4923-8c87-2d7c039f26c3
+#=╠═╡
 runepisode(cartpole_mdps.episodic.continuous, s -> Float32(randn()))
+  ╠═╡ =#
 
 # ╔═╡ 31db0f58-28e4-454f-9394-25565687266f
 #=╠═╡
@@ -3737,7 +3759,10 @@ function setup_cartpole_continuous_problem(;h = 4f-2, f = 300f0, x_max = 50f0, �
 end
 
 # ╔═╡ 26880577-d267-4950-8725-7afe0d0402b6
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const cartpole_setup = setup_cartpole_continuous_problem()
+  ╠═╡ =#
 
 # ╔═╡ 0cd96c44-cae6-421f-9fae-26141600bef4
 #=╠═╡
@@ -3745,7 +3770,9 @@ display_cartpole_episode((runepisode(cartpole_setup.mdps.episodic.discrete; π =
   ╠═╡ =#
 
 # ╔═╡ 24fa139c-ad4b-49db-ac8f-23c476ed8608
+#=╠═╡
 const reinforce_test = reinforce_with_baseline_monte_carlo_control_binary_features_gaussian_actions(cartpole_setup.mdps.episodic.continuous, cartpole_setup.get_active_features, cartpole_setup.num_features, 10_000; α_θ = 2f0 ^-14, α_w = 2f0 ^-6)
+  ╠═╡ =#
 
 # ╔═╡ dddc4a2f-34b2-41dc-85b3-55aba4880fa6
 #=╠═╡
@@ -3753,10 +3780,14 @@ display_cartpole_episode((runepisode(cartpole_setup.mdps.episodic.continuous, re
   ╠═╡ =#
 
 # ╔═╡ f9ac1bf0-55ee-4c71-bdaa-a00f9d779bf5
+#=╠═╡
 reinforce_test.policy_and_value(cartpole_mdps.episodic.continuous.initialize_state())
+  ╠═╡ =#
 
 # ╔═╡ d3b56fca-5b79-4465-8987-8d0005f854d8
+#=╠═╡
 const reinforce_test2 = reinforce_with_baseline_monte_carlo_control_binary_features(cartpole_setup.mdps.episodic.discrete, cartpole_setup.get_active_features, cartpole_setup.num_features, 10_000; α_θ = 2f0 ^-14, α_w = 2f0 ^-8)
+  ╠═╡ =#
 
 # ╔═╡ 5859ca11-90f8-4fd6-88ed-c56efe796fe8
 #=╠═╡
@@ -3820,7 +3851,9 @@ end
   ╠═╡ =#
 
 # ╔═╡ dca2f8e2-76af-4679-bf81-3824c15fc76d
+#=╠═╡
 const reinforce_test3 = actor_critic_with_eligibility_traces_binary_features(cartpole_setup.mdps.episodic.discrete, 0.85f0, 0.5f0, cartpole_setup.get_active_features, cartpole_setup.num_features, typemax(Int64), 100_000; α_θ = 2f0 ^-6, α_w = 2f0 ^-4, γ = 0.99f0)
+  ╠═╡ =#
 
 # ╔═╡ 11a55af7-5301-4507-bb26-88e1e11236db
 #=╠═╡
@@ -3869,7 +3902,10 @@ function fcann_feature_vector_setup(min_value::S, max_value::S) where {T<:Real, 
 end
 
 # ╔═╡ f0962801-0dfa-421f-8ffc-e64068e49913
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_fcann_feature_setup = fcann_feature_vector_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0))
+  ╠═╡ =#
 
 # ╔═╡ c251a630-7114-4188-9323-8d8feb5c32e0
 #=╠═╡
@@ -3888,10 +3924,14 @@ end
   ╠═╡ =#
 
 # ╔═╡ 61650a97-b353-4a85-b50b-93fee296ac7b
+#=╠═╡
 const cartpole_fcann_feature_setup = fcann_feature_vector_setup(cartpole_setup.min_vals, cartpole_setup.max_vals)
+  ╠═╡ =#
 
 # ╔═╡ 192b9f82-8d3a-408f-91c2-829cfcd32572
+#=╠═╡
 cartpole_vector_update!(x::Vector{T}, s::CartPoleState{T}) where T<:Real = cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇))
+  ╠═╡ =#
 
 # ╔═╡ f52fc4a9-f6dd-422d-aeae-6c327d1a7b62
 #=╠═╡
@@ -3970,10 +4010,14 @@ cartpole_fcann_parameter_study(fill(fcann_cartpole_study_params.h, fcann_cartpol
   ╠═╡ =#
 
 # ╔═╡ 407a0724-4bb6-4c83-ab2d-17a0e19c4072
+#=╠═╡
 const reinforce_test4 = actor_critic_with_eligibility_traces_fcann(cartpole_setup.mdps.episodic.discrete, 0.95f0, 0.2f0, cartpole_fcann_feature_setup.num_features, [64, 64], (x, s) -> cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇)), typemax(Int64), 1_000_000; α_θ = 4f-4, α_w = 2f-5, γ = 1f0)
+  ╠═╡ =#
 
 # ╔═╡ 27487ad0-4779-42ce-8def-e660ef04bee0
+#=╠═╡
 reinforce_test4.policy_and_value(cartpole_setup.mdps.episodic.discrete.initialize_state())
+  ╠═╡ =#
 
 # ╔═╡ 9d264543-33ab-498a-90f5-5f913c252484
 #=╠═╡
@@ -3986,7 +4030,9 @@ display_cartpole_episode((runepisode(cartpole_setup.mdps.episodic.discrete; π =
   ╠═╡ =#
 
 # ╔═╡ e1274f57-75cb-4659-a82f-e5870c5367e2
+#=╠═╡
 const ep = runepisode(cartpole_setup.mdps.episodic.discrete; π = reinforce_test4.policy_sample_action, max_steps = 1000)
+  ╠═╡ =#
 
 # ╔═╡ a4eec4d3-5a75-4b52-ab9c-9d9e83d5547d
 #=╠═╡
@@ -4039,7 +4085,9 @@ cartpole_continuing_fcann_parameter_study(2f0 .^(fcann_continuing_cartpole_study
   ╠═╡ =#
 
 # ╔═╡ 82e0e9a0-9662-429a-87e3-e6bdae02709a
+#=╠═╡
 const reinforce_test5 = actor_critic_with_eligibility_traces_fcann(cartpole_setup.mdps.continuing.discrete, 0.90f0, 0.1f0, cartpole_fcann_feature_setup.num_features, [32, 32], (x, s) -> cartpole_fcann_feature_setup.update_feature_vector!(x, (s.x, s.θ, s.ẋ, s.θ̇)), 1_000_000; α_θ = 0.0625f0, α_w = 0.0625f0, α_r̄ = 0.01f0, save_step_rewards = true)
+  ╠═╡ =#
 
 # ╔═╡ 27441783-d3c6-40be-9c36-4941613e6ae9
 #=╠═╡
@@ -4055,7 +4103,9 @@ display_cartpole_episode((runepisode(cartpole_setup.mdps.episodic.discrete; π =
 #add plot under this to show the action selection or force being applied over time
 
 # ╔═╡ a5b002c9-5e11-462a-9da0-6e060c7963f8
+#=╠═╡
 const ep2 = runepisode(cartpole_setup.mdps.episodic.discrete; π = reinforce_test5.policy_sample_action, max_steps = 1000, s0 = CartPoleState(30f0, 0.8f0, 0f0, -0f0))
+  ╠═╡ =#
 
 # ╔═╡ 9bce6fdb-2cbc-4758-9a8b-794e490c973d
 #=╠═╡
@@ -4081,13 +4131,14 @@ display_cartpole_episode((ep2 |> x -> (x[1], x[2]))...)
 #for an episode progressing, show the point in the state space that the cart exsits and use the value of x and ẋ in that
 
 # ╔═╡ d21617aa-6f38-4a90-8586-4b32022497ad
+#=╠═╡
 cartpole_setup.mdps.continuing.discrete
+  ╠═╡ =#
 
 # ╔═╡ 700dcbc4-c94c-4287-8cf0-0b2c7a320a3a
+#=╠═╡
 reinforce_test5.policy_and_value(CartPoleState())
-
-# ╔═╡ 4f96be72-ef3e-4e08-ac4c-be4271dcd14c
-
+  ╠═╡ =#
 
 # ╔═╡ 54f1546d-87ae-49d2-92ed-6fcc9b66e027
 md"""
@@ -4102,13 +4153,21 @@ As an initial test, consider the discrete action space originally used for the m
 """
 
 # ╔═╡ 2025ff38-f2ec-4224-b771-ff72ffe1af28
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_min_vals = (-1.2f0, -0.07f0)
+  ╠═╡ =#
 
 # ╔═╡ 77906355-08f8-4b08-b051-84697199b519
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_max_vals = (0.5f0, 0.07f0)
+  ╠═╡ =#
 
 # ╔═╡ 023f67b8-8f38-470a-9766-ac60a75678aa
+#=╠═╡
 const mountaincar_fcann_setup = fcann_feature_vector_setup(mountaincar_min_vals, mountaincar_max_vals)
+  ╠═╡ =#
 
 # ╔═╡ d5ab6d24-dd4e-4410-a50e-fe3584b21cf9
 #=╠═╡
@@ -4121,7 +4180,9 @@ plot_continuing_step_rewards(mountaincar_continuing_fcann_test.step_rewards)
   ╠═╡ =#
 
 # ╔═╡ 7c592385-e8d3-4efe-962c-d39debb64405
+#=╠═╡
 const mountaincar_tilecoding_setup = tile_coding_setup(mountaincar_min_vals, mountaincar_max_vals, (0.1f0, 0.1f0), 12, (1, 3))
+  ╠═╡ =#
 
 # ╔═╡ d57375a5-b9e0-4742-b5f7-6a7da891604a
 #=╠═╡
@@ -4168,7 +4229,10 @@ corridor_parameter_study(args...; kwargs...) = actor_critic_binary_episodic_para
   ╠═╡ =#
 
 # ╔═╡ 6d0925d3-af96-4b94-8e2e-4941cce39e51
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_test_train = actor_critic_with_eligibility_traces_binary_features(MountainCarTask.mdp, 0.1f0, 0.9f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 100_000; α_θ = 0.008f0, α_w = 0.004f0)
+  ╠═╡ =#
 
 # ╔═╡ 786a5385-b648-4fc3-8e19-bf6582828136
 md"""
@@ -4195,10 +4259,16 @@ end
 #without limiting the force in this way, the learned policy just applies so much force to go up the hill directly
 
 # ╔═╡ d560b2a0-c571-4ad7-b1c9-83ec03fc8cc2
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_continuous_mdp = create_continuous_action_mountaincar()
+  ╠═╡ =#
 
 # ╔═╡ 349631b2-4686-49a9-9f3a-1e4ad588b568
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_continuous_mdp2 = create_continuous_action_mountaincar(;slipforce = 100f0)
+  ╠═╡ =#
 
 # ╔═╡ ac9c8845-284d-4c21-b05d-d930f86598a3
 #=╠═╡
@@ -4206,10 +4276,14 @@ const mountaincar_continuous_mdp2 = create_continuous_action_mountaincar(;slipfo
   ╠═╡ =#
 
 # ╔═╡ b8532822-179b-4cd5-a279-4b71dafb544a
+#=╠═╡
 const mountaincar_continuous_test_train = actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mountaincar_continuous_mdp, 0.05f0, 0.8f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 1_000_000; α_θ = 5f-5, α_w = 0.00008f0)
+  ╠═╡ =#
 
 # ╔═╡ fee14dfe-c5ca-4126-a830-cc9d7eda5433
+#=╠═╡
 const mountaincar_continuous_test_train2 = actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mountaincar_continuous_mdp2, 0.05f0, 0.8f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 100_000; α_θ = 5f-4, α_w = 0.0008f0)
+  ╠═╡ =#
 
 # ╔═╡ e524f8cc-ab69-4f8b-a59f-28156696a104
 #=╠═╡
@@ -4217,7 +4291,9 @@ const mountaincar_continuous_test_train2 = actor_critic_with_eligibility_traces_
   ╠═╡ =#
 
 # ╔═╡ 5eb8d9f9-8512-4e00-8cb5-cec68d73cc7d
+#=╠═╡
 const mountaincar_continuous_test_train3 = actor_critic_with_eligibility_traces_binary_features_squashed_gaussian_actions(mountaincar_continuous_mdp, 0.2f0, 0.99f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 1_000_000; α_θ = 1f-5, α_w = 0.0001f0)
+  ╠═╡ =#
 
 # ╔═╡ ff3009eb-23f9-44fe-8e56-85dbc7b463d0
 #=╠═╡
@@ -4261,7 +4337,10 @@ function create_continuous_action_mountaincar_beta()
 end
 
 # ╔═╡ 8e096fae-9941-49d8-ae87-c68b02f68da5
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_continuous_beta_mdp = create_continuous_action_mountaincar_beta()
+  ╠═╡ =#
 
 # ╔═╡ 44f14d4f-7414-4c6f-883a-042ca261a403
 # ╠═╡ disabled = true
@@ -4276,7 +4355,9 @@ actor_critic_binary_episodic_beta_parameter_study(mountaincar_continuous_mdp, mo
   ╠═╡ =#
 
 # ╔═╡ 4156d955-9daf-4429-b152-e8332980fb9e
+#=╠═╡
 const mountaincar_continuous_test_train_beta = actor_critic_with_eligibility_traces_binary_features_beta_actions(mountaincar_continuous_beta_mdp, 0.01f0, 0.99f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, typemax(Int64), 100_000; α_θ = 1f-4, α_w = 0.00002f0)
+  ╠═╡ =#
 
 # ╔═╡ 16113560-e911-47b4-abc4-641bbd246454
 #=╠═╡
@@ -4887,7 +4968,7 @@ Transducers = "~0.4.75"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.5"
+julia_version = "1.11.6"
 manifest_format = "2.0"
 project_hash = "695874c2ba63b66cdf77bceba1cf57321e617e46"
 
@@ -6161,7 +6242,6 @@ version = "17.4.0+2"
 # ╠═f7f58fd2-facc-4b87-9172-5e911677c8f4
 # ╠═d21617aa-6f38-4a90-8586-4b32022497ad
 # ╠═700dcbc4-c94c-4287-8cf0-0b2c7a320a3a
-# ╠═4f96be72-ef3e-4e08-ac4c-be4271dcd14c
 # ╟─54f1546d-87ae-49d2-92ed-6fcc9b66e027
 # ╟─c5dd7e99-57e0-4bc7-97d2-2c780b23bcff
 # ╠═2025ff38-f2ec-4224-b771-ff72ffe1af28
