@@ -2878,8 +2878,8 @@ function run_fcann_gradient_monte_carlo_control(mdp::StateMDP, γ::T, num_episod
 end
 
 # ╔═╡ 9b3035f6-fe59-4748-a1cd-3c2ce61c6608
-function run_fcann_gradient_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
-	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
+function run_fcann_gradient_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, fcann_params::Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}} = FCANN.initializeparams_saxe(length(state_representation), layers, 1, 1; use_μP = true), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; params = fcann_params, λ = λ, c = c, dropout = dropout)
 	step_history, reward_history, π_ϵ_greedy, π_greedy, v̂ = gradient_monte_carlo_control!(setup.parameters, mdp, γ, num_episodes, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
 	return (value_function = v̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
 end
