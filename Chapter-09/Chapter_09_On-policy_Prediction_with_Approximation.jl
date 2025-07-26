@@ -9,7 +9,7 @@ using PlutoDevMacros, LinearAlgebra, Random, Statistics
 
 # ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
 # ╠═╡ show_logs = false
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
 # ╠═╡ skip_as_script = true

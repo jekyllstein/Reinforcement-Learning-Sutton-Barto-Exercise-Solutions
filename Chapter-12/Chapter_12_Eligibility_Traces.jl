@@ -9,7 +9,7 @@ using PlutoDevMacros, Random, Statistics, LinearAlgebra, StaticArrays, Transduce
 
 # ╔═╡ 8a581882-c97d-4a3b-873a-212024a529a9
 # ╠═╡ show_logs = false
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═╡ skip_as_script = true
@@ -21,7 +21,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 062f756b-6640-4928-9216-c54316503944
-begin
+@only_in_nb begin
 	include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-11", "Chapter_11_Off_policy_Methods_with_Approximation.jl"))
@@ -2397,21 +2397,7 @@ function update_action_values!(action_values::Vector{T}, x::Vector{T}, parameter
 		i_a_best = newmax*i_a + !newmax*i_a_best
 		q_max = newmax*q + !newmax*q_max
 	end
-	return i_a_best, q_max
-end
-
-# ╔═╡ d5366fcf-39ee-48dc-8ee6-ca5c3141418a
-function update_action_values!(action_values::Vector{T}, i_s::Integer, parameters::Vector{Vector{T}}) where T<:Real
-	i_a_best = 1
-	q_max = typemin(T)
-	for (i_a, p) in enumerate(parameters)
-		q = p[i_s]
-		action_values[i_a] = q
-		newmax = q > q_max
-		i_a_best = newmax*i_a + !newmax*i_a_best
-		q_max = newmax*q + !newmax*q_max
-	end
-	return i_a_best, q_max
+	return q_max, i_a_best
 end
 
 # ╔═╡ 21d23d80-49d0-4edf-854a-5489eb7d75d0
@@ -3759,6 +3745,8 @@ md"""
 """
 
 # ╔═╡ 326b3355-7941-403b-bf1e-3031f585f666
+# ╠═╡ skip_as_script = true
+#=╠═╡
 html"""
 	<style>
 		main {
@@ -3770,6 +3758,7 @@ html"""
 		}
 	</style>
 	"""
+  ╠═╡ =#
 
 # ╔═╡ 5616d294-892a-40bc-a35f-35e9e0ee55e2
 md"""
@@ -3828,12 +3817,20 @@ gridworld_sarsaλ_parameter_study(gridworld_mdp, 5_000; ϵ = 0.01f0, algo! = tru
   ╠═╡ =#
 
 # ╔═╡ 9db3ed98-a94d-4adc-a45f-75eca432a1e9
+# ╠═╡ skip_as_script = true
+#=╠═╡
 show_grid_value(mdp::TabularMDP, Q, name; kwargs...) = show_grid_value(mdp.states, mdp.terminal_states, mdp.initialize_state_index, Q, name; kwargs...)
+  ╠═╡ =#
 
 # ╔═╡ 4a8bc15c-8f4d-4017-915f-d2b27c1a6bd0
+# ╠═╡ skip_as_script = true
+#=╠═╡
 show_grid_probabilities(mdp::TabularMDP, Q, name; kwargs...) = show_grid_probabilities(mdp.states, mdp.terminal_states, mdp.initialize_state_index, Q, name; kwargs...)
+  ╠═╡ =#
 
 # ╔═╡ 4160de31-3c8e-4051-b618-24112bbcc70e
+# ╠═╡ skip_as_script = true
+#=╠═╡
 HTML("""
 <style>
 	.windcell {
@@ -3846,6 +3843,7 @@ HTML("""
 	}
 </style>
 """)
+  ╠═╡ =#
 
 # ╔═╡ 359a682a-add2-4fe2-af09-f67ffbd985a8
 #=╠═╡
@@ -3975,7 +3973,10 @@ end
   ╠═╡ =#
 
 # ╔═╡ c8be71e0-c82a-4260-9dcf-944962947ca2
+# ╠═╡ skip_as_script = true
+#=╠═╡
 show_grid_policy(mdp::TabularMDP, π, name; kwargs...) = show_grid_policy(mdp.states, mdp.initialize_state_index, mdp.terminal_states, π, name; kwargs...)
+  ╠═╡ =#
 
 # ╔═╡ c231090d-6faf-46a8-ae08-fd8715ade241
 #=╠═╡
@@ -5315,7 +5316,6 @@ version = "17.4.0+2"
 # ╠═a7d6239c-b7d2-41f0-a474-02c607448183
 # ╟─fbe8691b-6d71-4cba-90e4-5de63421f634
 # ╠═5a88de5e-5837-41c8-8150-b8d65ffc2fdf
-# ╠═d5366fcf-39ee-48dc-8ee6-ca5c3141418a
 # ╟─5062690c-96b9-450a-9927-6a6707dfc511
 # ╟─862026e9-ebe6-4f2e-8832-086bbba8db17
 # ╟─8f894492-260e-4ab0-87b6-c02216a631e6

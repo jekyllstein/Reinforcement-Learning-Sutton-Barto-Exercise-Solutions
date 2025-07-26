@@ -7,9 +7,8 @@ using InteractiveUtils
 # ╔═╡ 69fb26ed-763e-44ad-9b70-193e5a1a09b9
 using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers
 
-# ╔═╡ 3f7484b3-272d-410d-92b1-ca13e5d7a8b7
-# ╠═╡ show_logs = false
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+# ╔═╡ fa5fecfd-c039-4063-9acb-365a046e06f2
+@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ 9fb5dace-a799-4424-bcb3-8542e508dd4b
 # ╠═╡ skip_as_script = true
@@ -21,10 +20,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 318b398a-d8f2-4f39-a45d-fd9023961bf8
-# ╠═╡ skip_as_script = true
-#=╠═╡
-include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
-  ╠═╡ =#
+@only_in_nb include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 
 # ╔═╡ 35d59eae-77fd-11ef-2790-35dd5a834060
 md"""
@@ -3827,7 +3823,7 @@ version = "17.4.0+2"
 # ╠═9b3035f6-fe59-4748-a1cd-3c2ce61c6608
 # ╟─6cea9e69-bf8c-4079-9884-663a728d7b08
 # ╠═69fb26ed-763e-44ad-9b70-193e5a1a09b9
-# ╠═3f7484b3-272d-410d-92b1-ca13e5d7a8b7
+# ╠═fa5fecfd-c039-4063-9acb-365a046e06f2
 # ╠═318b398a-d8f2-4f39-a45d-fd9023961bf8
 # ╠═9fb5dace-a799-4424-bcb3-8542e508dd4b
 # ╠═ed1bd92c-8cc7-457f-9692-a10a9487c953

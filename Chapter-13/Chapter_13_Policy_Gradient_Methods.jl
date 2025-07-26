@@ -10,20 +10,11 @@ using InteractiveUtils
 using Memoize
   ╠═╡ =#
 
-# ╔═╡ e034b9cb-f4ee-46f4-bea6-72c93c75d966
-# ╠═╡ skip_as_script = true
-#=╠═╡
-using DataFrames
-  ╠═╡ =#
-
-# ╔═╡ 666a4e89-306b-4fb2-bdc4-3dda2c63153f
-using SpecialFunctions
-
 # ╔═╡ df7f84e8-b42a-4001-9dbf-6bc3ced94207
-using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threads, Random, Distributions, Statistics, StatsBase, StaticArrays
+using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threads, Random, Distributions, Statistics, StatsBase, StaticArrays, DataFrames, SpecialFunctions
 
 # ╔═╡ d963ff6d-f1b6-4799-aa0e-1ae100310d84
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═╡ skip_as_script = true
@@ -35,7 +26,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 7cf26604-9c2b-4a77-9674-7d4dac2f99f0
-begin
+@only_in_nb begin
 	include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-11", "Chapter_11_Off_policy_Methods_with_Approximation.jl"))
@@ -276,6 +267,7 @@ The value of the state at this probability is: $v_2 = - \frac{2+p}{p(1-p)} = -\f
 """
 
 # ╔═╡ 9c342958-1971-48ec-b919-5dfdcbc915a4
+# ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
 #### Change Plot Background Color $(@bind bgcolor ColorStringPicker(default = "#121212"))
@@ -2360,8 +2352,8 @@ end
 # ╔═╡ 4fb83451-b6f8-4e6e-a131-1accc8e10b08
 #version of reinforce for general function approximation
 function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, value_params, ∇v̂, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, update_action_preferences!::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), action_preferences = zeros(T, length(mdp.actions)), epkwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
-	rewards = zeros(T, max_episodes)
-	steps = zeros(Int64, max_episodes)
+	rewards = Vector{Union{T, Missing}}(undef, max_episodes)
+	steps = Vector{Union{Int64, Missing}}(undef, max_episodes)
 	
 	π! = form_state_policy_function(update_feature_vector!, update_action_preferences!)
 	π(s) = π!(x, action_preferences, s, policy_params)
@@ -2374,24 +2366,26 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 	for i in eachindex(rewards)
 		# @info "On episode $i of $max_episodes"
 		state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π_sample, epkwargs...)
-		g = zero(T)
-		rtotal = zero(T)
-		#iterate through episode beginning at the end
-		for i in nsteps:-1:1
-			g = (γ * g) + reward_history[i]
-			update_feature_vector!(x, state_history[i])
-			v̂ = value_function(x, value_params)
-			δ = g - v̂
-			update_value_gradient!(∇v̂, x, value_params)
-			c = α_w*δ
-			update_params_with_gradient!(value_params, c, ∇v̂)
-			update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], policy_params)
-			c = α_θ * γ^(i-1) * δ
-			update_params_with_gradient!(policy_params, c, ∇lnπ)
-			rtotal += reward_history[i]
+		if mdp.isterm(sterm) #only update value function if an episode terminated in a terminal state successfully
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				update_feature_vector!(x, state_history[i])
+				v̂ = value_function(x, value_params)
+				δ = g - v̂
+				update_value_gradient!(∇v̂, x, value_params)
+				c = α_w*δ
+				update_params_with_gradient!(value_params, c, ∇v̂)
+				update_eligibility_vector!(∇lnπ, action_preferences, x, action_history[i], policy_params)
+				c = α_θ * γ^(i-1) * δ
+				update_params_with_gradient!(policy_params, c, ∇lnπ)
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
+			steps[i] = nsteps
 		end
-		rewards[i] = rtotal
-		steps[i] = nsteps
 	end
 
 	π2(s; feature_vector = deepcopy(x), action_preferences = copy(action_preferences)) = π!(feature_vector, action_preferences, s, policy_params)
@@ -2487,8 +2481,8 @@ end
 # ╔═╡ 5b868eba-c1af-49f6-8f93-79b78c319a6f
 #version of reinforce for general function approximation
 function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, value_params, ∇v̂, mdp::ContinuousMDP{T, S, A, PTF, F1, F2, F3}, update_action_distribution!::Function, action_dist_params::Vector{T}, action_sampler::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), epkwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
-	rewards = zeros(T, max_episodes)
-	steps = zeros(Int64, max_episodes)
+	rewards = Vector{Union{T, Missing}}(undef, max_episodes)
+	steps = Vector{Union{Int64, Missing}}(undef, max_episodes)
 	
 	π! = form_state_continuous_policy_function(update_feature_vector!, update_action_distribution!)
 	π(s) = π!(x, action_dist_params, s, policy_params)
@@ -2501,24 +2495,26 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 	for i in eachindex(rewards)
 		# @info "On episode $i of $max_episodes"
 		state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp, π_sample, epkwargs...)
-		g = zero(T)
-		rtotal = zero(T)
-		#iterate through episode beginning at the end
-		for i in nsteps:-1:1
-			g = (γ * g) + reward_history[i]
-			update_feature_vector!(x, state_history[i])
-			v̂ = value_function(x, value_params)
-			δ = g - v̂
-			update_value_gradient!(∇v̂, x, value_params)
-			c = α_w*δ
-			update_params_with_gradient!(value_params, c, ∇v̂)
-			update_eligibility_vector!(∇lnπ, action_dist_params, x, action_history[i], policy_params)
-			c = α_θ * γ^(i-1) * δ
-			update_params_with_gradient!(policy_params, c, ∇lnπ)
-			rtotal += reward_history[i]
+		if mdp.isterm(sterm) #if an episode does not terminate properly because the max steps have been reached then do not perform any learning updates
+			g = zero(T)
+			rtotal = zero(T)
+			#iterate through episode beginning at the end
+			for i in nsteps:-1:1
+				g = (γ * g) + reward_history[i]
+				update_feature_vector!(x, state_history[i])
+				v̂ = value_function(x, value_params)
+				δ = g - v̂
+				update_value_gradient!(∇v̂, x, value_params)
+				c = α_w*δ
+				update_params_with_gradient!(value_params, c, ∇v̂)
+				update_eligibility_vector!(∇lnπ, action_dist_params, x, action_history[i], policy_params)
+				c = α_θ * γ^(i-1) * δ
+				update_params_with_gradient!(policy_params, c, ∇lnπ)
+				rtotal += reward_history[i]
+			end
+			rewards[i] = rtotal
+			steps[i] = nsteps
 		end
-		rewards[i] = rtotal
-		steps[i] = nsteps
 	end
 
 	π2(s; feature_vector = deepcopy(x), action_dist_params = copy(action_dist_params)) = π!(feature_vector, action_dist_params, s, policy_params)
@@ -4958,7 +4954,7 @@ PlutoPlotly = "~0.3.6"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.50"
 ProgressLogging = "~0.1.4"
-SpecialFunctions = "~2.5.0"
+SpecialFunctions = "~2.5.1"
 StaticArrays = "~1.5.21"
 StatsBase = "~0.33.21"
 Transducers = "~0.4.75"
@@ -4970,7 +4966,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "695874c2ba63b66cdf77bceba1cf57321e617e46"
+project_hash = "5cb1f72ab9237ea96ad95e7b02e9f5e2defd1190"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -5292,9 +5288,9 @@ uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
 version = "0.3.1"
 
 [[deps.InlineStrings]]
-git-tree-sha1 = "6a9fde685a7ac1eb3495f8e812c5a7c3711c2d5e"
+git-tree-sha1 = "8594fac023c5ce1ef78260f24d1ad18b4327b420"
 uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
-version = "1.4.3"
+version = "1.4.4"
 
     [deps.InlineStrings.extensions]
     ArrowTypesExt = "ArrowTypes"
@@ -5701,9 +5697,9 @@ version = "1.11.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
-git-tree-sha1 = "64cca0c26b4f31ba18f13f6c12af7c85f478cfde"
+git-tree-sha1 = "41852b8679f78c8d8961eeadc8f62cef861a52e3"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
-version = "2.5.0"
+version = "2.5.1"
 
     [deps.SpecialFunctions.extensions]
     SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
@@ -6073,7 +6069,6 @@ version = "17.4.0+2"
 # ╟─37a273b6-b104-46f0-987a-401dc1c97327
 # ╟─8e742d32-c074-4981-b35b-b596b64c869b
 # ╟─b2539398-fdbc-42a2-a8f3-d327358f3643
-# ╠═e034b9cb-f4ee-46f4-bea6-72c93c75d966
 # ╠═64900586-ef92-48e4-839e-ff952a46671b
 # ╠═3c89209c-9202-4d5d-841c-ea34be369616
 # ╟─645e93e7-e92e-49c4-9757-8294fabf4e9b
@@ -6129,7 +6124,6 @@ version = "17.4.0+2"
 # ╟─692c1043-4eaf-491e-b8fe-368618867f99
 # ╟─3cfd63ad-b1a2-4b99-ae97-2ff10351e4f5
 # ╟─fd964539-2baf-4ff1-b286-5a0bb1b222c4
-# ╠═666a4e89-306b-4fb2-bdc4-3dda2c63153f
 # ╠═0b01ba67-3921-4f3f-a7e8-235190bc84eb
 # ╟─7bf209c8-ef0a-46d1-937e-b1a6e45dc62e
 # ╠═ad0009af-2cfc-4820-bd4a-698ad391f459

@@ -9,7 +9,7 @@ using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, StatsBase
 
 # ╔═╡ 702e5559-55b0-4392-af55-846886aa1244
 # ╠═╡ show_logs = false
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ 9b35e3ae-95c4-4fe6-a84e-df4e22ab85e2
 # ╠═╡ skip_as_script = true
@@ -21,7 +21,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ c8bae838-0549-48e3-b858-0c071334c0b7
-begin
+@only_in_nb begin
 	include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
 end

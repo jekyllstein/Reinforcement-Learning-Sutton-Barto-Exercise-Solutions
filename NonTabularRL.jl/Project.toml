@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 ApproximationUtils = "d30c7613-7be3-47bd-9ebc-e60dbcd590b6"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FCANN = "8c01af00-eda8-11e9-3d27-59b8c7aa8fdd"
 InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -30,6 +31,7 @@ NVIDIALibraries = {url = "https://github.com/Blackbody-Research/NVIDIALibraries.
 TailRec = {url = "https://github.com/TakekazuKATO/TailRec.jl"}
 
 [compat]
+DataFrames = "1.7.0"
 Distributions = "0.25.120"
 FCANN = "1.11.0"
 LinearAlgebra = "1.11.0"
