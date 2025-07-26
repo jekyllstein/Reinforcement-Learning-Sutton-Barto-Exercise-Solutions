@@ -532,10 +532,12 @@ figure_9_1()
   ╠═╡ =#
 
 # ╔═╡ 49320a88-206e-4283-b3fc-a5d1ac41ddc4
+#=╠═╡
 function smooth_error(error_history, n)
 	l = length(error_history)
 	[mean(error_history[i-n:i]) for i in n+1:l]
 end
+  ╠═╡ =#
 
 # ╔═╡ 3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
 # ╠═╡ skip_as_script = true
@@ -1260,6 +1262,9 @@ md"""
 ### *Neural Network Parameter Update Implementation*
 """
 
+# ╔═╡ 20b46a29-8b94-4ec7-bdd9-c23f6959cb60
+#update this to use new style of output for single examples found in Chapter 13 implementation
+
 # ╔═╡ eca42c3b-fa09-4999-b260-c5de95c2987c
 function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32}; λ = 0f0, c = Inf, dropout = 0f0)
 	input_layer_size = size(input, 2)
@@ -1305,10 +1310,11 @@ function update_input!(input::Matrix{Float32}, feature_vector::Vector{Float32}, 
 end
 
 # ╔═╡ ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
-function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2, dropout = 0f0, λ = 0f0, c = Inf) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
+function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2, dropout = 0f0, λ = 0f0, c = Inf, params::Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}} = FCANN.initializeparams_saxe(length(feature_vector), layers, 1, 1; use_μP = true)) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
 	s0 = problem.initialize_state()
 	update_feature_vector!(feature_vector, s0)
-	θ, β = FCANN.initializeparams_saxe(length(feature_vector), layers, 1, 1; use_μP = true)
+
+	(θ, β) = params
 
 	∇θ = deepcopy(θ)
 	∇β = deepcopy(β)
@@ -2169,16 +2175,15 @@ PlutoDevMacros = "~0.9.0"
 PlutoPlotly = "~0.5.0"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.59"
-Statistics = "~1.11.1"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "9b98d48d6bf9e14b16c62bf0541fe2aeda787431"
+project_hash = "1ba6a1147c14f7e439723a349a66439a2e48e639"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2745,6 +2750,7 @@ version = "17.4.0+2"
 # ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
 # ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
 # ╟─82828e72-5d30-41b6-a1b6-f258c234b034
+# ╠═20b46a29-8b94-4ec7-bdd9-c23f6959cb60
 # ╠═eca42c3b-fa09-4999-b260-c5de95c2987c
 # ╠═d1edfc31-23de-427a-9a08-51c4e33f3fc7
 # ╠═3ac65a54-1ff6-441c-8edf-00c49b620389

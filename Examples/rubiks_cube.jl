@@ -207,6 +207,11 @@ function update_rubiks_feature!(v::AbstractVector{T}, cube::AbstractVector{I}) w
 	return v
 end
 
+# ╔═╡ 36bd6bf0-daaa-4780-a58d-e87fa96ae19a
+function get_active_rubiks_features(cube::AbstractVector{I}) where I <: Integer
+	((i-1)*48 + cube[i] for i in eachindex(cube))
+end
+
 # ╔═╡ cd53cf28-6542-45aa-b9dc-38fa07f3e018
 function update_rubiks_feature2!(v::AbstractVector{T}, cube::AbstractVector{I}) where {T<:Real, I <: Integer}
 	v .= zero(T)
@@ -310,18 +315,34 @@ end
 # ╔═╡ 2040ffd4-f977-4c30-83a0-875b500099aa
 const solved_cube_feature = make_rubiks_feature(solved_cube_indices)
 
-# ╔═╡ 0403bc9e-05b0-4662-a3ec-f78f7205ab1f
+# ╔═╡ 7f12e90c-1dd5-49e4-91a1-786e3165c769
+md"""
+### Non-linear Method
+"""
 
+# ╔═╡ 117631f9-fb58-472c-8bbc-b952e7d3e5cd
+md"""
+## Policy Gradient Test
+"""
 
-# ╔═╡ 2f2a9538-8046-413f-945e-ea6fdc9809ed
-#=╠═╡
-show_rubiks_policy_eval(s -> test_dp_output.π_greedy((cube=s, move_count = 0, scramble_moves = 30)), 1000)
-  ╠═╡ =#
+# ╔═╡ 9cbb6de8-2e6c-4de3-85bc-3799d11d1190
+md"""
+### Linear Method
+"""
 
-# ╔═╡ 3f289f24-9992-45f0-81be-683e7e152199
-#=╠═╡
-show_rubiks_episode(s -> test_dp_output.π_greedy((cube=s, move_count = 0, scramble_moves = 30)); max_steps = 100, s0 = initialize_rubiks_cube(20))
-  ╠═╡ =#
+# ╔═╡ 65766205-306d-4bc8-b115-255b2d30d4a4
+get_active_rubiks_features(s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) = get_active_rubiks_features(s.cube)
+
+# ╔═╡ e9b929bb-9523-4f5c-b500-d02846e6a54b
+md"""
+### Non-linear Method
+"""
+
+# ╔═╡ 663e8f20-f61f-4b15-8888-a344263e6f39
+const reinforce_layers = [64, 64, 64]
+
+# ╔═╡ c0fbb0fe-e6da-4d2f-be2d-47e7c53d820a
+const reinforce_params = FCANN.initializeparams_saxe(48*48, reinforce_layers, 12)
 
 # ╔═╡ 7bc8ea32-92c8-4a80-a64e-44e6b2af408b
 # ╠═╡ disabled = true
@@ -339,10 +360,8 @@ show_rubiks_policy_eval(test_dp_output2.π_greedy, 1000)
 plot([1:1_000 |> Map(_ -> test_dp_output2.value_function(initialize_rubiks_cube(i))) |> mean for i in 1:30])
   ╠═╡ =#
 
-# ╔═╡ 7f12e90c-1dd5-49e4-91a1-786e3165c769
-md"""
-### Non-linear Method
-"""
+# ╔═╡ b5cfb230-e215-45d6-8b3c-811b3088ba9d
+
 
 # ╔═╡ d20f376b-7973-495f-811e-75a7fff0cd9c
 function update_rubiks_feature2!(v::AbstractVector{T}, s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) where T<:Real
@@ -660,8 +679,8 @@ depth = 3
 # ╔═╡ 7d3856b9-38e9-40dc-b9da-44ae94e94522
 layer_size = 1024
 
-# ╔═╡ 0acf8afd-166a-4057-8bdb-e7d95e761145
-layers = fill(layer_size, depth)
+# ╔═╡ c51f5247-732d-4096-9df9-4730cac95f5c
+const dp_params = FCANN.initializeparams_saxe(48*48, layers, 1, 1; use_μP = true)
 
 # ╔═╡ f674e316-f3e1-44bd-98eb-f5812c045c77
 #another idea is to do MCTS but for the prior distribution use the inner product with the solved cube which is also just a measure of how many facets are in the correct position
@@ -1228,14 +1247,127 @@ function run_dp_rubiks_linear_test(min_moves, max_moves; γ = 0.99f0, num_steps 
 end
 
 # ╔═╡ a538ead8-188b-4dd6-a105-a0c7a5d7d64f
-const test_dp_output = run_dp_rubiks_linear_test(1, 20; num_steps = 10_000_000, α = 1f-4)
-
-# ╔═╡ 26fcb97c-9d79-4638-a100-8eb8c59f1ef8
-test_dp_output.value_function(rubiks_mdp_td.initialize_state())
+const test_dp_output = run_dp_rubiks_linear_test(1, 10; num_steps = 100_000, α = 1f-4)
 
 # ╔═╡ 7b0af922-aca3-4e3b-b521-a01c6cd6889c
 #=╠═╡
 plot_rewards(test_dp_output.reward_history, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 2f2a9538-8046-413f-945e-ea6fdc9809ed
+#=╠═╡
+show_rubiks_policy_eval(s -> test_dp_output.π_greedy((cube=s, move_count = 0, scramble_moves = 30)), 1000)
+  ╠═╡ =#
+
+# ╔═╡ 42fd5833-8bc0-4ec7-ae5d-7c8ffa26f213
+const test_true_online_dp_output = run_dp_rubiks_linear_test(1, 10; num_steps = 1_000_000, α = 1f-4)
+
+# ╔═╡ cbdde832-a969-4e7f-93ac-51719866c435
+#=╠═╡
+plot_rewards(test_true_online_dp_output.reward_history, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 771c139e-45e6-487c-81b1-ff343e677814
+#=╠═╡
+show_rubiks_policy_eval(s -> test_true_online_dp_output.π_greedy((cube=s, move_count = 0, scramble_moves = 30)), 1000)
+  ╠═╡ =#
+
+# ╔═╡ 0403bc9e-05b0-4662-a3ec-f78f7205ab1f
+function run_true_online_dp_λ_rubiks_test(min_moves, max_moves; γ = 0.99f0, λ = 0.5f0, num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	output = NonTabularRL.dp_λ(mdp, γ, typemax(Int64), num_steps, copy(solved_cube_feature), update_rubiks_feature!; suppress_warning=true, kwargs...)
+	# emr = expected_maximum_reward(() -> rand(min_moves:max_moves))
+	(;output...) #, maximum_reward = emr)
+end
+
+# ╔═╡ 4f244f15-8f07-403c-a2b4-7b2cb9dc7284
+function run_dp_rubiks_fcann_test(min_moves, max_moves; γ = 0.99f0, layers = [8, 8], num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	run_fcann_semi_gradient_dp(mdp, γ, typemax(Int64), num_steps, copy(solved_cube_feature), update_rubiks_feature!, layers; suppress_warning=true, kwargs...)
+end
+
+# ╔═╡ 2ee24bf5-f148-45ef-b2f4-ba8aa0bf96be
+const test_fcann_dp_output = run_dp_rubiks_fcann_test(3, 9; num_steps = 1_000_000, α = 2f-2, layers = layers, fcann_params = dp_params, λ = 0.01f0)
+
+# ╔═╡ bec0a916-9689-482f-9008-15f035057838
+#=╠═╡
+plot_rewards(test_fcann_dp_output.reward_history, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 6aa509fa-a762-4571-8d88-360959cbb670
+#=╠═╡
+show_rubiks_policy_eval(s -> test_fcann_dp_output.π_greedy((cube=s, move_count = 0, scramble_moves = 30)), 100)
+  ╠═╡ =#
+
+# ╔═╡ e0c111f5-df30-4b78-bae7-91017f590aca
+function run_dp_λ_linear_test(min_moves, max_moves; γ = 0.99f0, λ = 0.5f0, num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	dp_λ(mdp, γ, λ, typemax(Int64), num_steps, 48*48, get_active_rubiks_features; algo! = true_online_dp_λ!, kwargs...)
+end
+
+# ╔═╡ 53deacba-34e9-418c-9917-67450b24aed5
+const test_dp_λ_output = run_dp_λ_linear_test(1, 2; num_steps = 100_000, α = 1f-6, λ = .01f0, save_step_rewards=true, save_episode_steps = true)
+
+# ╔═╡ d96d5300-92a6-42fa-b635-0ce923e1c28c
+#=╠═╡
+plot_rewards(test_dp_λ_output.history.step_rewards[Int64.(test_dp_λ_output.history.episode_steps)], 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 7adff677-3a78-4f71-a1eb-e6ba8427750f
+function run_reinforce_linear_test(min_moves, max_moves, max_episodes; γ = 0.99f0, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	reinforce_with_baseline_monte_carlo_control_binary_features(mdp, get_active_rubiks_features, 48*48, max_episodes; γ = γ, kwargs...)
+end
+
+# ╔═╡ edb7a3e3-6820-4a3d-883f-75e5d2cd51b9
+const test_reinforce_linear_output = run_reinforce_linear_test(1, 10, 1_000_000; α_w = 1f-3, α_θ = 1f-2)
+
+# ╔═╡ ec7ecb86-bcbc-489e-9837-1c9376f186a0
+#=╠═╡
+plot_rewards(test_reinforce_linear_output.episode_rewards, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 17f416c7-f6e2-453b-831e-8b25d243ca2b
+#=╠═╡
+show_rubiks_policy_eval(s -> test_reinforce_linear_output.policy_sample_action((cube=s, scramble_moves = 30, move_count = 0)), 1000)
+  ╠═╡ =#
+
+# ╔═╡ 8b0eec08-6631-44ba-b7d0-7256bbc54d7a
+function run_actor_critic_linear_test(min_moves, max_moves; γ = 0.99f0, λ_θ = 0.5f0, λ_w = 0.5f0, num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	actor_critic_with_eligibility_traces_binary_features(mdp, λ_θ, λ_w, get_active_rubiks_features, 48*48, typemax(Int64), num_steps; γ = γ, kwargs...)
+end
+
+# ╔═╡ ff414e10-01aa-4974-a439-6cd8177f0641
+const test_actor_critic_linear_output = run_actor_critic_linear_test(1, 10; num_steps = 1_000_000, λ_θ = 0.5f0, λ_w = 0.5f0, α_w = 1f-4, α_θ = 1f-3)
+
+# ╔═╡ f3652fcb-5e91-4d91-900f-ee6620b49566
+#=╠═╡
+plot_rewards(test_actor_critic_linear_output.episode_rewards, 100, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 72198eaf-7604-4fba-b631-17c64d2bdf5f
+#=╠═╡
+show_rubiks_policy_eval(s -> test_actor_critic_linear_output.policy_sample_action((cube=s, scramble_moves = 30, move_count = 0)), 1000)
+  ╠═╡ =#
+
+# ╔═╡ 81bfe46c-826c-4449-9c36-50d9c8db6a6f
+function run_reinforce_fcann_test(min_moves, max_moves, max_episodes, layers; γ = 0.99f0, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	reinforce_with_baseline_monte_carlo_control_fcann(mdp, 48*48, layers, update_rubiks_feature!, max_episodes; γ = γ, kwargs...)
+end
+
+# ╔═╡ 50ed3ba0-7382-4f37-800a-d03381f7cced
+const test_reinforce_fcann_output = run_reinforce_fcann_test(1, 5, 10_000, reinforce_layers; α_w = 2f-5, α_θ = 1f-2, policy_params = reinforce_params)
+
+# ╔═╡ ba078390-675d-42d4-86bb-9d7dfbfff70f
+#=╠═╡
+plot_rewards(test_reinforce_fcann_output.episode_rewards, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ af89b5fa-b3a9-47e4-87b1-15378f1115b4
+#=╠═╡
+show_rubiks_policy_eval(s -> test_reinforce_fcann_output.policy_sample_action((cube=s, scramble_moves = 30, move_count = 0)), 100)
   ╠═╡ =#
 
 # ╔═╡ b86c7a49-5769-49b5-945d-e54a0a2a2c86
@@ -1731,6 +1863,11 @@ show_rubiks_episode(s -> test_sarsa_output.value_function(s)[2]; max_steps = 100
 show_rubiks_episode(s -> test_dp_output.π_greedy((cube=s, move_count = 0, scramble_moves = 30)); max_steps = 100, s0 = initialize_rubiks_cube(6))
   ╠═╡ =#
 
+# ╔═╡ ee4ac3ec-d6c4-48d2-ab35-304b2ebb2367
+#=╠═╡
+show_rubiks_episode(s -> test_fcann_dp_output.π_greedy((cube=s, move_count = 0, scramble_moves = 30)); max_steps = 100, s0 = initialize_rubiks_cube(20))
+  ╠═╡ =#
+
 # ╔═╡ e9e35805-f669-42ee-b0dc-51ab8c800d2f
 #=╠═╡
 mcts_output = show_rubiks_episode(s -> rubiks_mcts_policy(s; nsims = 100, depth = 10, c = 0.5f0); max_steps = 10, s0 = mcts_s0)
@@ -1764,6 +1901,15 @@ show_rubiks_episode(s -> rubik_sarsa_test.value_function(s)[2]; max_steps = 100,
 #=╠═╡
 render_cube(solved_cube_values)
   ╠═╡ =#
+
+# ╔═╡ 0acf8afd-166a-4057-8bdb-e7d95e761145
+# ╠═╡ disabled = true
+#=╠═╡
+layers = fill(layer_size, depth)
+  ╠═╡ =#
+
+# ╔═╡ edaf3a59-808c-47dd-a331-d9bb5465d9ac
+const layers = [64, 64, 64]
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2412,6 +2558,7 @@ version = "17.4.0+2"
 # ╟─db9454b3-4ee0-4f16-9649-791a9e246939
 # ╠═afad0f03-8b3d-4348-9570-9fe9489f0cb5
 # ╠═6aec543d-eec2-47f3-9dbf-2631688e1112
+# ╠═36bd6bf0-daaa-4780-a58d-e87fa96ae19a
 # ╠═cd53cf28-6542-45aa-b9dc-38fa07f3e018
 # ╠═5f6ed356-71c3-44a1-ae1f-ac8ed55a1c2b
 # ╠═09538cca-7da3-4d48-9541-90f00acce794
@@ -2450,17 +2597,47 @@ version = "17.4.0+2"
 # ╠═97f64a35-b10d-4c3d-ac28-468110f9177f
 # ╠═d163d3cd-e8ca-44fb-81b2-66a2e1a92812
 # ╠═a538ead8-188b-4dd6-a105-a0c7a5d7d64f
-# ╠═26fcb97c-9d79-4638-a100-8eb8c59f1ef8
 # ╠═7b0af922-aca3-4e3b-b521-a01c6cd6889c
 # ╠═1341aded-632b-4650-a4b6-de5c38fdda99
-# ╠═0403bc9e-05b0-4662-a3ec-f78f7205ab1f
 # ╠═2f2a9538-8046-413f-945e-ea6fdc9809ed
-# ╠═3f289f24-9992-45f0-81be-683e7e152199
+# ╠═0403bc9e-05b0-4662-a3ec-f78f7205ab1f
+# ╠═42fd5833-8bc0-4ec7-ae5d-7c8ffa26f213
+# ╠═cbdde832-a969-4e7f-93ac-51719866c435
+# ╠═771c139e-45e6-487c-81b1-ff343e677814
+# ╟─7f12e90c-1dd5-49e4-91a1-786e3165c769
+# ╠═4f244f15-8f07-403c-a2b4-7b2cb9dc7284
+# ╠═edaf3a59-808c-47dd-a331-d9bb5465d9ac
+# ╠═c51f5247-732d-4096-9df9-4730cac95f5c
+# ╠═2ee24bf5-f148-45ef-b2f4-ba8aa0bf96be
+# ╠═bec0a916-9689-482f-9008-15f035057838
+# ╠═6aa509fa-a762-4571-8d88-360959cbb670
+# ╠═ee4ac3ec-d6c4-48d2-ab35-304b2ebb2367
+# ╠═e0c111f5-df30-4b78-bae7-91017f590aca
+# ╠═53deacba-34e9-418c-9917-67450b24aed5
+# ╠═d96d5300-92a6-42fa-b635-0ce923e1c28c
+# ╟─117631f9-fb58-472c-8bbc-b952e7d3e5cd
+# ╟─9cbb6de8-2e6c-4de3-85bc-3799d11d1190
+# ╠═65766205-306d-4bc8-b115-255b2d30d4a4
+# ╠═7adff677-3a78-4f71-a1eb-e6ba8427750f
+# ╠═edb7a3e3-6820-4a3d-883f-75e5d2cd51b9
+# ╠═ec7ecb86-bcbc-489e-9837-1c9376f186a0
+# ╠═17f416c7-f6e2-453b-831e-8b25d243ca2b
+# ╠═8b0eec08-6631-44ba-b7d0-7256bbc54d7a
+# ╠═ff414e10-01aa-4974-a439-6cd8177f0641
+# ╠═f3652fcb-5e91-4d91-900f-ee6620b49566
+# ╠═72198eaf-7604-4fba-b631-17c64d2bdf5f
+# ╟─e9b929bb-9523-4f5c-b500-d02846e6a54b
+# ╠═81bfe46c-826c-4449-9c36-50d9c8db6a6f
+# ╠═663e8f20-f61f-4b15-8888-a344263e6f39
+# ╠═c0fbb0fe-e6da-4d2f-be2d-47e7c53d820a
+# ╠═50ed3ba0-7382-4f37-800a-d03381f7cced
+# ╠═ba078390-675d-42d4-86bb-9d7dfbfff70f
+# ╠═af89b5fa-b3a9-47e4-87b1-15378f1115b4
 # ╠═f55b65e0-cb95-4403-a632-d95c50c893a9
 # ╠═7bc8ea32-92c8-4a80-a64e-44e6b2af408b
 # ╠═9899c955-e5f5-413a-ba9e-cd57dda60eb4
 # ╠═77bb49f2-1c14-48ca-8d10-34000e6b4541
-# ╟─7f12e90c-1dd5-49e4-91a1-786e3165c769
+# ╠═b5cfb230-e215-45d6-8b3c-811b3088ba9d
 # ╠═d20f376b-7973-495f-811e-75a7fff0cd9c
 # ╠═b86c7a49-5769-49b5-945d-e54a0a2a2c86
 # ╠═c8c3a104-0183-4e1b-9d9d-b2e2c6248f4c

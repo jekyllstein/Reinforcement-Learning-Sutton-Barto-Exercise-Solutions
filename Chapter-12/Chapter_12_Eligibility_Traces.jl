@@ -1888,6 +1888,9 @@ begin
 	end
 end
 
+# ╔═╡ a7c8d853-9411-40df-83a3-46da00722697
+# Add dp_λ implementation for linear features, fcann, and generic
+
 # ╔═╡ 51274911-2eaa-4b18-b977-d0f735746bec
 md"""
 ### *Example: Sarsa(λ) Gridworld Solution*
@@ -5254,6 +5257,7 @@ version = "17.4.0+2"
 # ╠═cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
 # ╟─31926565-8c2f-42a9-bc73-4f3001a38bf4
 # ╠═8c95178c-8e75-4036-b0cb-bec936dcbd28
+# ╠═a7c8d853-9411-40df-83a3-46da00722697
 # ╟─51274911-2eaa-4b18-b977-d0f735746bec
 # ╟─afa6843b-9852-42c0-9ecd-06c408262334
 # ╟─4b1d86d8-e6b9-4d09-b2a1-8c297414094c

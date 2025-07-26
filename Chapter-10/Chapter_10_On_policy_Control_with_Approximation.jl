@@ -2013,8 +2013,8 @@ show_mountaincar_trajectory(π_greedy_dp, 1_000, "DP Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ 00e7783f-7f17-4944-a085-ea87509cd75a
-function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where T<:Real
-	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
+function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, fcann_params::Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}} = FCANN.initializeparams_saxe(length(state_representation), layers, 1, 1; use_μP = true), kwargs...) where T<:Real
+	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; params = fcann_params, λ = λ, c = c, dropout = dropout)
 	l = length(state_representation)
 	num_actions = length(mdp.actions)
 	episode_rewards, episode_steps = semi_gradient_dp!(setup.parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
