@@ -129,23 +129,42 @@ end
 
 # ╔═╡ d1e4e1d5-0c14-4aaa-95c6-f741f83fce0d
 #this represents anything that could be used with linear function approximation which is either a vector, a binary feature vector, or a state aggregation feature vector which just stores the group_index
-const LinearFeatureVector{I} = Union{C1, C2, C3} where {I <: Integer, C1 <: Vector{I}, N, C2 <: BinaryFeatureVector{I, N}, C3 <: StateAggregationFeatureVector{I, N}}
+const LinearFeatureVector{I} = Union{C1, C2, C3} where {I <: Integer, T<:Real, C1 <: Vector{T}, N, C2 <: BinaryFeatureVector{I, N}, C3 <: StateAggregationFeatureVector{I, N}}
 
 # ╔═╡ 76fb06c4-0841-40a2-996e-cb9a555ffc34
-#here active_features is just something that can be enumerated
-function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, active_features::LinearFeatures{I}) where {I <: Integer, N}
-	l = length(x.active_features)
-	n = 0
-	for (i, f) in enumerate(active_features)
-		if i > l 
-			push!(x.active_features, f)
-		else
-			x.active_features[i] = f
+begin
+	#here active_features is just something that can be enumerated
+	function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, active_features::LinearFeatures{I}) where {I <: Integer, N}
+		l = length(x.active_features)
+		n = 0
+		for (i, f) in enumerate(active_features)
+			if i > l 
+				push!(x.active_features, f)
+			else
+				x.active_features[i] = f
+			end
+			n += 1
 		end
-		n += 1
+		x.num_features = n
+		return x
 	end
-	x.num_features = n
-	return x
+
+	function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, y::BinaryFeatureVector{I, N}) where {I <: Integer, N}
+		l1, l2 = extrema((x.num_features, y.num_features))
+		
+		#replace the features for the indices that have already been allocated
+		@inbounds @simd for i in 1:l1
+			x.active_features[i] = y.active_features[i]
+		end
+
+		#add any new indices required for x
+		for i in l1+1:l2
+			push!(x.active_features, y.active_features[i])
+		end
+		x.num_features = y.num_features
+		
+		return x
+	end
 end
 
 # ╔═╡ f8bc8f92-a9c6-4b7b-9a8e-48fbb1f85e6c
@@ -191,16 +210,17 @@ begin
 	#for a linear function the gradient is just the feature vector
 	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
 		∇v̂ .= x
+		return ∇v̂
 	end
 
 	#with binary features we only need to store the active features
 	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params::Vector{T}) where T<:Real
-		∇v̂.active_features = binary_features.active_features
-		∇v̂.num_features = binary_features.num_features
+		update_binary_feature_vector!(∇v̂, binary_features)
 	end
 
 	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params::Vector{T}) where T<:Real
 		∇v̂.group_index = feature_vector.group_index
+		return ∇v̂
 	end
 end
 
@@ -814,43 +834,16 @@ md"""
 For generic linear methods, the parameter update will require a gradient vector and a state representation vector that matches the length of the parameters.  To define a linear method then, all that is required is a function that converts a state to the state representation vector.
 """
 
-# ╔═╡ 1cff7c63-d36e-4d69-b7f0-0da272d80f5d
-# ╠═╡ disabled = true
-#=╠═╡
-
-  ╠═╡ =#
-
 # ╔═╡ c3732b25-94fd-4061-aab8-36fc39d739a1
 md"""
 In order to define a linear method, one must provide a state representation vector which will be the same length as the parameter vector as well as a function to update that representation for a given state.  The update function will be called as `update_feature_vector!(state_representation, s)`
 """
-
-# ╔═╡ 8ed8530f-4569-4429-92fc-3c3b1752475b
-
-
-# ╔═╡ a768e279-1425-4787-ad55-f60521032fd0
-
-
-# ╔═╡ bc30f272-1f5a-4777-95fb-d0827f98909f
-
 
 # ╔═╡ c737c14b-2ad6-4d95-9795-2b87f6f722cb
 semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 3307300f-cd72-4f16-bc46-39115a32e2ca
 semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
-
-# ╔═╡ cfe0f735-2d3e-4f2d-9e85-e57bc97ce279
-
-
-# ╔═╡ a9e110fd-fa91-4e41-b9a9-bf9b6df5f557
-
-
-# ╔═╡ 59422aaf-6ab2-4b75-86c0-cb2ccc746641
-
-
-# ╔═╡ dbb20e1c-763c-461b-bf6e-dbfbc4960742
-
 
 # ╔═╡ 645ba5fc-8575-4b8f-8982-f8bd20ac27ff
 #=╠═╡
@@ -870,12 +863,6 @@ semi_gradient_td0_estimation_state_aggregation(mrp::StateMRP, γ::Real, max_epis
 #=╠═╡
 semi_gradient_td0_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
   ╠═╡ =#
-
-# ╔═╡ 31818c4e-751e-4a89-835a-d283986326b8
-
-
-# ╔═╡ 47e47503-64f3-484e-b2d5-b91507b13c79
-
 
 # ╔═╡ cf9d7c7d-4519-410a-8a05-af90312e291c
 #=╠═╡
@@ -1028,7 +1015,9 @@ function order_features_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, S
 		end
 	end
 
-	(feature_vector_update = update_feature_vector!, num_features = l)
+	x = zeros(T, l)
+
+	(feature_vector = x, update_feature_vector! = update_feature_vector!)
 end
 
 # ╔═╡ bc2e52ff-7f47-4141-aff1-e752fe217f6a
@@ -1074,18 +1063,9 @@ end
 # ╔═╡ 56212ab2-833a-4dec-bcdd-21bce1d680b6
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function show_random_walk_linear_results(update_feature_vector!::Function, num_features::Integer, num_episodes, α_mc, α_td, name; nsmooth = 100)
-	v̂_mc, mc_error = gradient_monte_carlo_estimation_linear_features(random_walk_state_mrp, 1f0, num_episodes, update_feature_vector!, num_features; α = α_mc, calculate_error = calc_random_walk_ve)
-	v̂_td, td_history = semi_gradient_td0_estimation_linear_features(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), update_feature_vector!, num_features; α = α_td, calculate_error = calc_random_walk_ve)
-	show_random_walk_results((v̂_mc, mc_error), (v̂_td, td_history), name, nsmooth)
-end
-  ╠═╡ =#
-
-# ╔═╡ a8fd343c-aac3-413b-be73-55c9a125baea
-#=╠═╡
-function show_random_walk_binary_feature_results(get_active_features::Function, num_features::Integer, num_episodes, α_mc, α_td, name; nsmooth = 100)
-	v̂_mc, mc_error = gradient_monte_carlo_estimation_binary_features(random_walk_state_mrp, 1f0, num_episodes, get_active_features, num_features; α = α_mc, calculate_error = calc_random_walk_ve)
-	v̂_td, td_history = semi_gradient_td0_estimation_binary_features(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), get_active_features, num_features; α = α_td, calculate_error = calc_random_walk_ve)
+function show_random_walk_linear_results(feature_vector::LinearFeatureVector, update_feature_vector!::Function, num_episodes, α_mc::T, α_td::T, name; nsmooth = 100) where T<:Real
+	v̂_mc, mc_error = gradient_monte_carlo_estimation_linear(random_walk_state_mrp, 1f0, num_episodes, feature_vector, update_feature_vector!; α = α_mc, calculate_error = calc_random_walk_ve)
+	v̂_td, td_history = semi_gradient_td0_estimation_linear(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), feature_vector, update_feature_vector!; α = α_td, calculate_error = calc_random_walk_ve)
 	show_random_walk_results((v̂_mc, mc_error), (v̂_td, td_history), name, nsmooth)
 end
   ╠═╡ =#
@@ -1104,11 +1084,6 @@ end |> confirm
 # ╔═╡ 994f8556-964c-4c6b-8cfe-6f6a99c1ba29
 #=╠═╡
 show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, poly_feature_params.order_num, 1f0, Float32(num_states), calc_poly_feature)..., 25_000, poly_feature_params.α_mc, poly_feature_params.α_td, "Polynomial Basis Function Approximation")
-  ╠═╡ =#
-
-# ╔═╡ 8282f26f-47c1-4df2-9c40-1b8d50b7cb76
-#=╠═╡
-order_features_setup(random_walk_state_mrp, poly_feature_params.order_num, 1f0, Float32(num_states), calc_poly_feature)
   ╠═╡ =#
 
 # ╔═╡ ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
@@ -1219,53 +1194,19 @@ Tile coding is a form of coarse coding where each state will be present in one d
 # ╔═╡ d215b917-c43d-4c14-aa97-2310f922d71a
 scale_state(s::T, min_value::T, range::T) where T<:Real = (s - min_value) / range
 
-# ╔═╡ 09fb1fcd-55f9-4e04-bdb5-e5cdc649370b
-begin
-	#calculates which tile a state is in for the tiling represented by one offset
-	function get_active_tile_features(state::T, offset::T, d::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where T<:Real
-		l = num_tiles*num_tilings
-		(begin
-			i = max(1, ceil(Int64, (scale_state(state, min_value, range) + offset*d*(tiling-1)) / tile_size))
-			min(i + (tiling - 1)*num_tiles, l)
-		end
-		for tiling in 1:num_tilings)
-	end
-
-	function get_active_tile_features(state::NTuple{N, T}, offset::NTuple{N, T}, displacement::NTuple{N, Int64}, num_tilings::Integer, tile_size::NTuple{N, T}, num_tiles::NTuple{N, Int64}, min_values::NTuple{N, T}, ranges::NTuple{N, T}) where {N, T<:Real}
-		total_tiles = prod(num_tiles)
-		l = total_tiles*num_tilings
-		(begin
-			base = 1
-			index = 0
-			for d in 1:N
-				i = max(1, ceil(Int64, (scale_state(state[d], min_values[d], ranges[d]) + offset[d]*displacement[d]*(tiling - 1)) / tile_size[d]))
-				index += i * base
-				base *= num_tiles[d]
-			end
-			min(index + (tiling - 1)*total_tiles, l)
-		end
-		for tiling in 1:num_tilings)
-	end
-end
-
-# ╔═╡ c3783065-4204-486a-ac2e-de18364f2dfe
-#it would be better if I could just directly update the binary feature vector with this function instead of needing to make a generator function
-
 # ╔═╡ 35d6dd59-1fd3-4aad-b24f-82dd466bcb83
 begin
 	#calculates which tile a state is in for the tiling represented by one offset
-	function update_tile_features!(x::Vector{T}, state::T, offset::T, d::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where T<:Real
-		x .= zero(T)
+	function update_tile_features!(x::Vector{I}, state::T, offset::T, d::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where {I<:Integer, T<:Real}
 		l = num_tiles*num_tilings
 		for tiling in 1:num_tilings
 			i = max(1, ceil(Int64, (scale_state(state, min_value, range) + offset*d*(tiling-1)) / tile_size))
-			x[min(i + (tiling - 1)*num_tiles, l)] = one(T)
+			x[tiling] = min(i + (tiling - 1)*num_tiles, l)
 		end
 		return x
 	end
 
-	function update_tile_features!(x::Vector{T}, state::NTuple{N, T}, offset::NTuple{N, T}, displacement::NTuple{N, Int64}, num_tilings::Integer, tile_size::NTuple{N, T}, num_tiles::NTuple{N, Int64}, min_values::NTuple{N, T}, ranges::NTuple{N, T}) where {N, T<:Real}
-		x .= zero(T)
+	function update_tile_features!(x::Vector{I}, state::NTuple{N, T}, offset::NTuple{N, T}, displacement::NTuple{N, Int64}, num_tilings::Integer, tile_size::NTuple{N, T}, num_tiles::NTuple{N, Int64}, min_values::NTuple{N, T}, ranges::NTuple{N, T}) where {I <: Integer, N, T<:Real}
 		total_tiles = prod(num_tiles)
 		l = total_tiles*num_tilings
 		for tiling in 1:num_tilings
@@ -1276,14 +1217,14 @@ begin
 				index += i * base
 				base *= num_tiles[d]
 			end
-			x[min(index + (tiling - 1)*total_tiles, l)] = one(T)
+			x[tiling] = min(index + (tiling - 1)*total_tiles, l)
 		end
 		return x
 	end
 end
 
 # ╔═╡ bb81db16-7c4d-4e08-bf17-45147be2b0db
-function tile_coding_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
 	#states must be tuples with k elements or some number value
 	k = S == T ? 1 : N
 
@@ -1325,15 +1266,36 @@ function tile_coding_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, Stat
 	#the vector representing how much each offset is shifted from the base for single unit shifts
 	offset = k == 1 ? tile_size/num_tilings/max_d : Tuple(T(l/num_tilings/max_d) for l in tile_size)
 
-	get_active_features(s::S) = get_active_tile_features(s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
-	update_features!(x, s) = update_tile_features!(x, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
-	function get_feature_vector(s::S)
-		x = zeros(T, num_features)
-		update_features!(x, s)
+	feature_vector = BinaryFeatureVector(num_features)
+
+	#this vector will be updated with the active features
+	tiling_features = zeros(Int64, num_tilings)
+
+	function update_feature_vector!(x::BinaryFeatureVector, s::S)
+		update_tile_features!(tiling_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+		update_binary_feature_vector!(x, tiling_features)
+	end
+
+	function update_feature_vector!(x::Vector{T}, s::S)
+		update_tile_features!(tiling_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+		x .= zero(T)
+		@inbounds @simd for i in tiling_features
+			x[i] = one(T)
+		end
 		return x
 	end
 
-	(get_active_features = get_active_features, num_features = num_features, feature_vector_update = update_features!, get_feature_vector = get_feature_vector)
+	function get_feature_vector(s::S)
+		x = zeros(T, num_features)
+		update_feature_vector!(x, s)
+	end
+
+	function get_active_features(s::S)
+		update_feature_vector!(feature_vector, s)
+		(feature_vector.active_features[i] for i in 1:feature_vector.num_features)
+	end
+
+	(feature_vector = feature_vector, update_feature_vector! = update_feature_vector!, num_features = num_features, get_active_features = get_active_features, get_feature_vector = get_feature_vector)
 end
 
 # ╔═╡ e6514762-31e0-4916-aa21-c280674c2fc1
@@ -1356,7 +1318,7 @@ end |> confirm
 
 # ╔═╡ dda74c94-3574-4e7b-bab1-d106111d36d4
 #=╠═╡
-tile_coding_test = tile_coding_setup(random_walk_state_mrp, 0f0, 1000f0, Float32(tile_coding_params.tile_size), tile_coding_params.num_tilings, 1)
+tile_coding_test = tile_coding_feature_setup(random_walk_state_mrp, 0f0, 1000f0, Float32(tile_coding_params.tile_size), tile_coding_params.num_tilings, 1)
   ╠═╡ =#
 
 # ╔═╡ d17926d5-bcfa-4789-9609-59a69d87d194
@@ -1407,8 +1369,8 @@ end |> confirm
 # ╔═╡ b5a3a529-2d74-4757-9d38-2eae28396d02
 #=╠═╡
 let
-	setup = tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_coding_learning_params.tile_size, tile_coding_learning_params.num_tilings, 1)
-	show_random_walk_linear_results(setup.feature_vector_update, setup.num_features, 10_000, tile_coding_learning_params.α_mc, tile_coding_learning_params.α_td, "Tile Coding Function Approximation")
+	setup = tile_coding_feature_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_coding_learning_params.tile_size, tile_coding_learning_params.num_tilings, 1)
+	show_random_walk_linear_results(setup.feature_vector, setup.update_feature_vector!, 10_000, tile_coding_learning_params.α_mc, tile_coding_learning_params.α_td, "Tile Coding Function Approximation")
 end
   ╠═╡ =#
 
@@ -1480,9 +1442,6 @@ md"""
 md"""
 ### *Neural Network Parameter Update Implementation*
 """
-
-# ╔═╡ 20b46a29-8b94-4ec7-bdd9-c23f6959cb60
-#update this to use new style of output for single examples found in Chapter 13 implementation
 
 # ╔═╡ 2cd5dc6e-16d0-451b-a72a-5eb6cfeb4ba4
 function fcann_value_function(x::Vector{T}, params::FCANNParams, activations::FCANNActivations{T}, reslayers::Integer) where T<:Float32
@@ -1561,7 +1520,7 @@ end
 # ╔═╡ d81d8f7d-ed32-405d-b0c8-2ceff5845578
 function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
-	(value_function, history, step_rewards, params) = semi_gradient_td0_estimation!(params, setup.gradient, mrp, γ, max_episodes, max_steps, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient_update!; kwargs...)
+	(value_function, history, step_rewards, params) = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.gradient_update!; kwargs...)
 
 	#this version of the value function can be run with multiple threads
 	v̂(s; activations = deepcopy(setup.activations), kwargs...) = value_function(s; activations = activations, kwargs...)
@@ -1572,7 +1531,7 @@ end
 # ╔═╡ 4a3a4635-a046-4eec-ab95-2dce74ac0fbe
 function semi_gradient_td0_estimation_fcann(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
-	(value_function, history, step_rewards, params) = semi_gradient_td0_policy_estimation!(params, setup.gradient, mdp, π, γ, max_episodes, max_steps, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient_update!; kwargs...)
+	(value_function, history, step_rewards, params) = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.gradient_update!; kwargs...)
 
 	#this version of the value function can be run with multiple threads
 	v̂(s; activations = deepcopy(setup.activations), kwargs...) = value_function(s; activations = activations, kwargs...)
@@ -1580,39 +1539,15 @@ function semi_gradient_td0_estimation_fcann(mdp::StateMDP, π::Function, γ::T, 
 	(value_function = v̂, error_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
 end
 
+# ╔═╡ 808026eb-4c5a-4f38-bb16-bbb1b2915906
+md"""
+### *Neural Network GPU Implementation*
+"""
+
 # ╔═╡ 3ac65a54-1ff6-441c-8edf-00c49b620389
 # ╠═╡ disabled = true
 #=╠═╡
 import NVIDIALibraries.DeviceArray.CUDAArray
-  ╠═╡ =#
-
-# ╔═╡ eca42c3b-fa09-4999-b260-c5de95c2987c
-# ╠═╡ disabled = true
-#=╠═╡
-function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32}; λ = 0f0, c = Inf, dropout = 0f0)
-	input_layer_size = size(input, 2)
-	FCANN.nnCostFunction(θs, βs, input_layer_size, layers, input, output, λ, ∇θ, ∇β, ∇tanh_z, activations, δs, onesvec, dropout; costFunc = "sqErr", resLayers = 1)
-	FCANN.updateParams!(α, θs, βs, ∇θ, ∇β, scales)
-	if !isinf(c)
-		FCANN.scaleParams!(θs[1:end-1], βs[1:end-1], c)
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ d1edfc31-23de-427a-9a08-51c4e33f3fc7
-# ╠═╡ disabled = true
-#=╠═╡
-function update_nn_parameters!(θs::Vector{Matrix{Float32}}, βs::Vector{Vector{Float32}}, layers::Vector{Int64}, ∇θ::Vector{Matrix{Float32}}, ∇β::Vector{Vector{Float32}}, input::Matrix{Float32}, output::Matrix{Float32}, ∇tanh_z::Vector{Matrix{Float32}}, activations::Vector{Matrix{Float32}}, δs::Vector{Matrix{Float32}}, onesvec::Vector{Float32}, α::Float32, scales::Vector{Float32}, mT, mB, vT, vB, t; λ = 0f0, c = Inf, dropout = 0f0)
-	input_layer_size = size(input, 2)
-	FCANN.nnCostFunction(θs, βs, input_layer_size, layers, input, output, λ, ∇θ, ∇β, ∇tanh_z, activations, δs, onesvec; costFunc = "sqErr", resLayers = 1)
-	FCANN.updateM!(0.9f0, mT, mB, ∇θ, ∇β)
-	FCANN.updateV!(0.999f0, vT, vB, ∇θ, ∇β)
-	FCANN.updateParams!(α, 0.9f0, θs, βs, mT, mB, vT, vB, t, scales)
-	if !isinf(c)
-		FCANN.scaleParams!(θs[1:end-1], βs[1:end-1], c)
-	end
-	# FCANN.updateEst!(0.999f0, t, θs, βs, θ_avg, β_avg, θ_est, β_est)
-end
   ╠═╡ =#
 
 # ╔═╡ dd907b31-24f1-46f6-a2d5-7dd268530c94
@@ -1625,78 +1560,6 @@ function update_nn_parameters!(θs::Vector{CUDAArray}, βs::Vector{CUDAArray}, l
 	if !isinf(c)
 		FCANN.scaleThetas!(θs[1:end-1], ∇θ[1:end-1], onesvec_params, normvec_params, c)
 	end
-end
-  ╠═╡ =#
-
-# ╔═╡ 55f451b2-dcff-4442-a1ea-ac2c53433298
-# ╠═╡ disabled = true
-#=╠═╡
-function update_input!(input::Matrix{Float32}, feature_vector::Vector{Float32}, num::Integer)
-	for i in eachindex(feature_vector)
-		input[num, i] = feature_vector[i]
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
-#=╠═╡
-function fcann_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2, dropout = 0f0, λ = 0f0, c = Inf, params::Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}} = FCANN.initializeparams_saxe(length(feature_vector), layers, 1, 1; use_μP = true)) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
-	s0 = problem.initialize_state()
-	update_feature_vector!(feature_vector, s0)
-
-	(θ, β) = params
-
-	∇θ = deepcopy(θ)
-	∇β = deepcopy(β)
-	∇tanh_z = FCANN.form_tanh_grads(layers, 1)
-	
-
-	function setup_training(batch_size::Integer)
-		activations = [zeros(Float32, batch_size, l) for l in [layers; 1]]
-		δs = deepcopy(activations)
-		onesvec = zeros(Float32, batch_size)
-		return (activations, δs, onesvec)
-	end
-
-	(activations, δs, onesvec) = setup_training(1)
-	
-
-	input_layer_size = length(feature_vector)
-
-	input = zeros(Float32, 1, input_layer_size)
-	output = zeros(Float32, 1, 1)
-	scales = ones(Float32, length(layers)+1)
-	for i in 2:length(scales)
-		scales[i] /= size(θ[i], 2)
-	end
-	
-	function update_parameters!(parameters, s::S, g::T, α::T, gradients, state_representation::Vector{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, scales)
-		update_feature_vector!(state_representation, s)
-		update_input!(input, state_representation, 1)
-		output[1, 1] = g
-		update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, α, scales; c = c, λ = λ, dropout = dropout)
-		calculate_error(g, activations[end][1, 1], s)
-	end
-
-	# function update_parameters!(parameters, gradients, state_representation::Vector{Float32}, input::Matrix{T}, state_list::AbstractVector{S}, output::Matrix{T}, α::T)
-	# 	for i in eachindex(state_list)
-	# 		update_feature_vector!(state_representation, state_list[i])
-	# 		update_input!(input, state_representation, i)
-	# 	end
-	# 	@assert length(state_list) == size(output, 1) == size(input, 1)
-	# 	update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, FCANN.form_tanh_grads(layers, length(state_list)), setup_training(length(state_list))..., α, scales)
-	# end
-
-	function v̂(s::S, parameters, state_representation, input) 
-		update_feature_vector!(state_representation, s)
-		update_input!(input, state_representation, 1)
-		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
-		return activations[end][1, 1]
-	end
-
-	update_args = ((∇θ, ∇β), feature_vector, input, output, ∇tanh_z, activations, δs, onesvec, scales)
-	
-	return (value_function = v̂, value_args = (feature_vector, input), parameter_update = update_parameters!, update_args = update_args, parameters = (θ, β))
 end
   ╠═╡ =#
 
@@ -1779,19 +1642,6 @@ function fcann_gradient_gpu_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3
 	return (value_function = v̂, value_args = (feature_vector, feature_matrix, d_input, d_activations), parameter_update = update_parameters!, update_args = update_args, parameters = (d_θ, d_β))
 end
   ╠═╡ =#
-
-# ╔═╡ efb65aec-76b2-4159-9b75-8145602b3163
-#=╠═╡
-function run_fcann_monte_carlo_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, num_episodes::Integer, layers::Vector{Int64}, feature_vector::Vector{T}, update_feature_vector!::Function; setup_kwargs::NamedTuple = NamedTuple(), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
-	setup = fcann_gradient_setup(mdp, layers, feature_vector, update_feature_vector!; setup_kwargs...)
-	error_history = gradient_monte_carlo_policy_estimation!(setup.parameters, mdp, π, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
-	return (v̂ = v̂, parameters = setup.parameters, error_history = error_history)
-end
-  ╠═╡ =#
-
-# ╔═╡ b1edcf3c-420e-4060-94c2-04d05810c4ff
-
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 md"""
@@ -2022,7 +1872,7 @@ function state_aggregation_least_squares_td_randomwalk(num_episodes; num_groups 
 	(params, v, error) = run_state_aggregation_least_squares_td_estimation(random_walk_state_mrp, num_groups, group_assign, 1f0, num_episodes, typemax(Int64); calculate_error = (v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2, ϵ = ϵ)
 	t_lstd = round(time() - t0; sigdigits = 3)
 	t0 = time()
-	v̂_td, history_td = semi_gradient_td0_estimation_binary_features(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), random_walk_group_assign, num_groups, ; α = α, calculate_error = calc_random_walk_ve)
+	v̂_td, history_td = semi_gradient_td0_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α, calculate_error = calc_random_walk_ve)
 	err_history_td = history_td.errors
 	t_td = round(time() - t0; sigdigits = 3)
 	t1 = scatter(y = v(Float32.(1:1000)), name = "LSTD Estimation")
@@ -2062,7 +1912,7 @@ function linear_compare_least_squares_td_randomwalk(num_episodes; order_number =
 	
 	poly_setup = order_features_setup(random_walk_state_mrp, order_number, 1f0, Float32(num_states), calc_poly_feature)
 	fourier_setup = order_features_setup(random_walk_state_mrp, order_number, 1f0, Float32(num_states), calc_fourier_feature)
-	tile_setup = tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_size, num_tilings, 1)
+	tile_setup = tile_coding_feature_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_size, num_tilings, 1)
 
 	estimate_traces = [scatter(y = random_walk_v.value_function[2:end-1], name = "true value")]
 	errors = []
@@ -2072,6 +1922,9 @@ function linear_compare_least_squares_td_randomwalk(num_episodes; order_number =
 				(setup = fourier_setup, α = 1f-3, ϵ = 1f-3, name = "Fourier Order $order_number"), 
 				(setup = tile_setup, α = 1f-3 / num_tilings, ϵ = 1f-1, name = "Tile Coding with $num_tilings tilings")
 	]
+
+	get_num_features(::BinaryFeatureVector{I, N}) where {I, N} = N
+	get_num_features(x::Vector) = length(x)
 	
 	for i in eachindex(tests)
 		α = tests[i].α
@@ -2079,11 +1932,11 @@ function linear_compare_least_squares_td_randomwalk(num_episodes; order_number =
 		name = tests[i].name
 		ϵ = tests[i].ϵ
 		t0 = time()
-		(params, v, error) = least_squares_td_estimation(random_walk_state_mrp, setup.num_features, 1f0, num_episodes, typemax(Int64), setup.feature_vector_update; calculate_error = (v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2, ϵ = ϵ)
+		(params, v, error) = least_squares_td_estimation(random_walk_state_mrp, get_num_features(setup.feature_vector), 1f0, num_episodes, typemax(Int64), setup.update_feature_vector!; calculate_error = (v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2, ϵ = ϵ)
 		t_lstd = round(time() - t0; sigdigits = 3)
 		α = 1f-3
 		t0 = time()
-		v̂_td, history_td = semi_gradient_td0_estimation_linear_features(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), setup.feature_vector_update, setup.num_features; α = α, setup_kwargs = random_walk_ve_setup_kwargs)
+		v̂_td, history_td = semi_gradient_td0_estimation_linear(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), setup.feature_vector, setup.update_feature_vector!; α = α, setup_kwargs = random_walk_ve_setup_kwargs)
 		err_history_td = history_td.errors
 		t_td = round(time() - t0; sigdigits = 3)
 		push!(estimate_traces, scatter(y = v(Float32.(1:1000)), name = "LSTD Estimation $name features"))
@@ -2322,7 +2175,7 @@ end
 # ╔═╡ b2dc9155-8cae-4034-bb82-32ad41851fbd
 #=╠═╡
 function random_walk_tile_coding_kernel_approximation(memory::@NamedTuple{states::Vector{Float32}, values::Vector{Float32}}; tile_size = 0.1f0, num_tilings = 10)
-	setup = tile_coding_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_size, num_tilings, 1)
+	setup = tile_coding_feature_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_size, num_tilings, 1)
 	states = memory.states
 	vals = memory.values
 	l = length(states)
@@ -2461,14 +2314,6 @@ cross_entropy_loss(y, ŷ) = -y*log(ŷ) - (1-y)*log(1-ŷ)
 #=╠═╡
 plot([scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(0, LinRange(0, 1, 1000)), name = "y is false"), scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(1, LinRange(0, 1, 1000)), name = "y is true")], Layout(yaxis_title = "Cross Entropy Loss", xaxis_title = L"\hat y", title = "Cross Entropy Loss for a Single Output where the Target Value is True or False"))
   ╠═╡ =#
-
-# ╔═╡ ac4abe86-00e1-471e-ad97-b44e728d14b6
-md"""
-## *Batch Version of Approximation Methods*
-"""
-
-# ╔═╡ 31850403-c29c-4f4b-88f7-b36b6f1ddf65
-
 
 # ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
 md"""
@@ -3046,22 +2891,12 @@ version = "17.4.0+2"
 # ╟─b6737cef-b6f9-4e40-82d8-bf887e17eb7c
 # ╟─3db9f60e-a823-4d78-bd16-e73cedffa755
 # ╟─7787522e-a4fb-4090-9a75-7ba74a4fcda6
-# ╠═1cff7c63-d36e-4d69-b7f0-0da272d80f5d
 # ╟─c3732b25-94fd-4061-aab8-36fc39d739a1
-# ╠═8ed8530f-4569-4429-92fc-3c3b1752475b
-# ╠═a768e279-1425-4787-ad55-f60521032fd0
-# ╠═bc30f272-1f5a-4777-95fb-d0827f98909f
 # ╠═c737c14b-2ad6-4d95-9795-2b87f6f722cb
 # ╠═3307300f-cd72-4f16-bc46-39115a32e2ca
-# ╠═cfe0f735-2d3e-4f2d-9e85-e57bc97ce279
-# ╠═a9e110fd-fa91-4e41-b9a9-bf9b6df5f557
-# ╠═59422aaf-6ab2-4b75-86c0-cb2ccc746641
-# ╠═dbb20e1c-763c-461b-bf6e-dbfbc4960742
 # ╟─645ba5fc-8575-4b8f-8982-f8bd20ac27ff
 # ╠═99f34d13-a19a-4a28-8173-2f683527d61a
 # ╠═7889fc4a-3a77-41b4-983a-0b04740afeb7
-# ╠═31818c4e-751e-4a89-835a-d283986326b8
-# ╠═47e47503-64f3-484e-b2d5-b91507b13c79
 # ╟─cf9d7c7d-4519-410a-8a05-af90312e291c
 # ╟─7989d6a9-a52a-4537-9c39-5d6b41f60098
 # ╟─c05ea239-2eea-4f41-b4e3-993db0fe2de5
@@ -3080,15 +2915,13 @@ version = "17.4.0+2"
 # ╟─25f4f9d3-d8aa-462c-9874-ae842da1cf79
 # ╠═1e58c332-d43e-4467-b7b1-377262d460c3
 # ╠═56212ab2-833a-4dec-bcdd-21bce1d680b6
-# ╠═a8fd343c-aac3-413b-be73-55c9a125baea
 # ╟─93a617ee-db64-4351-b919-340d950fc148
-# ╠═994f8556-964c-4c6b-8cfe-6f6a99c1ba29
-# ╠═8282f26f-47c1-4df2-9c40-1b8d50b7cb76
+# ╟─994f8556-964c-4c6b-8cfe-6f6a99c1ba29
 # ╟─ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
 # ╠═f1b7b56e-7701-4954-8217-1b2c7d01e309
 # ╟─c99867b7-2cb0-4bb7-b035-0e86104adefe
 # ╟─89262830-1129-4270-8007-32fb0cd2e0ec
-# ╠═111a6762-ab4f-4db9-80f9-10c707623e0f
+# ╟─111a6762-ab4f-4db9-80f9-10c707623e0f
 # ╠═b4aefbb1-dbb7-490c-9fa7-0f68e5a9916c
 # ╟─a99ef185-0360-4005-9a8c-f10ca58babda
 # ╟─168e84f6-429e-45d6-bdbd-f47552fce8b5
@@ -3096,8 +2929,6 @@ version = "17.4.0+2"
 # ╠═40f0fd57-a4ea-47a0-b883-3b038a6612c4
 # ╟─e565c041-17bd-40c8-9240-e86931c83010
 # ╠═d215b917-c43d-4c14-aa97-2310f922d71a
-# ╠═09fb1fcd-55f9-4e04-bdb5-e5cdc649370b
-# ╠═c3783065-4204-486a-ac2e-de18364f2dfe
 # ╠═35d6dd59-1fd3-4aad-b24f-82dd466bcb83
 # ╠═bb81db16-7c4d-4e08-bf17-45147be2b0db
 # ╟─e6514762-31e0-4916-aa21-c280674c2fc1
@@ -3107,7 +2938,7 @@ version = "17.4.0+2"
 # ╠═71e7eef0-0304-4e26-8991-fa20da83df9a
 # ╟─8e12b92b-e56d-44f0-bf89-3248131b2245
 # ╟─7e56131f-3afe-4997-a085-60f0d45a9d8d
-# ╠═b5a3a529-2d74-4757-9d38-2eae28396d02
+# ╟─b5a3a529-2d74-4757-9d38-2eae28396d02
 # ╟─a4d9efaf-1e1e-4115-973f-570014c1fd06
 # ╟─22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
 # ╟─dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
@@ -3117,7 +2948,6 @@ version = "17.4.0+2"
 # ╟─b447a3a9-fe35-4457-886b-05c5862ad8e0
 # ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
 # ╟─82828e72-5d30-41b6-a1b6-f258c234b034
-# ╠═20b46a29-8b94-4ec7-bdd9-c23f6959cb60
 # ╠═2cd5dc6e-16d0-451b-a72a-5eb6cfeb4ba4
 # ╠═9e3efa3c-af2f-4aea-b923-a6d50a6b9fb5
 # ╠═2b922137-3110-4f91-94b1-4707d197b429
@@ -3126,17 +2956,12 @@ version = "17.4.0+2"
 # ╠═b58cacd0-ca65-43f5-8678-7265ea2d46c8
 # ╠═d81d8f7d-ed32-405d-b0c8-2ceff5845578
 # ╠═4a3a4635-a046-4eec-ab95-2dce74ac0fbe
+# ╟─808026eb-4c5a-4f38-bb16-bbb1b2915906
 # ╠═3ac65a54-1ff6-441c-8edf-00c49b620389
-# ╠═eca42c3b-fa09-4999-b260-c5de95c2987c
-# ╠═d1edfc31-23de-427a-9a08-51c4e33f3fc7
 # ╠═dd907b31-24f1-46f6-a2d5-7dd268530c94
-# ╠═55f451b2-dcff-4442-a1ea-ac2c53433298
-# ╠═ed115628-b644-4c5d-9bbe-0cf20bd6b5ed
 # ╠═0facd6de-411a-43e0-820d-7d6eceff5b72
 # ╠═65795424-8e50-4edb-9f6a-7045a9a22b9d
 # ╠═6c752a2b-4d10-4865-aeff-ea717b9d3904
-# ╠═efb65aec-76b2-4159-9b75-8145602b3163
-# ╠═b1edcf3c-420e-4060-94c2-04d05810c4ff
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
 # ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
@@ -3155,9 +2980,9 @@ version = "17.4.0+2"
 # ╟─195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
 # ╠═f10c643b-9205-4b18-841c-255a9354cf97
 # ╟─369e5b57-61ce-49e0-97e7-90901f82d37f
-# ╠═7c5ac88b-453b-40bd-98a4-534fc70c7c45
+# ╟─7c5ac88b-453b-40bd-98a4-534fc70c7c45
 # ╟─f1272708-4f99-484e-b861-cd50e4f20bc4
-# ╠═05f35ff0-3122-45ab-b048-3d6eec453644
+# ╟─05f35ff0-3122-45ab-b048-3d6eec453644
 # ╠═85a14a63-d084-4183-a9be-33455dd2ad33
 # ╟─290200a3-7523-4e0f-bd3a-288626adaf29
 # ╟─53ed4517-7e1b-4b72-9844-b8e291382bca
@@ -3178,7 +3003,7 @@ version = "17.4.0+2"
 # ╟─9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
 # ╟─c04be604-804a-44c3-b2da-98729a5e7508
 # ╟─3e395c5f-2410-4abe-be61-b6345caa9e1c
-# ╠═d76f37ac-8721-4d10-8f15-20bc03b5ae98
+# ╟─d76f37ac-8721-4d10-8f15-20bc03b5ae98
 # ╠═3be9fac4-17e6-4588-b4bc-2e7112e1bfbd
 # ╠═b2dc9155-8cae-4034-bb82-32ad41851fbd
 # ╟─905b032d-5fa0-4a3c-9055-fec92fd5879e
@@ -3193,8 +3018,6 @@ version = "17.4.0+2"
 # ╟─b4327edc-0677-4daf-a86d-1bcc908f2337
 # ╟─82b0fb07-3f10-4701-bf4d-e2e0189cee08
 # ╠═1a69bf65-7fa5-4ebd-b8e2-543a8e0dbf4f
-# ╟─ac4abe86-00e1-471e-ad97-b44e728d14b6
-# ╠═31850403-c29c-4f4b-88f7-b36b6f1ddf65
 # ╟─5464338c-904a-4a1b-8d47-6c79da550c71
 # ╠═6da69e64-743f-4ea9-9670-fd023c7ffab7
 # ╠═808fcb4f-f113-4623-9131-c709320130df
