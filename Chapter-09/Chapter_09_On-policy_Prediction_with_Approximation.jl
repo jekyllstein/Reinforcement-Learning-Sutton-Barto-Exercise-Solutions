@@ -329,7 +329,7 @@ When $U_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \boldsymbol{w})$ the target va
 
 # ╔═╡ e8e26a28-90a5-4519-ab08-11b49a8a9499
 begin
-	function semi_gradient_td0_estimation!(parameters, ∇v̂, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, save_episode_steps = false, epkwargs...) where {T<:Real}
+	function semi_gradient_td0_estimation!(parameters, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, save_episode_steps = false, epkwargs...) where {T<:Real}
 		#initialize records
 		step_rewards = Vector{T}()
 		episode_steps = Vector{Int64}()
@@ -384,18 +384,14 @@ begin
 			epstep += 1
 		end
 
-		function v̂(s; x = deepcopy(feature_vector), parameters = parameters, kwargs...)
-			update_feature_vector!(x, s)
-			value_function(x, parameters; kwargs...)
-		end
+		v̂ = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
 
 		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters)
 	end
 
-	semi_gradient_td0_estimation!(parameters, ∇v̂, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, ∇v̂, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function; kwargs...)
+	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...)
 	
-	semi_gradient_td0_policy_estimation!(parameters, ∇v̂, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, ∇v̂, mdp.initialize_state, s -> mdp.ptf(s, π), mrp.isterm, γ, max_episodes, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function; kwargs...)
-	
+	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π), mrp.isterm, γ, max_episodes, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...)
 end
 
 # ╔═╡ cb2005fd-d3e0-4f37-908c-77e4bbac45b8
@@ -821,16 +817,7 @@ For generic linear methods, the parameter update will require a gradient vector 
 # ╔═╡ 1cff7c63-d36e-4d69-b7f0-0da272d80f5d
 # ╠═╡ disabled = true
 #=╠═╡
-begin
-	function update_parameters!(parameters::Vector{T}, state_representation::SparseVector{T, Int64}, α::T, δ::T) where T<:Real
-		x = α*δ
-		for i in eachindex(state_representation.nzind)
-			parameters[state_representation.nzind[i]] += x .* state_representation.nzval[i]
-		end
-	end
 
-	update_parameters!(parameters::Vector{T}, state_representation::AbstractVector{T}, α::T, δ::T) where T<:Real = (parameters .+= α .* δ .* state_representation)
-end
   ╠═╡ =#
 
 # ╔═╡ c3732b25-94fd-4061-aab8-36fc39d739a1
@@ -839,95 +826,31 @@ In order to define a linear method, one must provide a state representation vect
 """
 
 # ╔═╡ 8ed8530f-4569-4429-92fc-3c3b1752475b
-#=╠═╡
-function linear_features_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, state_representation::AbstractVector{T}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
-	s0 = problem.initialize_state()
-	update_feature_vector!(state_representation, s0) #verify that feature vector update is compatible with provided state representation
 
-	function update_params!(parameters::Vector{T}, s::S, g::T, α::T, state_representation::Vector{T}, calculate_error::Function)
-		update_feature_vector!(state_representation, s)
-		v̂ = dot(state_representation, parameters)
-		δ = (g - v̂)
-		err = calculate_error(g, v̂, s)
-		iszero(δ) && return err
-		update_parameters!(parameters, state_representation, α, δ)
-		return err
-	end
-	
-	function v̂(s::S, w::Vector{T}, state_representation::AbstractVector{T}) where {T<:Real} 
-		update_feature_vector!(state_representation, s)
-		dot(state_representation, w)
-	end
-	
-	return (value_function = v̂, value_args = (state_representation,), parameter_update = update_params!, update_args = (copy(state_representation), calculate_error))
-end
-  ╠═╡ =#
 
 # ╔═╡ a768e279-1425-4787-ad55-f60521032fd0
-#=╠═╡
-function run_linear_gradient_monte_carlo_policy_estimation(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where {T<:Real}
-	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	parameters = zeros(T, l)
-	err_history = gradient_monte_carlo_policy_estimation!(parameters, mdp, π, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	return (value_function = v̂, error_history = err_history)
-end
-  ╠═╡ =#
+
 
 # ╔═╡ bc30f272-1f5a-4777-95fb-d0827f98909f
-#=╠═╡
-function run_linear_gradient_monte_carlo_estimation(mrp::StateMRP, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where {T<:Real}
-	setup = linear_features_gradient_setup(mrp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	parameters = zeros(T, l)
-	err_history = gradient_monte_carlo_estimation!(parameters, mrp, γ, num_episodes, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	return (value_function = v̂, error_history = err_history)
-end
-  ╠═╡ =#
+
 
 # ╔═╡ c737c14b-2ad6-4d95-9795-2b87f6f722cb
-semi_gradient_td0_estimation_linear_features(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer; params::Vector{T} = zeros(T, num_features), x::Vector{T} = zeros(T, num_features), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, copy(params), mrp, γ, max_episodes, max_steps, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!; kwargs...)
+semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 3307300f-cd72-4f16-bc46-39115a32e2ca
-semi_gradient_td0_policy_estimation_linear_features(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer; params::Vector{T} = zeros(T, num_features), x::Vector{T} = zeros(T, num_features), kwargs...) where T<:Real = semi_gradient_td0_policy_estimation!(params, copy(params), mdp, π, γ, max_episodes, max_steps, x, update_feature_vector!, linear_value_function, update_linear_value_gradient!; kwargs...)
+semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ cfe0f735-2d3e-4f2d-9e85-e57bc97ce279
-function semi_gradient_td0_estimation_binary_features(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_function::Function, num_features::Integer; params::Vector{T} = zeros(T, num_features), kwargs...) where T<:Real
-	setup = setup_binary_value_arguments(mrp, feature_function)
-	semi_gradient_td0_estimation!(params, setup.gradient, mrp, γ, max_episodes, max_steps, setup.feature_vector, setup.update_feature_vector!, linear_value_function, update_linear_value_gradient!; kwargs...)
-end
+
 
 # ╔═╡ a9e110fd-fa91-4e41-b9a9-bf9b6df5f557
-function semi_gradient_td0_policy_estimation_binary_features(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_function::Function, num_features::Integer; params::Vector{T} = zeros(T, num_features), kwargs...) where T<:Real
-	setup = setup_binary_value_arguments(mdp, feature_function)
-	semi_gradient_td0_policy_estimation!(params, setup.gradient, mdp, π, γ, max_episodes, max_steps, setup.feature_vector, setup.update_feature_vector!, linear_value_function, update_linear_value_gradient!; kwargs...)
-end
+
 
 # ╔═╡ 59422aaf-6ab2-4b75-86c0-cb2ccc746641
-#=╠═╡
-function run_linear_semi_gradient_td0_policy_estimation(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
-	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	parameters = zeros(T, l)
-	error_history = semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	return (value_function = v̂, error_history = error_history)
-end
-  ╠═╡ =#
+
 
 # ╔═╡ dbb20e1c-763c-461b-bf6e-dbfbc4960742
-#=╠═╡
-function run_linear_semi_gradient_td0_estimation(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
-	setup = linear_features_gradient_setup(mrp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	parameters = zeros(T, l)
-	error_history = semi_gradient_td0_estimation!(parameters, mrp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	return (value_function = v̂, error_history = error_history)
-end
-  ╠═╡ =#
+
 
 # ╔═╡ 645ba5fc-8575-4b8f-8982-f8bd20ac27ff
 #=╠═╡
@@ -938,27 +861,21 @@ State aggregation is a special case of linear function approximation, so we can 
 """
   ╠═╡ =#
 
-# ╔═╡ 31818c4e-751e-4a89-835a-d283986326b8
+# ╔═╡ 99f34d13-a19a-4a28-8173-2f683527d61a
 #=╠═╡
-function run_state_aggregation_semi_gradient_policy_estimation(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), setup_kwargs = NamedTuple(), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function, F3<:Function}
-	setup = state_aggregation_gradient_setup(assign_state_group; setup_kwargs...)
-	parameters = fill(w0, num_groups)
-	error_history = semi_gradient_td0_policy_estimation!(parameters, mdp, π, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	return (value_function = v̂, error_history = error_history)
-end
+semi_gradient_td0_estimation_state_aggregation(mrp::StateMRP, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_estimation_linear(mrp, γ, max_episodes, max_steps, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
   ╠═╡ =#
 
-# ╔═╡ 47e47503-64f3-484e-b2d5-b91507b13c79
+# ╔═╡ 7889fc4a-3a77-41b4-983a-0b04740afeb7
 #=╠═╡
-function run_state_aggregation_semi_gradient_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; w0::T = zero(T), setup_kwargs = NamedTuple(), kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	setup = state_aggregation_gradient_setup(assign_state_group; setup_kwargs...)
-	parameters = fill(w0, num_groups)
-	error_history = semi_gradient_td0_estimation!(parameters, mrp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	return (value_function = v̂, error_history = error_history)
-end
+semi_gradient_td0_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
   ╠═╡ =#
+
+# ╔═╡ 31818c4e-751e-4a89-835a-d283986326b8
+
+
+# ╔═╡ 47e47503-64f3-484e-b2d5-b91507b13c79
+
 
 # ╔═╡ cf9d7c7d-4519-410a-8a05-af90312e291c
 #=╠═╡
@@ -984,13 +901,13 @@ end |> confirm
 function figure_9_2(;num_episodes = 100_000, α_mc = 2f-5, α_td = 2f-4)
 	v = random_walk_v.value_function[2:end-1]
 	
-	v̂_mc, err_history_mc = gradient_monte_carlo_estimation_binary_features(random_walk_state_mrp, 1f0, num_episodes, random_walk_group_assign, num_groups; α = α_mc, calculate_error = calc_random_walk_ve)
+	v̂_mc, err_history_mc = gradient_monte_carlo_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, num_groups, random_walk_group_assign; α = α_mc, calculate_error = calc_random_walk_ve)
 
 	#this function will produce the learned value estimate given a random walk state
-	v̂_td, episode_history_td = semi_gradient_td0_estimation_binary_features(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), random_walk_group_assign, num_groups; α = α_td, calculate_error = calc_random_walk_ve)
+	v̂_td, episode_history_td = semi_gradient_td0_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α_td, calculate_error = calc_random_walk_ve)
 	err_history_td = episode_history_td.errors
 	
-	x = 1:num_states
+	x = Float32.(1:num_states)
 
 	v̂_mc = v̂_mc.(x)
 	v̂_td = v̂_td.(x)
@@ -1017,7 +934,7 @@ end
 
 # ╔═╡ c05ea239-2eea-4f41-b4e3-993db0fe2de5
 #=╠═╡
-figure_9_2(;num_episodes = 25_000, fig_9_2_params...)
+figure_9_2(;num_episodes = 100_000, fig_9_2_params...)
   ╠═╡ =#
 
 # ╔═╡ f5203959-29ef-406c-abac-4f01fa9630a3
@@ -3141,11 +3058,13 @@ version = "17.4.0+2"
 # ╠═59422aaf-6ab2-4b75-86c0-cb2ccc746641
 # ╠═dbb20e1c-763c-461b-bf6e-dbfbc4960742
 # ╟─645ba5fc-8575-4b8f-8982-f8bd20ac27ff
+# ╠═99f34d13-a19a-4a28-8173-2f683527d61a
+# ╠═7889fc4a-3a77-41b4-983a-0b04740afeb7
 # ╠═31818c4e-751e-4a89-835a-d283986326b8
 # ╠═47e47503-64f3-484e-b2d5-b91507b13c79
 # ╟─cf9d7c7d-4519-410a-8a05-af90312e291c
 # ╟─7989d6a9-a52a-4537-9c39-5d6b41f60098
-# ╠═c05ea239-2eea-4f41-b4e3-993db0fe2de5
+# ╟─c05ea239-2eea-4f41-b4e3-993db0fe2de5
 # ╠═bfb1858b-5e05-4239-bcae-a3b718074630
 # ╟─f5203959-29ef-406c-abac-4f01fa9630a3
 # ╟─c3da96b0-d584-4a43-acdb-16516e2d0452
