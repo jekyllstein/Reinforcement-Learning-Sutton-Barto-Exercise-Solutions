@@ -238,16 +238,118 @@ If the action set is discrete, then at the next state $S_{t+1}$ we can compute $
 md"""
 ### *Semi-gradient Sarsa Implementation*
 
-Below is an implementation of Semi-gradient Sarsa in a similar style to the algorithms in Chapter 9.  This function updates the provided parameters using the `update_parameters!` function and also requires an `estimate_value` function.  The linear function approximation version of this simplifies the required arguments greatly, needing only a state representation update function.  
+Below is an implementation of Semi-gradient Sarsa building from the algorithms in Chapter 9.  In addition to the state representation and a function to update it given a state, Sarsa also requires a gradient update for action values.  The linear function approximation version of this simplifies the required arguments greatly, needing only a state representation vector and update function.  
 """
 
+# ╔═╡ d88ebdb9-47bc-478c-b471-804a02ad2acf
+md"""
+#### *Action-Value Utility Functions*
+
+In Chapter 9, we established functions for value and gradient computations given all of the feature vector types.  Now we must extend those functions to apply to action value estimates where the parameter space is larger and so are the gradients.  For linear approximation I will rely on the state representation only and simply multiply the parameter space by the number of actions.  Since the gradient update only applies to the features corresponding to the selected action, I only ever need to store a vector of gradients which will only update the column in the parameter matrix for that index.
+"""
+
+# ╔═╡ 9043a684-6f16-48d0-83d4-2e00f9b7dbc2
+mutable struct LinearActionValueGradient{I <: Integer, V <: LinearFeatureVector}
+	action_gradient::V
+	action_index::I
+end
+
+# ╔═╡ 0226d8a3-bb22-4a32-9700-e234abf518a6
+#for a linear function the gradient is just the feature vector and I can reuse all of the gradient update functions from chapter 9 with the added information of storing the action index
+function update_linear_value_gradient!(∇q̂::LinearActionValueGradient{I, V}, x::V, i_a::Integer, value_params) where {I <: Integer, V <: LinearFeatureVector}
+	update_linear_value_gradient!(∇q̂.action_gradient, x, value_params)
+	∇q̂.action_index = i_a
+	return ∇q̂
+end
+
+# ╔═╡ 1393f7a6-05c7-48a3-96a9-130eb6d45937
+#for the gradient update I need to use the action index to only update the columns of the parameter matrix that apply for linear approximation.  all of these implementations are for the case of linear approximation where I only store the gradient of the action values plus the action index and the linear approximation parameters are stored in a matrix
+begin
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient{I, V}) where {T<:Real, I <: Integer, V <: Vector}
+		@inbounds @simd for i in eachindex(∇w.action_gradient)
+			w[i, ∇w.action_index] += α * ∇w.action_gradient[i]
+		end
+		return w
+	end
+	
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient{I, V}) where {T<:Real, I <: Integer, V <: BinaryFeatureVector}
+		@inbounds @simd for i in 1:∇w.action_gradient.num_features
+			j = ∇w.action_gradient.active_features[i]
+			w[j, ∇w.action_index] += α
+		end
+		return w
+	end
+
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient{I, V}) where {T<:Real, I <: Integer, V <: StateAggregationFeatureVector}
+		w[∇w.action_gradient.group_index, ∇w.action_index] += α
+		return w
+	end
+end
+
+# ╔═╡ 3273ed4a-6787-4635-8399-65ddf65b31ea
+begin
+	#for the parameter matrix, each column corresponds to a different action and is the same length as the feature vector.  Each function will return the maximum q value and its action index as well since that will be needed later for some functions
+	function update_linear_action_values!(action_values::Vector{T}, x::Vector{T}, w::Matrix{T}) where T<:Real
+		BLAS.gemv!('T', one(T), w, x, zero(T), action_values)
+		return findmax(action_values)
+	end
+
+	function update_linear_action_values!(action_values::Vector{T}, x::BinaryFeatureVector, w::Matrix{T}) where T<:Real
+		maxq = typemin(T)
+		i_a_max = 0
+		for i_a in eachindex(action_values)
+			q = zero(T)
+			@inbounds @simd for i in 1:x.num_features
+				j = x.active_features[i]
+				q += w[j, i_a]
+			end
+			action_values[i_a] = q
+			newmax = q > maxq
+			maxq = maxq*!newmax + newmax*q
+			i_a_max = i_a_max*!newmax + newmax*i_a
+		end
+		return (maxq, i_a_max)
+	end
+
+	function update_linear_action_values!(action_values::Vector{T}, x::StateAggregationFeatureVector, w::Matrix{T}) where T<:Real
+		maxq = typemin(T)
+		i_a_max = 0
+		i = x.group_index
+		for i_a in eachindex(action_values)
+			q = w[i, i_a]
+			newmax = q > maxq
+			maxq = maxq*!newmax + newmax*q
+			i_a_max = i_a_max*!newmax + newmax*i_a
+		end
+		return (maxq, i_a_max)
+	end
+end
+
+# ╔═╡ 94fa7f7d-c77c-4df5-a7b9-b3c931cb3bce
+function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
+	function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters::W = parameters, kwargs...)
+		update_feature_vector!(x, s)
+		maxq, i_a_max = update_action_values!(action_values, x, parameters)
+		(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+	end
+end	
+
 # ╔═╡ fc0b88f3-fbf9-450d-b770-b34357ffad49
+#in normal sarsa, we use the action value of the action actually taken, later on with methods like expected sarsa we would actually use the policy vector compute a weighted average of all action values
 compute_sarsa_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = action_values[i_a]
 
 # ╔═╡ 991492f4-7dfc-43aa-ab6c-a6b1f3e38225
-function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, compute_value = compute_sarsa_value, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {P, T<:Real}
+function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, compute_value::Function = compute_sarsa_value, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {P, T<:Real}
+	action_values = zeros(T, length(mdp.actions))
+	policy = copy(action_values)
+	
 	s = mdp.initialize_state()
-	i_a = rand(eachindex(mdp.actions))
+	update_feature_vector!(feature_vector, s)
+	update_action_values!(action_values, feature_vector, parameters)
+	policy .= action_values
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	i_a = sample_action(policy)
+	
 	ep = 1
 	step = 1
 	epreward = zero(T)
@@ -260,35 +362,52 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 	save_parameter_history && push!(parameter_history, deepcopy(parameters))
 	
 	while (ep <= max_episodes) && (step <= max_steps)
+		q̂ = compute_value(action_values, policy, i_a)
+		update_value_gradient!(∇q̂, feature_vector, i_a, parameters)
+		
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
-		if mdp.isterm(s′)
-			U_t = r
+
+		terminated = mdp.isterm(s′)
+		if terminated
 			s′ = mdp.initialize_state()
-			i_a′ = rand(eachindex(mdp.actions))
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
 			ep += 1
+		end
+		
+		update_feature_vector!(feature_vector, s′)
+		update_action_values!(action_values, feature_vector, parameters)
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a′ = sample_action(policy)
+
+		q̂′ = if terminated
+			zero(T)
 		else
-			estimate_value(action_values, s′, parameters, estimate_args...)
-			policy .= action_values
-			make_ϵ_greedy_policy!(policy; ϵ = ϵ)
-			i_a′ = sample_action(policy)
-			q̂ = compute_value(action_values, policy, i_a′)
-			U_t = r + γ*q̂
+			compute_value(action_values, policy, i_a′)
 		end
-		learning_rate = nn_momentum ? T(1 - 0.999^step) : one(T)
-		if step > decay_step
-			decay *= α_decay
-		end
-		update_parameters!(parameters, s, i_a, U_t, α * learning_rate * decay, update_args...)
+
+		target = r + γ*q̂′
+
+		δ = target - q̂
+		
+		decay *= (step > decay_step)*α_decay + (step <= decay_step)
+		
+		update_params_with_gradient!(parameters, α*decay*δ, ∇q̂)
+
+		#these action values will be used to compute the state-action value for the next state using the updated parameters
+		update_action_values!(action_values, feature_vector, parameters)
+		
 		save_parameter_history && push!(parameter_history, deepcopy(parameters))
 		s = s′
 		i_a = i_a′
 		step += 1
 	end
-	return episode_rewards, episode_steps, parameter_history
+
+	q̂ = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
 end
 
 # ╔═╡ 8b7e1031-9864-439c-86eb-11aa08f53b90
@@ -463,6 +582,25 @@ md"""
 Finally we can create the action-value function and parameter update for the generic linear case.  If a vector of action values is provided as the first argument to the value function, that vector will be updated with all of the action values for a given state.
 """
 
+# ╔═╡ de3e4afe-f935-4b33-9218-08d403743c60
+begin
+	get_num_actions(num_actions::Integer) = num_actions
+	get_num_actions(mdp::StateMDP) = length(mdp.actions)
+end
+
+# ╔═╡ d82faf3b-c975-4b23-ad62-473bd943c4e2
+begin
+	function initialize_linear_parameters(feature_vector_length::Integer, num_actions::Integer, init_value::T) where T<:Real
+		params = ones(T, feature_vector_length, num_actions)
+		params .*= init_value
+		return params
+	end
+	initialize_linear_parameters(x, y, init_value) = initialize_linear_parameters(get_feature_length(x), get_num_actions(y), init_value)
+end
+
+# ╔═╡ b697c5ba-4647-4998-a153-1e97dd91cb23
+semi_gradient_sarsa_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+
 # ╔═╡ 8d096d0d-8fea-421a-aa33-82269d3fe7e2
 md"""
 ### *Action-Value Implementation of Non-Linear Approximation*
@@ -593,8 +731,8 @@ md"""
 # ╔═╡ f221fb13-4ef2-4ebe-b71b-fe6adbddb1e4
 module MountainCarTask
 	import TabularRL
-	actions = [-1f0, 0f0, 1f0]
-	action_names = ["Decelerate", "Nothing", "Accelerate"]
+	const actions = [-1f0, 0f0, 1f0]
+	const action_names = ["Decelerate", "Nothing", "Accelerate"]
 
 	function initialize_state()
 		a = rand(Float32) * 0.2f0
@@ -969,7 +1107,38 @@ md"""
 
 # ╔═╡ 742100ba-c38e-4840-8988-40990039b527
 #=╠═╡
-setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_setup(mountain_car_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), tile_size, num_tilings, (1, 3))
+setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_feature_setup(mountain_car_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), tile_size, num_tilings, (1, 3))
+  ╠═╡ =#
+
+# ╔═╡ e5c0b558-4902-455f-a370-cddb9b291c15
+#=╠═╡
+setup_mountain_car_tiles((1f0/12, 1f0/12), 8)
+  ╠═╡ =#
+
+# ╔═╡ 7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function mountaincar_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 12, num_tilings = 8, kwargs...)
+	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	semi_gradient_sarsa_linear(mountain_car_mdp, 1f0, max_episodes, typemax(Int64), setup.feature_vector, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 30ab21ba-3f5b-46a8-8b8c-753f2755d419
+# ╠═╡ skip_as_script = true
+#=╠═╡
+(q̂_mountain_car, episode_rewards, episode_steps) = mountaincar_test(5000, 0.1f0/8, 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ ae1adf97-1a2d-44ff-98ab-422899afd096
+#=╠═╡
+q̂_mountain_car(mountain_car_mdp.initialize_state())
+  ╠═╡ =#
+
+# ╔═╡ f2201afe-8952-4dde-9e39-02beeb920f6f
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mountaincar_trajectory(s -> q̂_mountain_car(s).maximizing_action, 1_000, "Sarsa Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ af97f222-08d1-4200-a10b-8da178182175
@@ -999,6 +1168,24 @@ function update_mountaincar_feature_vector!(v::Vector{Float32}, s::NTuple{2, Flo
 	v[2] = x2
 end
 
+# ╔═╡ 1a82ae95-3c3e-4281-bc1d-9eb19bf50286
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function figure_10_2(;α_list = [0.1f0, 0.2f0, 0.5f0], num_episodes = 50, ϵ = 0.05f0)
+	traces = map(α_list) do α
+		scatter(y = 1:100 |> Map(_ -> mountaincar_test(num_episodes, α/8, ϵ; num_tiles = 12, num_tilings = 8).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> -v ./ 100, name = "α = $α/8")
+	end
+	plot(traces, Layout(xaxis_title = "Episode", yaxis_title = "Steps per episode<br>averaged over 100 runs", yaxis_type = "log"))
+end
+  ╠═╡ =#
+
+# ╔═╡ ddcb50be-5287-47f8-89f9-58c026a6b151
+# ╠═╡ disabled = true
+# ╠═╡ skip_as_script = true
+#=╠═╡
+figure_10_2()
+  ╠═╡ =#
+
 # ╔═╡ 5db29488-a150-42ee-aedb-380a3a4fd548
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -1009,9 +1196,9 @@ function plot_mountaincar_action_values(q̂_mountain_car, n1, n2)
 	actions = zeros(Float32, n1, n2)
 	for (i, x) in enumerate(xvals)
 		for (j, v) in enumerate(vvals)
-			(q̂, i_a) = q̂_mountain_car((x, v))
-			values[j, i] = q̂
-			actions[j, i] = MountainCarTask.actions[i_a]
+			q̂ = q̂_mountain_car((x, v))
+			values[j, i] = q̂.maximizing_value
+			actions[j, i] = MountainCarTask.actions[q̂.maximizing_action]
 		end
 	end
 	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Learned Value Function"))
@@ -1029,6 +1216,12 @@ plot_mountaincar_action_values(tabular_mountaincar_mdp, mountaincar_value_iterat
 # ╠═╡ skip_as_script = true
 #=╠═╡
 plot_mountaincar_action_values(tabular_mountaincar_mdp, mountaincar_policy_iteration[2][policy_num], mountaincar_policy_iteration[1][policy_num], mountaincar_positions, mountaincar_velocities)
+  ╠═╡ =#
+
+# ╔═╡ 4afbb723-340b-4d85-9115-027a0ff8dfad
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot_mountaincar_action_values(q̂_mountain_car, 500, 500)
   ╠═╡ =#
 
 # ╔═╡ 2f0d0a71-c65b-4aa0-a493-e7cdccd901eb
@@ -1155,6 +1348,25 @@ semi_gradient_q_learning!(args...; kwargs...) = semi_gradient_sarsa!(args...; kw
 md"""
 ### Example: Semi-gradient Q-learning on Mountain Car Task
 """
+
+# ╔═╡ cbac1927-b087-4c4c-98ae-6aa5f0b824ad
+# ╠═╡ disabled = true
+# ╠═╡ skip_as_script = true
+#=╠═╡
+(q̂_mountain_car_q, π_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(1_000, 0.002f0/8, 0.25f0; compute_value = compute_q_learning_value)
+  ╠═╡ =#
+
+# ╔═╡ b5409b69-a254-4355-b2b9-99394eceb2f7
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mountaincar_trajectory(π_mountain_car_q, 1_000, "Q-Learning Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot_mountaincar_action_values(q̂_mountain_car_q, 500, 500)
+  ╠═╡ =#
 
 # ╔═╡ d6ad1ff1-8fbf-4799-8b1b-ae1e3ce88c5b
 md"""
@@ -1760,75 +1972,6 @@ function run_linear_semi_gradient_sarsa(mdp::StateMDP, γ::T, max_episodes::Inte
 	
 	return (value_function = q̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameter_history = parameter_history)
 end
-
-# ╔═╡ 7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
-# ╠═╡ skip_as_script = true
-#=╠═╡
-function mountaincar_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 12, num_tilings = 8, kwargs...)
-	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
-	v = setup.args.feature_vector
-	run_linear_semi_gradient_sarsa(mountain_car_mdp, 1f0, max_episodes, typemax(Int64), zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ 30ab21ba-3f5b-46a8-8b8c-753f2755d419
-# ╠═╡ skip_as_script = true
-#=╠═╡
-(q̂_mountain_car, π_mountain_car, episode_rewards, episode_steps) = mountaincar_test(5000, 0.0001f0/8, 0.01f0)
-  ╠═╡ =#
-
-# ╔═╡ 4afbb723-340b-4d85-9115-027a0ff8dfad
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot_mountaincar_action_values(q̂_mountain_car, 500, 500)
-  ╠═╡ =#
-
-# ╔═╡ f2201afe-8952-4dde-9e39-02beeb920f6f
-# ╠═╡ skip_as_script = true
-#=╠═╡
-show_mountaincar_trajectory(π_mountain_car, 1_000, "Sarsa Learned Policy")
-  ╠═╡ =#
-
-# ╔═╡ c1388562-0708-4a6a-acfe-927413dab5d2
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot(scatter(y = -episode_rewards), Layout(yaxis_type = "log"))
-  ╠═╡ =#
-
-# ╔═╡ 1a82ae95-3c3e-4281-bc1d-9eb19bf50286
-# ╠═╡ skip_as_script = true
-#=╠═╡
-function figure_10_2(;α_list = [0.1f0, 0.2f0, 0.5f0], num_episodes = 50, ϵ = 0.05f0)
-	traces = map(α_list) do α
-		scatter(y = 1:100 |> Map(_ -> mountaincar_test(num_episodes, α/8, ϵ; num_tiles = 12, num_tilings = 8).reward_history) |> foldxt((a, b) -> a .+ b) |> v -> -v ./ 100, name = "α = $α/8")
-	end
-	plot(traces, Layout(xaxis_title = "Episode", yaxis_title = "Steps per episode<br>averaged over 100 runs", yaxis_type = "log"))
-end
-  ╠═╡ =#
-
-# ╔═╡ ddcb50be-5287-47f8-89f9-58c026a6b151
-# ╠═╡ skip_as_script = true
-#=╠═╡
-figure_10_2()
-  ╠═╡ =#
-
-# ╔═╡ cbac1927-b087-4c4c-98ae-6aa5f0b824ad
-# ╠═╡ skip_as_script = true
-#=╠═╡
-(q̂_mountain_car_q, π_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(1_000, 0.002f0/8, 0.25f0; compute_value = compute_q_learning_value)
-  ╠═╡ =#
-
-# ╔═╡ b5409b69-a254-4355-b2b9-99394eceb2f7
-# ╠═╡ skip_as_script = true
-#=╠═╡
-show_mountaincar_trajectory(π_mountain_car_q, 1_000, "Q-Learning Learned Policy")
-  ╠═╡ =#
-
-# ╔═╡ f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot_mountaincar_action_values(q̂_mountain_car_q, 500, 500)
-  ╠═╡ =#
 
 # ╔═╡ 36a53700-9e9a-4131-89c8-dbd520d5c407
 run_linear_semi_gradient_expected_sarsa(args...; kwargs...) = run_linear_semi_gradient_sarsa(args...; kwargs..., compute_value = compute_expected_sarsa_value)
@@ -2800,6 +2943,12 @@ function smooth_error(error_history, n)
 end
   ╠═╡ =#
 
+# ╔═╡ c1388562-0708-4a6a-acfe-927413dab5d2
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot(scatter(y = smooth_error(-episode_rewards, 100)), Layout(yaxis_type = "log"))
+  ╠═╡ =#
+
 # ╔═╡ 5c920177-8e46-49c9-9b95-1a657fdcae4e
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -3596,6 +3745,12 @@ version = "17.4.0+2"
 # ╟─14fe2253-cf2c-4159-a360-1e65f1c82b09
 # ╟─6351304f-50ac-4755-86e1-cd4680f2d803
 # ╟─e7bf61d7-c362-433d-9b83-6537d308c255
+# ╠═d88ebdb9-47bc-478c-b471-804a02ad2acf
+# ╠═9043a684-6f16-48d0-83d4-2e00f9b7dbc2
+# ╠═0226d8a3-bb22-4a32-9700-e234abf518a6
+# ╠═1393f7a6-05c7-48a3-96a9-130eb6d45937
+# ╠═3273ed4a-6787-4635-8399-65ddf65b31ea
+# ╠═94fa7f7d-c77c-4df5-a7b9-b3c931cb3bce
 # ╠═fc0b88f3-fbf9-450d-b770-b34357ffad49
 # ╠═991492f4-7dfc-43aa-ab6c-a6b1f3e38225
 # ╠═8b7e1031-9864-439c-86eb-11aa08f53b90
@@ -3611,6 +3766,9 @@ version = "17.4.0+2"
 # ╟─1478745a-634d-4f31-8a70-b74f0e536201
 # ╠═c697e0b6-d3e4-4f5f-96e9-b9486c9d7efc
 # ╟─dc2cffeb-9adf-4956-afa3-ac82af377c59
+# ╠═de3e4afe-f935-4b33-9218-08d403743c60
+# ╠═d82faf3b-c975-4b23-ad62-473bd943c4e2
+# ╠═b697c5ba-4647-4998-a153-1e97dd91cb23
 # ╠═b9ebd6bb-90a1-4945-85ed-023206e2420a
 # ╠═2c620fe4-2f62-40f8-a666-8dced1e0b84a
 # ╠═56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
@@ -3663,8 +3821,10 @@ version = "17.4.0+2"
 # ╠═1054cfa3-9f58-4a93-a318-c2d21cf23220
 # ╟─1a5acfb0-3b35-41b1-98f8-ffce941c587f
 # ╠═742100ba-c38e-4840-8988-40990039b527
+# ╠═e5c0b558-4902-455f-a370-cddb9b291c15
 # ╠═7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
 # ╠═30ab21ba-3f5b-46a8-8b8c-753f2755d419
+# ╠═ae1adf97-1a2d-44ff-98ab-422899afd096
 # ╠═4afbb723-340b-4d85-9115-027a0ff8dfad
 # ╠═f2201afe-8952-4dde-9e39-02beeb920f6f
 # ╠═c1388562-0708-4a6a-acfe-927413dab5d2
