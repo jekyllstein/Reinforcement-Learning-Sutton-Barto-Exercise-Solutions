@@ -1450,14 +1450,13 @@ md"""
 """
 
 # ╔═╡ 2cd5dc6e-16d0-451b-a72a-5eb6cfeb4ba4
-function fcann_value_function(x::Vector{T}, params::FCANNParams, activations::FCANNActivations{T}, reslayers::Integer) where T<:Float32
+function fcann_value_function!(activations::FCANNActivations{T}, x::Vector{T}, params::FCANNParams, reslayers::Integer) where T<:Float32
 	FCANN.forwardNOGRAD_base!(activations, params..., x, reslayers)
-	return first(last(activations))
 end
 
 # ╔═╡ 9e3efa3c-af2f-4aea-b923-a6d50a6b9fb5
-function update_fcann_value_gradient!(∇v̂::FCANNParams, x::Vector{T}, params::FCANNParams, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivations{T}, activations::FCANNActivations{T}, deltas::FCANNActivations{T}, dropout::T, reslayers::Integer, activation_list::AbstractVector{B}, scales) where {T<:Float32, B<:Bool}
-	FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v̂..., tanh_grad_z, activations, deltas, dropout; resLayers = reslayers, loss_type = OutputIndex(), activation_list = activation_list)
+function update_fcann_value_gradient!(∇v̂::FCANNParams, x::Vector{T}, output_index::Integer, params::FCANNParams, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivations{T}, activations::FCANNActivations{T}, deltas::FCANNActivations{T}, dropout::T, reslayers::Integer, activation_list::AbstractVector{B}, scales) where {T<:Float32, B<:Bool}
+	FCANN.nnCostFunction(params..., hidden_layers, x, output_index, l2, ∇v̂..., tanh_grad_z, activations, deltas, dropout; resLayers = reslayers, loss_type = OutputIndex(), activation_list = activation_list)
 	@inbounds for i in eachindex(params[1])
 		for j in 1:2
 			∇v̂[j][i] .*= scales[i]
@@ -1491,11 +1490,14 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, input_length::Integ
 		end
 	end
 
-	value_function(x, params; activations = activations) = fcann_value_function(x, params, activations, reslayers)
+	function value_function(x, params; activations = activations) 			fcann_value_function!(activations, x, params, reslayers)[1]
+		return first(last(activations))
+	end
 	
 	function update_value_gradient!(∇v̂, x, params) 
-		update_fcann_value_gradient!(∇v̂, x, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales)
+		update_fcann_value_gradient!(∇v̂, x, 1, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales)
 		use_μP && scale_fcann_params!(∇v̂, scales)
+		return ∇v̂
 	end
 
 	return (feature_vector = x, gradient = deepcopy(params), value_function = value_function, gradient_update! = update_value_gradient!, activations = activations)
