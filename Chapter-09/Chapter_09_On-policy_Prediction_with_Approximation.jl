@@ -208,17 +208,17 @@ end
 # ╔═╡ 1d107df4-36fa-49bd-bd48-5d5f49910b44
 begin
 	#for a linear function the gradient is just the feature vector
-	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
+	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params) where {T<:Real}
 		∇v̂ .= x
 		return ∇v̂
 	end
 
 	#with binary features we only need to store the active features
-	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params::Vector{T}) where T<:Real
+	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params)
 		update_binary_feature_vector!(∇v̂, binary_features)
 	end
 
-	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params::Vector{T}) where T<:Real
+	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params)
 		∇v̂.group_index = feature_vector.group_index
 		return ∇v̂
 	end
@@ -323,6 +323,13 @@ gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, args...; kwargs...) 
 # ╔═╡ 9296a8a1-7edd-4ac4-8fa4-842317d693bc
 gradient_monte_carlo_policy_estimation!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = gradient_monte_carlo_estimation!(parameters, create_episode_functions(mdp, π)..., args...; kwargs...)
 
+# ╔═╡ a77f9819-04b2-4785-8eb0-c7e9dba6cecc
+begin
+	get_feature_length(l::Integer) = l
+	get_feature_length(x::Vector) = length(x)
+	get_feature_length(::AbstractBinaryFeatures{I, N}) where {I<:Integer, N} = N
+end
+
 # ╔═╡ 412f6295-3eec-4966-98e3-2774bf62ed4f
 begin
 	function initialize_linear_parameters(l::Integer, init_value::T) where T<:Real
@@ -330,8 +337,7 @@ begin
 		params .*= init_value
 		return params
 	end
-	initialize_linear_parameters(x::Vector{T}, init_value::T) where T<:Real = initialize_linear_parameters(length(x), init_value)
-	initialize_linear_parameters(x::AbstractBinaryFeatures{I, N}, init_value::T) where {I<:Integer, N, T<:Real} = initialize_linear_parameters(N, init_value)
+	initialize_linear_parameters(x, init_value) = initialize_linear_parameters(get_feature_length(x), init_value)
 end
 
 # ╔═╡ 966850ef-dd15-417b-b51c-9957f27e4664
@@ -2843,6 +2849,7 @@ version = "17.4.0+2"
 # ╠═ba58242a-306a-4631-92b4-34bc9e354fae
 # ╠═c466f78e-e464-4602-93c4-40362e4c0df2
 # ╠═9296a8a1-7edd-4ac4-8fa4-842317d693bc
+# ╠═a77f9819-04b2-4785-8eb0-c7e9dba6cecc
 # ╠═412f6295-3eec-4966-98e3-2774bf62ed4f
 # ╠═966850ef-dd15-417b-b51c-9957f27e4664
 # ╠═97539f3f-92bb-4b6f-a671-260251b4ddc7
