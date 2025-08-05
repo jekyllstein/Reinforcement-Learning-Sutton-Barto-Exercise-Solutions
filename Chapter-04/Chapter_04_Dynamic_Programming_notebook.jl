@@ -953,7 +953,7 @@ Once we've improved our policy to $\pi^\prime$ we can repeat the procedure to ha
 
 $\pi_0 \overset{\text{E}}{\longrightarrow}v_{\pi_0}\overset{\text{I}}{\longrightarrow}\pi_1 \overset{\text{E}}{\longrightarrow}v_{\pi_1}\overset{\text{I}}{\longrightarrow}\pi_2 \overset{\text{E}}{\longrightarrow} \cdots \overset{\text{I}}{\longrightarrow}\pi_* \overset{\text{E}}{\longrightarrow}v_*$
 
-where $\overset{\text{E}}{\longrightarrow}$ denotes a policy *evaluation* and $\overset{\text{I}}{\longrightarrow}$ denotes a policy *improvement*.  Every policy is guaranteed to be a strict improvement over the previous one unless it is already optimal because the action selection at least at one state must be different.  If all the action selections are the same, then the process has converged.  This method of completing a full policy evaluation between steps of selecting the greedy policy is called *policy iteration$.  Code for carrying out policy iteration are shown below.
+where $\overset{\text{E}}{\longrightarrow}$ denotes a policy *evaluation* and $\overset{\text{I}}{\longrightarrow}$ denotes a policy *improvement*.  Every policy is guaranteed to be a strict improvement over the previous one unless it is already optimal because the action selection at least at one state must be different.  If all the action selections are the same, then the process has converged.  This method of completing a full policy evaluation between steps of selecting the greedy policy is called *policy iteration*.  Code for carrying out policy iteration are shown below.
 """
 
 # ╔═╡ 87718a9d-5624-4f18-9dbc-34458dd917fd
@@ -1153,10 +1153,10 @@ end
 
 # ╔═╡ 0079b02d-8895-4dd4-9557-5f08ac341404
 #seems to match optimal policy from figure 4.1
-gridworld_policy_iteration_results = gridworld_policy_iteration()
+const gridworld_policy_iteration_results = gridworld_policy_iteration()
 
 # ╔═╡ 77d251d3-903b-4e96-9261-77a429a3eda7
-gridworld_policy_iteration_results_v2 = gridworld_policy_iteration_v2()
+const gridworld_policy_iteration_results_v2 = gridworld_policy_iteration_v2()
 
 # ╔═╡ a5174afc-04f2-4fc9-9b10-7aa7f249332a
 md"""
@@ -1304,7 +1304,7 @@ function car_rental_policy_iteration_v2(mdp, nmax=10; θ=eps(0f0), γ=0.9f0)
 end
 
 # ╔═╡ 05512261-d0c7-4602-8280-cd1d4d45e875
-example4_2_results = car_rental_policy_iteration_v2(car_rental_mdp_v2;θ = .001f0)
+const example4_2_results = car_rental_policy_iteration_v2(car_rental_mdp_v2;θ = .001f0)
 
 # ╔═╡ c4835f94-1ebc-43bf-b54a-5252e4280635
 function makepolicyvaluemaps(mdp::FiniteMDP, v::Vector{T}, π::Matrix{T}) where T <: Real
@@ -1623,7 +1623,7 @@ md"""
 """
 
 # ╔═╡ 9f6b1d57-87a0-494a-a844-5d8760513bb6
-gridworld_value_iteration = begin_value_iteration_v(create_4x4gridworld_mdp(), 1.0)
+const gridworld_value_iteration = begin_value_iteration_v(create_4x4gridworld_mdp(), 1.0)
 
 # ╔═╡ c693bad0-31a8-42d8-a472-52f2c9825f1b
 HTML("""
@@ -1649,7 +1649,7 @@ md"""
 """
 
 # ╔═╡ a671f4ed-d758-4b42-a970-c088b6b59eb2
-car_value_iteration = begin_value_iteration_v(car_rental_mdp_v2, 0.9f0; θ = 0.0001f0)
+const car_value_iteration = begin_value_iteration_v(car_rental_mdp_v2, 0.9f0; θ = eps(0f0))
 
 # ╔═╡ e337bb47-8309-4af1-8ed3-2b0de1875e57
 begin
@@ -1733,7 +1733,7 @@ end
 # ╔═╡ 5f3dd95b-3563-4a29-ae6d-e772df4f53ad
 md"""
 ### Figure 4.3
-Probability of Heads for Gambler's Problem: $(@bind p_h NumberField(0.0:0.1:1.0, default = 0.4))
+Probability of Heads for Gambler's Problem: $(@bind p_h NumberField(0.0:0.05:1.0, default = 0.4))
 
 Winning Capital: $(@bind wc NumberField(1:1000, default = 100))
 
@@ -1741,7 +1741,7 @@ Discount Rate: $(@bind γ_gambler NumberField(0.01:0.01:1.0, default = 1.0))
 """
 
 # ╔═╡ bb38c5a9-7916-489e-8d94-834f421d57e2
-plot_gambler_results(Float32(p_h); winningcapital = wc, γ = Float32(γ_gambler))
+plot_gambler_results(Float64(p_h); winningcapital = wc, γ = Float64(γ_gambler))
 
 # ╔═╡ 04e6f567-31c5-4f05-b5e2-8b46d22dffbc
 md"""
@@ -1756,12 +1756,14 @@ There are other optimal policies though, in particular we see that for capital v
 """
 
 # ╔═╡ 76c09949-ca38-4d96-b2aa-f7a1017ff322
-md"""
-#### Action Value Visualization
-Capital State: $(@bind capitaleval NumberField(1:99, default = 50))
-
-Winning Flip Probability: $(@bind pheval NumberField(0.0:0.01:1.0, default = 0.4)) 
-"""
+@bind q_viz_params PlutoUI.combine() do Child
+	md"""
+	#### Action Value Visualization
+	Capital State: $(Child(:capitaleval, NumberField(1:99, default = 50)))
+	
+	Winning Flip Probability: $(Child(:pheval, NumberField(0.0:0.01:1.0, default = 0.4)) )
+	"""
+end |> confirm
 
 # ╔═╡ 9462c98d-1a0e-4c61-b7cf-31fb320ffe68
 function evaluate_gambler(p::T; winningcapital = 100, losingcapital = 0, γ = one(T), kwargs...) where T <: Real
@@ -1795,7 +1797,7 @@ function plot_gambler_Q(s, p::T; winningcapital = 100, losingcapital = 0, γ = o
 	formatwagers(x::AbstractVector) = reduce((a, b) -> "$a, $b", x)
 	t1 = scatter(x = eachindex(q), y = q, showlegend = false, name = "")
 	t2 = scatter(x = bestwagers, y = maxq .* ones(length(bestwagers)), name = "Optimal Wager", mode = "markers")
-	qplt = plot([t1, t2], Layout(xaxis_title = "Wager", yaxis_title = "Action Value", title = "Optimal Action Values for Capital $s", height = 350))
+	qplt = plot([t1, t2], Layout(xaxis_title = "Wager", yaxis_title = "Action Value", yaxis_range = [0, 1.1], title = "Optimal Action Values for Capital $s", height = 350))
 	msg = if length(bestwagers) == 1
 		md"""Unique best wager of $(first(bestwagers))"""
 	else
@@ -1811,7 +1813,7 @@ function plot_gambler_Q(s, p::T; winningcapital = 100, losingcapital = 0, γ = o
 end
 
 # ╔═╡ b5d83b23-e5f1-4280-b5d8-2b13191c8ffc
-plot_gambler_Q(capitaleval, Float32(pheval))
+plot_gambler_Q(q_viz_params...)
 
 # ╔═╡ 2f2f6821-8459-4bf9-b0d8-62deffbe5c6b
 md"""
@@ -1839,6 +1841,29 @@ $v_{k+1}(s) = \max_a \sum_{s',r} p(s',r|s,a)[r+\gamma v_k(s')]$
 To create the equivalent for action values, we need to use the Bellman Optimality Equation for q rather than v
 
 $q_{k+1}(s,a) = \sum_{s',r}p(s',r|s,a)[r + \gamma \max_{a'} q_k(s',a')]$
+"""
+
+# ╔═╡ a5220066-8541-4ce6-abe2-aca308ea1b9b
+md"""
+## 4.5 Asynchronous Dynamic Programming
+
+The DP methods discussed so far involve exhaustive sweeps of the state space.  While it is true that we must continue to visit all states with some non-zero probability, that probability need not be equal.  This flexibility opens up many options for controlling how states are visited when it comes to updating values and policies.  We could even monitor a value function and asynchronously use that to compute the greedy policy and visit states accordingly.  Then those visited states could be added to a queue for computing the value iteration update in a parallel process.  This method of selecting states to update could be more efficient in that it focuses the evaulation on states that are frequently visited by the optimal policy.  These states should be more relevant than others to the agent, but in general we must still have some method of visiting all the states however infrequently.  For many of the sweeps, we may want to focus the computation entirely on the states most relevant to optimal behavior and ignore those completely that are not visited.  The goal if to improve the convergence speed of any DP method by computing more useful updates.
+"""
+
+# ╔═╡ 5f9a29f1-d21b-4d53-8405-f5936f9fa3a7
+md"""
+## 4.6 Generalized Policy Iteration
+
+Policy iteration consists of two simultaneous, interacting processes, one making hte value function consistent with the current policy (policy evaulation), and the other maing the policy greedy iwth respect to the current value function (policy improvement).  In policy iteration, we compete each process to convergence before moving on.  In alue iteration, only a single iteration of policy evaluation is performed between each policy improvement.  We are free, however, to interleave these two processes arbitrarily.  *Generalized policy iteration* (GPI) refers to the general idea of letting the two processes interact in any arbitrary way.  Almost all reinforcement learning methods can be described as some form of GPI.  
+
+If both processes stabilize, then we are guaranteed to have the optimal policy and value function justified by the Bellman equations.  Regardless of the granularity or implementation details of either piece, the interaction will produce a single joint solution.
+"""
+
+# ╔═╡ ed15877f-5d6d-4a18-b391-8bebf27d357d
+md"""
+## 4.7 Efficiency of Dynamic Programming
+
+In the worst case, DP methods can find an optimal solution in a time consistent with a polynomial function of the number of states ($n$) and actions ($k$).  The total number of (deterministic) policies is $k^n$ meaning that DP is exponentially faster than any direct search in the policy space.  Linear programming methods are also feasible but become impractical faster than DP methods when the state/action space gets too large.  With DP methods on modern computers, we can easily solve problems with millions of states, perhaps even billions depending on how much we can take advantage of shared memory and cores.  If we consider asynchronous methods, then the optimal solution may severely limit the actual number of states for which we need accurate values thus making even very large problems possible to solve.
 """
 
 # ╔═╡ cf8a9ce5-8204-4628-a21c-df52d986aca0
@@ -2523,17 +2548,20 @@ version = "17.4.0+2"
 # ╠═1016ad1f-36b5-4f4f-86f1-ac8b8c03dbff
 # ╟─bb87aea9-7d4c-4d2f-b62d-3402fc309d50
 # ╟─5f3dd95b-3563-4a29-ae6d-e772df4f53ad
-# ╟─bb38c5a9-7916-489e-8d94-834f421d57e2
+# ╠═bb38c5a9-7916-489e-8d94-834f421d57e2
 # ╟─04e6f567-31c5-4f05-b5e2-8b46d22dffbc
 # ╟─76c09949-ca38-4d96-b2aa-f7a1017ff322
 # ╟─b5d83b23-e5f1-4280-b5d8-2b13191c8ffc
 # ╟─9462c98d-1a0e-4c61-b7cf-31fb320ffe68
 # ╟─4883c217-3f5f-4b30-a92d-615ae0deff7d
-# ╟─f9dc45e8-1bfe-4115-a2e2-6dd2cbc427ff
+# ╠═f9dc45e8-1bfe-4115-a2e2-6dd2cbc427ff
 # ╟─2f2f6821-8459-4bf9-b0d8-62deffbe5c6b
 # ╟─64144caf-7b21-41b5-a002-6a86e5119f8b
 # ╟─d79c93ff-7945-435c-8db1-dfdd6518e34e
 # ╟─42e4a3d6-26ef-48bb-9164-118186ec118b
+# ╟─a5220066-8541-4ce6-abe2-aca308ea1b9b
+# ╟─5f9a29f1-d21b-4d53-8405-f5936f9fa3a7
+# ╟─ed15877f-5d6d-4a18-b391-8bebf27d357d
 # ╟─cf8a9ce5-8204-4628-a21c-df52d986aca0
 # ╟─1c8bf532-326d-4da7-905f-1ba05ea4d748
 # ╟─75aeff5b-fb91-4567-84d8-1e617366a6f3
