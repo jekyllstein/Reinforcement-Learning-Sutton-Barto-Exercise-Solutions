@@ -648,23 +648,11 @@ md"""
 ### *REINFORCE Implementation*
 """
 
-# ╔═╡ 5c11a92d-7496-4aba-af15-2537eac49dd7
-const FCANNActivations{T} = Vector{Vector{T}} where T<:Real 
-
 # ╔═╡ 581f7e9b-a5c2-4841-9605-85f9585b0274
 update_linear_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::Matrix{T}) where T<:AbstractFloat = BLAS.gemv!('T', one(T), params, x, zero(T), action_preferences)
 
 # ╔═╡ da2d3186-a778-41cc-9b49-759bf1e9b8fa
 const BinaryFeatures{I} = Union{C1, C2, C3} where {I <: Integer, C1 <: AbstractVector{I}, N, C2 <: NTuple{N, I}, T<:AbstractVector{I}, C3 <: Base.Generator{T}}
-
-# ╔═╡ f92bb265-4b19-4f0e-a698-d7547bb6dd41
-mutable struct BinaryFeatureVector{I <: Integer}
-	active_features::Vector{I}
-	num_features::I
-	function BinaryFeatureVector()
-		new{Int64}(Vector{Int64}(), 0)
-	end
-end
 
 # ╔═╡ 8eab55a5-41b7-4f5e-a02f-4c19388bc9ea
 function update_binary_feature_vector!(x::BinaryFeatureVector, s::S, get_active_features::Function) where S
@@ -788,7 +776,7 @@ end
 
 # ╔═╡ 96506201-6b66-49e6-8179-06952e2394e1
 function setup_binary_policy_arguments(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer) where {T<:Real, S, A, P, F1, F2, F3} 
-	x = BinaryFeatureVector()
+	x = BinaryFeatureVector(num_features)
 	update_feature_vector!(x::BinaryFeatureVector, s) = update_binary_feature_vector!(x, s, get_active_features)
 	action_preferences = zeros(T, length(mdp.actions))
 	∇lnπ = BinaryEligibilityVector(x, 1, copy(action_preferences))
@@ -1891,8 +1879,8 @@ begin
 		μ::P
 		σ::P
 	end
-	BinaryGaussianEligibilityVector(a::T) where T<:Real = BinaryGaussianEligibilityVector(BinaryFeatureVector(), a, zero(T), one(T))
-	BinaryGaussianEligibilityVector(a::NTuple{N, T}) where {T<:Real, N} = BinaryGaussianEligibilityVector(BinaryFeatureVector(), a, zeros(T, N), ones(T, N))
+	BinaryGaussianEligibilityVector(num_features::Integer, a::T) where T<:Real = BinaryGaussianEligibilityVector(BinaryFeatureVector(num_features), a, zero(T), one(T))
+	BinaryGaussianEligibilityVector(num_features::Integer, a::NTuple{N, T}) where {T<:Real, N} = BinaryGaussianEligibilityVector(BinaryFeatureVector(num_features), a, zeros(T, N), ones(T, N))
 end
 
 # ╔═╡ 54fff14b-cf53-47b0-9cfa-8b9ee33df54e
@@ -1903,8 +1891,8 @@ begin
 		α::P
 		β::P
 	end
-	BinaryBetaEligibilityVector(a::T) where T<:Real = BinaryBetaEligibilityVector(BinaryFeatureVector(), a, one(T), one(T))
-	BinaryBetaEligibilityVector(a::NTuple{N, T}) where {T<:Real, N} = BinaryBetaEligibilityVector(BinaryFeatureVector(), a, ones(T, N), ones(T, N))
+	BinaryBetaEligibilityVector(num_features::Integer, a::T) where T<:Real = BinaryBetaEligibilityVector(BinaryFeatureVector(num_features), a, one(T), one(T))
+	BinaryBetaEligibilityVector(num_features::Integer, a::NTuple{N, T}) where {T<:Real, N} = BinaryBetaEligibilityVector(BinaryFeatureVector(num_features), a, ones(T, N), ones(T, N))
 end
 
 # ╔═╡ 76fd79a2-2bc8-45f8-a243-48415118898a
@@ -1916,8 +1904,8 @@ begin
 		σ::P
 		amax::A
 	end
-	BinarySquashedGaussianEligibilityVector(a::T, amax::T) where T<:Real = BinarySquashedGaussianEligibilityVector(BinaryFeatureVector(), a, zero(T), one(T), amax)
-	BinarySquashedGaussianEligibilityVector(a::NTuple{N, T}) where {T<:Real, N} = BinarySquashedGaussianEligibilityVector(BinaryFeatureVector(), a, zeros(T, N), ones(T, N), amax)
+	BinarySquashedGaussianEligibilityVector(num_features::Integer, a::T, amax::T) where T<:Real = BinarySquashedGaussianEligibilityVector(BinaryFeatureVector(num_features), a, zero(T), one(T), amax)
+	BinarySquashedGaussianEligibilityVector(num_features::Integer, a::NTuple{N, T}) where {T<:Real, N} = BinarySquashedGaussianEligibilityVector(BinaryFeatureVector(num_features), a, zeros(T, N), ones(T, N), amax)
 end
 
 # ╔═╡ 87ee21f3-16ca-4c8c-a0b9-f9e2fd258a91
@@ -2593,7 +2581,7 @@ reinforce_monte_carlo_control_fcann(corridor_mdp, 1, [10, 10], update_corridor_f
 # ╔═╡ a7c9ae69-f4b8-471c-ab97-90642f3c2bdb
 function reinforce_with_baseline_monte_carlo_control_binary_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
 	setup = setup_binary_policy_arguments(mdp, get_active_features, num_features)
-	reinforce_with_baseline_monte_carlo_control!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes; action_preferences = setup.action_preferences, kwargs...)
+	reinforce_with_baseline_monte_carlo_control!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes; action_preferences = setup.action_preferences, kwargs...)
 end
 
 # ╔═╡ cbea5840-49d2-4e91-be9c-f5f15666d78a
@@ -2707,38 +2695,38 @@ end
 
 # ╔═╡ ba5d6311-daee-4abc-b2fb-fae2184ef3eb
 function setup_binary_gaussian_policy_arguments(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer) where {T<:Real, S, N, A<:Union{T, NTuple{N, T}}, P, F1, F2, F3} 
-	x = BinaryFeatureVector()
+	x = BinaryFeatureVector(num_features)
 	update_feature_vector!(x::BinaryFeatureVector, s) = update_binary_feature_vector!(x, s, get_active_features)
 	sample_action = rand(A)
 	action_dist_params = make_n_param_dist_params(2, sample_action)
-	∇lnπ = BinaryGaussianEligibilityVector(sample_action)
+	∇lnπ = BinaryGaussianEligibilityVector(num_features, sample_action)
 	return (feature_vector = x, update_feature_vector! = update_feature_vector!, action_distribution_parameters = action_dist_params, eligibility_vector = ∇lnπ)
 end
 
 # ╔═╡ ed93259c-7b8b-46d7-97fb-f194e0e04b3a
 function setup_binary_beta_policy_arguments(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer) where {T<:Real, S, N, A<:Union{T, NTuple{N, T}}, P, F1, F2, F3} 
-	x = BinaryFeatureVector()
+	x = BinaryFeatureVector(num_features)
 	update_feature_vector!(x::BinaryFeatureVector, s) = update_binary_feature_vector!(x, s, get_active_features)
 	sample_action = rand(A)
 	action_dist_params = make_n_param_dist_params(2, sample_action)
-	∇lnπ = BinaryBetaEligibilityVector(sample_action)
+	∇lnπ = BinaryBetaEligibilityVector(num_features, sample_action)
 	return (feature_vector = x, update_feature_vector! = update_feature_vector!, action_distribution_parameters = action_dist_params, eligibility_vector = ∇lnπ)
 end
 
 # ╔═╡ 4e29c621-223e-4859-8e96-db04b967815a
 function setup_binary_squashed_gaussian_policy_arguments(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, amax::A, get_active_features::Function, num_features::Integer) where {T<:Real, S, N, A<:Union{T, NTuple{N, T}}, P, F1, F2, F3} 
-	x = BinaryFeatureVector()
+	x = BinaryFeatureVector(num_features)
 	update_feature_vector!(x::BinaryFeatureVector, s) = update_binary_feature_vector!(x, s, get_active_features)
 	sample_action = rand(A)
 	action_dist_params = make_n_param_dist_params(2, sample_action)
-	∇lnπ = BinarySquashedGaussianEligibilityVector(sample_action, amax)
+	∇lnπ = BinarySquashedGaussianEligibilityVector(num_features, sample_action, amax)
 	return (feature_vector = x, update_feature_vector! = update_feature_vector!, action_distribution_parameters = action_dist_params, eligibility_vector = ∇lnπ)
 end
 
 # ╔═╡ 7d5c5e78-cdb9-4c1f-8b6d-53591f47ff00
 function reinforce_with_baseline_monte_carlo_control_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
 	setup = setup_binary_gaussian_policy_arguments(mdp, get_active_features, num_features)
-	reinforce_with_baseline_monte_carlo_control!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, update_binary_action_preferences!, setup.action_distribution_parameters, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes; kwargs...)
+	reinforce_with_baseline_monte_carlo_control!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, update_binary_action_preferences!, setup.action_distribution_parameters, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes; kwargs...)
 end
 
 # ╔═╡ d5020a8d-1dd7-403c-9d1f-665b95543943
@@ -3034,7 +3022,7 @@ end
 # ╔═╡ aa797ac6-5c79-4bc2-942f-7e2c6cdfaaa2
 function one_step_actor_critic_binary_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
 	setup = setup_binary_policy_arguments(mdp, get_active_features, num_features)
-	one_step_actor_critic!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes, max_steps; action_preferences = setup.action_preferences, kwargs...)
+	one_step_actor_critic!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes, max_steps; action_preferences = setup.action_preferences, kwargs...)
 end
 
 # ╔═╡ 7d63b960-3998-4f7b-8cbb-ccd49db9aeac
@@ -3327,7 +3315,7 @@ end
 # ╔═╡ 05bfd818-bf4e-4bda-baa9-5ba647867097
 function actor_critic_with_eligibility_traces_binary_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, args...; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
 	setup = setup_binary_policy_arguments(mdp, get_active_features, num_features)
-	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, λ_θ, λ_w, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; action_preferences = setup.action_preferences, kwargs...)
+	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, λ_θ, λ_w, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; action_preferences = setup.action_preferences, kwargs...)
 end
 
 # ╔═╡ 3bccf6fc-6e5e-4f62-ad40-1ff0a3740728
@@ -3526,19 +3514,19 @@ end
 # ╔═╡ 20776e09-7d9b-4db8-a060-7bceeec65b47
 function actor_critic_with_eligibility_traces_binary_features_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, args...; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
 	setup = setup_binary_gaussian_policy_arguments(mdp, get_active_features, num_features)
-	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; kwargs...)
+	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_gaussian_sampler(rand(A)), update_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; kwargs...)
 end
 
 # ╔═╡ 3e3c5897-809f-46e3-bb58-f115b082443e
 function actor_critic_with_eligibility_traces_binary_features_beta_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, args...; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
 	setup = setup_binary_beta_policy_arguments(mdp, get_active_features, num_features)
-	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_beta_sampler(rand(A)), update_beta_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; kwargs...)
+	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_beta_sampler(rand(A)), update_beta_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; kwargs...)
 end
 
 # ╔═╡ 05f120be-9695-4824-82fd-142a0df13098
 function actor_critic_with_eligibility_traces_binary_features_squashed_gaussian_actions(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, amax::A, λ_θ::T, λ_w::T, get_active_features::Function, num_features::Integer, args...; policy_params::Matrix{T} = make_n_param_dist_policy_params(2, num_features, rand(A)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} 
 	setup = setup_binary_squashed_gaussian_policy_arguments(mdp, amax, get_active_features, num_features)
-	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_squashed_gaussian_sampler(rand(A), amax), update_squashed_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; kwargs...)
+	actor_critic_with_eligibility_traces!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, λ_θ, λ_w, update_binary_action_preferences!, setup.action_distribution_parameters, make_squashed_gaussian_sampler(rand(A), amax), update_squashed_gaussian_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, args...; kwargs...)
 end
 
 # ╔═╡ 717e4c69-59d5-4929-923f-dd35a97fb160
@@ -5936,11 +5924,9 @@ version = "17.4.0+2"
 # ╟─73b90260-d57a-449a-8db6-47f91e6a4e4f
 # ╟─ee72af8d-3cb8-4314-82df-580f068e1252
 # ╟─89901156-b874-416b-89c1-6dc434a4eb17
-# ╠═5c11a92d-7496-4aba-af15-2537eac49dd7
 # ╠═b0a66a19-ee76-463b-a704-8fcee85444d0
 # ╠═581f7e9b-a5c2-4841-9605-85f9585b0274
 # ╠═da2d3186-a778-41cc-9b49-759bf1e9b8fa
-# ╠═f92bb265-4b19-4f0e-a698-d7547bb6dd41
 # ╠═8eab55a5-41b7-4f5e-a02f-4c19388bc9ea
 # ╠═a361f4c9-47ce-42ad-899c-87b611c0d471
 # ╠═cc3ac95e-a398-438a-ba3d-62b6733f6342
