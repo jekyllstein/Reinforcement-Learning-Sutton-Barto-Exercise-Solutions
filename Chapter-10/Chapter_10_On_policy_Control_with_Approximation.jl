@@ -337,7 +337,7 @@ end
 # ╔═╡ a7f44f65-e17b-464f-abac-7703082811ba
 #form value function when training two sets of parameters with double sarsa
 function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
-	function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters::W = parameters, kwargs...)
+	function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, kwargs...)
 		update_feature_vector!(x, s)
 		update_action_values!(action_values1, x, parameters1)
 		update_action_values!(action_values2, x, parameters2)
@@ -1883,7 +1883,7 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 	save_parameter_history && push!(parameter_history, deepcopy(parameters))
 	
 	while (ep <= max_episodes) && (step <= max_steps)
-		q̂ = compute_value(action_values, policy, i_a)
+		q̂ = action_values[i_a]
 		update_value_gradient!(∇q̂, feature_vector, i_a, parameters)
 		
 		(r, s′) = mdp.ptf(s, i_a)
@@ -1937,9 +1937,9 @@ semi_gradient_sarsa_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_step
 # ╔═╡ 7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function mountaincar_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 12, num_tilings = 8, kwargs...)
+function mountaincar_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 12, num_tilings = 8, algo = semi_gradient_sarsa_linear, kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
-	semi_gradient_sarsa_linear(mountain_car_mdp, 1f0, max_episodes, typemax(Int64), setup.feature_vector, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
+	algo(mountain_car_mdp, 1f0, max_episodes, typemax(Int64), setup.feature_vector, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
 end
   ╠═╡ =#
 
@@ -1983,10 +1983,16 @@ end
 figure_10_2(;num_episodes = 500)
   ╠═╡ =#
 
+# ╔═╡ 36a53700-9e9a-4131-89c8-dbd520d5c407
+semi_gradient_expected_sarsa_linear(args...; kwargs...) = semi_gradient_sarsa_linear(args...; kwargs..., compute_value = compute_expected_sarsa_value)
+
+# ╔═╡ 39a07c8a-0253-42b8-ba8d-f00b02ca82a5
+semi_gradient_q_learning_linear(args...; kwargs...) = semi_gradient_sarsa_linear(args...; kwargs..., compute_value = compute_q_learning_value)
+
 # ╔═╡ cbac1927-b087-4c4c-98ae-6aa5f0b824ad
 # ╠═╡ skip_as_script = true
 #=╠═╡
-(q̂_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(5_000, 0.1f0/8, 0.01f0; compute_value = compute_q_learning_value)
+(q̂_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(1_000, .4f0/20, 0.01f0; compute_value = compute_q_learning_value, algo = semi_gradient_sarsa_linear)
   ╠═╡ =#
 
 # ╔═╡ b5409b69-a254-4355-b2b9-99394eceb2f7
@@ -2021,16 +2027,6 @@ function run_linear_semi_gradient_sarsa(mdp::StateMDP, γ::T, max_episodes::Inte
 	
 	return (value_function = q̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameter_history = parameter_history)
 end
-  ╠═╡ =#
-
-# ╔═╡ 36a53700-9e9a-4131-89c8-dbd520d5c407
-#=╠═╡
-run_linear_semi_gradient_expected_sarsa(args...; kwargs...) = run_linear_semi_gradient_sarsa(args...; kwargs..., compute_value = compute_expected_sarsa_value)
-  ╠═╡ =#
-
-# ╔═╡ 39a07c8a-0253-42b8-ba8d-f00b02ca82a5
-#=╠═╡
-run_linear_semi_gradient_q_learning(args...; kwargs...) = run_linear_semi_gradient_sarsa(args...; kwargs..., compute_value = compute_q_learning_value)
   ╠═╡ =#
 
 # ╔═╡ 7e87f2ec-c96f-4897-bb61-c27913f6944f
@@ -2084,17 +2080,11 @@ show_mountaincar_trajectory(π_mountain_car_fcann, 1_000, "Sarsa Learned Policy"
 plot_mountaincar_action_values(mountain_car_fcann.value_function, 200, 200)
   ╠═╡ =#
 
-# ╔═╡ 7812e801-70fd-4331-ad0a-fad02c1a399f
-semi_gradient_expected_sarsa!(args...; kwargs...) = semi_gradient_sarsa!(args...; kwargs..., compute_value=compute_expected_sarsa_value)
-
-# ╔═╡ 5be866c3-0fb2-4d1f-9c31-b85aba332905
-semi_gradient_q_learning!(args...; kwargs...) = semi_gradient_sarsa!(args...; kwargs..., compute_value=compute_q_learning_value)
-
 # ╔═╡ 8b7e1031-9864-439c-86eb-11aa08f53b90
-function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, compute_value = compute_sarsa_value, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {P, T<:Real}
+function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, compute_value = compute_expected_sarsa_value, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {P, T<:Real}
 	action_values1 = zeros(T, length(mdp.actions))
 	action_values2 = zeros(T, length(mdp.actions))
-	policy = copy(action_values)
+	policy = copy(action_values1)
 
 	s = mdp.initialize_state()
 	update_feature_vector!(feature_vector, s)
@@ -2125,7 +2115,7 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 			action_values2, parameters2
 		end
 		
-		q̂ = compute_value(action_values, policy, i_a)
+		q̂ = action_values[i_a]
 		update_value_gradient!(∇q̂, feature_vector, i_a, parameters)
 
 		
@@ -2147,14 +2137,12 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 		
 
 		#use the action-values from the parameters not being updated and the hypothetical policy from the parameters being updated to compute the target value
-		action_values = if case1
+		action_values, i_a′ = if case1
 			policy .= action_values1
-			i_a′ = i_a_max1
-			action_values2
+			action_values2, i_a_max1
 		else
 			policy .= action_values2
-			i_a′ = i_a_max2
-			action_values1
+			action_values1, i_a_max2
 		end
 		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 
@@ -2196,6 +2184,9 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 	
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = (parameter_history1, parameter_history2), final_parameters = (deepcopy(parameters1), deepcopy(parameters2)))
 end
+
+# ╔═╡ b8cd582e-26fc-4f21-85cc-950bac60bee0
+semi_gradient_double_sarsa_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters1::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), parameters2::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = semi_gradient_double_sarsa!(parameters1, parameters2, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ b0761704-5447-4e64-8270-708d9dccef60
 function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, PR}
@@ -3975,6 +3966,7 @@ version = "17.4.0+2"
 # ╠═de3e4afe-f935-4b33-9218-08d403743c60
 # ╠═d82faf3b-c975-4b23-ad62-473bd943c4e2
 # ╠═b697c5ba-4647-4998-a153-1e97dd91cb23
+# ╠═b8cd582e-26fc-4f21-85cc-950bac60bee0
 # ╠═526689e2-85ea-47d5-9791-5aa730f8b1ab
 # ╠═b9ebd6bb-90a1-4945-85ed-023206e2420a
 # ╠═2c620fe4-2f62-40f8-a666-8dced1e0b84a
@@ -4068,8 +4060,6 @@ version = "17.4.0+2"
 # ╟─98a5d65e-4253-4523-a74e-99d03be03b89
 # ╠═8ed6f8fd-8574-4d5a-9964-ce8a32629c6f
 # ╠═1410db13-4b73-4a87-af34-30a5232af4ba
-# ╠═7812e801-70fd-4331-ad0a-fad02c1a399f
-# ╠═5be866c3-0fb2-4d1f-9c31-b85aba332905
 # ╠═36a53700-9e9a-4131-89c8-dbd520d5c407
 # ╠═39a07c8a-0253-42b8-ba8d-f00b02ca82a5
 # ╟─f7410fe7-e3d8-4047-8fa7-f076476e9d3a
