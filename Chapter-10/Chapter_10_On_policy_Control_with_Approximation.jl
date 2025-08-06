@@ -506,6 +506,9 @@ md"""
 ### *Action-Value Implementation of Non-Linear Approximation*
 """
 
+# ╔═╡ 1a8080da-065d-477b-8966-3488eeb93579
+#to do next
+
 # ╔═╡ be1ad356-de4b-469c-bb65-81d630f07674
 function setup_fcann_action_value_arguments(params::FCANNParams{T}, input_length::Integer, hidden_layers::Vector{Int64}, reslayers::Integer, l2::T, dropout::T, use_μP::Bool, activation_list) where {T<:Real}
 	x = zeros(T, input_length)
@@ -1989,24 +1992,6 @@ semi_gradient_expected_sarsa_linear(args...; kwargs...) = semi_gradient_sarsa_li
 # ╔═╡ 39a07c8a-0253-42b8-ba8d-f00b02ca82a5
 semi_gradient_q_learning_linear(args...; kwargs...) = semi_gradient_sarsa_linear(args...; kwargs..., compute_value = compute_q_learning_value)
 
-# ╔═╡ cbac1927-b087-4c4c-98ae-6aa5f0b824ad
-# ╠═╡ skip_as_script = true
-#=╠═╡
-(q̂_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(1_000, .4f0/20, 0.01f0; compute_value = compute_q_learning_value, algo = semi_gradient_sarsa_linear)
-  ╠═╡ =#
-
-# ╔═╡ b5409b69-a254-4355-b2b9-99394eceb2f7
-# ╠═╡ skip_as_script = true
-#=╠═╡
-show_mountaincar_trajectory(s -> q̂_mountain_car_q(s).maximizing_action, 1_000, "Q-Learning Learned Policy")
-  ╠═╡ =#
-
-# ╔═╡ f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot_mountaincar_action_values(q̂_mountain_car_q, 500, 500)
-  ╠═╡ =#
-
 # ╔═╡ 2c620fe4-2f62-40f8-a666-8dced1e0b84a
 #=╠═╡
 function run_linear_semi_gradient_sarsa(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), init_param::Vector{T} = zeros(T, length(state_representation)), kwargs...) where T<:Real
@@ -2043,7 +2028,7 @@ end
 # ╔═╡ c11aa069-93c2-435a-8f0e-353ced9633b6
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function mountaincar_fcann_test(max_steps::Integer, α::Float32, ϵ::Float32; num_layers = 3, layer_size = 2, kwargs...)
+function mountaincar_fcann_test(max_steps::Integer, α::Float32, ϵ::Float32; num_layers = 3, layer_size = 2, algo = semi_gradient_sarsa_fcann, kwargs...)
 	feature_vector = zeros(Float32, 2)
 	function update_feature_vector!(v::Vector{Float32}, s::NTuple{2, Float32})
 		x1 = 3.45f0*(((s[1] - 1.2f0) / 1.7f0) - 0.5f0)
@@ -2052,14 +2037,14 @@ function mountaincar_fcann_test(max_steps::Integer, α::Float32, ϵ::Float32; nu
 		v[2] = x2
 	end
 	layers = fill(layer_size, num_layers)
-	semi_gradient_sarsa_fcann(mountain_car_mdp, 1f0, 1000, max_steps, update_feature_vector!, 2, layers; α = α, ϵ = ϵ, kwargs...)
+	algo(mountain_car_mdp, 1f0, 1000, max_steps, update_feature_vector!, 2, layers; α = α, ϵ = ϵ, kwargs...)
 end
   ╠═╡ =#
 
 # ╔═╡ 5fdbce61-ca25-45e0-b07d-94adf7138446
 # ╠═╡ skip_as_script = true
 #=╠═╡
-mountain_car_fcann = mountaincar_fcann_test(100_000, 4f-8, 0.05f0; num_layers = 20, layer_size = 64, compute_value = compute_sarsa_value, reslayers=1)
+mountain_car_fcann = mountaincar_fcann_test(100_000, 1f-2, 0.1f0; num_layers = 3, layer_size = 64, compute_value = compute_q_learning_value, reslayers=1, c = 1.0f0)
   ╠═╡ =#
 
 # ╔═╡ b9125c5b-01d6-451e-84b5-a419e38425b5
@@ -2188,6 +2173,24 @@ end
 # ╔═╡ b8cd582e-26fc-4f21-85cc-950bac60bee0
 semi_gradient_double_sarsa_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters1::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), parameters2::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = semi_gradient_double_sarsa!(parameters1, parameters2, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
+# ╔═╡ cbac1927-b087-4c4c-98ae-6aa5f0b824ad
+# ╠═╡ skip_as_script = true
+#=╠═╡
+(q̂_mountain_car_q, episode_rewards_q, episode_steps_q) = mountaincar_test(2_000, .8f0/20, 0.01f0; compute_value = compute_q_learning_value, algo = semi_gradient_double_sarsa_linear)
+  ╠═╡ =#
+
+# ╔═╡ b5409b69-a254-4355-b2b9-99394eceb2f7
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mountaincar_trajectory(s -> q̂_mountain_car_q(s).maximizing_action, 1_000, "Q-Learning Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot_mountaincar_action_values(q̂_mountain_car_q, 500, 500)
+  ╠═╡ =#
+
 # ╔═╡ b0761704-5447-4e64-8270-708d9dccef60
 function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, PR}
 	action_values = zeros(T, length(mdp.actions))
@@ -2305,6 +2308,48 @@ function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer
 end
   ╠═╡ =#
 
+# ╔═╡ 4c94be37-dcd7-4b32-8e7f-3371ddaa254a
+function semi_gradient_dp_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
+	setup = setup_fcann_value_arguments(parameters, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
+	
+	(value_function, episode_rewards, episode_steps, parameter_history, final_parameters) = semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.gradient_update!; kwargs...)
+
+	q̂(s; activations = deepcopy(setup.activations), kwargs...) = value_function(s; activations = activations, kwargs...)
+
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
+end
+
+# ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
+#=╠═╡
+function mountaincar_fcann_dp(max_episodes::Integer, α::Float32, ϵ::Float32; layers = [4, 4], max_steps = typemax(Int64), kwargs...)
+	semi_gradient_dp_fcann(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, update_mountaincar_feature_vector!, 2, layers; α = α, ϵ = ϵ, kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
+# ╠═╡ skip_as_script = true
+#=╠═╡
+mountaincar_fcann_dp_results = mountaincar_fcann_dp(100, 2f-6, 0.01f0; layers = [64, 64, 64], reslayers = 1, c = 10f0)
+  ╠═╡ =#
+
+# ╔═╡ b3658e4d-ee8e-45cd-906a-06dd512a6921
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot_mountaincar_action_values(mountaincar_fcann_dp_results.value_function, 100, 100)
+  ╠═╡ =#
+
+# ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
+# ╠═╡ skip_as_script = true
+#=╠═╡
+show_mountaincar_trajectory(s -> mountaincar_fcann_dp_results.value_function(s).maximizing_action, 1_000, "DP Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ 00399548-b21c-43b5-90e2-30656ab1541e
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot(scatter(y = -mountaincar_fcann_dp_results.episode_rewards), Layout(yaxis_type = "log"))
+  ╠═╡ =#
+
 # ╔═╡ 00e7783f-7f17-4944-a085-ea87509cd75a
 function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, fcann_params::Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}} = FCANN.initializeparams_saxe(length(state_representation), layers, 1, 1; use_μP = true), kwargs...) where T<:Real
 	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; params = fcann_params, λ = λ, c = c, dropout = dropout)
@@ -2328,37 +2373,6 @@ function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer,
 	end
 	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
 end
-
-# ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
-#=╠═╡
-function mountaincar_fcann_dp(max_episodes::Integer, α::Float32, ϵ::Float32; layers = [4, 4], max_steps = typemax(Int64), kwargs...)
-	run_fcann_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, 2), update_mountaincar_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
-end
-  ╠═╡ =#
-
-# ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
-# ╠═╡ skip_as_script = true
-#=╠═╡
-mountaincar_fcann_dp_results = mountaincar_fcann_dp(100, 1f-5, 0.1f0; layers = [16, 16, 16], c = 10f0)
-  ╠═╡ =#
-
-# ╔═╡ b3658e4d-ee8e-45cd-906a-06dd512a6921
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot_mountaincar_values(mountaincar_fcann_dp_results.value_function, mountaincar_fcann_dp_results.π_greedy; n1 = 100, n2 = 100)
-  ╠═╡ =#
-
-# ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
-# ╠═╡ skip_as_script = true
-#=╠═╡
-show_mountaincar_trajectory(mountaincar_fcann_dp_results.π_greedy, 1_000, "DP Learned Policy")
-  ╠═╡ =#
-
-# ╔═╡ 00399548-b21c-43b5-90e2-30656ab1541e
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot(scatter(y = -mountaincar_fcann_dp_results.reward_history), Layout(yaxis_type = "log"))
-  ╠═╡ =#
 
 # ╔═╡ 12fa7b75-d13f-4a16-8562-1142002f3f3f
 function semi_gradient_differential_dp!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, β = one(T)/100, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
@@ -3972,8 +3986,10 @@ version = "17.4.0+2"
 # ╠═2c620fe4-2f62-40f8-a666-8dced1e0b84a
 # ╠═56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
 # ╟─8d096d0d-8fea-421a-aa33-82269d3fe7e2
+# ╠═1a8080da-065d-477b-8966-3488eeb93579
 # ╠═be1ad356-de4b-469c-bb65-81d630f07674
 # ╠═7e87f2ec-c96f-4897-bb61-c27913f6944f
+# ╠═4c94be37-dcd7-4b32-8e7f-3371ddaa254a
 # ╠═f58cd0a2-8c82-46b2-bb8f-00f6aa1d867f
 # ╠═c678846c-aaff-4266-8b2c-07a3a92445ef
 # ╠═39b0f100-a7e7-4633-b296-ccc87a5a35ab
@@ -4064,9 +4080,9 @@ version = "17.4.0+2"
 # ╠═39a07c8a-0253-42b8-ba8d-f00b02ca82a5
 # ╟─f7410fe7-e3d8-4047-8fa7-f076476e9d3a
 # ╠═cbac1927-b087-4c4c-98ae-6aa5f0b824ad
-# ╠═b5409b69-a254-4355-b2b9-99394eceb2f7
-# ╠═f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
-# ╠═09088eee-4cb3-40ac-b127-658ce1332fba
+# ╟─b5409b69-a254-4355-b2b9-99394eceb2f7
+# ╟─f9ee13e8-7406-4fba-9a30-1e2714bd7cfc
+# ╟─09088eee-4cb3-40ac-b127-658ce1332fba
 # ╟─d6ad1ff1-8fbf-4799-8b1b-ae1e3ce88c5b
 # ╟─b8c031ca-7995-4501-a1e3-df3f34e5f0da
 # ╟─5f9a2231-8c4a-4519-adbe-a0dd92838ba4
