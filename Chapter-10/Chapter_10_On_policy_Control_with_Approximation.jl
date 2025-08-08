@@ -2974,95 +2974,181 @@ md"""
 ## Monte Carlo Gradient Control
 """
 
-# ╔═╡ 953907cd-9926-4478-99b3-da7068118c22
-function gradient_monte_carlo_action_episode_update!(parameters, update_parameters!::Function, states::AbstractVector{S}, actions::AbstractVector{A}, rewards::AbstractVector{T}, γ::T, α::T, update_args...) where {T<:Real, S, A}
+# ╔═╡ 0e538956-affd-4aea-b32c-4f3873238ee4
+#update next
+
+# ╔═╡ 0d3d5304-0412-485d-8f56-f4362a74ea45
+function gradient_monte_carlo_episode_update!(parameters, action_values::Vector{T}, ∇q̂, feature_vector, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function, states::AbstractVector{S}, actions::AbstractVector{I}, rewards::AbstractVector{T}, γ::T, α::T, calculate_error::Function) where {T<:Real, I<:Integer, S}
 	g = zero(T)
 	l = length(states)
+	episode_error = zero(T)
 	for i in l:-1:1
 		s = states[i]
 		i_a = actions[i]
+		update_feature_vector!(feature_vector, s)
+		update_action_values!(action_values, feature_vector, parameters)
+		update_value_gradient!(∇q̂, feature_vector, i_a, parameters)
 		g = γ * g + rewards[i]
-		update_parameters!(parameters, s, i_a, g, α, update_args...)
+		q̂ = action_values[i_a]
+		δ = g - q̂
+		c = α*δ
+		update_params_with_gradient!(parameters, c, ∇q̂)
+		episode_error += calculate_error(g, q̂, s)
 	end
+	return episode_error / l
 end
 
-# ╔═╡ 13e477f0-dc15-46cb-9691-c04a1b4c83c8
-function gradient_monte_carlo_action_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, update_parameters!::Function, update_args::Tuple; α = one(T)/10, epkwargs...) where {T<:Real}
-	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, epkwargs...)
-	gradient_monte_carlo_action_episode_update!(parameters, update_parameters!, states, actions, rewards, γ, α, update_args...)
-	step_history = [nsteps]
+# ╔═╡ 604a2621-aa73-42d9-9255-e5f5578d0b51
+function gradient_monte_carlo_action_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, action_values = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
+	(states, actions, rewards, sterm) = runepisode(mdp; π = π, epkwargs...)
+	sqerr = gradient_monte_carlo_action_episode_update!(parameters, action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, states, actions, rewards, γ, α, calculate_error)
+	error_history = zeros(T, num_episodes)
+	error_history[1] = sqrt(sqerr)
 	for ep in 2:num_episodes
-		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
-		gradient_monte_carlo_episode_update!(parameters, update_parameters!, view(states, 1:nsteps), view(actions:1:nsteps), view(rewards, 1:nsteps), γ, α, update_args...)
-		push!(step_history, nsteps)
+		(states, actions, rewards, sterm, n_steps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
+		error = gradient_monte_carlo_episode_update!(parameters, action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, view(states, 1:n_steps), view(actions, 1:n_steps), view(rewards, 1:n_steps), γ, α, calculate_error)
+		error_history[ep] = error
 	end
-	return step_history, reward_history
+	q̂ = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
+	return (value_function = q̂, error_history = error_history, parameters = parameters)
 end
 
 # ╔═╡ 06834750-cc3a-468a-b0c2-81349c288a33
-function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_episodes::Integer, value_function::Function, value_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T)/10, suppress_warning = false, epkwargs...) where {T<:Real}
-	action_values = zeros(T, length(mdp.actions))
-	function π_ϵ_greedy(s)
-		rand() < ϵ && return rand(eachindex(mdp.actions)) 
-		value_function(action_values, s, parameters, value_args...)[2]
-	end
-	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; epkwargs...)
-	gradient_monte_carlo_action_episode_update!(parameters, update_parameters!, states, actions, rewards, γ, α, update_args...)
-	if !suppress_warning && !mdp.isterm(sterm) 
-		@info "Warning: Episode 1 did not conclude in $nsteps steps"
-	end
-	step_history = [nsteps]
-	reward_history = [sum(rewards)]
-	for ep in 2:num_episodes
-		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π_ϵ_greedy, epkwargs...)
-		gradient_monte_carlo_action_episode_update!(parameters, update_parameters!, view(states, 1:nsteps), view(actions, 1:nsteps), view(rewards, 1:nsteps), γ, α, update_args...)
-		if !suppress_warning && !mdp.isterm(sterm) 
-			@info "Warning: Episode $ep did not conclude in $nsteps steps"
-		end
-		push!(step_history, nsteps)
-		push!(reward_history, sum(rewards[i] for i in 1:nsteps))
-	end
-	return step_history, reward_history
-end
+function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, ignore_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
 
-# ╔═╡ 164c68ef-01b8-43be-bc75-919dd99a6e03
-function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, value_function::Function, value_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T)/10, suppress_warning = false, epkwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
-	action_values = zeros(T, length(mdp.actions))
-	v̂(s) = value_function(s, parameters, value_args...)
-	function π_greedy(s)
-		update_action_values!(action_values, s, v̂, mdp, γ)
-		make_greedy_policy!(action_values)
+	step_history = Vector{Int64}()
+	error_history = Vector{T}()
+	reward_history = Vector{T}()
+	num_success = 0
+	
+	function π_ϵ_greedy(s)
+		update_feature_vector!(feature_vector, s)
+		update_action_values!(action_values, feature_vector, parameters)
+		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
 		sample_action(action_values)
 	end
 	
+	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; epkwargs...)
+
+	success = mdp.isterm(sterm)
+	num_success += success
+	if !suppress_warning && !success
+		@info "Warning: Episode 1 did not conclude in $nsteps steps"
+	end
+
+	if mdp.isterm(sterm) || ignore_unfinished_episodes
+		err = gradient_monte_carlo_episode_update!(parameters, action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, states, actions, rewards, γ, α, calculate_error)
+		push!(error_history, err)
+		push!(step_history, nsteps)
+		push!(reward_history, sum(rewards))
+	end
+	
+	for ep in 2:num_episodes
+		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π_ϵ_greedy, epkwargs...)
+
+		success = mdp.isterm(sterm)
+		num_success += success
+
+		if !success && !suppress_warning
+			@info "Warning: Episode $ep did not conclude in $nsteps steps"
+		end
+
+		if success || ignore_unfinished_episodes
+			err = gradient_monte_carlo_episode_update!(parameters,action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, view(states, 1:nsteps), view(actions, 1:nsteps), view(rewards, 1:nsteps), γ, α, calculate_error)
+			push!(step_history, nsteps)
+			push!(reward_history, sum(rewards[i] for i in 1:nsteps))
+			push!(error_history, err)
+		end
+	end
+
+	q̂ = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
+
+	success_rate = num_success / num_episodes
+	
+	return (value_function = q̂, step_history = step_history, reward_history = reward_history,  error_history = error_history, parameters = parameters, sucess_rate = success_rate)
+end
+
+# ╔═╡ d04bf8ac-9905-4e80-93db-c5c28c31359b
+function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, ignore_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+
+	step_history = Vector{Int64}()
+	error_history = Vector{T}()
+	reward_history = Vector{T}()
+	num_success = 0
+
+	function v̂(s::S; parameters = parameters, feature_vector = feature_vector, kwargs...)
+		update_feature_vector!(feature_vector, s)
+		estimate_value(feature_vector, parameters; kwargs...)
+	end
+	
 	function π_ϵ_greedy(s)
-		rand() < ϵ && return rand(eachindex(mdp.actions))
-		π_greedy(s)
+		update_action_values!(action_values, s, v̂, mdp, γ)
+		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+		sample_action(action_values)
 	end
 	
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; epkwargs...)
-	gradient_monte_carlo_episode_update!(parameters, update_parameters!, states, rewards, γ, α, update_args...)
-	if !suppress_warning && !mdp.isterm(sterm) 
+
+	success = mdp.isterm(sterm)
+	num_success += success
+	if !suppress_warning && !success
 		@info "Warning: Episode 1 did not conclude in $nsteps steps"
 	end
-	step_history = [nsteps]
-	reward_history = [sum(rewards)]
+
+	if mdp.isterm(sterm) || ignore_unfinished_episodes
+		err = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, estimate_value, update_value_gradient!, states, rewards, γ, α, calculate_error)
+		push!(error_history, err)
+		push!(step_history, nsteps)
+		push!(reward_history, sum(rewards))
+	end
+	
 	for ep in 2:num_episodes
 		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π_ϵ_greedy, epkwargs...)
-		gradient_monte_carlo_episode_update!(parameters, update_parameters!, view(states, 1:nsteps), view(rewards, 1:nsteps), γ, α, update_args...)
-		if !suppress_warning && !mdp.isterm(sterm) 
+
+		success = mdp.isterm(sterm)
+		num_success += success
+
+		if !success && !suppress_warning
 			@info "Warning: Episode $ep did not conclude in $nsteps steps"
 		end
-		push!(step_history, nsteps)
-		push!(reward_history, sum(rewards[i] for i in 1:nsteps))
+
+		if success || ignore_unfinished_episodes
+			err = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, estimate_value, update_value_gradient!, view(states, 1:nsteps), view(rewards, 1:nsteps), γ, α, calculate_error)
+			push!(step_history, nsteps)
+			push!(reward_history, sum(rewards[i] for i in 1:nsteps))
+			push!(error_history, err)
+		end
 	end
-	return step_history, reward_history, π_ϵ_greedy, π_greedy, v̂
+
+	q̂ = form_value_function(mdp, γ, update_feature_vector!, estimate_value, feature_vector, parameters)
+
+	success_rate = num_success / num_episodes
+	
+	return (value_function = q̂, step_history = step_history, reward_history = reward_history,  error_history = error_history, parameters = parameters, sucess_rate = success_rate)
 end
+
+# ╔═╡ 31260d29-6131-4e44-b6e6-e78399501c54
+md"""
+### Linear Approximation
+"""
+
+# ╔═╡ b4085947-f4c7-4664-8d94-8090a67ea6c4
+#uses an action value function to learn optimal policy
+gradient_monte_carlo_control_linear(mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ 164c68ef-01b8-43be-bc75-919dd99a6e03
+#when the transition distribution is available uses the state value function to learn optimal policy
+gradient_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function} = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ cc285969-c33f-4d19-8e47-397b59e67299
+#=╠═╡
+const mountaincar_tile_setup = setup_mountain_car_tiles((1/10f0, 1/10f0), 12)
+  ╠═╡ =#
 
 # ╔═╡ 0714a1cf-9288-4f1e-ba72-d82608704d69
 # ╠═╡ skip_as_script = true
 #=╠═╡
-mc_test = run_linear_gradient_monte_carlo_control(mountain_car_mdp, 1f0, 5_000, setup_mountain_car_tiles((1/12f0, 1/12f0), 9).args...; α = 1f-7, ϵ = 0.25f0, max_steps = 100_000)
+mc_test = gradient_monte_carlo_control_linear(mountain_car_mdp, 1f0, 1000, mountaincar_tile_setup.feature_vector, mountaincar_tile_setup.update_feature_vector!; α = 1f-8, ϵ = 0.1f0, max_steps = 10_000, suppress_warning = true, ignore_unfinished_episodes = true)
   ╠═╡ =#
 
 # ╔═╡ c85033e1-3ee6-42ad-9ef0-144ce6238ce4
@@ -3104,7 +3190,7 @@ plot(smooth_error(mc_test.step_history, 10), Layout(yaxis_type = "log"))
 
 # ╔═╡ 954848db-6dcc-4666-90f8-b5a900203242
 #=╠═╡
-show_mountaincar_trajectory(s -> mc_test.π_ϵ_greedy(s, 0.25f0), 10000, "MC Learned Policy")
+show_mountaincar_trajectory(s -> mc_test.value_function(s).maximizing_action, 1000, "MC Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ b55d50a4-b039-4240-b434-42f7b724d24d
@@ -3113,49 +3199,72 @@ show_mountaincar_trajectory(s -> mc_test.π_ϵ_greedy(s, 0.25f0), 10000, "MC Lea
 plot_mountaincar_action_values(mc_test.value_function, 100, 100)
   ╠═╡ =#
 
-# ╔═╡ 17d11fea-883b-4ddb-bec2-c4ad491b39dd
+# ╔═╡ e4e572b0-eea6-4cf3-85cd-bbe7f2c687e6
 #=╠═╡
-function run_linear_gradient_monte_carlo_control(mdp::StateMDP, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; kwargs...) where T<:Real
-	setup = linear_features_action_gradient_setup(mdp, state_representation, update_state_representation!)
-	parameters = [zeros(T, length(state_representation)) for _ in 1:length(mdp.actions)]
-	step_history, reward_history = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, setup...; kwargs...)
-	q̂(s) = setup.value_function(action_values, s, parameters, setup.value_args...)
-	action_values = zeros(T, length(mdp.actions))
-	π_greedy(s) = setup.value_function(action_values, s, parameters, setup.value_args...)[2]
-	π_ϵ_greedy(s, ϵ) = rand() < ϵ ? rand(eachindex(mdp.actions)) : setup.value_function(action_values, s, parameters, setup.value_args...)[2]
-	return (value_function = q̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
-end
+mc_test2 = gradient_monte_carlo_control_linear(mountain_car_dist_mdp, 1f0, 1000, mountaincar_tile_setup.feature_vector, mountaincar_tile_setup.update_feature_vector!; α = 1f-8, ϵ = 0.1f0, max_steps = 10_000, suppress_warning = true, ignore_unfinished_episodes = true)
   ╠═╡ =#
 
-# ╔═╡ 2e1b698a-4c84-4bd7-9b08-79fb275bcb58
-function run_linear_gradient_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
-	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!)
-	parameters = zeros(T, length(state_representation))
-	step_history, reward_history, π_ϵ_greedy, π_greedy, v̂ = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, setup...; kwargs...)
-	return (value_function = v̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
-end
+# ╔═╡ 4282d334-5c18-4805-99b1-59930165de98
+#=╠═╡
+plot(smooth_error(mc_test2.step_history, 10), Layout(yaxis_type = "log"))
+  ╠═╡ =#
+
+# ╔═╡ fa048d3d-6a5a-4f47-8e58-2a3b6a905e50
+#=╠═╡
+show_mountaincar_trajectory(s -> mc_test2.value_function(s).maximizing_action, 1000, "MC Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ ca4928fb-0fcb-4835-95ff-a65abf5102b8
+#=╠═╡
+plot_mountaincar_action_values(mc_test2.value_function, 100, 100)
+  ╠═╡ =#
+
+# ╔═╡ 8ae2f369-8c73-4116-a6d8-1a1e4aae35e0
+md"""
+### Non-linear Approximation
+"""
 
 # ╔═╡ c75dc51c-cbff-48b1-b0fd-108828929b51
-#=╠═╡
-function run_fcann_gradient_monte_carlo_control(mdp::StateMDP, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where T<:Real
-	setup = fcann_action_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
-	num_actions = length(mdp.actions)
-	step_history, reward_history = gradient_monte_carlo_control!(setup.parameters, mdp, γ, num_episodes, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	q̂(s, i_a) = setup.value_function(s, i_a, setup.parameters, setup.value_args...)
-	action_values = zeros(Float32, num_actions)
-	q̂(s) = setup.value_function(action_values, s, setup.parameters, setup.value_args...)
-	π_greedy(s) = q̂(s)[2]
-	π_ϵ_greedy(s, ϵ) = rand() < ϵ ? rand(eachindex(mdp.actions)) : π_greedy(s)
-	return (value_function = q̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
+#uses an action value function to learn optimal policy
+function gradient_monte_carlo_control_fcann(mdp::StateMDP, γ::T, num_episodes::Integer, update_feature_vector!::Function, num_features::Integer, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, layers, length(mdp.actions), reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), kwargs...) where T<:Real
+	setup = setup_fcann_action_value_arguments(parameters, num_features, layers, reslayers, l2, dropout, use_μP, activation_list)
+	(value_function, step_history, reward_history, error_history, parameters, success_rate) = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
+
+	q̂(s; activations = deepcopy(setup.activations), kwargs...) = value_function(s; activations = activations, kwargs...)
+
+	return (value_function = q̂, step_history = step_history, reward_history = reward_history,  error_history = error_history, parameters = parameters, sucess_rate = success_rate)
 end
-  ╠═╡ =#
+
+# ╔═╡ a9d1381b-566a-4422-81fc-38efde1d2608
+#when the transition distribution is available uses the state value function to learn optimal policy
+function gradient_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, update_feature_vector!::Function, num_features::Integer, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	setup = setup_fcann_value_arguments(parameters, num_features, layers, reslayers, l2, dropout, use_μP, activation_list)
+	(value_function, step_history, reward_history, error_history, parameters, success_rate) = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.gradient_update!; kwargs...)
+
+	q̂(s; activations = deepcopy(setup.activations), kwargs...) = value_function(s; activations = activations, kwargs...)
+
+	return (value_function = q̂, step_history = step_history, reward_history = reward_history,  error_history = error_history, parameters = parameters, sucess_rate = success_rate)
+end
 
 # ╔═╡ 9b3035f6-fe59-4748-a1cd-3c2ce61c6608
-function run_fcann_gradient_monte_carlo_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, fcann_params::Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}} = FCANN.initializeparams_saxe(length(state_representation), layers, 1, 1; use_μP = true), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
-	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; params = fcann_params, λ = λ, c = c, dropout = dropout)
-	step_history, reward_history, π_ϵ_greedy, π_greedy, v̂ = gradient_monte_carlo_control!(setup.parameters, mdp, γ, num_episodes, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	return (value_function = v̂, π_greedy = π_greedy, π_ϵ_greedy = π_ϵ_greedy, step_history = step_history, reward_history = reward_history)
-end
+#=╠═╡
+mc_test3 = gradient_monte_carlo_control_fcann(mountain_car_dist_mdp, 1f0, 100, update_mountaincar_feature_vector!, 2, [8, 8, 8]; α = 1f-8, ϵ = 0.1f0, max_steps = 10_000, suppress_warning = true)
+  ╠═╡ =#
+
+# ╔═╡ 52ab5b04-8500-4310-8723-0fba097358da
+#=╠═╡
+plot(smooth_error(mc_test3.step_history, 10), Layout(yaxis_type = "log"))
+  ╠═╡ =#
+
+# ╔═╡ ae790d84-ebdb-4dd6-9abf-49096ca8567a
+#=╠═╡
+show_mountaincar_trajectory(s -> mc_test3.value_function(s).maximizing_action, 1000, "MC Learned Policy")
+  ╠═╡ =#
+
+# ╔═╡ 9e18c459-5f76-40cc-a8bc-c513492bb0ea
+#=╠═╡
+plot_mountaincar_action_values(mc_test3.value_function, 100, 100)
+  ╠═╡ =#
 
 # ╔═╡ 6cea9e69-bf8c-4079-9884-663a728d7b08
 md"""
@@ -4133,19 +4242,31 @@ version = "17.4.0+2"
 # ╟─39eada35-8c3e-4ddc-8df9-7cf9f120928d
 # ╟─8752c98d-fac1-4b3b-b20b-70acc0677fcb
 # ╟─50f6ff51-d81b-4e97-9f8a-0daf03af7192
-# ╠═953907cd-9926-4478-99b3-da7068118c22
-# ╠═13e477f0-dc15-46cb-9691-c04a1b4c83c8
+# ╠═0e538956-affd-4aea-b32c-4f3873238ee4
+# ╠═0d3d5304-0412-485d-8f56-f4362a74ea45
+# ╠═604a2621-aa73-42d9-9255-e5f5578d0b51
 # ╠═06834750-cc3a-468a-b0c2-81349c288a33
+# ╠═d04bf8ac-9905-4e80-93db-c5c28c31359b
+# ╟─31260d29-6131-4e44-b6e6-e78399501c54
+# ╠═b4085947-f4c7-4664-8d94-8090a67ea6c4
 # ╠═164c68ef-01b8-43be-bc75-919dd99a6e03
+# ╠═cc285969-c33f-4d19-8e47-397b59e67299
 # ╠═0714a1cf-9288-4f1e-ba72-d82608704d69
 # ╠═c85033e1-3ee6-42ad-9ef0-144ce6238ce4
 # ╠═b76551e0-c027-4682-b5ae-bba7ea2b987a
 # ╠═954848db-6dcc-4666-90f8-b5a900203242
 # ╠═b55d50a4-b039-4240-b434-42f7b724d24d
-# ╠═17d11fea-883b-4ddb-bec2-c4ad491b39dd
-# ╠═2e1b698a-4c84-4bd7-9b08-79fb275bcb58
+# ╠═e4e572b0-eea6-4cf3-85cd-bbe7f2c687e6
+# ╟─4282d334-5c18-4805-99b1-59930165de98
+# ╟─fa048d3d-6a5a-4f47-8e58-2a3b6a905e50
+# ╟─ca4928fb-0fcb-4835-95ff-a65abf5102b8
+# ╟─8ae2f369-8c73-4116-a6d8-1a1e4aae35e0
 # ╠═c75dc51c-cbff-48b1-b0fd-108828929b51
+# ╠═a9d1381b-566a-4422-81fc-38efde1d2608
 # ╠═9b3035f6-fe59-4748-a1cd-3c2ce61c6608
+# ╟─52ab5b04-8500-4310-8723-0fba097358da
+# ╟─ae790d84-ebdb-4dd6-9abf-49096ca8567a
+# ╠═9e18c459-5f76-40cc-a8bc-c513492bb0ea
 # ╟─6cea9e69-bf8c-4079-9884-663a728d7b08
 # ╠═69fb26ed-763e-44ad-9b70-193e5a1a09b9
 # ╠═fa5fecfd-c039-4063-9acb-365a046e06f2
