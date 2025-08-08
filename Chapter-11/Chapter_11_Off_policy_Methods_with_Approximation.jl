@@ -374,7 +374,6 @@ bairdπ(s::Int64) = [0.0, 1.0]
   ╠═╡ =#
 
 # ╔═╡ 2feb4657-3377-434f-bf8a-400cfcfe9fef
-#=╠═╡
 #run the baird example with a given policy for a set number of steps and keep track of visit statistics
 @tailrec function runbaird(s0::Int64, π, nsteps::Int64, counts::Vector{Int64})
 	counts[s0] += 1
@@ -383,14 +382,11 @@ bairdπ(s::Int64) = [0.0, 1.0]
 	(r, s) = baird_state_mdp.ptf(s0, a)
 	runbaird(s, π, nsteps-1, counts)
 end
-  ╠═╡ =#
 
 # ╔═╡ 3238aaa1-92aa-4d80-af22-4e237be9f0fc
-#=╠═╡
 function startbaird(π, nsteps)
 	runbaird(1, π, nsteps, zeros(Int64, 7))
 end
-  ╠═╡ =#
 
 # ╔═╡ 1e010e8e-2dde-4228-b914-fdc120fa91ca
 md"""

@@ -651,26 +651,6 @@ md"""
 # ╔═╡ 581f7e9b-a5c2-4841-9605-85f9585b0274
 update_linear_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::Matrix{T}) where T<:AbstractFloat = BLAS.gemv!('T', one(T), params, x, zero(T), action_preferences)
 
-# ╔═╡ da2d3186-a778-41cc-9b49-759bf1e9b8fa
-const BinaryFeatures{I} = Union{C1, C2, C3} where {I <: Integer, C1 <: AbstractVector{I}, N, C2 <: NTuple{N, I}, T<:AbstractVector{I}, C3 <: Base.Generator{T}}
-
-# ╔═╡ 8eab55a5-41b7-4f5e-a02f-4c19388bc9ea
-function update_binary_feature_vector!(x::BinaryFeatureVector, s::S, get_active_features::Function) where S
-	active_features = get_active_features(s)
-	l = length(x.active_features)
-	n = 0
-	for (i, f) in enumerate(active_features)
-		if i > l 
-			push!(x.active_features, f)
-		else
-			x.active_features[i] = f
-		end
-		n += 1
-	end
-	x.num_features = n
-	return x
-end
-
 # ╔═╡ a361f4c9-47ce-42ad-899c-87b611c0d471
 function update_binary_action_preferences!(action_preferences::Vector{T}, binary_features::BinaryFeatureVector, params::Matrix{T}) where T<:Real
 	@inbounds for i_a in eachindex(action_preferences)
@@ -717,37 +697,19 @@ mutable struct BinaryEligibilityVector{T, B <: BinaryFeatureVector}
 end
 
 # ╔═╡ b0a66a19-ee76-463b-a704-8fcee85444d0
-begin
-	function update_params_with_gradient!(θ::Array{T, N}, α::T, ∇θ::Array{T, N}) where {T<:Real, N}
-		θ .+= α .* ∇θ
-	end
-
-	function update_params_with_gradient!(θ::Matrix{T}, α::T, ∇θ::BinaryEligibilityVector{T, B}) where {T<:Real, B<:BinaryFeatureVector}
-		@inbounds for i in eachindex(∇θ.π_dist)
-			@simd for j in 1:∇θ.binary_features.num_features
-				k = ∇θ.binary_features.active_features[j]
-				θ[k, i] -= α*∇θ.π_dist[i]
-			end
-		end
-		
-		@inbounds @simd for i in 1:∇θ.binary_features.num_features
-			j = ∇θ.binary_features.active_features[i]
-			θ[j, ∇θ.i_a] += α
-		end
-		return θ
-	end
-
-	function update_params_with_gradient!(params::FCANNParams{T}, α::T, ∇::FCANNParams{T}) where T<:Float32
-		for i in eachindex(first(params))
-			for j in 1:2
-				# @info "updating parameter $((j, i)) $(params[j][i]) with gradient $(∇[j][i]) and constant $α"
-				update_params_with_gradient!(params[j][i], α, ∇[j][i])
-				# @info "new parameter values are:  $(params[j][i])"
-			end
+function update_params_with_gradient!(θ::Matrix{T}, α::T, ∇θ::BinaryEligibilityVector{T, B}) where {T<:Real, B<:BinaryFeatureVector}
+	@inbounds for i in eachindex(∇θ.π_dist)
+		@simd for j in 1:∇θ.binary_features.num_features
+			k = ∇θ.binary_features.active_features[j]
+			θ[k, i] -= α*∇θ.π_dist[i]
 		end
 	end
-
-	update_params_with_gradient!(::Nothing, α::T, ::Nothing) where T<:Real = return nothing
+	
+	@inbounds @simd for i in 1:∇θ.binary_features.num_features
+		j = ∇θ.binary_features.active_features[i]
+		θ[j, ∇θ.i_a] += α
+	end
+	return θ
 end
 
 # ╔═╡ 042fbafe-2401-4fb7-ac13-4531e0782c79
@@ -845,72 +807,6 @@ md"""
 
 These functions use two sets of parameters, one to calculate the policy function and another to calculate the state value function.  The state representation vector is shared between the two functions, but the policy function will return a distribution of preferences over actions while the value function will return a single value.  If linear approximation is used to estimate both functions, the the policy parameters $\boldsymbol{\theta}$ will be a $d \times N_a$ matrix where $d$ is the length of the state feature vector representation and the value function parameters $\mathbf{w}$ will be a length $d$ vector.  It is also possible to mix linear and non-linear approximation with this method.
 """
-
-# ╔═╡ 1753b5ed-c00b-4b60-b492-822180778e8c
-function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
-	∇v̂ .= x
-end
-
-# ╔═╡ 03a218cb-aa83-4000-85b5-c6f247087053
-function update_binary_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params::Vector{T}) where T<:Real
-	∇v̂.active_features = binary_features.active_features
-	∇v̂.num_features = binary_features.num_features
-end
-
-# ╔═╡ a893a87b-2d07-4db5-9d1a-9da8646216f4
-function update_params_with_gradient!(w::Vector{T}, α::T, ∇w::BinaryFeatureVector) where {T<:Real}
-	@inbounds @simd for i in 1:∇w.num_features
-		j = ∇w.active_features[i]
-		w[j] += α
-	end
-	return w
-end
-
-# ╔═╡ 5c4a383f-fcf2-4f2b-819f-6d84471dda00
-function update_fcann_value_gradient!(∇v̂::FCANNParams, x::Vector{T}, params::FCANNParams, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivations{T}, activations::FCANNActivations{T}, deltas::FCANNActivations{T}, dropout::T, reslayers::Integer, activation_list::AbstractVector{B}, scales) where {T<:Float32, B<:Bool}
-	FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v̂..., tanh_grad_z, activations, deltas, dropout; resLayers = reslayers, loss_type = OutputIndex(), activation_list = activation_list)
-	@inbounds for i in eachindex(params[1])
-		for j in 1:2
-			∇v̂[j][i] .*= scales[i]
-		end
-	end
-end
-
-# ╔═╡ 2cbc972b-c685-4c1c-8a8d-9d58b197ad90
-function update_binary_value_params!(params::Vector{T}, active_features::BinaryFeatures, c::T) where T<:Real
-	@inbounds for i in active_features
-		params[i] += c
-	end
-	return params
-end
-
-# ╔═╡ 77cf3a74-899f-4ade-99f2-5aaf7a98c02d
-function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
-	@inbounds for i in eachindex(scales)
-		for j in 1:2
-			params[j][i] ./= scales[i]
-		end
-	end
-end
-
-# ╔═╡ 0bf3b988-b3fb-49d5-8dde-b25766596363
-linear_value_function(x::Vector{T}, w::Vector{T}) where {T<:Real} = dot(x, w)
-
-# ╔═╡ a540814a-57a1-4b98-9443-59e401425444
-function binary_value_function(binary_features::BinaryFeatureVector, params::Vector{T})::T where T<:Real
-	v = zero(T)
-	@inbounds @simd for i in 1:binary_features.num_features
-		j = binary_features.active_features[i]
-		v += params[j]
-	end
-	return v
-end
-
-# ╔═╡ 635abb34-2c97-4f04-a74c-22fbec32f408
-function fcann_value_function(x::Vector{T}, params::FCANNParams, activations::FCANNActivations{T}, reslayers::Integer) where T<:Float32
-	FCANN.forwardNOGRAD_base!(activations, params..., x, reslayers)
-	return first(last(activations))
-end
 
 # ╔═╡ 37ec6802-d4c2-4470-ad69-439d5a732f77
 function form_state_policy_function(update_feature_vector!::Function, update_action_preferences!::Function)
@@ -3022,7 +2918,7 @@ end
 # ╔═╡ aa797ac6-5c79-4bc2-942f-7e2c6cdfaaa2
 function one_step_actor_critic_binary_features(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, max_episodes::Integer, max_steps::Integer; policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
 	setup = setup_binary_policy_arguments(mdp, get_active_features, num_features)
-	one_step_actor_critic!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, update_binary_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, binary_value_function, update_binary_value_gradient!, max_episodes, max_steps; action_preferences = setup.action_preferences, kwargs...)
+	one_step_actor_critic!(policy_params, setup.eligibility_vector, value_params, BinaryFeatureVector(num_features), mdp, update_linear_action_preferences!, update_binary_eligibility_vector!, setup.feature_vector, setup.update_feature_vector!, linear_value_function, update_linear_value_gradient!, max_episodes, max_steps; action_preferences = setup.action_preferences, kwargs...)
 end
 
 # ╔═╡ 7d63b960-3998-4f7b-8cbb-ccd49db9aeac
@@ -5926,8 +5822,6 @@ version = "17.4.0+2"
 # ╟─89901156-b874-416b-89c1-6dc434a4eb17
 # ╠═b0a66a19-ee76-463b-a704-8fcee85444d0
 # ╠═581f7e9b-a5c2-4841-9605-85f9585b0274
-# ╠═da2d3186-a778-41cc-9b49-759bf1e9b8fa
-# ╠═8eab55a5-41b7-4f5e-a02f-4c19388bc9ea
 # ╠═a361f4c9-47ce-42ad-899c-87b611c0d471
 # ╠═cc3ac95e-a398-438a-ba3d-62b6733f6342
 # ╠═4634267b-5dea-4164-8bb2-1eb2fd4d7954
@@ -5947,15 +5841,6 @@ version = "17.4.0+2"
 # ╟─3bafd7df-9bc0-4d13-874d-739590cf3ad9
 # ╟─cc45091e-b889-4d5a-9eef-84d80f792046
 # ╟─d83dc659-dce7-41dd-a8e7-2933ab39d15c
-# ╠═1753b5ed-c00b-4b60-b492-822180778e8c
-# ╠═03a218cb-aa83-4000-85b5-c6f247087053
-# ╠═a893a87b-2d07-4db5-9d1a-9da8646216f4
-# ╠═5c4a383f-fcf2-4f2b-819f-6d84471dda00
-# ╠═2cbc972b-c685-4c1c-8a8d-9d58b197ad90
-# ╠═77cf3a74-899f-4ade-99f2-5aaf7a98c02d
-# ╠═0bf3b988-b3fb-49d5-8dde-b25766596363
-# ╠═a540814a-57a1-4b98-9443-59e401425444
-# ╠═635abb34-2c97-4f04-a74c-22fbec32f408
 # ╠═37ec6802-d4c2-4470-ad69-439d5a732f77
 # ╠═e7566274-5518-4e28-8738-d4b1747d0cfb
 # ╠═4fb83451-b6f8-4e6e-a131-1accc8e10b08

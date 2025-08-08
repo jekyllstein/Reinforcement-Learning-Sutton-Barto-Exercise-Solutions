@@ -643,14 +643,10 @@ function state_aggregation_feature_setup(s::S, num_groups::Integer, assign_state
 end
 
 # ╔═╡ c52222b7-64bd-4285-bba3-e22529495af6
-#=╠═╡
-gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
-  ╠═╡ =#
+gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
 
 # ╔═╡ f64b78e1-76ff-4337-a9f0-aa2d3e3f33ac
-#=╠═╡
-gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
-  ╠═╡ =#
+gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
 
 # ╔═╡ ace0693b-b4ce-43df-966e-0330d4399638
 #=╠═╡
@@ -1537,7 +1533,7 @@ function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::
 end
 
 # ╔═╡ 4a3a4635-a046-4eec-ab95-2dce74ac0fbe
-function semi_gradient_td0_estimation_fcann(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
+function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
 	(value_function, history, step_rewards, params) = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, setup.feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.gradient_update!; kwargs...)
 

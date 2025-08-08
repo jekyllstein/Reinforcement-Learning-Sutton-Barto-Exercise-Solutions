@@ -652,82 +652,16 @@ semi_gradient_dp_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::
 # ╔═╡ b9ebd6bb-90a1-4945-85ed-023206e2420a
 # ╠═╡ disabled = true
 #=╠═╡
-function linear_features_action_gradient_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, state_representation::AbstractVector{T}, update_feature_vector!::Function) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
-	s0 = problem.initialize_state()
-	update_feature_vector!(state_representation, s0) #verify that feature vector update is compatible with provided state representation
 
-	function update_params!(parameters::AbstractArray, s::S, i_a::Integer, g::T, α::T, state_representation::AbstractVector{T}) where T<:Real
-		update_feature_vector!(state_representation, s)
-		q̂ = calculate_action_value(state_representation, i_a, parameters)
-		δ = (g - q̂)
-		iszero(δ) && return nothing
-		update_parameters!(parameters, state_representation, i_a, α, δ)
-		return nothing
-	end
-	
-	function q̂(s::S, i_a::Integer, parameters::AbstractArray, state_representation::AbstractVector{T}) where {T<:Real} 
-		update_feature_vector!(state_representation, s)
-		calculate_action_value(state_representation, i_a, parameters)
-	end
-
-	function q̂(action_values::Vector{T}, s::S, parameters::AbstractArray, state_representation::AbstractVector{T}) where {T<:Real} 
-		update_feature_vector!(state_representation, s)
-		fill_action_values!(action_values, state_representation, parameters)
-		findmax(action_values)
-	end
-	
-	return (value_function = q̂, value_args = (state_representation,), parameter_update = update_params!, update_args = (copy(state_representation),))
-end
   ╠═╡ =#
 
 # ╔═╡ 2c620fe4-2f62-40f8-a666-8dced1e0b84a
-#=╠═╡
-function run_linear_semi_gradient_sarsa(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), init_param::Vector{T} = zeros(T, length(state_representation)), kwargs...) where T<:Real
-	setup = linear_features_action_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	num_actions = length(mdp.actions)
-	# parameters = zeros(T, l, num_actions)
-	parameters = [copy(init_param) for _ in 1:num_actions]
-	episode_rewards, episode_steps, parameter_history = semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	q̂(s, i_a) = setup.value_function(s, i_a, parameters, setup.value_args...)
-	function q̂(s)
-		action_values = zeros(T, num_actions)
-		setup.value_function(action_values, s, parameters, setup.value_args...)
-		findmax(action_values)
-	end
 
-	π_greedy(s) = q̂(s)[2]
-	
-	return (value_function = q̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameter_history = parameter_history)
-end
-  ╠═╡ =#
 
 # ╔═╡ 56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
 # ╠═╡ disabled = true
 #=╠═╡
-function run_linear_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), kwargs...) where T<:Real
-	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	num_actions = length(mdp.actions)
-	parameters = zeros(T, l)
-	episode_rewards, episode_steps, parameter_history = semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	function π_greedy(s)
-		action_values = zeros(T, num_actions)
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T) 
-			for i in eachindex(probabilities)
-				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
-				q += probabilities[i]*(rewards[i] + γ*v̂′)
-			end
-			action_values[i_a] = q
-		end
-		make_greedy_policy!(action_values)
-		i_a = sample_action(action_values)
-	end
-	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameter_history = parameter_history)
-end
+
   ╠═╡ =#
 
 # ╔═╡ 8d096d0d-8fea-421a-aa33-82269d3fe7e2
@@ -788,148 +722,8 @@ function semi_gradient_dp_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
 end
 
-# ╔═╡ f58cd0a2-8c82-46b2-bb8f-00f6aa1d867f
-# ╠═╡ disabled = true
-#=╠═╡
-function update_input!(input::Matrix{Float32}, feature_vector::Vector{Float32}, i_a::Integer, num::Integer)
-	l1 = length(feature_vector)
-	l2 = size(input, 2)
-	for i in eachindex(feature_vector)
-		input[num, i] = feature_vector[i]
-	end
-	for i in l1+1:l2
-		input[num, i] = 0f0
-	end
-	input[num, l1+i_a] = 1f0
-end
-  ╠═╡ =#
-
-# ╔═╡ c678846c-aaff-4266-8b2c-07a3a92445ef
-#=╠═╡
-function fcann_action_gradient_setup(mdp::StateMDP, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; kwargs...)
-	s0 = mdp.initialize_state()
-	num_actions = length(mdp.actions)
-	input_layer_size = length(feature_vector)
-	update_feature_vector!(feature_vector, s0)
-	θ, β = FCANN.initializeparams_saxe(input_layer_size, layers, num_actions, 1; use_μP = true)
-
-	∇θ = deepcopy(θ)
-	∇β = deepcopy(β)
-	∇tanh_z = FCANN.form_tanh_grads(layers, 1)
-
-	function setup_training(batch_size::Integer)
-		activations = [zeros(Float32, batch_size, l) for l in [layers; num_actions]]
-		δs = deepcopy(activations)
-		onesvec = zeros(Float32, batch_size)
-		return (activations, δs, onesvec)
-	end
-
-	(activations, δs, onesvec) = setup_training(1)
-
-	input = zeros(Float32, 1, input_layer_size)
-	output = zeros(Float32, 1, num_actions)
-	scales = ones(Float32, length(layers)+1)
-	for i in 2:length(scales)
-		scales[i] /= size(θ[i], 2)
-	end
-	mT = deepcopy(θ)
-	vT = deepcopy(θ)
-	# θ_est = deepcopy(θ)
-	# θ_avg = deepcopy(θ)
-	mB = deepcopy(β)
-	vB = deepcopy(β)
-	# β_est = deepcopy(β)
-	# β_avg = deepcopy(β)
-	FCANN.zeroParams!(mT, vT)
-	FCANN.zeroParams!(vT, vB)
-	# function update_parameters!(parameters, s, i_a::Integer, g::Float32, α::Float32, gradients, state_representation::Vector{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, scales)
-	# 	update_feature_vector!(state_representation, s)
-	# 	NonTabularRL.update_input!(input, state_representation, 1)
-	# 	FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
-	# 	for i in 1:num_actions
-	# 		output[1, i] = activations[end][1, i]
-	# 	end
-	# 	output[1, i_a] = g
-	# 	NonTabularRL.update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, α, scales; kwargs...)
-	# end
-
-	function update_parameters!(parameters, s, i_a::Integer, g::Float32, α::Float32, gradients, state_representation::Vector{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, scales, mT, mB, vT, vB)
-		update_feature_vector!(state_representation, s)
-		update_input!(input, state_representation, 1)
-		for i in 1:num_actions
-			output[1, i] = activations[end][1, i]
-		end
-		output[1, i_a] = g
-		update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, α, scales, mT, mB, vT, vB, 10000)
-	end
-
-	function q̂(s, i_a::Integer, parameters, state_representation, input, activations) 
-		update_feature_vector!(state_representation, s)
-		update_input!(input, state_representation, 1)
-		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
-		return activations[end][1, i_a]
-	end
-
-	function q̂(action_values::Vector{Float32}, s, parameters, state_representation, input, activations) 
-		update_feature_vector!(state_representation, s)
-		update_input!(input, state_representation, 1)
-		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
-		best_action = 1
-		best_value = typemin(Float32)
-		for i_a in eachindex(action_values)
-			q = activations[end][1, i_a]
-			newmax = q > best_value
-			best_action = !newmax*best_action + newmax*i_a
-			best_value = !newmax*best_value + newmax*q
-			action_values[i_a] = q
-		end
-		return (best_value, best_action)
-	end
-
-	# update_args = ((∇θ, ∇β), feature_vector, input, output, ∇tanh_z, activations, δs, onesvec, scales)
-	update_args = ((∇θ, ∇β), feature_vector, input, output, ∇tanh_z, activations, δs, onesvec, scales, mT, mB, vT, vB)
-	
-	return (value_function = q̂, value_args = (feature_vector, input, activations), parameter_update = update_parameters!, update_args = update_args, parameters = (θ, β))
-end
-  ╠═╡ =#
-
-# ╔═╡ 39b0f100-a7e7-4633-b296-ccc87a5a35ab
-#=╠═╡
-function run_fcann_semi_gradient_sarsa(mdp::StateMDP, γ::Float32, max_episodes::Integer, max_steps::Integer, state_representation::Vector{Float32}, update_state_representation!::Function, layers::Vector{T}; λ = 0f0, c = Inf, dropout = 0f0, kwargs...) where T<:Integer
-	setup = fcann_action_gradient_setup(mdp, layers, state_representation, update_state_representation!; λ = λ, c = c, dropout = dropout)
-	num_actions = length(mdp.actions)
-	episode_rewards, episode_steps = semi_gradient_sarsa!(setup.parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; nn_momentum = true, kwargs...)
-	q̂(s, i_a) = setup.value_function(s, i_a, setup.parameters, setup.value_args...)
-	action_values = zeros(Float32, num_actions)
-	q̂(s) = setup.value_function(action_values, s, setup.parameters, setup.value_args...)
-	π_greedy(s) = q̂(s)[2]
-	return (value_function = q̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps, parameters = setup.parameters)
-end
-  ╠═╡ =#
-
 # ╔═╡ 00e7783f-7f17-4944-a085-ea87509cd75a
-function run_fcann_semi_gradient_dp(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function, layers::Vector{Int64}; λ = 0f0, c = Inf, dropout = 0f0, fcann_params::Tuple{Vector{Matrix{Float32}}, Vector{Vector{Float32}}} = FCANN.initializeparams_saxe(length(state_representation), layers, 1, 1; use_μP = true), kwargs...) where T<:Real
-	setup = fcann_gradient_setup(mdp, layers, state_representation, update_state_representation!; params = fcann_params, λ = λ, c = c, dropout = dropout)
-	l = length(state_representation)
-	num_actions = length(mdp.actions)
-	episode_rewards, episode_steps = semi_gradient_dp!(setup.parameters, mdp, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, setup.parameters, setup.value_args...)
-	function π_greedy(s)
-		action_values = zeros(T, num_actions)
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T) 
-			for i in eachindex(probabilities)
-				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
-				q += probabilities[i]*(rewards[i] + γ*v̂′)
-			end
-			action_values[i_a] = q
-		end
-		make_greedy_policy!(action_values)
-		i_a = sample_action(action_values)
-	end
-	return (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
-end
+
 
 # ╔═╡ a22e5d34-4b8d-479c-985c-d6abd41a6c80
 md"""
@@ -1521,9 +1315,6 @@ function mountaincar_fcann_test(max_steps::Integer, α::Float32, ϵ::Float32; nu
 end
   ╠═╡ =#
 
-# ╔═╡ 2f172c4a-67a4-40b8-b5dc-c17687652235
-BLAS.set_num_threads(16)
-
 # ╔═╡ 59ec5223-f23f-4f32-9e5f-8a08e450da85
 md"""
 ## 10.2 Semi-gradient *n*-step Sarsa
@@ -1683,7 +1474,7 @@ compute_q_learning_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integ
 # ╔═╡ 5fdbce61-ca25-45e0-b07d-94adf7138446
 # ╠═╡ skip_as_script = true
 #=╠═╡
-mountain_car_fcann = mountaincar_fcann_test(100_000, 1f-2, 0.1f0; num_layers = 3, layer_size = 64, compute_value = compute_q_learning_value, reslayers=1, c = 1.0f0)
+mountain_car_fcann = mountaincar_fcann_test(100_000, 1f-7, 0.1f0; num_layers = 3, layer_size = 8, compute_value = compute_q_learning_value, reslayers=1, c = 1.0f0)
   ╠═╡ =#
 
 # ╔═╡ b9125c5b-01d6-451e-84b5-a419e38425b5
@@ -2330,7 +2121,7 @@ end
 
 # ╔═╡ 86f7dcde-b27e-4096-bec8-c5d17fd553d2
 #=╠═╡
-const differential_nonlinear_dp_mountaincar = mountaincar_differential_dp_nonlinear_test(100_000, 1f-3, 1f-3, 0.01f0; layer_size = 4)
+const differential_nonlinear_dp_mountaincar = mountaincar_differential_dp_nonlinear_test(100_000, 1f-6, 1f-4, 0.01f0; layer_size = 8)
   ╠═╡ =#
 
 # ╔═╡ ad692a51-e93b-4480-8a6c-2ad86dc6766b
@@ -2973,9 +2764,6 @@ As steps progress $\beta$ will approach $\lambda$ but early on will take on much
 md"""
 ## Monte Carlo Gradient Control
 """
-
-# ╔═╡ 0e538956-affd-4aea-b32c-4f3873238ee4
-#update next
 
 # ╔═╡ 0d3d5304-0412-485d-8f56-f4362a74ea45
 function gradient_monte_carlo_episode_update!(parameters, action_values::Vector{T}, ∇q̂, feature_vector, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function, states::AbstractVector{S}, actions::AbstractVector{I}, rewards::AbstractVector{T}, γ::T, α::T, calculate_error::Function) where {T<:Real, I<:Integer, S}
@@ -4054,9 +3842,6 @@ version = "17.4.0+2"
 # ╠═be1ad356-de4b-469c-bb65-81d630f07674
 # ╠═7e87f2ec-c96f-4897-bb61-c27913f6944f
 # ╠═4c94be37-dcd7-4b32-8e7f-3371ddaa254a
-# ╠═f58cd0a2-8c82-46b2-bb8f-00f6aa1d867f
-# ╠═c678846c-aaff-4266-8b2c-07a3a92445ef
-# ╠═39b0f100-a7e7-4633-b296-ccc87a5a35ab
 # ╠═00e7783f-7f17-4944-a085-ea87509cd75a
 # ╟─a22e5d34-4b8d-479c-985c-d6abd41a6c80
 # ╟─b990ba67-42c8-4ab9-943d-085392204fdd
@@ -4128,7 +3913,6 @@ version = "17.4.0+2"
 # ╠═5db29488-a150-42ee-aedb-380a3a4fd548
 # ╟─7a47a518-dfc7-4310-a0b5-6f0d151c8263
 # ╠═c11aa069-93c2-435a-8f0e-353ced9633b6
-# ╠═2f172c4a-67a4-40b8-b5dc-c17687652235
 # ╠═5fdbce61-ca25-45e0-b07d-94adf7138446
 # ╠═b9125c5b-01d6-451e-84b5-a419e38425b5
 # ╠═4ccb8a52-c6af-445d-a39e-d4d9b10c0d6a
@@ -4198,7 +3982,7 @@ version = "17.4.0+2"
 # ╠═c94da551-06b2-4e2b-bf39-ceb5cb5c390c
 # ╠═3b66c97b-ebad-4d13-987c-ac0172b349d1
 # ╠═86f7dcde-b27e-4096-bec8-c5d17fd553d2
-# ╠═ad692a51-e93b-4480-8a6c-2ad86dc6766b
+# ╟─ad692a51-e93b-4480-8a6c-2ad86dc6766b
 # ╟─cf00a316-38e3-4423-9909-d5ffbd7c0b06
 # ╟─89288ce6-11e8-41f3-b32d-e19edee7db33
 # ╟─9df1a18d-137c-4ea5-8d15-05697f7bbf07
@@ -4242,7 +4026,6 @@ version = "17.4.0+2"
 # ╟─39eada35-8c3e-4ddc-8df9-7cf9f120928d
 # ╟─8752c98d-fac1-4b3b-b20b-70acc0677fcb
 # ╟─50f6ff51-d81b-4e97-9f8a-0daf03af7192
-# ╠═0e538956-affd-4aea-b32c-4f3873238ee4
 # ╠═0d3d5304-0412-485d-8f56-f4362a74ea45
 # ╠═604a2621-aa73-42d9-9255-e5f5578d0b51
 # ╠═06834750-cc3a-468a-b0c2-81349c288a33
