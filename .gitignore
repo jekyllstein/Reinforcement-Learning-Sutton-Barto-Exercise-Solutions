@@ -6,3 +6,4 @@ settings.json
 *backup [0-9].jl
 *.bin
 *Zone.Identifier
+.github/instructions/document code.instructions.md
