@@ -117,37 +117,42 @@ This version of semi-gradient DP uses a function `π!` which can update the prob
 """
 
 # ╔═╡ 255bb3cc-5a26-4817-b515-3b760c351f2e
-function semi_gradient_dp!(parameters::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π!::Function, γ::T, max_episodes::Integer, max_steps::Integer, estimate_value::Function, estimate_args::Tuple, update_parameters!::Function, update_args::Tuple; α = one(T)/10, ϵ = one(T) / 10, nn_momentum = false, α_decay = one(T), decay_step = typemax(Int64), save_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, Q}
+function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π!::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, Q}
+	action_values = zeros(T, length(mdp.actions))
+	policy = copy(action_values)
+	
 	s = mdp.initialize_state()
-	i_a = rand(eachindex(mdp.actions))
+	
 	ep = 1
 	step = 1
 	epreward = zero(T)
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
-	action_values = zeros(T, length(mdp.actions))
-	π_dist = zeros(T, length(mdp.actions))
 	decay = one(T)
-
 	parameter_history = Vector{Q}()
+	save_parameter_history && push!(parameter_history, deepcopy(parameters))
 	
 	while (ep <= max_episodes) && (step <= max_steps)
+		update_feature_vector!(feature_vector, s)
+		v̂ = value_function(feature_vector, parameters)
+		update_value_gradient!(∇v̂, feature_vector, parameters)
+		
 		#computes all of the action values for a particular MDP and an existing value estimation
-		update_action_values!(action_values, s, s -> estimate_value(s, parameters, estimate_args...), mdp, γ)
+		update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ)
+		
 		#updates the policy distribution with the current state
-		π!(π_dist, s)
+		π!(policy, s)
 
 		#compute the expected value target according to the distribution of transition states 
-		v_target = dot(π_dist, action_values)
+		v_target = dot(policy, action_values)
+
+		δ = v_target - v̂
+
 		
-		learning_rate = nn_momentum ? T(1 - 0.999^step) : one(T)
-		update_parameters!(parameters, s, v_target, α * learning_rate * decay, update_args...)
+		update_params_with_gradient!(parameters, α*decay*δ, ∇v̂)
+		save_parameter_history && push!(parameter_history, deepcopy(parameters))
 
-		if save_history
-			push!(parameter_history, copy(parameters))
-		end
-
-		i_a = sample_action(π_dist)
+		i_a = sample_action(policy)
 		(r, s) = mdp.ptf(s, i_a)
 		epreward += r
 		
@@ -159,40 +164,17 @@ function semi_gradient_dp!(parameters::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3},
 			ep += 1
 		end
 		
-		if step > decay_step
-			decay *= α_decay
-		end
+		decay *= (step > decay_step)*α_decay + (step <= decay_step)
 		step += 1
 	end
 
-	episode_rewards, episode_steps, parameter_history
+	q̂ = form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
+
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
 end
 
 # ╔═╡ bea94375-277b-4f38-ad9d-4fa7fc646364
-function run_linear_semi_gradient_dp(mdp::StateMDP, π!::Function, γ::T, max_episodes::Integer, max_steps::Integer, state_representation::AbstractVector{T}, update_state_representation!::Function; setup_kwargs = NamedTuple(), parameters = zeros(T, length(state_representation)), kwargs...) where T<:Real
-	setup = linear_features_gradient_setup(mdp, state_representation, update_state_representation!; setup_kwargs...)
-	l = length(state_representation)
-	num_actions = length(mdp.actions)
-	episode_rewards, episode_steps, parameter_history = semi_gradient_dp!(parameters, mdp, π!, γ, max_episodes, max_steps, setup.value_function, setup.value_args, setup.parameter_update, setup.update_args; kwargs...)
-	v̂(s) = setup.value_function(s, parameters, setup.value_args...)
-	function π_greedy(s)
-		action_values = zeros(T, num_actions)
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T) 
-			for i in eachindex(probabilities)
-				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
-				q += probabilities[i]*(rewards[i] + γ*v̂′)
-			end
-			action_values[i_a] = q
-		end
-		make_greedy_policy!(action_values)
-		i_a = sample_action(action_values)
-	end
-	base_return = (value_function = v̂, π_greedy = π_greedy, reward_history = episode_rewards, step_history = episode_steps)
-	isempty(parameter_history) && return base_return
-	return (;base_return..., parameter_history = parameter_history)
-end
+semi_gradient_dp_policy_estimation_linear(mdp::StateMDP, π_dist!::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_dp_policy_estimation!(parameters, mdp, π_dist!, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ e6e606c4-39d7-4b87-bd1a-b5799281f033
 md"""
@@ -313,7 +295,7 @@ end
 
 # ╔═╡ c15bedae-1231-4421-8abe-ab2fa3cb34ec
 #=╠═╡
-const baird_dp_result = run_linear_semi_gradient_dp(baird_state_mdp, on_policy_baird_params.π, 0.99f0, 100, 10000, zeros(Float32, 8), baird_update_state_vector!, save_history = true, parameters = on_policy_baird_params.w .* ones(Float32, 8))
+const baird_dp_result = semi_gradient_dp_policy_estimation_linear(baird_state_mdp, on_policy_baird_params.π, 0.99f0, 100, 10000, zeros(Float32, 8), baird_update_state_vector!, save_parameter_history = true, parameters = on_policy_baird_params.w .* ones(Float32, 8))
   ╠═╡ =#
 
 # ╔═╡ ac53f74b-3909-44b7-acf2-d2dd5f2e57cc
@@ -374,6 +356,7 @@ bairdπ(s::Int64) = [0.0, 1.0]
   ╠═╡ =#
 
 # ╔═╡ 2feb4657-3377-434f-bf8a-400cfcfe9fef
+#=╠═╡
 #run the baird example with a given policy for a set number of steps and keep track of visit statistics
 @tailrec function runbaird(s0::Int64, π, nsteps::Int64, counts::Vector{Int64})
 	counts[s0] += 1
@@ -382,11 +365,14 @@ bairdπ(s::Int64) = [0.0, 1.0]
 	(r, s) = baird_state_mdp.ptf(s0, a)
 	runbaird(s, π, nsteps-1, counts)
 end
+  ╠═╡ =#
 
 # ╔═╡ 3238aaa1-92aa-4d80-af22-4e237be9f0fc
+#=╠═╡
 function startbaird(π, nsteps)
 	runbaird(1, π, nsteps, zeros(Int64, 7))
 end
+  ╠═╡ =#
 
 # ╔═╡ 1e010e8e-2dde-4228-b914-fdc120fa91ca
 md"""
@@ -921,20 +907,20 @@ md"""
 #=╠═╡
 function exercise_11_3_2(;winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), maxsteps = 10_000, γ = 0.99f0, ϵ = 0.99f0, α = 0.01f0, state_index = 1)
 	winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1])
-	sarsa_output = run_linear_semi_gradient_sarsa(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, init_param = winit)
+	sarsa_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [winit winit])
 
-	q_learning_output = run_linear_semi_gradient_q_learning(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, init_param = winit)
+	q_learning_output = semi_gradient_q_learning_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [winit winit])
 	
-	p1 = plot([scatter(y = [a[1][i] for a in sarsa_output.parameter_history], name = "Parameter $i", showlegend=false) for i in 1:8], Layout(xaxis_title = "Step", yaxis_title = "Parameter Value"))
-	p2 = plot([scatter(y = [a[1][i] for a in q_learning_output.parameter_history], name = "Parameter $i") for i in 1:8])
+	p1 = plot([scatter(y = [a[i, 1] for a in sarsa_output.parameter_history], name = "Parameter $i", showlegend=false) for i in 1:8], Layout(xaxis_title = "Step", yaxis_title = "Parameter Value"))
+	p2 = plot([scatter(y = [a[i, 2] for a in q_learning_output.parameter_history], name = "Parameter $i") for i in 1:8])
 
 	baird_values(w::Vector{T}) where T<:Real = [2*w[1] + w[8], 2*w[2] + w[8], 2*w[3]+w[8], 2*w[4] + w[8], 2*w[5] + w[8], 2*w[6] + w[8], w[7] + 2*w[8]]
 	
-	q_value_history1 = [baird_values(w[1]) for w in q_learning_output.parameter_history]
-	q_value_history2 = [baird_values(w[2]) for w in q_learning_output.parameter_history]
+	q_value_history1 = [baird_values(w[:, 1][:]) for w in q_learning_output.parameter_history]
+	q_value_history2 = [baird_values(w[:, 2][:]) for w in q_learning_output.parameter_history]
 
-	sarsa_value_history1 = [baird_values(w[1]) for w in sarsa_output.parameter_history]
-	sarsa_value_history2 = [baird_values(w[2]) for w in sarsa_output.parameter_history]
+	sarsa_value_history1 = [baird_values(w[:, 1][:]) for w in sarsa_output.parameter_history]
+	sarsa_value_history2 = [baird_values(w[:, 2][:]) for w in sarsa_output.parameter_history]
 
 	p3 = plot([scatter(y = [a[i] for a in q_value_history1], name = "State $i") for i in 1:7])
 	p4 = plot([scatter(y = [a[i] for a in q_value_history2], name = "State $i") for i in 1:7])
@@ -1462,7 +1448,9 @@ md"""
 
 # ╔═╡ c0e58f98-a52e-4742-a850-661faac4bbed
 #=╠═╡
-@bind wcompare_γ Slider(0.:0.01:.99999; default = 0.5, show_value=true)
+md"""
+Adjust Discount Rate γ: $(@bind wcompare_γ Slider(0.:0.01:.99999; default = 0.5, show_value=true))
+"""
   ╠═╡ =#
 
 # ╔═╡ e37d1246-ccd6-481a-af2b-7d2d6acb8bbf
@@ -1492,7 +1480,7 @@ function compare_optimal_w(γ::T; c_range = LinRange(zero(T), one(T)*3, 1000)) w
 	v1_true = γ / (1 - γ)
 	value1_trace = scatter(x = c_range, y = fill(v1_true, 1000), name = "True Value 1", line_color = "black", line_dash = "dash")
 	value2_trace = scatter(x = c_range, y = fill(2 + v1_true, 1000), name = "True Value 2", line_color = "black", line_dash = "dash")
-	plot([traces1; traces2; value1_trace; value2_trace])
+	plot([traces1; traces2; value1_trace; value2_trace], Layout(xaxis_title = "Value of c", yaxis_title = "State Value Estimates"))
 end
   ╠═╡ =#
 
@@ -2270,13 +2258,14 @@ md"""
 """
 
 # ╔═╡ 5f7635d8-42a3-4b74-b027-6a870d6e7d47
-function tdc_estimation(mdp::StateMDP, π!::Function, b!::Function, d::Integer, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, parameters = zeros(T, d), save_parameter_history = false) where {T<:Real, S}
+function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s) -> zero(T), α = one(T)/10, β = one(T)/10, init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), save_parameter_history = false) where {T<:Real, S}
 	s = mdp.initialize_state()
 	ep = 1
 	step = 1
+	d = get_feature_length(feature_vector)
 
-	state_representation1 = zeros(T, d)
-	state_representation2 = zeros(T, d)
+	state_representation1 = deepcopy(feature_vector)
+	state_representation2 = deepcopy(feature_vector)
 
 	parameter_history = Vector{Vector{T}}()
 
@@ -2298,15 +2287,25 @@ function tdc_estimation(mdp::StateMDP, π!::Function, b!::Function, d::Integer, 
 		(r, s′) = mdp.ptf(s, i_a)
 		ρ = π_dist[i_a] / b_dist[i_a]
 		if mdp.isterm(s′)
-			state_representation2 .= zero(T)
+			v̂2 = zero(T)
 		else
 			update_state_representation!(state_representation2, s′)
+			v̂2 = linear_value_function(state_representation2, parameters)
 		end
 
 		if !iszero(ρ)
-			δ = r + γ*dot(parameters, state_representation2) - dot(parameters, state_representation1) 
-			parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
-			v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
+			δ = r + γ*v̂2 - linear_value_function(state_representation1, parameters) 
+			c1 = α*ρ*δ
+			update_params_with_gradient!(parameters, c1, state_representation1)
+			v̂1_v = linear_value_function(state_representation1, v)
+			if !mdp.isterm(s′)
+				c2 = -α*ρ*γ*v̂1_v
+				update_params_with_gradient!(parameters, c2, state_representation2)
+			end
+			# parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* linear_value_function(state_representation1, v))
+			c3 = ((β*ρ) * (δ - v̂1_v))
+			update_params_with_gradient!(v, c3, state_representation1)
+			# v .+= ((β*ρ) * (δ - v̂1_v)) .* state_representation1
 		end
 
 		save_parameter_history && push!(parameter_history, copy(parameters))
@@ -2325,22 +2324,23 @@ function tdc_estimation(mdp::StateMDP, π!::Function, b!::Function, d::Integer, 
 	end
 
 	function v(s::S)
-		x = zeros(T, d)
+		x = deepcopy(feature_vector)
 		update_state_representation!(x, s)
-		dot(parameters, x)
+		linear_value_function(x, parameters)
 	end
 
-	function v(states::AbstractVector{S})
-		x = zeros(T, d)
-		input = zeros(T, length(states), d)
-		for i in eachindex(states)
-			update_state_representation!(x, states[i])
-			for j in 1:d
-				input[i, j] = x[j]
-			end
-		end
-		input*parameters
-	end
+	# function v(states::AbstractVector{S})
+	# 	x = zeros(T, d)
+	# 	input = zeros(T, length(states), d)
+	# 	for i in eachindex(states)
+	# 		update_state_representation!(x, states[i])
+	# 		for j in 1:d
+	# 			input[i, j] = x[j]
+	# 		end
+	# 	end
+	# 	input*parameters
+	# end
+	
 	return (parameters = parameters, value_estimate = v, episode_errors = episode_errors, parameter_history = parameter_history)
 end
 
@@ -2391,7 +2391,7 @@ which is the same as the Bellman Error since the projection in this case can jus
 #=╠═╡
 function figure_11_5(;steps = 2_000, γ::Float32 = 0.99f0, α::Float32 = 0.0005f0, β::Float32 = α*10)
 
-	out = tdc_estimation(baird_state_mdp, π_baird!, b_baird!, 8, γ, 1, steps, baird_update_state_vector!; parameters = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), α = α, β = β, save_parameter_history = true)
+	out = tdc_estimation(baird_state_mdp, γ, π_baird!, b_baird!, 1, steps, zeros(Float32, 8), baird_update_state_vector!; parameters = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), α = α, β = β, save_parameter_history = true)
 
 	ve(params) = (params[7] + 2*params[8])^2
 
@@ -2425,57 +2425,72 @@ md"""
 We can use the TDC algorithm to try to do a better job of Q-learning with linear approximation.  Previously, we had used some value function approximation to learn action values and then try to follow the greedy policy while updating the values.  With sarsa this was an on-policy method, but in the case of Q-learning we used the parameter update that takes the maximum action value while still following the $\epsilon$-greedy policy.  Usually if $\epsilon$ isn't too large, this does not cause diverging weights, but there is always a risk of that happening.  We can try to use the TDC method instead learn the greedy value function while still following the $\epsilon$-greedy one.  We can update the policy after one or more update steps while tracking the approximation vectors used in TDC.  Unlike in TDC estimation, we will not have an explicit target policy.  The behavior policy will usually just be the $\epsilon$-greedy policy and change throughout training, but this method also means we can have a static behavior policy such as one that visits all states with equal probability.
 """
 
+# ╔═╡ 9fe4b328-6487-48e0-9e28-5cdae655204e
+begin
+	function update_feature_vector!(v1::V, v2::V) where {T<:Real, V <: Vector{T}}
+		v1 .= v2
+	end
+
+	function update_feature_vector!(v1::V, v2::V) where {V <: BinaryFeatureVector}
+		update_binary_feature_vector!(v1, v2)
+	end
+
+	function update_feature_vector!(v1::V, v2::V) where {V <: StateAggregationFeatureVector}
+		v1.group_index = v2.group_index
+		return v1
+	end
+end
+
 # ╔═╡ 12068dea-798d-4cc3-86f0-07b7315caa91
-function tdc_control(mdp::StateMDP, d::Integer, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, parameters = [zeros(T, d) for _ in 1:length(mdp.actions)], save_parameter_history = false) where {T<:Real, S}
+function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, init_value = zero(T), parameters = initialize_linear_parameters(feature_vector, mdp, init_value), save_parameter_history = false) where {T<:Real, S}
 	s = mdp.initialize_state()
 	ep = 1
 	step = 1
+	d = get_feature_length(feature_vector)
 
-	state_representation1 = zeros(T, d)
-	state_representation2 = zeros(T, d)
+	state_representation1 = deepcopy(feature_vector)
+	state_representation2 = deepcopy(feature_vector)
 
-	parameter_history = Vector{Vector{Vector{T}}}()
+	parameter_history = Vector{Matrix{T}}()
 
 	save_parameter_history && push!(parameter_history, deepcopy(parameters))
 
 	action_values = zeros(T, length(mdp.actions))
+	policy = zeros(T, length(mdp.actions))
 	v = zeros(T, d)
 	
 	update_state_representation!(state_representation1, s)
 	episode_errors = Vector{T}()
 	err = zero(T)
 	epstep = 1
-
-	function update_action_values!(action_values, x; parameters = parameters)
-		qmax = typemin(T)
-		i_a_max = 1
-		for i_a in eachindex(parameters)
-			q = dot(x, parameters[i_a])
-			action_values[i_a] = q
-			newmax = q > qmax
-			qmax = newmax*q + !newmax*qmax
-			i_a_max = newmax*i_a + !newmax*i_a_max
-		end
-		return (qmax, i_a_max)
-	end
 	
 	while (ep <= max_episodes) && (step <= max_steps)
-		(qmax, i_a_max) = update_action_values!(action_values, state_representation1)
-		make_ϵ_greedy_policy!(action_values; ϵ =  ϵ)
-		i_a = sample_action(action_values)
+		(qmax, i_a_max) = update_linear_action_values!(action_values, state_representation1, parameters)
+		make_ϵ_greedy_policy!(policy; ϵ =  ϵ)
+		i_a = sample_action(policy)
+		v̂1 = action_values[i_a]
 		(r, s′) = mdp.ptf(s, i_a)
 		ρ = (i_a_max == i_a) / action_values[i_a]
 		q′ = if mdp.isterm(s′)
 			r
 		else
 			update_state_representation!(state_representation2, s′)
-			r + γ*update_action_values!(action_values, state_representation2)[1]
+			r + γ*update_linear_action_values!(action_values, state_representation2, parameters)[1]
 		end
 
 		if !iszero(ρ)
-			δ = q′ - dot(parameters[i_a], state_representation1) 
-			parameters[i_a] .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
-			v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
+			δ = q′ - v̂1 
+			c1 = α*ρ*δ
+			update_params_with_gradient!(parameters, c1, state_representation1, i_a)
+			v̂′ = linear_value_function(state_representation1, v)
+			if !mdp.isterm(s′)
+				c2 = -α*ρ*γ*v̂′
+				update_params_with_gradient!(parameters, c2, state_representation2, i_a)
+			end
+			c3 = β*ρ*(δ - v̂′)
+			update_params_with_gradient!(v, c3, state_representation1)
+			# parameters[i_a] .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
+			# v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
 		end
 
 		save_parameter_history && push!(parameter_history, deepcopy(parameters))
@@ -2488,33 +2503,26 @@ function tdc_control(mdp::StateMDP, d::Integer, γ::T, max_episodes::Integer, ma
 			update_state_representation!(state_representation1, s)
 		else
 			s = s′
-			state_representation1 .= state_representation2
+			update_feature_vector!(state_representation1, state_representation2)
 		end
 		step += 1
 	end
 
-	function action_value_function(s::S; kwargs...)
-		x = zeros(T, d)
-		action_values = zeros(T, length(mdp.actions))
-		update_state_representation!(x, s)
-		(qmax, i_a_max) = update_action_values!(action_values, x; kwargs...)
-		return (action_values = action_values, qmax = qmax, greedy_action = i_a_max)
-	end
-
-	π_greedy(s::S; kwargs...) = action_value_function(s; kwargs...).greedy_action
+	q̂ = form_value_function(mdp, update_state_representation!, update_linear_action_values!, feature_vector, parameters)
 	
-	return (parameters = parameters, action_value_estimate = action_value_function, episode_errors = episode_errors, parameter_history = parameter_history, π_greedy = π_greedy)
+	return (value_function = q̂, parameters = parameters, episode_errors = episode_errors, parameter_history = parameter_history)
 end
 
 # ╔═╡ 85bf8c44-348b-4825-b89a-33ec7614bb25
-function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, d::Integer, γ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, parameters = zeros(T, d), save_parameter_history = false) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
+function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, init_value = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), save_parameter_history = false) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
 	s = mdp.initialize_state()
 	ep = 1
 	step = 1
-
-	state_representation1 = zeros(T, d)
-	state_representation2 = zeros(T, d)
-	state_representation3 = zeros(T, d)
+	d = get_feature_length(feature_vector)
+	
+	state_representation1 = deepcopy(feature_vector)
+	state_representation2 = deepcopy(feature_vector)
+	state_representation3 = deepcopy(feature_vector)
 
 	parameter_history = Vector{Vector{T}}()
 
@@ -2527,49 +2535,28 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, d::Integer, γ::T
 	episode_errors = Vector{T}()
 	err = zero(T)
 	epstep = 1
-
-	function update_action_values!(action_values, s::S; parameters = parameters, state_representation = state_representation3)
-		qmax = typemin(T)
-		i_a_max = 1
-		for i_a in eachindex(mdp.actions)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T)
-			for i in eachindex(probabilities)
-				s′ = states[i]
-				r = rewards[i]
-				p = probabilities[i]
-				if mdp.isterm(s′)
-					state_representation .= zero(T)
-				else
-					update_state_representation!(state_representation, s′)
-				end
-				v′ = dot(state_representation, parameters)
-				q += p*(r + γ*v′)
-			end
-			newmax = q > qmax
-			qmax = newmax*q + !newmax*qmax
-			i_a_max = newmax*i_a + !newmax*i_a_max
-			action_values[i_a] = q
-		end
-		return (qmax, i_a_max)
-	end
 	
 	while (ep <= max_episodes) && (step <= max_steps)
-		(qmax, i_a_max) = update_action_values!(action_values, s)
+		(qmax, i_a_max) = update_action_values!(action_values, s, state_representation3, update_state_representation!, linear_value_function, parameters, mdp, γ)
 		make_ϵ_greedy_policy!(action_values; ϵ =  ϵ)
 		i_a = sample_action(action_values)
 		(r, s′) = mdp.ptf(s, i_a)
-		if mdp.isterm(s′)
-			state_representation2 .= zero(T)
-		else
+		if !mdp.isterm(s′)
 			update_state_representation!(state_representation2, s′)
 		end
 		ρ = (i_a_max == i_a) / action_values[i_a]
 
 		if !iszero(ρ)
-			δ = qmax - dot(parameters, state_representation1) 
-			parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
-			v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
+			v̂1 = linear_value_function(state_representation1, parameters)
+			δ = qmax - v̂1
+			update_params_with_gradient!(parameters, α*ρ*δ, state_representation1)
+			v̂_v = linear_value_function(state_representation1, v)
+			if !mdp.isterm(s′)
+				update_params_with_gradient!(parameters, -α*ρ*γ*v̂_v, state_representation2)
+			end
+			update_params_with_gradient!(v, β*ρ*(δ - v̂_v), state_representation1)
+			# parameters .+= α .* ρ .* (δ .* state_representation1 .- γ .* state_representation2 .* dot(state_representation1, v))
+			# v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
 		end
 
 		save_parameter_history && push!(parameter_history, deepcopy(parameters))
@@ -2582,22 +2569,14 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, d::Integer, γ::T
 			update_state_representation!(state_representation1, s)
 		else
 			s = s′
-			state_representation1 .= state_representation2
+			update_feature_vector!(state_representation1, state_representation2)
 		end
 		step += 1
 	end
 
-	function action_value_function(s::S; kwargs...)
-		x = zeros(T, d)
-		action_values = zeros(T, length(mdp.actions))
-		(qmax, i_a_max) = update_action_values!(action_values, s; state_representation = x, kwargs...)
-		return (action_values = action_values, qmax = qmax, greedy_action = i_a_max)
-	end
-
-	π_greedy(s::S; kwargs...) = action_value_function(s; kwargs...).greedy_action
+	q̂ = form_value_function(mdp, γ, update_state_representation!, linear_value_function, feature_vector, parameters)
 		
-	
-	return (parameters = parameters, action_value_estimate = action_value_function, episode_errors = episode_errors, parameter_history = parameter_history, π_greedy = π_greedy)
+	return (value_function = q̂, parameters = parameters, episode_errors = episode_errors, parameter_history = parameter_history)
 end
 
 # ╔═╡ cfe7ed5a-514a-4753-b029-9118813fa0ed
@@ -2609,18 +2588,18 @@ md"""
 #=╠═╡
 function tdc_control_baird(;winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), maxsteps = 2_000, γ = 0.99f0, ϵ = 0.5f0, α = 0.01f0, state_index = 1)
 	winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1])
-	sarsa_output = run_linear_semi_gradient_sarsa(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, init_param = winit)
+	sarsa_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [copy(winit) copy(winit)])
 
-	tdc_control_output = tdc_control(baird_state_mdp, 8, γ, 1000, maxsteps, baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [copy(winit) for _ in 1:2])
+	tdc_control_output = tdc_control(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [copy(winit) copy(winit)])
 
-	tdc_dp_control_output = tdc_dp_control(baird_state_mdp, 8, γ, 1000, maxsteps, baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = copy(winit))
+	tdc_dp_control_output = tdc_dp_control(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = copy(winit))
 	
-	tdc_parameter_traces = [scatter(y = [tdc_control_output.parameter_history[i][2][i_w] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
+	tdc_parameter_traces = [scatter(y = [tdc_control_output.parameter_history[i][i_w, 2] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
 
 
-	tdc_value_traces = [scatter(y = [tdc_control_output.action_value_estimate(i_s; parameters = tdc_control_output.parameter_history[i]).qmax for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
+	tdc_value_traces = [scatter(y = [tdc_control_output.value_function(i_s; parameters = tdc_control_output.parameter_history[i]).maximizing_value for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
 
-	tdc_dp_value_traces = [scatter(y = [tdc_dp_control_output.action_value_estimate(i_s; parameters = tdc_dp_control_output.parameter_history[i]).qmax for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
+	tdc_dp_value_traces = [scatter(y = [tdc_dp_control_output.value_function(i_s; parameters = tdc_dp_control_output.parameter_history[i]).maximizing_value for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
 
 	tdc_dp_parameter_traces = [scatter(y = [tdc_dp_control_output.parameter_history[i][i_w] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
 
@@ -2679,31 +2658,26 @@ const mountain_car_mdp = MountainCarTask.mdp
 const mountain_car_dist_mdp = MountainCarTask.dist_mdp
   ╠═╡ =#
 
-# ╔═╡ 1ddecb8a-fcc6-4ccc-b04a-c1b06335f614
-#=╠═╡
-setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_setup(mountain_car_mdp, (-1.2f0, 0.5f0), (-0.07f0, 0.07f0), tile_size, num_tilings, (1, 3))
-  ╠═╡ =#
-
 # ╔═╡ 9f85ad2d-f417-4463-9894-53f0eead4d83
 #=╠═╡
 function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
-	v = setup.args.feature_vector
-	run_linear_semi_gradient_dp(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, zeros(Float32, length(v)), setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
+	v = setup.feature_vector
+	semi_gradient_dp_linear(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, v, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
 end
   ╠═╡ =#
 
 # ╔═╡ c25fa03c-0464-4e07-a777-9ee5f732b0a2
 #=╠═╡
-(v̂_mountain_car, π_greedy_dp, episode_rewards_dp, episode_steps_dp) = mountaincar_dist_test(100, 0.001f0/32, 0.9f0)
+(v̂_mountain_car_dp, episode_rewards_dp, episode_steps_dp) = mountaincar_dist_test(100, 0.001f0/32, 0.9f0)
   ╠═╡ =#
 
 # ╔═╡ bf5d1782-5109-4cfd-8744-82ac80b5bc45
 #=╠═╡
 function mountaincar_tdc_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 24, num_tilings = 32, max_steps = typemax(Int64), kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
-	v = setup.args.feature_vector
-	tdc_dp_control(mountain_car_dist_mdp, length(v), 1f0, max_episodes, max_steps, setup.args.feature_vector_update; α = α, ϵ = ϵ, kwargs...)
+	v = setup.feature_vector
+	tdc_dp_control(mountain_car_dist_mdp, 1f0, max_episodes, max_steps, v, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
 end
   ╠═╡ =#
 
@@ -2735,12 +2709,12 @@ end
 
 # ╔═╡ a9443d53-1eae-4eab-b001-904be1523ca4
 #=╠═╡
-show_mountaincar_trajectory(tdc_out.π_greedy, 500, "TDC Learned Policy")
+show_mountaincar_trajectory(s -> tdc_out.value_function(s).maximizing_action, 500, "TDC Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ 5c87ea86-aec5-42d3-9423-4cd9d14dbc97
 #=╠═╡
-show_mountaincar_trajectory(π_greedy_dp, 1_000, "DP Learned Policy")
+show_mountaincar_trajectory(s -> v̂_mountain_car_dp(s).maximizing_action, 1_000, "DP Learned Policy")
   ╠═╡ =#
 
 # ╔═╡ 3d48d0e2-353c-44cf-a51b-1fad1b0002d2
@@ -2765,7 +2739,7 @@ end
 
 # ╔═╡ 38e6ef4c-63c1-4df5-9451-f40df4fe57e7
 #=╠═╡
-plot_mountaincar_values(s -> tdc_out.action_value_estimate(s).qmax, tdc_out.π_greedy)
+plot_mountaincar_values(s -> tdc_out.value_function(s).maximizing_value, s -> tdc_out.value_function(s).maximizing_action)
   ╠═╡ =#
 
 # ╔═╡ 45e8699f-18ca-47a6-97eb-f855950b326d
@@ -2921,14 +2895,14 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [compat]
-BenchmarkTools = "~1.5.0"
+BenchmarkTools = "~1.6.0"
 HypertextLiteral = "~0.9.5"
-LaTeXStrings = "~1.3.1"
-PlutoDevMacros = "~0.9.0"
-PlutoPlotly = "~0.5.0"
+LaTeXStrings = "~1.4.0"
+PlutoDevMacros = "~0.9.1"
+PlutoPlotly = "~0.6.4"
 PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.60"
-StatsBase = "~0.34.5"
+PlutoUI = "~0.7.69"
+StatsBase = "~0.34.6"
 Transducers = "~0.4.84"
 """
 
@@ -2938,7 +2912,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.6"
 manifest_format = "2.0"
-project_hash = "511e73b59df5536d70cac8159f42bec2506386ee"
+project_hash = "60ac74c018d235b8bd1f9ae3db765e202c2a5061"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -2952,25 +2926,24 @@ uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 version = "0.3.4"
 
 [[deps.Accessors]]
-deps = ["CompositionsBase", "ConstructionBase", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown"]
-git-tree-sha1 = "b392ede862e506d451fc1616e79aa6f4c673dab8"
+deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
+git-tree-sha1 = "3b86719127f50670efe356bc11073d84b4ed7a5d"
 uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
-version = "0.1.38"
+version = "0.1.42"
 
     [deps.Accessors.extensions]
-    AccessorsAxisKeysExt = "AxisKeys"
-    AccessorsDatesExt = "Dates"
-    AccessorsIntervalSetsExt = "IntervalSets"
-    AccessorsStaticArraysExt = "StaticArrays"
-    AccessorsStructArraysExt = "StructArrays"
-    AccessorsTestExt = "Test"
-    AccessorsUnitfulExt = "Unitful"
+    AxisKeysExt = "AxisKeys"
+    IntervalSetsExt = "IntervalSets"
+    LinearAlgebraExt = "LinearAlgebra"
+    StaticArraysExt = "StaticArrays"
+    StructArraysExt = "StructArrays"
+    TestExt = "Test"
+    UnitfulExt = "Unitful"
 
     [deps.Accessors.weakdeps]
     AxisKeys = "94b1ba4f-4ee9-5380-92f1-94cde586c3c5"
-    Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
     IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
-    Requires = "ae029012-a4dd-5104-9daa-d747884805df"
+    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
     StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
     Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
@@ -2983,9 +2956,9 @@ uuid = "66dad0bd-aa9a-41b7-9441-69ab47430ed8"
 version = "1.1.3"
 
 [[deps.ArgCheck]]
-git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+git-tree-sha1 = "f9e9a66c9b7be1ad7372bbd9b062d9230c30c5ce"
 uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
-version = "2.3.0"
+version = "2.5.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -2996,10 +2969,10 @@ uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 version = "1.11.0"
 
 [[deps.BangBang]]
-deps = ["Accessors", "ConstructionBase", "InitialValues", "LinearAlgebra", "Requires"]
-git-tree-sha1 = "e2144b631226d9eeab2d746ca8880b7ccff504ae"
+deps = ["Accessors", "ConstructionBase", "InitialValues", "LinearAlgebra"]
+git-tree-sha1 = "26f41e1df02c330c4fa1e98d4aa2168fdafc9b1f"
 uuid = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
-version = "0.4.3"
+version = "0.4.4"
 
     [deps.BangBang.extensions]
     BangBangChainRulesCoreExt = "ChainRulesCore"
@@ -3021,33 +2994,28 @@ version = "0.4.3"
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
-[[deps.BaseDirs]]
-git-tree-sha1 = "cb25e4b105cc927052c2314f8291854ea59bf70a"
-uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
-version = "1.2.4"
-
 [[deps.Baselet]]
 git-tree-sha1 = "aebf55e6d7795e02ca500a689d326ac979aaf89e"
 uuid = "9718e550-a3fa-408a-8086-8db961cd8217"
 version = "0.1.1"
 
 [[deps.BenchmarkTools]]
-deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "f1dff6729bc61f4d49e140da1af55dcd1ac97b2f"
+deps = ["Compat", "JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "e38fbc49a620f5d0b660d7f543db1009fe0f8336"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.5.0"
+version = "1.6.0"
 
 [[deps.CodeTracking]]
 deps = ["InteractiveUtils", "UUIDs"]
-git-tree-sha1 = "7eee164f122511d3e4e1ebadb7956939ea7e1c77"
+git-tree-sha1 = "5ac098a7c8660e217ffac31dc2af0964a8c3182a"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
-version = "1.3.6"
+version = "2.0.0"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
-git-tree-sha1 = "13951eb68769ad1cd460cdb2e64e5e95f1bf123d"
+git-tree-sha1 = "a656525c8b46aa6a1c76891552ed5381bb32ae7b"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
-version = "3.27.0"
+version = "3.30.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
@@ -3075,9 +3043,9 @@ version = "0.12.11"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
-git-tree-sha1 = "3a3dfb30697e96a440e4149c8c51bf32f818c0f3"
+git-tree-sha1 = "0037835448781bb46feb39866934e243886d756a"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "4.17.0"
+version = "4.18.0"
 weakdeps = ["Dates", "LinearAlgebra"]
 
     [deps.Compat.extensions]
@@ -3098,9 +3066,9 @@ weakdeps = ["InverseFunctions"]
     CompositionsBaseInverseFunctionsExt = "InverseFunctions"
 
 [[deps.ConstructionBase]]
-git-tree-sha1 = "76219f1ed5771adbb096743bff43fb5fdd4c1157"
+git-tree-sha1 = "b4b092499347b18a015186eae3042f72267106cb"
 uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
-version = "1.5.8"
+version = "1.6.0"
 
     [deps.ConstructionBase.extensions]
     ConstructionBaseIntervalSetsExt = "IntervalSets"
@@ -3118,10 +3086,10 @@ uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
 version = "1.16.0"
 
 [[deps.DataStructures]]
-deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
-git-tree-sha1 = "4e1fe97fdaed23e9dc21d4d664bea76b65fc50a0"
+deps = ["OrderedCollections"]
+git-tree-sha1 = "76b3b7c3925d943edf158ddb7f693ba54eb297a5"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.18.22"
+version = "0.19.0"
 
 [[deps.DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
@@ -3150,10 +3118,9 @@ uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 version = "1.11.0"
 
 [[deps.DocStringExtensions]]
-deps = ["LibGit2"]
-git-tree-sha1 = "2fb1e02f2b635d0845df5d7c167fec4dd739b00d"
+git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
-version = "0.9.3"
+version = "0.9.5"
 
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
@@ -3162,9 +3129,15 @@ version = "1.6.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "62ca0547a14c57e98154423419d8a342dca75ca9"
+git-tree-sha1 = "b66970a70db13f45b7e57fbda1736e1cf72174ea"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.16.4"
+version = "1.17.0"
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
+    [deps.FileIO.weakdeps]
+    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
@@ -3186,6 +3159,11 @@ version = "0.2.10"
 deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 version = "1.11.0"
+
+[[deps.HashArrayMappedTries]]
+git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
+uuid = "076d061b-32b6-4027-95e0-9a2c6f6d7e74"
+version = "0.2.0"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
@@ -3248,14 +3226,14 @@ version = "0.21.4"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "2984284a8abcfcc4784d95a9e2ea4e352dd8ede7"
+git-tree-sha1 = "e09121f4c523d8d8d9226acbed9cb66df515fcf2"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.9.36"
+version = "0.10.4"
 
 [[deps.LaTeXStrings]]
-git-tree-sha1 = "50901ebc375ed41dbf8058da26f9de442febbbec"
+git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-version = "1.3.1"
+version = "1.4.0"
 
 [[deps.LeftChildRightSiblingTrees]]
 deps = ["AbstractTrees"]
@@ -3318,15 +3296,14 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
 
 [[deps.MIMEs]]
-git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
+git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
-version = "0.1.4"
+version = "1.1.0"
 
 [[deps.MacroTools]]
-deps = ["Markdown", "Random"]
-git-tree-sha1 = "2fa9ee3e63fd3a4f7a9a4f4744a52f4856de82df"
+git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
-version = "0.5.13"
+version = "0.5.16"
 
 [[deps.Markdown]]
 deps = ["Base64"]
@@ -3368,9 +3345,9 @@ uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
 version = "0.3.27+1"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
+git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.6.3"
+version = "1.8.1"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -3380,9 +3357,9 @@ version = "0.12.3"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
-git-tree-sha1 = "8489905bcdbcfac64d1daa51ca07c0d8f0283821"
+git-tree-sha1 = "7d2f8f21da5db6a806faf7b9b292296da42b2810"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.8.1"
+version = "2.8.3"
 
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
@@ -3394,22 +3371,34 @@ weakdeps = ["REPL"]
     REPLExt = "REPL"
 
 [[deps.PlotlyBase]]
-deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
-git-tree-sha1 = "56baf69781fc5e61607c3e46227ab17f7040ffa2"
+deps = ["ColorSchemes", "Colors", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
+git-tree-sha1 = "28278bb0053da0fd73537be94afd1682cc5a0a83"
 uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
-version = "0.8.19"
+version = "0.8.21"
+
+    [deps.PlotlyBase.extensions]
+    DataFramesExt = "DataFrames"
+    DistributionsExt = "Distributions"
+    IJuliaExt = "IJulia"
+    JSON3Ext = "JSON3"
+
+    [deps.PlotlyBase.weakdeps]
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+    IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
+    JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 
 [[deps.PlutoDevMacros]]
 deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
-git-tree-sha1 = "72f65885168722413c7b9a9debc504c7e7df7709"
+git-tree-sha1 = "1cb861c9295d79dc6e23170d4b33bce013f69643"
 uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
-version = "0.9.0"
+version = "0.9.1"
 
 [[deps.PlutoPlotly]]
-deps = ["AbstractPlutoDingetjes", "Artifacts", "BaseDirs", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "Reexport", "TOML"]
-git-tree-sha1 = "653b48f9c4170343c43c2ea0267e451b68d69051"
+deps = ["AbstractPlutoDingetjes", "Artifacts", "ColorSchemes", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "PrecompileTools", "Reexport", "ScopedValues", "Scratch", "TOML"]
+git-tree-sha1 = "232630fee92e588c11c2b260741b4fa70784b4c5"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-version = "0.5.0"
+version = "0.6.4"
 
     [deps.PlutoPlotly.extensions]
     PlotlyKaleidoExt = "PlotlyKaleido"
@@ -3426,10 +3415,10 @@ uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 version = "0.4.0"
 
 [[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "eba4810d5e6a01f612b948c9fa94f905b49087b0"
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
+git-tree-sha1 = "2d7662f95eafd3b6c346acdbfc11a762a2256375"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.60"
+version = "0.7.69"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
@@ -3480,13 +3469,25 @@ version = "1.2.2"
 
 [[deps.Requires]]
 deps = ["UUIDs"]
-git-tree-sha1 = "838a3a4188e2ded87a4f9f184b4b0d78a1e91cb7"
+git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
-version = "1.3.0"
+version = "1.3.1"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 version = "0.7.0"
+
+[[deps.ScopedValues]]
+deps = ["HashArrayMappedTries", "Logging"]
+git-tree-sha1 = "7f44eef6b1d284465fafc66baf4d9bdcc239a15b"
+uuid = "7e506255-f358-4e82-b7e4-beb19740aa63"
+version = "1.4.0"
+
+[[deps.Scratch]]
+deps = ["Dates"]
+git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
+uuid = "6c6a2e73-6563-6170-7368-637461726353"
+version = "1.3.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -3494,9 +3495,9 @@ version = "1.11.0"
 
 [[deps.Setfield]]
 deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
-git-tree-sha1 = "e2cc6d8c88613c05e1defb55170bf5ff211fbeac"
+git-tree-sha1 = "c5391c6ace3bc430ca630251d02ea9687169ca68"
 uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
-version = "1.1.1"
+version = "1.1.2"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
@@ -3504,9 +3505,9 @@ version = "1.11.0"
 
 [[deps.SortingAlgorithms]]
 deps = ["DataStructures"]
-git-tree-sha1 = "66e0a8e672a0bdfca2c3f5937efb8538b9ddc085"
+git-tree-sha1 = "64d974c2e6fdf07f8155b5b2ca2ffa9069b608d9"
 uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
-version = "1.2.1"
+version = "1.2.2"
 
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
@@ -3542,9 +3543,9 @@ version = "1.7.1"
 
 [[deps.StatsBase]]
 deps = ["AliasTables", "DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "b81c5035922cc89c2d9523afc6c54be512411466"
+git-tree-sha1 = "2c962245732371acd51700dbb268af311bddd719"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.34.5"
+version = "0.34.6"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
@@ -3568,9 +3569,9 @@ version = "1.0.1"
 
 [[deps.Tables]]
 deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "OrderedCollections", "TableTraits"]
-git-tree-sha1 = "598cd7c1f68d1e205689b1c2fe65a9f85846f297"
+git-tree-sha1 = "f2c1efbc8f3a609aadf318094f8fc5204bdaf344"
 uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
-version = "1.12.0"
+version = "1.12.1"
 
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
@@ -3611,14 +3612,14 @@ version = "0.4.84"
     Referenceables = "42d2dcc6-99eb-4e98-b66c-637b7d73030e"
 
 [[deps.Tricks]]
-git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
+git-tree-sha1 = "0fc001395447da85495b7fef1dfae9789fdd6e31"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
-version = "0.1.9"
+version = "0.1.11"
 
 [[deps.URIs]]
-git-tree-sha1 = "67db6cc7b3821e19ebe75791a9dd19c9b1188f2b"
+git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.5.1"
+version = "1.6.1"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -3766,7 +3767,7 @@ version = "17.4.0+2"
 # ╠═9be0a35f-bf46-4edd-be72-cd92a76822da
 # ╟─fbf4401f-fb57-4d9c-a8a6-439ad19fd5bb
 # ╟─c0e58f98-a52e-4742-a850-661faac4bbed
-# ╠═56672e64-6834-4639-921b-0e87cede4d7a
+# ╟─56672e64-6834-4639-921b-0e87cede4d7a
 # ╟─e37d1246-ccd6-481a-af2b-7d2d6acb8bbf
 # ╠═12d724c0-a40b-4f7b-922e-9f8738bf01f4
 # ╟─3ddf0432-99e5-4ce3-ac63-86f43b2d1a1c
@@ -3814,6 +3815,7 @@ version = "17.4.0+2"
 # ╠═aee362e3-b1a0-4378-9af0-1ea1ed6580fe
 # ╟─9a21ebe8-186f-4ab4-b0ae-8a0c668c3f92
 # ╟─e523bc1f-f2ad-49a0-ae3e-aa79db6e8043
+# ╠═9fe4b328-6487-48e0-9e28-5cdae655204e
 # ╠═12068dea-798d-4cc3-86f0-07b7315caa91
 # ╠═85bf8c44-348b-4825-b89a-33ec7614bb25
 # ╟─cfe7ed5a-514a-4753-b029-9118813fa0ed
@@ -3828,7 +3830,6 @@ version = "17.4.0+2"
 # ╠═5c87ea86-aec5-42d3-9423-4cd9d14dbc97
 # ╠═d88a5c6b-8bcb-44d9-a52a-994e945aecad
 # ╠═321474b9-364d-4b91-bf1c-601a9b8ad470
-# ╠═1ddecb8a-fcc6-4ccc-b04a-c1b06335f614
 # ╠═9f85ad2d-f417-4463-9894-53f0eead4d83
 # ╠═bf5d1782-5109-4cfd-8744-82ac80b5bc45
 # ╠═a5ec3b99-af5a-42e5-8dff-533b45e50af5
