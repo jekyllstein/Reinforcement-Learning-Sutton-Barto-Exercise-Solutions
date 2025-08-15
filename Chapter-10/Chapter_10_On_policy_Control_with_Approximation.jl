@@ -249,6 +249,25 @@ In Chapter 9, we established functions for value and gradient computations given
 """
 
 # ╔═╡ 9043a684-6f16-48d0-83d4-2e00f9b7dbc2
+"""
+    LinearActionValueGradient{I <: Integer, V <: LinearFeatureVector}
+
+Mutable storage for action-value function gradients in linear function approximation.
+
+Stores the gradient with respect to parameters for a specific action, enabling efficient 
+updates in action-value learning algorithms like SARSA and Q-learning.
+
+# Type Parameters
+- `I <: Integer`: Index type for action identification
+- `V <: LinearFeatureVector`: Feature vector type for gradient storage (typically [`LinearFeatureVector`](@ref) or [`BinaryFeatureVector`](@ref))
+
+# Fields
+- `action_gradient::V`: Gradient vector ∇q̂(s,a) with respect to action-value parameters
+- `action_index::I`: Index identifying which action this gradient corresponds to
+
+# See Also
+[`LinearFeatureVector`](@ref), [`BinaryFeatureVector`](@ref)
+"""
 mutable struct LinearActionValueGradient{I <: Integer, V <: LinearFeatureVector}
 	action_gradient::V
 	action_index::I
@@ -256,6 +275,26 @@ end
 
 # ╔═╡ 0226d8a3-bb22-4a32-9700-e234abf518a6
 #for a linear function the gradient is just the feature vector and I can reuse all of the gradient update functions from chapter 9 with the added information of storing the action index
+
+"""
+    update_linear_value_gradient!(∇q̂::LinearActionValueGradient, x, i_a, value_params) -> LinearActionValueGradient
+
+Updates action-value gradient storage with feature vector and action index.
+
+Extends the existing linear gradient system to handle action-value functions by delegating
+gradient computation to [`update_linear_value_gradient!`](@ref) and storing the action index.
+
+# Arguments
+- `∇q̂::LinearActionValueGradient`: Action-value gradient storage to update in-place
+- `x::LinearFeatureVector`: Feature vector representing ∇q̂(s,a)
+- `i_a::Integer`: Action index for this gradient
+- `value_params`: Value function parameters (unused, maintains API consistency)
+
+# Returns
+- `LinearActionValueGradient`: The updated gradient storage (same as input `∇q̂`)
+
+See [`update_linear_value_gradient!`](@ref) for complete documentation of the gradient system.
+"""
 function update_linear_value_gradient!(∇q̂::LinearActionValueGradient{I, V}, x::V, i_a::Integer, value_params) where {I <: Integer, V <: LinearFeatureVector}
 	update_linear_value_gradient!(∇q̂.action_gradient, x, value_params)
 	∇q̂.action_index = i_a
@@ -265,30 +304,96 @@ end
 # ╔═╡ 1393f7a6-05c7-48a3-96a9-130eb6d45937
 #for the gradient update I need to use the action index to only update the columns of the parameter matrix that apply for linear approximation.  all of these implementations are for the case of linear approximation where I only store the gradient of the action values plus the action index and the linear approximation parameters are stored in a matrix
 begin
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient{I, V}) where {T<:Real, I <: Integer, V <: Vector}
-		@inbounds @simd for i in eachindex(∇w.action_gradient)
-			w[i, ∇w.action_index] += α * ∇w.action_gradient[i]
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::Vector{T}, i_a::Integer) where {T<:Real}
+		@inbounds @simd for i in eachindex(∇w)
+			w[i, i_a] += α * ∇w[i]
 		end
 		return w
 	end
 	
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient{I, V}) where {T<:Real, I <: Integer, V <: BinaryFeatureVector}
-		@inbounds @simd for i in 1:∇w.action_gradient.num_features
-			j = ∇w.action_gradient.active_features[i]
-			w[j, ∇w.action_index] += α
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::BinaryFeatureVector, i_a::Integer) where {T<:Real}
+		@inbounds @simd for i in 1:∇w.num_features
+			j = ∇w.active_features[i]
+			w[j, i_a] += α
 		end
 		return w
 	end
 
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient{I, V}) where {T<:Real, I <: Integer, V <: StateAggregationFeatureVector}
-		w[∇w.action_gradient.group_index, ∇w.action_index] += α
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::StateAggregationFeatureVector, i_a::Integer) where {T<:Real}
+		w[∇w.group_index, i_a] += α
 		return w
 	end
+
+	update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient) where T<:Real = update_params_with_gradient!(w, α, ∇w.action_gradient, ∇w.action_index)
 end
 
 # ╔═╡ 3273ed4a-6787-4635-8399-65ddf65b31ea
 begin
 	#for the parameter matrix, each column corresponds to a different action and is the same length as the feature vector.  Each function will return the maximum q value and its action index as well since that will be needed later for some functions
+	"""
+	    update_linear_action_values!(action_values, x, w) -> (max_value, max_action_index)
+	
+	Computes all action-values q̂(s,a) for linear function approximation and returns the maximum.
+	
+	Updates the action-values vector in-place by computing q̂(s,a) = x'w[:,a] for each action a,
+	where w is a parameter matrix with columns corresponding to actions. Returns both the maximum
+	action-value and its index for use in control algorithms.
+	
+	# Type Parameters
+	- `T <: Real`: Numeric type for action-values and parameters
+	
+	# Arguments
+	- `action_values::Vector{T}`: Action-value storage to update (modified in-place)
+	- `x`: Feature representation of current state
+	- `w::Matrix{T}`: Parameter matrix (features × actions)
+	
+	# Returns
+	- `(max_value, max_action_index)`: Tuple containing maximum q̂(s,a) and corresponding action index
+	
+	# See Also
+	[`update_linear_value_gradient!`](@ref), [`update_params_with_gradient!`](@ref)
+	
+	# Methods
+	
+	## Dense Features
+	```julia
+	update_linear_action_values!(action_values::Vector{T}, x::Vector{T}, w::Matrix{T}) where T<:Real
+	```
+	Computes action-values using optimized BLAS matrix-vector multiplication.
+	Uses `BLAS.gemv!` for efficient computation of all action-values simultaneously.
+	
+	- `action_values::Vector{T}`: Action-value vector to update
+	- `x::Vector{T}`: Dense feature vector
+	- `w::Matrix{T}`: Parameter matrix (features × actions)
+	
+	## Binary Features
+	```julia
+	update_linear_action_values!(action_values::Vector{T}, x::BinaryFeatureVector, w::Matrix{T}) where T<:Real
+	```
+	Computes action-values using sparse feature representation.
+	Only sums parameters corresponding to active features, tracking maximum during computation.
+	
+	- `action_values::Vector{T}`: Action-value vector to update
+	- `x::`[`BinaryFeatureVector`](@ref): Sparse binary feature representation
+	- `w::Matrix{T}`: Parameter matrix (features × actions)
+	
+	## State Aggregation Features
+	```julia
+	update_linear_action_values!(action_values::Vector{T}, x::StateAggregationFeatureVector, w::Matrix{T}) where T<:Real
+	```
+	Computes action-values for state aggregation features.
+	Directly accesses parameter matrix row corresponding to the active group.
+	
+	- `action_values::Vector{T}`: Action-value vector to update  
+	- `x::`[`StateAggregationFeatureVector`](@ref): State aggregation feature representation
+	- `w::Matrix{T}`: Parameter matrix (groups × actions)
+	
+	# Performance Notes
+	- Dense method uses BLAS for optimal performance on large feature vectors
+	- Binary and state aggregation methods avoid branching with branchless max computation
+	- All methods update action-values in-place to minimize allocations
+	- Matrix layout optimized for column-wise access patterns (features × actions)
+	"""
 	function update_linear_action_values!(action_values::Vector{T}, x::Vector{T}, w::Matrix{T}) where T<:Real
 		BLAS.gemv!('T', one(T), w, x, zero(T), action_values)
 		return findmax(action_values)
@@ -327,21 +432,77 @@ begin
 end
 
 # ╔═╡ 94fa7f7d-c77c-4df5-a7b9-b3c931cb3bce
+"""
+    form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters) -> Function
+
+Creates action-value function q̂(s) for control algorithms with direct parametric computation.
+
+Returns a closure that computes action-values for any state, finds the maximizing action, and provides
+structured output for use in control algorithms like SARSA and Q-learning.
+
+# Type Parameters
+- `T <: Real`: Numeric type for action-values and parameters
+- `S`: State type from MDP
+- `A`: Action type from MDP
+- `V`: Feature vector type
+- `W`: Parameter type (Vector or Matrix)
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `update_feature_vector!::Function`: Function to extract features from states
+- `update_action_values!::Function`: Function to compute action-values from features and parameters
+- `feature_vector::V`: Template feature vector for allocation
+- `parameters::W`: Value function parameters
+
+# Returns
+- `Function`: Action-value function q̂(s; kwargs...) with signature:
+  ```julia
+  q̂(s; action_values=zeros(T, length(mdp.actions)), x=deepcopy(feature_vector), parameters=parameters, action_value_kwargs...)
+  ```
+  Returns: `(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)`
+
+# See Also
+[`StateMDP`](@ref), [`form_state_value_function`](@ref)
+
+# Methods
+
+## State-Value Based Computation
+```julia
+form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
+```
+Creates action-value function by computing from state-value function using Bellman equation.
+Computes action-values via expected returns q̂(s,a) = Σ p(s',r|s,a)[r + γv̂(s')].
+
+- `γ::T`: Discount factor for expected return computation
+- `value_function::Function`: State-value function (features, params) -> value
+- Other arguments: See main method documentation above
+
+## Double Parameter Set (Double SARSA)
+```julia
+form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters1, parameters2)
+```
+Creates action-value function for double SARSA algorithm that averages two parameter sets.
+Computes action-values from both parameter sets and averages them.
+
+- `parameters1::W`: First set of value function parameters
+- `parameters2::W`: Second set of value function parameters
+- Other arguments: See main method documentation above
+"""
 function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
-	function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters::W = parameters, kwargs...)
+	function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters::W = parameters, action_value_kwargs...)
 		update_feature_vector!(x, s)
-		maxq, i_a_max = update_action_values!(action_values, x, parameters)
+		maxq, i_a_max = update_action_values!(action_values, x, parameters; action_value_kwargs...)
 		(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 	end
-end	
+end;	
 
 # ╔═╡ a7f44f65-e17b-464f-abac-7703082811ba
 #form value function when training two sets of parameters with double sarsa
 function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
-	function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, kwargs...)
+	function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, action_value_kwargs...)
 		update_feature_vector!(x, s)
-		update_action_values!(action_values1, x, parameters1)
-		update_action_values!(action_values2, x, parameters2)
+		update_action_values!(action_values1, x, parameters1; action_value_kwargs...)
+		update_action_values!(action_values2, x, parameters2; action_value_kwargs...)
 		action_values1 .+= action_values2
 		action_values1 ./= 2
 		(maxq, i_a_max) = findmax(action_values1)
@@ -352,6 +513,27 @@ end
 
 # ╔═╡ fc0b88f3-fbf9-450d-b770-b34357ffad49
 #in normal sarsa, we use the action value of the action actually taken, later on with methods like expected sarsa we would actually use the policy vector compute a weighted average of all action values
+"""
+    compute_sarsa_value(action_values, policy, i_a) -> Real
+
+Computes the SARSA target value using the action-value of the selected action.
+
+For standard SARSA, the target value is simply the action-value q̂(s',a') of the action
+actually taken. This function can be passed to control algorithms like 
+[`semi_gradient_sarsa!`](@ref) to specify the target computation method.
+
+# Arguments
+- `action_values::Vector{T}`: Action-values q̂(s',a) for next state
+- `policy::Vector{T}`: Policy probabilities (unused in standard SARSA)
+- `i_a::Integer`: Index of action actually taken
+
+# Returns
+- `T<:Real`: Action-value q̂(s',a') for the selected action
+
+# Algorithm Details
+Returns `action_values[i_a]` for standard SARSA behavior. Alternative methods like
+Expected SARSA would compute weighted averages using the policy probabilities.
+"""
 compute_sarsa_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = action_values[i_a]
 
 # ╔═╡ 05e2fff5-4871-4468-a00e-9c1b7ba0ffc6
@@ -379,7 +561,49 @@ md"""
 """
 
 # ╔═╡ a4c6a5c0-29c5-440c-bf86-20d0f881ee06
-function update_action_values!(action_values::Vector{T}, s, v̂::Function, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+"""
+    update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ; kwargs...) -> (max_value, max_action_index)
+
+Computes action-values from state-value function using Bellman equation with transition distributions.
+
+Updates the action-values vector by computing q̂(s,a) = Σ p(s',r|s,a)[r + γv̂(s')] for each action,
+using the MDP's transition distribution. Returns the maximum action-value and its index for 
+use in dynamic programming control algorithms.
+
+# Type Parameters
+- `T <: Real`: Numeric type for action-values and computations
+
+# Arguments
+- `action_values::Vector{T}`: Action-value storage to update (modified in-place)
+- `s`: Current state
+- `feature_vector`: Serves as input to value function
+- `update_feature_vector!::Function`: Updates a feature vector in place with a state - `update_feature_vector!(feature_vector, s) -> feature_vector` 
+- `value_function::Function`: State-value function that operates on feature vector `value_function(feature_vector, params) -> v̂
+- `mdp::StateMDP`: Markov Decision Process with transition distributions
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `kwargs::NamedTuple`: Additional keyword arguments to pass into value function
+
+# Returns
+- `(max_value, max_action_index)`: Tuple containing maximum q̂(s,a) and corresponding action index
+
+# See Also
+[`update_linear_action_values!`](@ref), [`semi_gradient_dp!`](@ref), [`StateMDP`](@ref)
+
+# Algorithm Details
+1. For each action a:
+   - Query transition distribution to get (rewards, next_states, probabilities)
+   - Compute expected immediate reward: r̄ = Σ p(s',r|s,a) · r
+   - Compute expected future value: v̄' = Σ p(s'|s,a) · v̂(s') (excluding terminal states)
+   - Set q̂(s,a) = r̄ + γ · v̄'
+2. Track maximum action-value during computation using branchless operations
+3. Return maximum value and corresponding action index
+
+# Performance Notes
+- Uses branchless maximum tracking to avoid conditional branching
+- Handles terminal states by excluding them from value computation
+- Compatible with any state-value function that accepts individual states
+"""
+function update_action_values!(action_values::Vector{T}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
 	maxq = typemin(T)
 	i_a_max = 0
 	for i_a in eachindex(action_values)
@@ -389,7 +613,9 @@ function update_action_values!(action_values::Vector{T}, s, v̂::Function, mdp::
 		for i in eachindex(probabilities)
 			s′ = states[i]
 			if !mdp.isterm(s′)
-				v′ += probabilities[i] * v̂(s′)
+				update_feature_vector!(feature_vector, s′)
+				v̂ = value_function(feature_vector, parameters; kwargs...)
+				v′ += probabilities[i] * v̂
 			end
 			r_avg += probabilities[i]*rewards[i]
 		end
@@ -400,18 +626,78 @@ function update_action_values!(action_values::Vector{T}, s, v̂::Function, mdp::
 		i_a_max = newmax*i_a + !newmax*i_a_max
 	end
 	return maxq, i_a_max
-end
+end;
 
 # ╔═╡ 8d61f29b-68a9-4ca3-a8d7-59737bc2c009
 function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, V, W}
-	v̂ = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
-	function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters::W = parameters, kwargs...)
-		maxq, i_a_max = update_action_values!(action_values, s, v̂, mdp, γ)
+	function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), parameters::W = parameters, feature_vector = deepcopy(feature_vector), kwargs...)
+		maxq, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ; kwargs...)
 		(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 	end
 end	
 
 # ╔═╡ 991492f4-7dfc-43aa-ab6c-a6b1f3e38225
+"""
+    semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_action_values!, ∇q̂, update_value_gradient!; kwargs...) -> NamedTuple
+
+Semi-gradient SARSA algorithm for control with function approximation.
+
+Performs on-policy temporal difference control using SARSA updates with ε-greedy policy improvement.
+Updates action-value function parameters using semi-gradient methods and function approximation.
+
+# Type Parameters
+- `P`: Parameter type (Vector or Matrix)
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `parameters::P`: Action-value function parameters (modified in-place)
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector`: Feature vector storage for state representations
+- `update_feature_vector!::Function`: Function to extract features from states
+- `update_action_values!::Function`: Function to compute action-values from features and parameters
+- `∇q̂`: Gradient storage for action-value function gradients
+- `update_value_gradient!::Function`: Function to compute action-value function gradient
+
+# Keyword Arguments
+- `α::T = 0.1`: Learning rate
+- `ϵ::T = 0.1`: Exploration probability for ε-greedy policy
+- `compute_value::Function = compute_sarsa_value`: Function to compute target values from action-values and policy
+- `α_decay::T = 1.0`: Learning rate decay factor
+- `decay_step::Integer = typemax(Int64)`: Step at which to begin learning rate decay
+- `save_parameter_history::Bool = false`: Whether to save parameter history at each step
+- `kwargs...`: Additional arguments passed to update functions
+
+# Returns
+- `NamedTuple`: Results containing:
+  - `value_function`: Final action-value function q̂(s) created by [`form_value_function`](@ref)
+  - `episode_rewards::Vector{T}`: Total reward per episode
+  - `episode_steps::Vector{Int64}`: Step count per episode
+  - `parameter_history::Vector{P}`: Parameter history (if `save_parameter_history=true`)
+  - `final_parameters::P`: Copy of final parameters
+
+# See Also
+[`compute_sarsa_value`](@ref), [`form_value_function`](@ref), [`StateMDP`](@ref)
+
+# Algorithm Details
+1. Initialize state and select initial action using ε-greedy policy
+2. For each step:
+   - Compute current action-value q̂(s,a) and gradient ∇q̂(s,a)
+   - Take action, observe reward r and next state s'
+   - Select next action a' using ε-greedy policy on updated parameters
+   - Compute target using `compute_value(action_values, policy, a')`
+   - Update parameters: θ ← θ + α·δ·∇q̂(s,a) where δ = r + γ·q̂(s',a') - q̂(s,a)
+   - Continue with s ← s', a ← a'
+3. Return final action-value function and training statistics
+
+# Performance Notes
+- Updates parameters in-place to minimize allocations
+- Supports learning rate decay after specified step count
+- Optional parameter history tracking for analysis
+- Compatible with various feature representations and approximation methods
+"""
 function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, compute_value::Function = compute_sarsa_value, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {P, T<:Real}
 	action_values = zeros(T, length(mdp.actions))
 	policy = copy(action_values)
@@ -481,9 +767,70 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 
 	q̂ = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
-end
+end;
 
 # ╔═╡ b0761704-5447-4e64-8270-708d9dccef60
+"""
+    semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, value_function, ∇v̂, update_value_gradient!; kwargs...) -> NamedTuple
+
+Semi-gradient dynamic programming algorithm for control with function approximation.
+
+Combines dynamic programming value updates with trajectory sampling for control. Uses state-value
+function approximation with Bellman equation-based action-value computation and ε-greedy policy
+improvement. Effectively performs trajectory sampling while staying close to the optimal policy.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type from MDP
+- `A`: Action type from MDP  
+- `PR`: Parameter type (Vector or Matrix)
+
+# Arguments
+- `parameters::PR`: State-value function parameters (modified in-place)
+- `mdp::StateMDP`: Markov Decision Process with transition distributions
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector`: Feature vector storage for state representations
+- `update_feature_vector!::Function`: Function to extract features from states
+- `value_function::Function`: State-value function (features, params) -> value
+- `∇v̂`: Gradient storage for state-value function gradients
+- `update_value_gradient!::Function`: Function to compute state-value function gradient
+
+# Keyword Arguments
+- `α::T = 0.1`: Learning rate
+- `ϵ::T = 0.1`: Exploration probability for ε-greedy policy
+- `α_decay::T = 1.0`: Learning rate decay factor
+- `decay_step::Integer = typemax(Int64)`: Step at which to begin learning rate decay
+- `save_parameter_history::Bool = false`: Whether to save parameter history at each step
+- `kwargs...`: Additional arguments passed to update functions
+
+# Returns
+- `NamedTuple`: Results containing:
+  - `value_function`: Final action-value function q̂(s) created by [`form_value_function`](@ref)
+  - `episode_rewards::Vector{T}`: Total reward per episode
+  - `episode_steps::Vector{Int64}`: Step count per episode
+  - `parameter_history::Vector{PR}`: Parameter history (if `save_parameter_history=true`)
+  - `final_parameters::PR`: Copy of final parameters
+
+# See Also
+[`update_action_values!`](@ref), [`form_value_function`](@ref), [`StateMDP`](@ref)
+
+# Algorithm Details
+1. For each step:
+   - Compute current state-value v̂(s) and gradient ∇v̂(s)
+   - Use [`update_action_values!`](@ref) to compute all action-values via Bellman equation
+   - Update state-value parameters: θ ← θ + α·δ·∇v̂(s) where δ = max_a q̂(s,a) - v̂(s)
+   - Select action using ε-greedy policy on computed action-values
+   - Take action and transition to next state
+2. Return final action-value function derived from learned state-value function
+
+# Performance Notes
+- Combines exact dynamic programming updates with approximate trajectory sampling
+- Uses transition distributions for exact action-value computation at each step
+- Creates internal closure for state-value function evaluation during action-value computation
+- Supports learning rate decay and parameter history tracking
+"""
 function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, PR}
 	action_values = zeros(T, length(mdp.actions))
 	policy = copy(action_values)
@@ -499,18 +846,13 @@ function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}
 	parameter_history = Vector{PR}()
 	save_parameter_history && push!(parameter_history, deepcopy(parameters))
 
-	function value_function2(s::S)
-		update_feature_vector!(feature_vector, s)
-		value_function(feature_vector, parameters)
-	end
-	
 	while (ep <= max_episodes) && (step <= max_steps)
 		update_feature_vector!(feature_vector, s)
 		v̂ = value_function(feature_vector, parameters)
 		update_value_gradient!(∇v̂, feature_vector, parameters)
 		
 		#computes q and finds maximizing action value, this is effectively trajectory sampling in the case of approximation where we stay close to the optimal policy
-		target, i_a_max = update_action_values!(action_values, s, value_function2, mdp, γ)
+		target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ)
 	
 		δ = target - v̂
 
@@ -541,7 +883,7 @@ function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}
 
 	
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
-end
+end;
 
 # ╔═╡ 54b92594-04b8-4a8a-82c2-773b4a24680d
 md"""
@@ -556,6 +898,8 @@ Two options to represent parameters for use with action-values is to simply have
 """
 
 # ╔═╡ 5f8b0254-88f4-4d19-ade1-8e7c40941b43
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	function update_parameters!(parameters::Vector{Vector{T}}, state_representation::SparseVector{T, Int64}, i_a::Integer, α::T, δ::T) where T<:Real
 		x = α*δ
@@ -579,6 +923,7 @@ begin
 		end
 	end
 end
+  ╠═╡ =#
 
 # ╔═╡ c5c839f7-1806-463d-b63a-bd7e1384f203
 md"""
@@ -586,6 +931,8 @@ The action value calculation also depends on how parameters are represented.  Ei
 """
 
 # ╔═╡ f11787a1-57f8-4077-8d60-bc760ece7cc6
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	calculate_action_value(state_representation::AbstractVector{T}, i_a::Integer, parameters::Vector{Vector{T}}) where T<:Real = dot(state_representation, parameters[i_a])
 
@@ -605,6 +952,7 @@ begin
 		return q
 	end
 end	
+  ╠═╡ =#
 
 # ╔═╡ 1478745a-634d-4f31-8a70-b74f0e536201
 md"""
@@ -612,6 +960,8 @@ Part of the Sarsa algorithm requires us to identify the maximizing action.  Thes
 """
 
 # ╔═╡ c697e0b6-d3e4-4f5f-96e9-b9486c9d7efc
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	fill_action_values!(action_values::Vector{T}, state_representation::AbstractVector{T}, parameters::Matrix{T}) where T<:Real = mul!(action_values, parameters', state_representation)
 
@@ -621,6 +971,7 @@ begin
 		end
 	end
 end
+  ╠═╡ =#
 
 # ╔═╡ dc2cffeb-9adf-4956-afa3-ac82af377c59
 md"""
@@ -629,6 +980,25 @@ Finally we can create the action-value function and parameter update for the gen
 
 # ╔═╡ de3e4afe-f935-4b33-9218-08d403743c60
 begin
+	"""
+	    get_num_actions(num_actions) -> Integer
+	    get_num_actions(mdp) -> Integer
+	
+	Extracts the number of actions from various input types.
+	
+	Provides a uniform interface for determining action space size from either
+	direct specification or MDP structures.
+	
+	# Arguments
+	- `num_actions::Integer`: Direct specification of number of actions
+	- `mdp::`[`StateMDP`](@ref): MDP structure containing action space
+	
+	# Returns
+	- `Integer`: Number of actions in the action space
+	
+	# See Also
+	[`StateMDP`](@ref), [`initialize_linear_parameters`](@ref)
+	"""
 	get_num_actions(num_actions::Integer) = num_actions
 	get_num_actions(mdp::StateMDP) = length(mdp.actions)
 end
@@ -644,25 +1014,104 @@ begin
 end
 
 # ╔═╡ b697c5ba-4647-4998-a153-1e97dd91cb23
+"""
+    semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
+
+Semi-gradient SARSA algorithm with linear function approximation.
+
+Convenience method that automatically sets up linear approximation components and delegates
+to [`semi_gradient_sarsa!`](@ref) with appropriate linear functions and gradient storage.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector::`[`LinearFeatureVector`](@ref): Template feature vector for linear approximation
+- `update_feature_vector!::Function`: Function to extract features from states
+
+# Keyword Arguments
+- `init_value::T = zero(T)`: Initial value for all parameters
+- `parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value)`: Pre-initialized parameter matrix
+- `kwargs...`: Additional arguments passed to [`semi_gradient_sarsa!`](@ref)
+
+# Returns
+- `NamedTuple`: Same as [`semi_gradient_sarsa!`](@ref) - see that function for details
+
+# See Also
+[`semi_gradient_sarsa!`](@ref), [`LinearFeatureVector`](@ref), [`update_linear_action_values!`](@ref), [`LinearActionValueGradient`](@ref)
+
+# Algorithm Details
+1. Creates parameter matrix using [`initialize_linear_parameters`](@ref) if not provided
+2. Sets up [`LinearActionValueGradient`](@ref) for gradient storage
+3. Delegates to [`semi_gradient_sarsa!`](@ref) with:
+   - [`update_linear_action_values!`](@ref) for action-value computation
+   - [`update_linear_value_gradient!`](@ref) for gradient updates
+4. Returns results from core algorithm
+
+# Examples
+```julia-repl
+julia> # Basic usage with tile coding features
+julia> result = semi_gradient_sarsa_linear(mdp, 0.9f0, 1000, 50000, 
+                                          feature_vector, update_tile_features!)
+
+julia> # With custom parameters and learning rate
+julia> result = semi_gradient_sarsa_linear(mdp, 0.9f0, 1000, 50000,
+                                          feature_vector, update_tile_features!;
+                                          α=0.05f0, ϵ=0.05f0)
+```
+
+# Performance Notes
+- Automatically handles linear approximation setup to minimize user setup code
+- Reuses parameter matrix if provided to avoid reinitialization
+- Compatible with all linear feature representations
+"""
 semi_gradient_sarsa_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 526689e2-85ea-47d5-9791-5aa730f8b1ab
+"""
+    semi_gradient_dp_linear(mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
+
+Semi-gradient Dynamic Programming algorithm with linear function approximation.
+
+Convenience method that automatically sets up linear approximation components and delegates
+to [`semi_gradient_dp!`](@ref) with appropriate linear functions and gradient storage.
+Performs value function estimation using dynamic programming principles with function approximation.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector::`[`LinearFeatureVector`](@ref): Template feature vector for linear approximation
+- `update_feature_vector!::Function`: Function to extract features from states
+
+# Keyword Arguments
+- `init_value::T = zero(T)`: Initial value for all parameters
+- `parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value)`: Pre-initialized parameter vector
+- `kwargs...`: Additional arguments passed to [`semi_gradient_dp!`](@ref)
+
+# Returns
+- `NamedTuple`: Same as [`semi_gradient_dp!`](@ref) - see that function for details
+
+# See Also
+[`semi_gradient_dp!`](@ref), [`linear_value_function`](@ref), [`LinearFeatureVector`](@ref), [`update_linear_value_gradient!`](@ref)
+
+# Algorithm Details
+1. Creates parameter vector using [`initialize_linear_parameters`](@ref) if not provided
+2. Sets up gradient storage with feature vector copy
+3. Delegates to [`semi_gradient_dp!`](@ref) with:
+   - [`linear_value_function`](@ref) for value computation
+   - [`update_linear_value_gradient!`](@ref) for gradient updates
+4. Returns results from core algorithm
+"""
 semi_gradient_dp_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
-
-# ╔═╡ b9ebd6bb-90a1-4945-85ed-023206e2420a
-# ╠═╡ disabled = true
-#=╠═╡
-
-  ╠═╡ =#
-
-# ╔═╡ 2c620fe4-2f62-40f8-a666-8dced1e0b84a
-
-
-# ╔═╡ 56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
-# ╠═╡ disabled = true
-#=╠═╡
-
-  ╠═╡ =#
 
 # ╔═╡ 8d096d0d-8fea-421a-aa33-82269d3fe7e2
 md"""
@@ -670,6 +1119,44 @@ md"""
 """
 
 # ╔═╡ be1ad356-de4b-469c-bb65-81d630f07674
+"""
+    setup_fcann_action_value_arguments(params, input_length, hidden_layers, reslayers, l2, dropout, use_μP, activation_list) -> NamedTuple
+
+Set up neural network components for action-value function approximation.
+
+Creates feature vectors, gradients, and specialized functions for FCANN-based action-value estimation.
+Handles μP scaling, activation management, and gradient computation setup for multi-action problems.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `params::`[`FCANNParams`](@ref)`{T}`: Pre-initialized network parameters
+- `input_length::Integer`: Dimension of input feature vectors
+- `hidden_layers::Vector{Int64}`: Number of units in each hidden layer
+- `reslayers::Integer`: Number of residual layers in network
+- `l2::T`: L2 regularization strength
+- `dropout::T`: Dropout rate for training
+- `use_μP::Bool`: Whether to apply μP scaling for network initialization
+- `activation_list`: Activation function configuration per layer
+
+# Returns
+- `NamedTuple` with fields:
+  - `feature_vector`: Input feature vector storage
+  - `gradient`: Gradient storage matching parameter structure
+  - `update_action_values!::Function`: Function to compute action values and return maximum
+  - `update_value_gradient!::Function`: Function to compute gradients for specific actions
+  - `activations`: Pre-allocated activation storage for network forward pass
+
+# See Also
+[`setup_fcann_value_arguments`](@ref), [`FCANNParams`](@ref), [`update_fcann_value_gradient!`](@ref), [`fcann_value_function!`](@ref)
+
+# Algorithm Details
+1. Creates input vector and activation storage using [`FCANN.form_activations`](@ref)
+2. Sets up gradient computation storage (tanh_grad_z, deltas)
+3. Configures μP scaling factors if enabled
+4. Returns specialized functions for action-value computation and gradient updates
+"""
 function setup_fcann_action_value_arguments(params::FCANNParams{T}, input_length::Integer, hidden_layers::Vector{Int64}, reslayers::Integer, l2::T, dropout::T, use_μP::Bool, activation_list) where {T<:Real}
 	x = zeros(T, input_length)
 	
@@ -686,7 +1173,7 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, input_length
 		end
 	end
 
-	function update_action_values!(action_values::Vector{T}, x, params) 
+	function update_action_values!(action_values::Vector{T}, x, params; activations = activations) 
 		fcann_value_function!(activations, x, params, reslayers)
 		action_values .= activations[end]
 		findmax(action_values)
@@ -698,9 +1185,55 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, input_length
 	end
 
 	return (feature_vector = x, gradient = deepcopy(params), update_action_values! = update_action_values!, update_value_gradient! = update_value_gradient!, activations = activations)
-end
+end;
 
 # ╔═╡ 7e87f2ec-c96f-4897-bb61-c27913f6944f
+"""
+    semi_gradient_sarsa_fcann(mdp, γ, max_episodes, max_steps, update_feature_vector!, num_features, hidden_layers; kwargs...) -> NamedTuple
+
+Semi-gradient SARSA algorithm with fully-connected neural network approximation.
+
+Convenience method that automatically sets up FCANN approximation components and delegates
+to [`semi_gradient_sarsa!`](@ref) with appropriate neural network functions and gradient storage.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `update_feature_vector!::Function`: Function to extract features from states
+- `num_features::Integer`: Dimension of input feature vectors
+- `hidden_layers::Vector{Int64}`: Number of units in each hidden layer
+
+# Keyword Arguments
+- `reslayers::Integer = 0`: Number of residual layers
+- `use_μP::Bool = true`: Whether to apply μP scaling
+- `parameters::`[`FCANNParams`](@ref)`{T} = FCANN.initializeparams_saxe(...)`: Pre-initialized network parameters
+- `dropout::T = zero(T)`: Dropout rate for training
+- `activation_list = fill(true, length(hidden_layers))`: Activation configuration per layer
+- `l2::T = zero(T)`: L2 regularization strength
+- `kwargs...`: Additional arguments passed to [`semi_gradient_sarsa!`](@ref)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Closure for action-value function evaluation
+  - `episode_rewards`: Reward history per episode
+  - `episode_steps`: Step counts per episode
+  - `parameter_history`: Training history of network parameters
+  - `final_parameters`: Final trained network parameters
+
+# See Also
+[`semi_gradient_sarsa!`](@ref), [`setup_fcann_action_value_arguments`](@ref), [`FCANNParams`](@ref), [`semi_gradient_dp_fcann`](@ref)
+
+# Algorithm Details
+1. Sets up FCANN components using [`setup_fcann_action_value_arguments`](@ref)
+2. Initializes network parameters with [`FCANN.initializeparams_saxe`](@ref) if not provided
+3. Delegates to [`semi_gradient_sarsa!`](@ref) with neural network functions
+4. Returns wrapped value function with activation storage management
+"""
 function semi_gradient_sarsa_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, length(mdp.actions), reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
 	setup = setup_fcann_action_value_arguments(parameters, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
 	
@@ -712,6 +1245,53 @@ function semi_gradient_sarsa_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, 
 end
 
 # ╔═╡ 4c94be37-dcd7-4b32-8e7f-3371ddaa254a
+"""
+    semi_gradient_dp_fcann(mdp, γ, max_episodes, max_steps, update_feature_vector!, num_features, hidden_layers; kwargs...) -> NamedTuple
+
+Semi-gradient Dynamic Programming algorithm with fully-connected neural network approximation.
+
+Convenience method that automatically sets up FCANN approximation components and delegates
+to [`semi_gradient_dp!`](@ref) with appropriate neural network functions and gradient storage.
+Uses single-output network for state value function approximation.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `update_feature_vector!::Function`: Function to extract features from states
+- `num_features::Integer`: Dimension of input feature vectors
+- `hidden_layers::Vector{Int64}`: Number of units in each hidden layer
+
+# Keyword Arguments
+- `reslayers::Integer = 0`: Number of residual layers
+- `use_μP::Bool = true`: Whether to apply μP scaling
+- `parameters::`[`FCANNParams`](@ref)`{T} = FCANN.initializeparams_saxe(...)`: Pre-initialized network parameters for single output
+- `dropout::T = zero(T)`: Dropout rate for training
+- `activation_list = fill(true, length(hidden_layers))`: Activation configuration per layer
+- `l2::T = zero(T)`: L2 regularization strength
+- `kwargs...`: Additional arguments passed to [`semi_gradient_dp!`](@ref)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Closure for state value function evaluation
+  - `episode_rewards`: Reward history per episode
+  - `episode_steps`: Step counts per episode
+  - `parameter_history`: Training history of network parameters
+  - `final_parameters`: Final trained network parameters
+
+# See Also
+[`semi_gradient_dp!`](@ref), [`setup_fcann_value_arguments`](@ref), [`FCANNParams`](@ref), [`semi_gradient_sarsa_fcann`](@ref)
+
+# Algorithm Details
+1. Sets up FCANN components using [`setup_fcann_value_arguments`](@ref)
+2. Initializes single-output network parameters with [`FCANN.initializeparams_saxe`](@ref) if not provided
+3. Delegates to [`semi_gradient_dp!`](@ref) with neural network functions
+4. Returns wrapped value function with activation storage management
+"""
 function semi_gradient_dp_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
 	setup = setup_fcann_value_arguments(parameters, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
 	
@@ -721,9 +1301,6 @@ function semi_gradient_dp_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max
 
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
 end
-
-# ╔═╡ 00e7783f-7f17-4944-a085-ea87509cd75a
-
 
 # ╔═╡ a22e5d34-4b8d-479c-985c-d6abd41a6c80
 md"""
@@ -1120,14 +1697,35 @@ md"""
 """
 
 # ╔═╡ 742100ba-c38e-4840-8988-40990039b527
-#=╠═╡
-setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_feature_setup(mountain_car_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), tile_size, num_tilings, (1, 3))
-  ╠═╡ =#
+"""
+    setup_mountain_car_tiles(tile_size, num_tilings) -> NamedTuple
+
+Set up tile coding features for the Mountain Car environment.
+
+Convenience function that creates tile coding feature representation specifically configured
+for Mountain Car state space with position range [-1.2, 0.5] and velocity range [-0.07, 0.07].
+
+# Arguments
+- `tile_size::NTuple{2, Float32}`: Size of tiles in (position, velocity) dimensions
+- `num_tilings::Integer`: Number of overlapping tilings for feature coverage
+
+# Returns
+- `NamedTuple`: Same as [`tile_coding_feature_setup`](@ref) with Mountain Car-specific configuration
+
+# See Also
+[`tile_coding_feature_setup`](@ref), [`MountainCarTask.mdp`](@ref)
+
+# Algorithm Details
+1. Delegates to [`tile_coding_feature_setup`](@ref) with Mountain Car parameters:
+   - MDP structure from [`MountainCarTask.mdp`](@ref)
+   - State bounds: position ∈ [-1.2, 0.5], velocity ∈ [-0.07, 0.07]
+   - Displacement vector (1, 3) for tiling offset
+2. Returns complete tile coding setup for immediate use
+"""
+setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_feature_setup(MountainCarTask.mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), tile_size, num_tilings, (1, 3));
 
 # ╔═╡ e5c0b558-4902-455f-a370-cddb9b291c15
-#=╠═╡
 setup_mountain_car_tiles((1f0/12, 1f0/12), 8)
-  ╠═╡ =#
 
 # ╔═╡ 7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
 # ╠═╡ skip_as_script = true
@@ -1195,12 +1793,38 @@ Compared to tile coding, the feature vector for non-linear learning will simply 
 """
 
 # ╔═╡ c12070a9-df63-4b25-99e6-26ff876af1b4
+"""
+    update_mountaincar_feature_vector!(v, s) -> Vector{Float32}
+
+Update feature vector with normalized Mountain Car state features.
+
+In-place function that transforms Mountain Car state (position, velocity) into normalized
+feature representation suitable for function approximation. Applies scaling and
+centering to map state bounds to appropriate feature ranges.
+
+# Arguments
+- `v::Vector{Float32}`: Feature vector storage (modified in-place)
+- `s::NTuple{2, Float32}`: Mountain Car state as (position, velocity) tuple
+
+# Returns
+- `Vector{Float32}`: The modified feature vector (same as input `v`)
+
+# See Also
+[`setup_mountain_car_tiles`](@ref), [`scale_state`](@ref)
+
+# Algorithm Details
+1. Normalizes position: maps [-1.2, 0.5] to centered and scaled range
+2. Normalizes velocity: maps [-0.07, 0.07] to scaled range
+3. Stores transformed features in first two elements of feature vector
+4. Returns the modified vector for chaining operations
+"""
 function update_mountaincar_feature_vector!(v::Vector{Float32}, s::NTuple{2, Float32})
 	x1 = 3.45f0*(((s[1] - 1.2f0) / 1.7f0) - 0.5f0)
 	x2 = 1.725f0*s[2] / 0.07f0
 	v[1] = x1
 	v[2] = x2
-end
+	return v
+end;
 
 # ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
 #=╠═╡
@@ -1358,9 +1982,96 @@ Since we already update the policy and action values in the sarsa algorithm, the
 """
 
 # ╔═╡ 8ed6f8fd-8574-4d5a-9964-ce8a32629c6f
-compute_expected_sarsa_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = dot(action_values, policy)
+"""
+    compute_expected_sarsa_value(action_values, policy, i_a) -> Real
+
+Compute expected value for Expected SARSA algorithm.
+
+Calculates the expected action value under the given policy by taking the dot product
+of action values and policy probabilities. Used as the target value computation in
+Expected SARSA updates.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `action_values::Vector{T}`: Current action values for all actions
+- `policy::Vector{T}`: Policy probabilities for all actions
+- `i_a::Integer`: Index of selected action (unused in expected value computation)
+
+# Returns
+- `T`: Expected value under the policy
+
+# See Also
+[`compute_q_learning_value`](@ref), [`semi_gradient_expected_sarsa_linear`](@ref)
+"""
+compute_expected_sarsa_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = dot(action_values, policy);
 
 # ╔═╡ 8b7e1031-9864-439c-86eb-11aa08f53b90
+"""
+    semi_gradient_double_sarsa!(parameters1, parameters2, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_action_values!, ∇q̂, update_value_gradient!; kwargs...) -> NamedTuple
+
+Semi-gradient Double SARSA algorithm for control with function approximation.
+
+Performs on-policy temporal difference control using two sets of parameters to reduce maximization bias.
+Randomly selects one parameter set for updates while using the other for target computation, with 
+policy improvement based on averaged action-values.
+
+# Type Parameters
+- `P`: Parameter type (Vector or Matrix)
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `parameters1::P`: First set of action-value function parameters (modified in-place)
+- `parameters2::P`: Second set of action-value function parameters (modified in-place)
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector`: Feature vector storage for state representations
+- `update_feature_vector!::Function`: Function to extract features from states
+- `update_action_values!::Function`: Function to compute action-values from features and parameters
+- `∇q̂`: Gradient storage for action-value function gradients
+- `update_value_gradient!::Function`: Function to compute action-value function gradient
+
+# Keyword Arguments
+- `α::T = 0.1`: Learning rate
+- `ϵ::T = 0.1`: Exploration probability for ε-greedy policy
+- `compute_value::Function = compute_expected_sarsa_value`: Function to compute target values from action-values and policy
+- `α_decay::T = 1.0`: Learning rate decay factor
+- `decay_step::Integer = typemax(Int64)`: Step at which to begin learning rate decay
+- `save_parameter_history::Bool = false`: Whether to save parameter history for both sets
+- `kwargs...`: Additional arguments passed to update functions
+
+# Returns
+- `NamedTuple`: Results containing:
+  - `value_function`: Final action-value function q̂(s) created by [`form_value_function`](@ref) using both parameter sets
+  - `episode_rewards::Vector{T}`: Total reward per episode
+  - `episode_steps::Vector{Int64}`: Step count per episode
+  - `parameter_history::Tuple{Vector{P}, Vector{P}}`: History for both parameter sets (if `save_parameter_history=true`)
+  - `final_parameters::Tuple{P, P}`: Copies of final parameters for both sets
+
+# See Also
+[`semi_gradient_sarsa!`](@ref), [`form_value_function`](@ref), [`StateMDP`](@ref)
+
+# Algorithm Details
+1. Initialize state and select initial action using ε-greedy policy on averaged action-values
+2. For each step:
+   - Randomly select which parameter set to update (50% probability each)
+   - Compute current action-value and gradient using selected parameter set
+   - Take action, observe reward r and next state s'
+   - Compute action-values with both parameter sets
+   - Use non-updated parameter set for target computation with policy from updated set
+   - Update selected parameters: θ ← θ + α·δ·∇q̂(s,a)
+   - Select next action using ε-greedy policy on sum of both action-value sets
+3. Return final averaged action-value function and training statistics
+
+# Performance Notes
+- Reduces maximization bias by decoupling action selection from value estimation
+- Updates one parameter set per step while using the other for target computation
+- Policy improvement uses averaged action-values from both parameter sets
+- Compatible with various target computation methods via `compute_value` parameter
+"""
 function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, compute_value = compute_expected_sarsa_value, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {P, T<:Real}
 	action_values1 = zeros(T, length(mdp.actions))
 	action_values2 = zeros(T, length(mdp.actions))
@@ -1463,13 +2174,76 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 	q̂ = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters1, parameters2)
 	
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = (parameter_history1, parameter_history2), final_parameters = (deepcopy(parameters1), deepcopy(parameters2)))
-end
+end;
 
 # ╔═╡ b8cd582e-26fc-4f21-85cc-950bac60bee0
+"""
+    semi_gradient_double_sarsa_linear(mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
+
+Semi-gradient Double SARSA algorithm with linear function approximation.
+
+Convenience method that automatically sets up linear approximation components and delegates
+to [`semi_gradient_double_sarsa!`](@ref) with appropriate linear functions and gradient storage.
+Double SARSA maintains two separate value function approximations to reduce maximization bias
+in action selection.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector::`[`LinearFeatureVector`](@ref): Template feature vector for linear approximation
+- `update_feature_vector!::Function`: Function to extract features from states
+
+# Keyword Arguments
+- `init_value::T = zero(T)`: Initial value for all parameters in both approximators
+- `parameters1::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value)`: Parameter matrix for first approximator
+- `parameters2::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value)`: Parameter matrix for second approximator
+- `kwargs...`: Additional arguments passed to [`semi_gradient_double_sarsa!`](@ref)
+
+# Returns
+- `NamedTuple`: Same as [`semi_gradient_double_sarsa!`](@ref) - see that function for details
+
+# See Also
+[`semi_gradient_double_sarsa!`](@ref), [`semi_gradient_sarsa_linear`](@ref), [`LinearFeatureVector`](@ref), [`update_linear_action_values!`](@ref), [`LinearActionValueGradient`](@ref)
+
+# Algorithm Details
+1. Creates two parameter matrices using [`initialize_linear_parameters`](@ref) if not provided
+2. Sets up [`LinearActionValueGradient`](@ref) for gradient storage
+3. Delegates to [`semi_gradient_double_sarsa!`](@ref) with:
+   - [`update_linear_action_values!`](@ref) for action-value computation
+   - [`update_linear_value_gradient!`](@ref) for gradient updates
+4. Returns results from core algorithm with both approximators
+"""
 semi_gradient_double_sarsa_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters1::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), parameters2::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = semi_gradient_double_sarsa!(parameters1, parameters2, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 1410db13-4b73-4a87-af34-30a5232af4ba
-compute_q_learning_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = maximum(action_values)
+"""
+    compute_q_learning_value(action_values, policy, i_a) -> Real
+
+Compute maximum value for Q-learning algorithm.
+
+Calculates the maximum action value for Q-learning updates. Policy argument is ignored
+as Q-learning uses the maximum over all actions regardless of the current policy.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+
+# Arguments
+- `action_values::Vector{T}`: Current action values for all actions
+- `policy::Vector{T}`: Policy probabilities (unused in max computation)
+- `i_a::Integer`: Index of selected action (unused in max computation)
+
+# Returns
+- `T`: Maximum action value
+
+# See Also
+[`compute_expected_sarsa_value`](@ref), [`semi_gradient_q_learning_linear`](@ref)
+"""
+compute_q_learning_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = maximum(action_values);
 
 # ╔═╡ 5fdbce61-ca25-45e0-b07d-94adf7138446
 # ╠═╡ skip_as_script = true
@@ -1496,9 +2270,51 @@ plot_mountaincar_action_values(mountain_car_fcann.value_function, 200, 200)
   ╠═╡ =#
 
 # ╔═╡ 36a53700-9e9a-4131-89c8-dbd520d5c407
+"""
+    semi_gradient_expected_sarsa_linear(args...; kwargs...) -> NamedTuple
+
+Semi-gradient Expected SARSA algorithm with linear function approximation.
+
+Convenience wrapper that delegates to [`semi_gradient_sarsa_linear`](@ref) with Expected SARSA
+value computation. Uses [`compute_expected_sarsa_value`](@ref) to compute target values based
+on policy expectations rather than the selected action.
+
+# Arguments
+- `args...`: Same arguments as [`semi_gradient_sarsa_linear`](@ref)
+
+# Keyword Arguments
+- `kwargs...`: Additional keyword arguments passed to [`semi_gradient_sarsa_linear`](@ref)
+
+# Returns
+- `NamedTuple`: Same as [`semi_gradient_sarsa_linear`](@ref)
+
+# See Also
+[`semi_gradient_sarsa_linear`](@ref), [`compute_expected_sarsa_value`](@ref), [`semi_gradient_q_learning_linear`](@ref)
+"""
 semi_gradient_expected_sarsa_linear(args...; kwargs...) = semi_gradient_sarsa_linear(args...; kwargs..., compute_value = compute_expected_sarsa_value)
 
 # ╔═╡ 39a07c8a-0253-42b8-ba8d-f00b02ca82a5
+"""
+    semi_gradient_q_learning_linear(args...; kwargs...) -> NamedTuple
+
+Semi-gradient Q-learning algorithm with linear function approximation.
+
+Convenience wrapper that delegates to [`semi_gradient_sarsa_linear`](@ref) with Q-learning
+value computation. Uses [`compute_q_learning_value`](@ref) to compute target values based
+on maximum action value rather than policy expectations.
+
+# Arguments
+- `args...`: Same arguments as [`semi_gradient_sarsa_linear`](@ref)
+
+# Keyword Arguments
+- `kwargs...`: Additional keyword arguments passed to [`semi_gradient_sarsa_linear`](@ref)
+
+# Returns
+- `NamedTuple`: Same as [`semi_gradient_sarsa_linear`](@ref)
+
+# See Also
+[`semi_gradient_sarsa_linear`](@ref), [`compute_q_learning_value`](@ref), [`semi_gradient_expected_sarsa_linear`](@ref)
+"""
 semi_gradient_q_learning_linear(args...; kwargs...) = semi_gradient_sarsa_linear(args...; kwargs..., compute_value = compute_q_learning_value)
 
 # ╔═╡ f7410fe7-e3d8-4047-8fa7-f076476e9d3a
@@ -1735,6 +2551,65 @@ md"""
 """
 
 # ╔═╡ a9fdb1fd-3f62-4e1c-9157-c4eee6215261
+
+"""
+    semi_gradient_differential_sarsa!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, update_action_values!, ∇q̂, update_value_gradient!; kwargs...) -> NamedTuple
+
+Semi-gradient Differential SARSA algorithm for continuing tasks.
+
+Core implementation of differential SARSA with function approximation for average reward
+continuing tasks. Maintains an estimate of the average reward and uses differential returns
+(rewards minus average) for value updates without discounting.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type
+- `A`: Action type  
+- `P`: Transition probability type
+- `F1, F2, F3`: Function types for MDP structure
+- `PR`: Parameter type for function approximation
+
+# Arguments
+- `parameters::PR`: Function approximation parameters (modified in-place)
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector`: Feature vector storage for state representations
+- `update_feature_vector!::Function`: Function to extract features from states
+- `update_action_values!::Function`: Function to compute action values from features
+- `∇q̂`: Gradient storage for action-value gradients
+- `update_value_gradient!::Function`: Function to compute action-value gradients
+
+# Keyword Arguments
+- `α::T = one(T)/10`: Learning rate for value function parameters
+- `β::T = one(T)/100`: Learning rate for average reward estimation
+- `ϵ::T = one(T)/10`: Exploration parameter for ε-greedy policy
+- `compute_value::Function = compute_sarsa_value`: Function to compute target values
+- `max_only_update::Bool = false`: Whether to update average reward only for greedy actions
+- `save_parameter_history::Bool = false`: Whether to save parameter evolution
+- `kwargs...`: Additional arguments
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Closure for action-value function evaluation
+  - `episode_rewards`: Cumulative rewards per episode
+  - `episode_steps`: Step counts per episode  
+  - `average_step_reward`: Evolution of average reward estimate
+  - `parameter_history`: Parameter evolution (if saved)
+  - `final_parameters`: Final trained parameters
+
+# See Also
+[`semi_gradient_differential_sarsa_linear`](@ref), [`semi_gradient_differential_sarsa_fcann`](@ref), [`make_ϵ_greedy_policy!`](@ref)
+
+# Algorithm Details
+1. Initializes average reward estimate R̄ = 0 and bias correction factor ō = 0
+2. For each step:
+   - Computes differential return U_t = r - R̄ + q̂'
+   - Updates parameters using temporal difference δ = U_t - q̂
+   - Updates average reward estimate using bias-corrected update
+   - Continues without episode termination for average reward criterion
+3. Returns trained value function and learning statistics
+"""
 function semi_gradient_differential_sarsa!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, β = one(T)/100, ϵ = one(T) / 10, compute_value = compute_sarsa_value, max_only_update = false, save_parameter_history = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3, PR}
 	action_values = zeros(T, length(mdp.actions))
 	policy = zeros(T, length(mdp.actions))
@@ -1810,12 +2685,103 @@ function semi_gradient_differential_sarsa!(parameters::PR, mdp::StateMDP{T, S, A
 	q̂ = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, average_step_reward = average_step_reward, parameter_history = parameter_history, final_parameters = deepcopy(parameters)) 
-end
+end;
 
 # ╔═╡ aceeb425-cd5f-4c4c-903e-d4359d2de88d
+"""
+    semi_gradient_differential_sarsa_linear(mdp, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
+
+Semi-gradient Differential SARSA algorithm with linear function approximation.
+
+Convenience method that automatically sets up linear approximation components and delegates
+to [`semi_gradient_differential_sarsa!`](@ref) with appropriate linear functions and gradient storage.
+Designed for continuing tasks with average reward criterion.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type
+- `A`: Action type
+- `P <: AbstractStateTransition`: Transition type
+- `F1, F2, F3`: Function types for MDP structure
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector::`[`LinearFeatureVector`](@ref): Template feature vector for linear approximation
+- `update_feature_vector!::Function`: Function to extract features from states
+
+# Keyword Arguments
+- `init_value::T = zero(T)`: Initial value for all parameters
+- `parameters::Matrix{T} = initialize_linear_parameters(...)`: Pre-initialized parameter matrix
+- `kwargs...`: Additional arguments passed to [`semi_gradient_differential_sarsa!`](@ref)
+
+# Returns
+- `NamedTuple`: Same as [`semi_gradient_differential_sarsa!`](@ref)
+
+# See Also
+[`semi_gradient_differential_sarsa!`](@ref), [`semi_gradient_differential_sarsa_fcann`](@ref), [`LinearFeatureVector`](@ref), [`update_linear_action_values!`](@ref)
+
+# Algorithm Details
+1. Creates parameter matrix using [`initialize_linear_parameters`](@ref) if not provided
+2. Sets up [`LinearActionValueGradient`](@ref) for gradient storage
+3. Delegates to [`semi_gradient_differential_sarsa!`](@ref) with linear approximation functions
+4. Returns results from core differential SARSA algorithm
+"""
 semi_gradient_differential_sarsa_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3} = semi_gradient_differential_sarsa!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ db778942-1bed-4c42-a2f0-a176a0364772
+"""
+    semi_gradient_differential_sarsa_fcann(mdp, max_episodes, max_steps, update_feature_vector!, num_features, hidden_layers; kwargs...) -> NamedTuple
+
+Semi-gradient Differential SARSA algorithm with fully-connected neural network approximation.
+
+Convenience method that automatically sets up FCANN approximation components and delegates
+to [`semi_gradient_differential_sarsa!`](@ref) with appropriate neural network functions and gradient storage.
+Designed for continuing tasks with average reward criterion.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type
+- `A`: Action type
+- `P <: AbstractStateTransition`: Transition type
+- `F1, F2, F3`: Function types for MDP structure
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process structure
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `update_feature_vector!::Function`: Function to extract features from states
+- `num_features::Integer`: Dimension of input feature vectors
+- `hidden_layers::Vector{Int64}`: Number of units in each hidden layer
+
+# Keyword Arguments
+- `reslayers::Integer = 0`: Number of residual layers
+- `use_μP::Bool = true`: Whether to apply μP scaling
+- `parameters::`[`FCANNParams`](@ref)`{T} = FCANN.initializeparams_saxe(...)`: Pre-initialized network parameters
+- `dropout::T = zero(T)`: Dropout rate for training
+- `activation_list = fill(true, length(hidden_layers))`: Activation configuration per layer
+- `l2::T = zero(T)`: L2 regularization strength
+- `kwargs...`: Additional arguments passed to [`semi_gradient_differential_sarsa!`](@ref)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Closure for action-value function evaluation with activation management
+  - `episode_rewards`: Cumulative rewards per episode
+  - `episode_steps`: Step counts per episode
+  - `average_step_reward`: Evolution of average reward estimate
+  - `parameter_history`: Parameter evolution (if saved)
+  - `final_parameters`: Final trained network parameters
+
+# See Also
+[`semi_gradient_differential_sarsa!`](@ref), [`semi_gradient_differential_sarsa_linear`](@ref), [`setup_fcann_action_value_arguments`](@ref), [`FCANNParams`](@ref)
+
+# Algorithm Details
+1. Sets up FCANN components using [`setup_fcann_action_value_arguments`](@ref)
+2. Initializes network parameters with [`FCANN.initializeparams_saxe`](@ref) if not provided
+3. Delegates to [`semi_gradient_differential_sarsa!`](@ref) with neural network functions
+4. Returns wrapped value function with activation storage management
+"""
 function semi_gradient_differential_sarsa_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, length(mdp.actions), reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	setup = setup_fcann_action_value_arguments(parameters, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
 	
@@ -1832,6 +2798,41 @@ md"""
 """
 
 # ╔═╡ 91447aff-5598-4f02-acd5-6a90c563f4f6
+"""
+    update_differential_action_values!(action_values, s, v̂, mdp, R̄) -> Tuple{Real, Integer}
+
+Update action values for differential dynamic programming.
+
+Computes action values using differential returns (rewards minus average reward) plus
+expected next state values. Used in differential DP where the value function represents
+differential values relative to the average reward baseline.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type
+- `A`: Action type
+- `P <: StateMDPTransitionDistribution`: Transition distribution type
+- `F1, F2, F3 <: Function`: MDP function types
+
+# Arguments
+- `action_values::Vector{T}`: Action value storage (modified in-place)
+- `s`: Current state
+- `v̂::Function`: State value function for differential values
+- `mdp::`[`StateMDP`](@ref): MDP with transition distributions
+- `R̄::T`: Current average reward estimate
+
+# Returns
+- `Tuple{T, Integer}`: Maximum action value and corresponding action index
+
+# See Also
+[`form_differential_value_function`](@ref), [`semi_gradient_differential_dp!`](@ref)
+
+# Algorithm Details
+1. For each action, computes expected immediate reward and next state value
+2. Forms differential action value: q = r_avg - R̄ + E[v̂(s')]
+3. Tracks maximum value and corresponding action during computation
+4. Updates action_values vector in-place with differential values
+"""
 function update_differential_action_values!(action_values::Vector{T}, s, v̂::Function, mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
 	maxq = typemin(T)
 	i_a_max = 0
@@ -1853,18 +2854,113 @@ function update_differential_action_values!(action_values::Vector{T}, s, v̂::Fu
 		i_a_max = newmax*i_a + !newmax*i_a_max
 	end
 	return maxq, i_a_max
-end
+end;
 
 # ╔═╡ 4e955391-ac29-412e-8ed2-bad3b46961b0
+"""
+    form_differential_value_function(mdp, R̄, update_feature_vector!, value_function, feature_vector, parameters) -> Function
+
+Create action-value function for differential dynamic programming.
+
+Forms a closure that computes differential action values using the trained state value function
+and current average reward estimate. Returns both action values and greedy action information.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type  
+- `A`: Action type
+- `P <: StateMDPTransitionDistribution`: Transition distribution type
+- `F1, F2, F3 <: Function`: MDP function types
+- `V`: Feature vector type
+- `W`: Parameter type
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): MDP with transition distributions
+- `R̄::T`: Average reward estimate from training
+- `update_feature_vector!::Function`: Feature extraction function
+- `value_function::Function`: Trained state value function
+- `feature_vector::V`: Template feature vector
+- `parameters::W`: Trained parameters
+
+# Returns
+- `Function`: Action-value function q̂(s) returning NamedTuple with action_values, maximizing_action, maximizing_value
+
+# See Also
+[`update_differential_action_values!`](@ref), [`form_state_value_function`](@ref), [`semi_gradient_differential_dp!`](@ref)
+
+# Algorithm Details
+1. Creates state value function closure using [`form_state_value_function`](@ref)
+2. Returns action-value function that uses [`update_differential_action_values!`](@ref)
+3. Manages feature vector and parameter storage for efficient evaluation
+4. Provides both action values and greedy policy information
+"""
 function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, V, W}
 	v̂ = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
 	function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), x::V = deepcopy(feature_vector), parameters::W = parameters, kwargs...)
 		maxq, i_a_max = update_differential_action_values!(action_values, s, v̂, mdp, R̄)
 		(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 	end
-end	
+end;
 
 # ╔═╡ 12fa7b75-d13f-4a16-8562-1142002f3f3f
+"""
+    semi_gradient_differential_dp!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, value_function, ∇v̂, update_value_gradient!; kwargs...) -> NamedTuple
+
+Semi-gradient Differential Dynamic Programming algorithm for continuing tasks.
+
+Core implementation of differential DP using state value function approximation for average
+reward continuing tasks. Updates the state value function using differential Bellman targets
+computed from the full action-value backup.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type
+- `A`: Action type
+- `P <: StateMDPTransitionDistribution`: Transition distribution type
+- `F1, F2, F3 <: Function`: MDP function types
+- `PR`: Parameter type
+
+# Arguments
+- `parameters::PR`: State value function parameters (modified in-place)
+- `mdp::`[`StateMDP`](@ref): MDP with transition distributions
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector`: Feature vector storage for state representations
+- `update_feature_vector!::Function`: Function to extract features from states
+- `value_function::Function`: State value function (features, params) -> value
+- `∇v̂`: Gradient storage for state value gradients
+- `update_value_gradient!::Function`: Function to compute state value gradients
+
+# Keyword Arguments
+- `α::T = one(T)/10`: Learning rate for value function parameters
+- `β::T = one(T)/100`: Learning rate for average reward estimation
+- `ϵ::T = one(T)/10`: Exploration parameter for ε-greedy policy
+- `α_decay::T = one(T)`: Decay factor for learning rate
+- `decay_step::Integer = typemax(Int64)`: Step at which to start learning rate decay
+- `save_parameter_history::Bool = false`: Whether to save parameter evolution
+- `kwargs...`: Additional arguments
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Function q̂(s) that returns NamedTuple with fields (action_values, maximizing_action, maximizing_value)
+  - `episode_rewards`: Cumulative rewards per episode
+  - `episode_steps`: Step counts per episode
+  - `average_step_reward`: Evolution of average reward estimate
+  - `parameter_history`: Parameter evolution (if saved)
+  - `final_parameters`: Final trained parameters
+
+# See Also
+[`semi_gradient_differential_dp_linear`](@ref), [`semi_gradient_differential_dp_fcann`](@ref), [`update_differential_action_values!`](@ref), [`form_differential_value_function`](@ref)
+
+# Algorithm Details
+1. Trains state value function V(s) using differential DP targets
+2. For each step:
+   - Computes all action values using [`update_differential_action_values!`](@ref)
+   - Uses maximum action value as target for state value update
+   - Updates average reward estimate R̄ only for greedy actions
+   - Applies ε-greedy policy for action selection
+3. Returns differential action-value function using trained state value function
+"""
 function semi_gradient_differential_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, β = one(T)/100, ϵ = one(T) / 10, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, PR}
 	action_values = zeros(T, length(mdp.actions))
 	policy = copy(action_values)
@@ -1933,12 +3029,103 @@ function semi_gradient_differential_dp!(parameters::PR, mdp::StateMDP{T, S, A, P
 	q̂ = form_differential_value_function(mdp, R̄, update_feature_vector!, value_function, feature_vector, parameters)
 	
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, average_step_reward = average_step_reward, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
-end
+end;
 
 # ╔═╡ 7c22d050-bd56-4b84-8a01-e575475db099
+"""
+    semi_gradient_differential_dp_linear(mdp, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
+
+Semi-gradient Differential Dynamic Programming algorithm with linear function approximation.
+
+Convenience method that automatically sets up linear approximation components and delegates
+to [`semi_gradient_differential_dp!`](@ref) with appropriate linear functions and gradient storage.
+Uses state value function approximation for continuing tasks.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type
+- `A`: Action type
+- `P <: StateMDPTransitionDistribution`: Transition distribution type
+- `F1, F2, F3`: Function types for MDP structure
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): MDP with transition distributions
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector::`[`LinearFeatureVector`](@ref): Template feature vector for linear approximation
+- `update_feature_vector!::Function`: Function to extract features from states
+
+# Keyword Arguments
+- `init_value::T = zero(T)`: Initial value for all parameters
+- `parameters::Vector{T} = initialize_linear_parameters(...)`: Pre-initialized parameter vector
+- `kwargs...`: Additional arguments passed to [`semi_gradient_differential_dp!`](@ref)
+
+# Returns
+- `NamedTuple`: Same as [`semi_gradient_differential_dp!`](@ref)
+
+# See Also
+[`semi_gradient_differential_dp!`](@ref), [`semi_gradient_differential_dp_fcann`](@ref), [`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref)
+
+# Algorithm Details
+1. Creates parameter vector using [`initialize_linear_parameters`](@ref) if not provided
+2. Sets up gradient storage with feature vector copy
+3. Delegates to [`semi_gradient_differential_dp!`](@ref) with linear approximation functions
+4. Returns results from core differential DP algorithm
+"""
 semi_gradient_differential_dp_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(0f0), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3} = semi_gradient_differential_dp!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ e04b9ac4-7e7f-4f6a-b068-d62b319a23fa
+"""
+    semi_gradient_differential_dp_fcann(mdp, max_episodes, max_steps, update_feature_vector!, num_features, hidden_layers; kwargs...) -> NamedTuple
+
+Semi-gradient Differential Dynamic Programming algorithm with fully-connected neural network approximation.
+
+Convenience method that automatically sets up FCANN approximation components and delegates
+to [`semi_gradient_differential_dp!`](@ref) with appropriate neural network functions and gradient storage.
+Uses single-output network for state value function approximation in continuing tasks.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations
+- `S`: State type
+- `A`: Action type
+- `P <: StateMDPTransitionDistribution`: Transition distribution type
+- `F1, F2, F3`: Function types for MDP structure
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): MDP with transition distributions
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `update_feature_vector!::Function`: Function to extract features from states
+- `num_features::Integer`: Dimension of input feature vectors
+- `hidden_layers::Vector{Int64}`: Number of units in each hidden layer
+
+# Keyword Arguments
+- `reslayers::Integer = 0`: Number of residual layers
+- `use_μP::Bool = true`: Whether to apply μP scaling
+- `parameters::`[`FCANNParams`](@ref)`{T} = FCANN.initializeparams_saxe(...)`: Pre-initialized network parameters for single output
+- `dropout::T = zero(T)`: Dropout rate for training
+- `activation_list = fill(true, length(hidden_layers))`: Activation configuration per layer
+- `l2::T = zero(T)`: L2 regularization strength
+- `kwargs...`: Additional arguments passed to [`semi_gradient_differential_dp!`](@ref)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Function q̂(s) that returns NamedTuple with fields (action_values, maximizing_action, maximizing_value)
+  - `episode_rewards`: Cumulative rewards per episode
+  - `episode_steps`: Step counts per episode
+  - `average_step_reward`: Evolution of average reward estimate
+  - `parameter_history`: Parameter evolution (if saved)
+  - `final_parameters`: Final trained network parameters
+
+# See Also
+[`semi_gradient_differential_dp!`](@ref), [`semi_gradient_differential_dp_linear`](@ref), [`setup_fcann_value_arguments`](@ref), [`FCANNParams`](@ref)
+
+# Algorithm Details
+1. Sets up FCANN components using [`setup_fcann_value_arguments`](@ref)
+2. Initializes single-output network parameters with [`FCANN.initializeparams_saxe`](@ref) if not provided
+3. Delegates to [`semi_gradient_differential_dp!`](@ref) with neural network functions
+4. Returns wrapped value function with activation storage management
+"""
 function semi_gradient_differential_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, hidden_layers, 1, reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
 	setup = setup_fcann_value_arguments(parameters, num_features, hidden_layers, reslayers, l2, dropout, use_μP, activation_list)
 	
@@ -1957,24 +3144,80 @@ In order to apply differential learning to the mountain car task, we need to cha
 """
 
 # ╔═╡ eb28458f-b222-4f8e-9a5b-8203d3997f7b
+"""
+    mountain_car_differential_step(s, i_a) -> Tuple{Float32, Tuple{Float32, Float32}}
+
+Mountain Car transition function for differential reinforcement learning.
+
+Performs one step of Mountain Car dynamics with modified reward structure for continuing
+tasks. Returns sparse positive reward only when reaching the goal position (0.5), with
+zero reward elsewhere to focus on average reward optimization.
+
+# Arguments
+- `s::Tuple{Float32, Float32}`: Current state as (position, velocity) tuple
+- `i_a::Int64`: Action index into [`MountainCarTask.actions`](@ref)
+
+# Returns
+- `Tuple{Float32, Tuple{Float32, Float32}}`: (reward, next_state) where reward is 1.0 at goal, 0.0 elsewhere
+
+# See Also
+[`MountainCarTask.step`](@ref), [`MountainCarTask.actions`](@ref)
+
+# Algorithm Details
+1. Maps action index to actual action using [`MountainCarTask.actions`](@ref)
+2. Computes next state using [`MountainCarTask.step`](@ref)
+3. Returns reward of 1.0 if goal position (0.5) reached, 0.0 otherwise
+4. Designed for continuing tasks where average reward rate is the optimization criterion
+"""
 function mountain_car_differential_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	a = MountainCarTask.actions[i_a]
 	s′ = MountainCarTask.step(s, a)
 	r = Float32(s′[1] == 0.5f0)
 	return (r, s′)
-end
+end;
 
 # ╔═╡ d66cd124-7111-401a-a3e8-1059b31c6db7
+"""
+    create_differential_mountaincar_mdp() -> StateMDP
+
+Create Mountain Car MDP configured for differential reinforcement learning.
+
+Constructs a StateMDP with Mountain Car dynamics using modified reward structure suitable
+for continuing tasks and average reward optimization. Uses sparse positive rewards only
+at the goal state rather than negative step penalties.
+
+# Returns
+- [`StateMDP`](@ref): Mountain Car MDP with differential reward structure
+
+# See Also
+[`mountain_car_differential_step`](@ref), [`StateMDPTransitionSampler`](@ref), [`MountainCarTask.initialize_state`](@ref), [`MountainCarTask.isterm`](@ref)
+
+# Algorithm Details
+1. Creates transition sampler using [`mountain_car_differential_step`](@ref) for reward modification
+2. Constructs [`StateMDP`](@ref) with:
+   - [`MountainCarTask.actions`](@ref) for action space
+   - [`StateMDPTransitionSampler`](@ref) for stochastic transitions
+   - [`MountainCarTask.initialize_state`](@ref) for state initialization
+   - [`MountainCarTask.isterm`](@ref) for termination checking
+3. Returns MDP suitable for differential/average reward algorithms
+"""
 function create_differential_mountaincar_mdp()
 	ptf = StateMDPTransitionSampler(mountain_car_differential_step, MountainCarTask.initialize_state())
 	mdp = StateMDP(MountainCarTask.actions, ptf, MountainCarTask.initialize_state, MountainCarTask.isterm)
-end
+end;
 
 # ╔═╡ bc1d7cce-c0f4-47a8-b674-8acb82491c7f
 # ╠═╡ skip_as_script = true
 #=╠═╡
 const mountain_car_differential_mdp = create_differential_mountaincar_mdp()
   ╠═╡ =#
+
+# ╔═╡ 0a494e3e-0af5-4497-b80e-e471acc1fabc
+md"""
+#### Action Value Methods
+
+##### Tile Coding Linear Approximation
+"""
 
 # ╔═╡ 49e43d51-05d6-415b-a685-76e50904c5bc
 # ╠═╡ skip_as_script = true
@@ -2010,6 +3253,11 @@ plot_mountaincar_action_values(q̂_mountain_car2, 500, 500)
 #=╠═╡
 plot(average_step_reward)
   ╠═╡ =#
+
+# ╔═╡ 86cd431e-7b05-410a-b943-ba03b286f3f0
+md"""
+##### Non-linear Approximation
+"""
 
 # ╔═╡ d3ba78fa-f032-4bb9-9359-ef3bcff2252d
 # ╠═╡ skip_as_script = true
@@ -2058,22 +3306,75 @@ md"""
 """
 
 # ╔═╡ 7146649a-1052-4ff6-8f44-eb448b849a6a
+"""
+    mountain_car_differential_dist_step(s, i_a) -> Tuple{Vector{Float32}, Vector{Tuple{Float32, Float32}}, Vector{Float32}}
+
+Mountain Car transition function returning distribution format for differential RL.
+
+Wraps [`mountain_car_differential_step`](@ref) to return deterministic transition in distribution
+format required by [`StateMDPTransitionDistribution`](@ref). Returns single outcome with
+probability 1.0 for compatibility with dynamic programming algorithms.
+
+# Arguments
+- `s::Tuple{Float32, Float32}`: Current state as (position, velocity) tuple
+- `i_a::Int64`: Action index into [`MountainCarTask.actions`](@ref)
+
+# Returns
+- `Tuple{Vector{Float32}, Vector{Tuple{Float32, Float32}}, Vector{Float32}}`: (rewards, states, probabilities) arrays with single deterministic outcome
+
+# See Also
+[`mountain_car_differential_step`](@ref), [`StateMDPTransitionDistribution`](@ref), [`create_differential_mountaincar_dist_mdp`](@ref)
+
+# Algorithm Details
+1. Calls [`mountain_car_differential_step`](@ref) to get single transition outcome
+2. Wraps result in vector format: single reward, single next state, probability 1.0
+3. Maintains deterministic Mountain Car dynamics while providing distribution interface
+"""
 function mountain_car_differential_dist_step(s::Tuple{Float32, Float32}, i_a::Int64)
 	(r, s′) = mountain_car_differential_step(s, i_a)
 	return ([r], [s′], [1f0])
-end
+end;
 
 # ╔═╡ 38fe547e-6982-471a-ac11-02b07bdd0157
+"""
+    create_differential_mountaincar_dist_mdp() -> StateMDP
+
+Create Mountain Car MDP with distribution interface for differential reinforcement learning.
+
+Constructs a StateMDP using [`StateMDPTransitionDistribution`](@ref) that provides full transition
+distributions for dynamic programming algorithms. Uses differential reward structure with
+deterministic Mountain Car dynamics.
+
+# Returns
+- [`StateMDP`](@ref): Mountain Car MDP with distribution-based transitions and differential rewards
+
+# See Also
+[`mountain_car_differential_dist_step`](@ref), [`create_differential_mountaincar_mdp`](@ref), [`StateMDPTransitionDistribution`](@ref)
+
+# Algorithm Details
+1. Creates transition distribution using [`mountain_car_differential_dist_step`](@ref)
+2. Constructs [`StateMDP`](@ref) with:
+   - [`MountainCarTask.actions`](@ref) for action space
+   - [`StateMDPTransitionDistribution`](@ref) for full distribution access
+   - [`MountainCarTask.initialize_state`](@ref) for state initialization
+   - [`MountainCarTask.isterm`](@ref) for termination checking
+3. Returns MDP suitable for differential DP algorithms requiring transition distributions
+"""
 function create_differential_mountaincar_dist_mdp()
 	ptf = StateMDPTransitionDistribution(mountain_car_differential_dist_step, MountainCarTask.initialize_state())
 	mdp = StateMDP(MountainCarTask.actions, ptf, MountainCarTask.initialize_state, MountainCarTask.isterm)
-end
+end;
 
 # ╔═╡ c1ab5827-e3e5-4e8b-9322-e4a5fe0314c4
 # ╠═╡ skip_as_script = true
 #=╠═╡
 const mountain_car_differential_dist_mdp = create_differential_mountaincar_dist_mdp()
   ╠═╡ =#
+
+# ╔═╡ 6f79c437-7264-412c-839f-5bc9252eede8
+md"""
+#### Tile Coding Linear Approximation
+"""
 
 # ╔═╡ 501b7284-6e04-4a15-b8e4-2601156b0345
 #=╠═╡
@@ -2085,7 +3386,7 @@ end
 
 # ╔═╡ 2441b61e-5954-41e2-8ee4-38b16ed04cef
 #=╠═╡
-const differential_linear_dp_mountaincar = mountaincar_differential_dp_test(1_000_000, 1f-6, 1f-3, 0.01f0)
+const differential_linear_dp_mountaincar = mountaincar_differential_dp_test(1_000_000, 1f-6, 1f-4, 0.01f0)
   ╠═╡ =#
 
 # ╔═╡ 6f4f8b64-0c17-446e-bfb6-0540871ad9e0
@@ -2102,6 +3403,11 @@ show_mountaincar_trajectory(s ->differential_linear_dp_mountaincar.value_functio
 #=╠═╡
 plot_mountaincar_action_values(differential_linear_dp_mountaincar.value_function, 100, 100)
   ╠═╡ =#
+
+# ╔═╡ 0e34a25b-f8ee-4da9-8664-b6c094163759
+md"""
+##### Non-linear Approximation
+"""
 
 # ╔═╡ 3b66c97b-ebad-4d13-987c-ac0172b349d1
 # ╠═╡ skip_as_script = true
@@ -2317,13 +3623,57 @@ begin
 end
 
 # ╔═╡ e7372e2b-a2db-4a93-9efc-f75aa74c197b
+"""
+    AccessControlState
+
+State representation for the access control queueing system.
+
+Encapsulates the current system state including server availability and
+the priority level of the current incoming request.
+
+# Fields
+- `num_free_servers::Int64`: Number of currently unoccupied servers
+- `top_priority::Float32`: Priority payment value of the current incoming request
+
+# See Also
+[`access_control_step`](@ref), [`create_access_control_task`](@ref)
+"""
 struct AccessControlState
 	num_free_servers::Int64
 	top_priority::Float32
-end
+end;
 
 # ╔═╡ 014339eb-5b23-4ac5-a551-8eeb2238366f
-begin 
+begin
+	"""
+	    access_control_step(s, action, num_servers, priority_payments) -> Tuple{Float32, AccessControlState}
+	
+	Execute one step of the access control queueing system dynamics.
+	
+	Simulates server dynamics where occupied servers become free with probability 0.06 per step,
+	and new requests arrive with random priority. Action determines whether to accept or reject
+	the current request.
+	
+	# Arguments
+	- `s::`[`AccessControlState`](@ref): Current system state
+	- `action::`[`AccessControlAction`](@ref): Action to take ([`Accept`](@ref) or [`Reject`](@ref))
+	- `num_servers::Integer`: Total number of servers in the system
+	- `priority_payments::Vector{Float32}`: Possible priority payment values for requests
+	
+	# Returns
+	- `Tuple{Float32, AccessControlState}`: (reward, next_state) where reward equals priority value if accepted, 0.0 if rejected
+	
+	# See Also
+	[`AccessControlState`](@ref), [`Accept`](@ref), [`Reject`](@ref), [`create_access_control_task`](@ref)
+	
+	# Algorithm Details
+	1. Simulates server liberation: each occupied server becomes free with probability 0.06
+	2. For [`Reject`](@ref): returns 0.0 reward and updates state with new random priority
+	3. For [`Accept`](@ref): 
+	   - If no free servers, behaves as reject
+	   - Otherwise, allocates one server, returns priority as reward
+	4. Generates new incoming request with random priority from priority_payments
+	"""
 	function access_control_step(s::AccessControlState, ::Reject, num_servers::Integer, priority_payments::Vector{Float32})
 		occupied_servers = num_servers - s.num_free_servers
 		freed_servers = sum(_ -> Float32(rand() < 0.06), 1:occupied_servers; init = 0f0)
@@ -2347,6 +3697,46 @@ Approximation is not really needed here since we have a small number of states, 
 """
 
 # ╔═╡ 62839b2a-398a-4445-87d1-b15ff2acc1d1
+"""
+    create_access_control_task(num_servers, priority_payments) -> NamedTuple
+
+Create access control queueing system MDP with state aggregation features.
+
+Constructs a continuing task MDP modeling a server system that accepts/rejects requests
+based on priority and capacity. Includes pre-configured state aggregation for linear function
+approximation based on server count and priority groupings.
+
+# Arguments
+- `num_servers::Integer`: Total number of servers in the system
+- `priority_payments::Vector{Float32}`: Possible priority payment values
+
+# Returns
+- `NamedTuple` with fields:
+  - `mdp::`[`StateMDP`](@ref): The access control MDP with continuing task structure
+  - `setup`: State aggregation setup from [`state_aggregation_feature_setup`](@ref)
+# Example
+```julia-repl
+julia> 	# setup task
+	(mdp, setup) = create_access_control_task(10, [1f0, 2f0, 4f0, 8f0]);
+julia> 	# run learning algorithm
+	output = semi_gradient_differential_sarsa_linear(mdp, 1, 100, setup...)
+julia> 	# test value function on example initial state
+	output.value_function(mdp.initialize_state());
+```
+
+# See Also
+[`access_control_step`](@ref), [`AccessControlState`](@ref), [`state_aggregation_feature_setup`](@ref), [`StateMDPTransitionSampler`](@ref)
+
+# Algorithm Details
+1. Creates action space with [`Accept`](@ref) and [`Reject`](@ref) actions
+2. Defines state initialization function for random priority assignment
+3. Sets up transition sampler using [`access_control_step`](@ref) dynamics
+4. Creates continuing task MDP (never terminates: `isterm(s) -> false`)
+5. Configures state aggregation grouping states by:
+   - Server availability (num_free_servers)
+   - Priority level
+6. Returns both MDP and feature setup for immediate use
+"""
 function create_access_control_task(num_servers::Integer, priority_payments::Vector{Float32})
 	actions = [Accept(), Reject()]
 
@@ -2358,7 +3748,7 @@ function create_access_control_task(num_servers::Integer, priority_payments::Vec
 	assign_group(s::AccessControlState) = s.num_free_servers + 1 + (num_servers+1)*Int64(log2(s.top_priority))
 	num_groups = (num_servers+1) * length(priority_payments)
 	(mdp = mdp, setup = state_aggregation_feature_setup(initialize_state(), num_groups, assign_group))
-end
+end;
 
 # ╔═╡ b4af8d87-a6e5-4e09-92b4-b07757f58f7f
 # ╠═╡ skip_as_script = true
@@ -2431,6 +3821,39 @@ Even though the problem is stochastic, we can calculate all of the probabilities
 
 # ╔═╡ c4ba34b5-e657-4b75-b853-0a2df081e34b
 begin
+	"""
+	    access_control_step_distribution(s, action, num_servers, priority_payments) -> Tuple{Vector{Float32}, Vector{AccessControlState}, Vector{Float32}}
+	
+	Execute one step of the access control queueing system dynamics with full transition distribution.
+	
+	Returns the complete probability distribution over next states instead of sampling a single
+	transition. Uses binomial distribution for server liberation events and uniform distribution
+	over incoming request priorities.
+	
+	# Arguments
+	- `s::`[`AccessControlState`](@ref): Current system state
+	- `action::`[`AccessControlAction`](@ref): Action to take ([`Accept`](@ref) or [`Reject`](@ref))
+	- `num_servers::Integer`: Total number of servers in the system
+	- `priority_payments::Vector{Float32}`: Possible priority payment values for requests
+	
+	# Returns
+	- `Tuple{Vector{Float32}, Vector{AccessControlState}, Vector{Float32}}`: (rewards, next_states, probabilities) where each vector has the same length and probabilities sum to 1.0
+	
+	# See Also
+	[`access_control_step`](@ref), [`AccessControlState`](@ref), [`Accept`](@ref), [`Reject`](@ref), [`create_access_control_task_distribution`](@ref)
+	
+	# Algorithm Details
+	1. **Server Liberation**: Computes binomial probabilities for all possible numbers of freed servers
+	   - Each occupied server becomes free independently with probability 0.06
+	   - Uses combinatorial formula: C(n,k) × (0.06)^k × (0.94)^(n-k)
+	2. **Priority Assignment**: Uniform distribution over priority_payments for new requests
+	3. **Action Processing**:
+	   - [`Reject`](@ref): Returns 0.0 reward for all transitions, updates state with new priority
+	   - [`Accept`](@ref): 
+	     - If no free servers available, behaves identically to reject
+	     - Otherwise, returns current priority as reward, allocates one server
+	4. **Distribution Construction**: Creates parallel vectors of (reward, state, probability) tuples
+	"""
 	function access_control_step_distribution(s::AccessControlState, ::Reject, num_servers::Integer, priority_payments::Vector{Float32})
 		occupied_servers = num_servers - s.num_free_servers
 		rewards = Vector{Float32}()
@@ -2498,6 +3921,45 @@ plot_access_control_transition(num_free_servers)
   ╠═╡ =#
 
 # ╔═╡ 54700e88-2c70-4b3e-bc93-6960dc70efcb
+"""
+    create_access_control_tabular_task(num_servers, priority_payments) -> TabularMDP
+
+Create access control queueing system as tabular MDP with precomputed transition matrices.
+
+Constructs a tabular representation of the access control system where all state transitions
+and reward distributions are precomputed and stored in sparse matrices. Enables exact
+dynamic programming algorithms and analytical solutions by leveraging the finite state space.
+
+# Arguments
+- `num_servers::Integer`: Total number of servers in the system  
+- `priority_payments::Vector{Float32}`: Possible priority payment values for requests
+
+# Returns
+- `TabularMDP{Float32, AccessControlState, AccessControlAction, TabularTransitionDistribution{Float32, 2}, Function}`
+
+# See Also
+[`access_control_step_distribution`](@ref), [`AccessControlState`](@ref), [`TabularMDP`](@ref), [`TabularTransitionDistribution`](@ref), [`create_access_control_task`](@ref)
+
+
+# Examples
+```julia-repl
+julia> # Small system for demonstration
+julia> mdp = create_access_control_tabular_task(3, [1f0, 2f0, 4f0]);
+julia> length(mdp.states)
+12
+julia> size(mdp.ptf.state_transition_map)
+(2, 12)
+julia> # Verify probability distributions sum to 1
+julia> sum(mdp.ptf.state_transition_map[1, 1]) ≈ 1.0f0
+true
+```
+
+# Tabular vs Sampling Comparison
+- **Tabular advantages**: Exact transitions, supports value/policy iteration, complete distributions
+- **Sampling advantages**: Memory efficient for large state spaces, online learning capability
+- **Use tabular for**: Small systems (≤1000 states), analytical study, exact DP algorithms
+- **Use sampling for**: Large systems, function approximation, model-free online environments
+"""
 function create_access_control_tabular_task(num_servers::Integer, priority_payments::Vector{Float32})
 	actions = [Accept(), Reject()]
 	states =  [AccessControlState(n, p) for n in 0:num_servers for p in priority_payments]
@@ -2521,7 +3983,7 @@ function create_access_control_tabular_task(num_servers::Integer, priority_payme
 	initialize_state_index() = stateindex[AccessControlState(num_servers, rand(priority_payments))]
 	ptf = TabularTransitionDistribution(state_transition_map, reward_transition_map)
 	TabularMDP(states, actions, ptf, initialize_state_index)
-end
+end;
 
 # ╔═╡ 28f9d40a-4f4f-4bbf-ac36-4964afed7ab4
 # ╠═╡ skip_as_script = true
@@ -2787,6 +4249,52 @@ function gradient_monte_carlo_episode_update!(parameters, action_values::Vector{
 end
 
 # ╔═╡ 604a2621-aa73-42d9-9255-e5f5578d0b51
+"""
+    gradient_monte_carlo_action_policy_estimation!(parameters, mdp, π, γ, num_episodes,
+                                                  feature_vector, update_feature_vector!,
+                                                  update_action_values!, ∇q̂, update_value_gradient!;
+                                                  α=0.1, action_values, calculate_error, epkwargs...) -> NamedTuple
+
+Estimate action-value function for a given policy using gradient Monte Carlo method.
+
+Performs policy evaluation by running episodes under policy π and updating action-value
+function parameters via gradient descent on Monte Carlo returns. Uses function approximation
+to represent the action-value function q̂(s,a).
+
+# Arguments
+- `parameters::Vector{T}`: Action-value function parameters (modified in-place)
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process environment
+- `π::Function`: Policy function mapping states to action indices
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `feature_vector`: Pre-allocated storage for state feature representations
+- `update_feature_vector!::Function`: Extract features: `(feature_vector, state) -> nothing`
+- `update_action_values!::Function`: Compute action values: `(action_values, features, params) -> nothing`
+- `∇q̂`: Pre-allocated storage for action-value function gradients
+- `update_value_gradient!::Function`: Compute gradient: `(∇q̂, features, action_index, params) -> nothing`
+
+# Keyword Arguments
+- `α::Real = 0.1`: Learning rate (step size parameter)
+- `action_values::Vector{T} = zeros(T, length(mdp.actions))`: Pre-allocated action value storage
+- `calculate_error::Function = (g, q̂, s) -> (g - q̂)^2`: Error function for convergence tracking
+- `epkwargs...`: Additional arguments passed to episode generation
+
+# Returns
+- `NamedTuple` with fields:
+- `value_function`: Function q̂(s) that returns NamedTuple with fields (action_values, maximizing_action, maximizing_value)
+  - `error_history::Vector{T}`: Episode-wise error progression
+  - `parameters::Vector{T}`: Final function approximation parameters
+
+# See Also
+[`gradient_monte_carlo_episode_update!`](@ref), [`runepisode`](@ref), [`runepisode!`](@ref), [`form_value_function`](@ref), [`StateMDP`](@ref)
+
+# Algorithm Details
+1. **Initial Episode**: Generates first episode using [`runepisode`](@ref) with fresh storage
+2. **Parameter Updates**: Calls [`gradient_monte_carlo_episode_update!`](@ref) for backward pass updates
+3. **Episode Reuse**: Subsequent episodes use [`runepisode!`](@ref) to reuse storage arrays
+4. **Error Tracking**: Records root mean square error for first episode, then average error
+5. **Value Function Construction**: Uses [`form_value_function`](@ref) to create final evaluator
+"""
 function gradient_monte_carlo_action_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, action_values = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
 	(states, actions, rewards, sterm) = runepisode(mdp; π = π, epkwargs...)
 	sqerr = gradient_monte_carlo_action_episode_update!(parameters, action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, states, actions, rewards, γ, α, calculate_error)
@@ -2799,9 +4307,103 @@ function gradient_monte_carlo_action_policy_estimation!(parameters, mdp::StateMD
 	end
 	q̂ = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	return (value_function = q̂, error_history = error_history, parameters = parameters)
-end
+end;
 
 # ╔═╡ 06834750-cc3a-468a-b0c2-81349c288a33
+"""
+    gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector,
+                                 update_feature_vector!, value_component, gradient_storage,
+                                 update_value_gradient!; α=0.1, ϵ=0.1, suppress_warning=false,
+                                 ignore_unfinished_episodes=false, action_values, calculate_error,
+                                 epkwargs...) -> NamedTuple
+
+Learn optimal policy using gradient Monte Carlo control with ε-greedy exploration.
+
+Combines policy evaluation and improvement by alternating between value function updates 
+(using Monte Carlo returns) and ε-greedy policy updates. Supports both direct action-value
+function approximation and state-value function approximation with action-value computation.
+
+## Action-Value Function Approximation Method
+For direct q̂(s,a) approximation:
+
+# Type Parameters
+- `T <: Real`: Numeric type for rewards, parameters, and computations
+
+# Arguments
+- `parameters::Vector{T}`: Value function parameters (modified in-place)
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process environment
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `feature_vector`: Pre-allocated storage for state feature representations
+- `update_feature_vector!::Function`: Extract features: `(feature_vector, state) -> nothing`
+- `update_action_values!::Function`: Action-value computation: `(action_values, features, params) -> nothing`
+- `∇q̂`: Pre-allocated storage for action-value function gradients
+- `update_value_gradient!::Function`: Gradient computation: `(∇q̂, features, action_index, params) -> nothing`
+
+## State-Value Function Approximation Method  
+For v̂(s) approximation with action-value computation:
+
+# Type Parameters
+- `T <: Real`: Numeric type for rewards, parameters, and computations
+- `S`: State type (scalar or N-dimensional tuple)
+- `A`: Action type  
+- `P <: StateMDPTransitionDistribution`: Transition probability distribution type
+- `F1 <: Function`: State initialization function
+- `F2 <: Function`: Transition function
+- `F3 <: Function`: Termination function
+
+# Arguments
+- `parameters::Vector{T}`: Value function parameters (modified in-place)
+- `mdp::StateMDP{T, S, A, P, F1, F2, F3}`: Markov Decision Process environment with matching numeric type
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `feature_vector`: Pre-allocated storage for state feature representations
+- `update_feature_vector!::Function`: Extract features: `(feature_vector, state) -> nothing`
+- `estimate_value::Function`: State-value estimation: `(features, params; kwargs...) -> Real`
+- `∇v̂`: Pre-allocated storage for state-value function gradients
+- `update_value_gradient!::Function`: Gradient computation: `(∇v̂, features, params) -> nothing`
+
+# Keyword Arguments
+- `α::Real = 0.1`: Learning rate for parameter updates
+- `ϵ::Real = 0.1`: Exploration parameter for ε-greedy policy (probability of random action)
+- `suppress_warning::Bool = false`: Whether to suppress episode termination warnings
+- `ignore_unfinished_episodes::Bool = false`: Whether to update on incomplete episodes
+- `action_values::Vector{T} = zeros(T, length(mdp.actions))`: Pre-allocated action value storage
+- `calculate_error::Function = (g, v̂, s) -> (g - v̂)^2`: Error function for convergence tracking
+- `epkwargs...`: Additional arguments passed to episode generation
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function::Function`: Action-value function `(state; kwargs...) -> NamedTuple` created by [`form_value_function`](@ref), returns `(action_values, maximizing_action, maximizing_value)`
+  - `step_history::Vector{Int64}`: Number of steps per successful episode
+  - `reward_history::Vector{T}`: Total reward per successful episode
+  - `error_history::Vector{T}`: Episode-wise approximation error
+  - `parameters::Vector{T}`: Final function approximation parameters
+  - `success_rate::Real`: Fraction of episodes that terminated successfully
+
+# See Also
+[`gradient_monte_carlo_episode_update!`](@ref), [`make_ϵ_greedy_policy!`](@ref), [`sample_action`](@ref), [`form_value_function`](@ref), [`update_action_values!`](@ref), [`StateMDP`](@ref)
+
+# Algorithm Details
+Monte Carlo control algorithm implementing the policy iteration framework:
+
+1. **Episode Generation**: Generate episode under current ε-greedy policy
+2. **Policy Evaluation**: Update value function parameters using Monte Carlo returns
+3. **Policy Improvement**: Update ε-greedy policy based on improved value estimates
+4. **Convergence Tracking**: Monitor episode success, rewards, and approximation error
+
+The two methods differ in value function representation:
+- **Action-value method**: Directly approximates q̂(s,a) and updates parameters for specific state-action pairs
+- **State-value method**: Approximates v̂(s) and computes action values via [`update_action_values!`](@ref) using Bellman backup
+
+Both methods use the same ε-greedy exploration strategy and Monte Carlo update mechanism.
+
+# Performance Notes
+- Reuses episode storage for memory efficiency across episodes
+- Supports incomplete episode processing for continuing tasks
+- Action-value method reduces computational overhead by avoiding Bellman backups
+- State-value method provides more flexible value function approximation
+"""
 function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, ignore_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
 
 	step_history = Vector{Int64}()
@@ -2854,7 +4456,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 	success_rate = num_success / num_episodes
 	
 	return (value_function = q̂, step_history = step_history, reward_history = reward_history,  error_history = error_history, parameters = parameters, sucess_rate = success_rate)
-end
+end;
 
 # ╔═╡ d04bf8ac-9905-4e80-93db-c5c28c31359b
 function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, ignore_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
@@ -2864,13 +4466,8 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1,
 	reward_history = Vector{T}()
 	num_success = 0
 
-	function v̂(s::S; parameters = parameters, feature_vector = feature_vector, kwargs...)
-		update_feature_vector!(feature_vector, s)
-		estimate_value(feature_vector, parameters; kwargs...)
-	end
-	
 	function π_ϵ_greedy(s)
-		update_action_values!(action_values, s, v̂, mdp, γ)
+		update_action_values!(action_values, s, feature_vector, update_feature_vector!, estimate_value, parameters, mdp, γ)
 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
 		sample_action(action_values)
 	end
@@ -2922,6 +4519,101 @@ md"""
 
 # ╔═╡ b4085947-f4c7-4664-8d94-8090a67ea6c4
 #uses an action value function to learn optimal policy
+"""
+    gradient_monte_carlo_control_linear(mdp, γ, num_episodes, feature_vector,
+                                       update_feature_vector!; init_value=0,
+                                       parameters, kwargs...) -> NamedTuple
+
+Learn optimal policy using gradient Monte Carlo control with linear function approximation.
+
+Provides specialized implementations for linear value function approximation, automatically
+selecting between action-value and state-value approaches based on MDP transition structure.
+Uses [`LinearFeatureVector`](@ref) for efficient sparse feature representation.
+
+## Action-Value Function Approximation Method
+For direct q̂(s,a) linear approximation when transition distribution is not available:
+
+# Type Parameters
+- `T <: Real`: Numeric type for rewards, parameters, and computations
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process environment
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `feature_vector::`[`LinearFeatureVector`](@ref): Linear feature representation storage
+- `update_feature_vector!::Function`: Extract features: `(feature_vector, state) -> nothing`
+
+# Keyword Arguments
+- `init_value::T = zero(T)`: Initial parameter values for action-value function
+- `parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value)`: Action-value function parameters (|features| × |actions|)
+- `kwargs...`: Additional arguments passed to [`gradient_monte_carlo_control!`](@ref)
+
+## State-Value Function Approximation Method
+For v̂(s) linear approximation when transition distribution is available:
+
+# Type Parameters
+- `T <: Real`: Numeric type for rewards, parameters, and computations
+- `S`: State type (scalar or N-dimensional tuple)
+- `A`: Action type
+- `P <: StateMDPTransitionDistribution`: Transition probability distribution type
+- `F1 <: Function`: State initialization function
+- `F2 <: Function`: Transition function  
+- `F3 <: Function`: Termination function
+
+# Arguments
+- `mdp::StateMDP{T, S, A, P, F1, F2, F3}`: Markov Decision Process with transition distribution
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `feature_vector::`[`LinearFeatureVector`](@ref): Linear feature representation storage
+- `update_feature_vector!::Function`: Extract features: `(feature_vector, state) -> nothing`
+
+# Keyword Arguments
+- `init_value::T = zero(T)`: Initial parameter values for state-value function
+- `parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value)`: State-value function parameters (length |features|)
+- `kwargs...`: Additional arguments passed to [`gradient_monte_carlo_control!`](@ref)
+
+# Returns
+- `NamedTuple`: Same structure as [`gradient_monte_carlo_control!`](@ref) with fields:
+  - `value_function`: Action-value function created by [`form_value_function`](@ref)
+  - `step_history`: Episode step counts
+  - `reward_history`: Episode reward totals
+  - `error_history`: Approximation errors
+  - `parameters`: Final function approximation parameters
+  - `success_rate`: Episode success fraction
+
+# See Also
+[`gradient_monte_carlo_control!`](@ref), [`LinearFeatureVector`](@ref), [`initialize_linear_parameters`](@ref), [`linear_value_function`](@ref), [`update_linear_action_values!`](@ref), [`update_linear_value_gradient!`](@ref)
+
+# Implementation
+Convenience wrapper that automatically configures linear function approximation components:
+
+1. **Method Selection**: Chooses action-value or state-value approach based on MDP transition type
+2. **Parameter Initialization**: Creates appropriately sized parameter arrays using [`initialize_linear_parameters`](@ref)
+3. **Component Setup**: Configures linear value functions and gradient computations
+4. **Delegation**: Calls [`gradient_monte_carlo_control!`](@ref) with configured components
+
+**Action-value method** uses [`update_linear_action_values!`](@ref) and [`LinearActionValueGradient`](@ref)
+for direct q̂(s,a) approximation. **State-value method** uses [`linear_value_function`](@ref) and 
+computes action values via transition distribution.
+
+# Performance Notes
+- Leverages sparse feature representations for memory efficiency
+- Parameter matrices (action-value) vs vectors (state-value) sized automatically
+- Reuses feature vector storage through `deepcopy` for gradient computations
+
+# Examples
+```julia-repl
+julia> mountaincar_tile_setup = setup_mountain_car_tiles((1/10f0, 1/10f0), 12);
+julia> output = gradient_monte_carlo_control_linear(mountain_car_mdp, 1f0, 1000, 
+                                                   mountaincar_tile_setup.feature_vector, 
+                                                   mountaincar_tile_setup.update_feature_vector!; 
+                                                   α=1f-8, ϵ=0.1f0, max_steps=10_000, 
+                                                   suppress_warning=true, 
+                                                   ignore_unfinished_episodes=true);
+julia> output.value_function(mountain_car_mdp.initialize_state())
+(action_values = [0.045f0, 0.032f0, 0.051f0], maximizing_action = 3, maximizing_value = 0.051f0)
+```
+"""
 gradient_monte_carlo_control_linear(mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 164c68ef-01b8-43be-bc75-919dd99a6e03
@@ -2929,6 +4621,7 @@ gradient_monte_carlo_control_linear(mdp::StateMDP, γ::T, num_episodes::Integer,
 gradient_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function} = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ cc285969-c33f-4d19-8e47-397b59e67299
+# ╠═╡ skip_as_script = true
 #=╠═╡
 const mountaincar_tile_setup = setup_mountain_car_tiles((1/10f0, 1/10f0), 12)
   ╠═╡ =#
@@ -3014,6 +4707,113 @@ md"""
 
 # ╔═╡ c75dc51c-cbff-48b1-b0fd-108828929b51
 #uses an action value function to learn optimal policy
+"""
+    gradient_monte_carlo_control_fcann(mdp, γ, num_episodes, update_feature_vector!,
+                                      num_features, layers; reslayers=0, use_μP=true,
+                                      parameters, dropout=0, activation_list, l2=0,
+                                      kwargs...) -> NamedTuple
+
+Learn optimal policy using gradient Monte Carlo control with fully-connected neural network approximation.
+
+Provides specialized implementations for neural network value function approximation, automatically
+selecting between action-value and state-value approaches based on MDP transition structure.
+Uses [`FCANNParams`](@ref) for efficient neural network parameter storage and computation.
+
+## Action-Value Function Approximation Method
+For direct q̂(s,a) neural network approximation when transition distribution is not available:
+
+# Type Parameters
+- `T <: Real`: Numeric type for rewards, parameters, and computations
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov Decision Process environment
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `update_feature_vector!::Function`: Extract features: `(feature_vector, state) -> nothing`
+- `num_features::Integer`: Input feature dimension for neural network
+- `layers::Vector{Int64}`: Hidden layer sizes for neural network architecture
+
+# Keyword Arguments
+- `reslayers::Integer = 0`: Number of residual connection layers
+- `use_μP::Bool = true`: Whether to use μP (Maximal Update Parameterization) initialization
+- `parameters::`[`FCANNParams{T}`](@ref) `= FCANN.initializeparams_saxe(num_features, layers, length(mdp.actions), reslayers; use_μP)`: Network parameters for action-value function (outputs |actions| values)
+- `dropout::T = zero(T)`: Dropout probability for regularization
+- `activation_list::Vector{Bool} = fill(true, length(layers))`: Activation function flags per layer
+- `l2::T = zero(T)`: L2 regularization strength
+- `kwargs...`: Additional arguments passed to [`gradient_monte_carlo_control!`](@ref)
+
+## State-Value Function Approximation Method
+For v̂(s) neural network approximation when transition distribution is available:
+
+# Type Parameters
+- `T <: Real`: Numeric type for rewards, parameters, and computations
+- `S`: State type (scalar or N-dimensional tuple)
+- `A`: Action type
+- `P <: StateMDPTransitionDistribution`: Transition probability distribution type
+- `F1 <: Function`: State initialization function
+- `F2 <: Function`: Transition function
+- `F3 <: Function`: Termination function
+
+# Arguments
+- `mdp::StateMDP{T, S, A, P, F1, F2, F3}`: Markov Decision Process with transition distribution
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `update_feature_vector!::Function`: Extract features: `(feature_vector, state) -> nothing`
+- `num_features::Integer`: Input feature dimension for neural network
+- `layers::Vector{Int64}`: Hidden layer sizes for neural network architecture
+
+# Keyword Arguments
+- `reslayers::Integer = 0`: Number of residual connection layers
+- `use_μP::Bool = true`: Whether to use μP (Maximal Update Parameterization) initialization
+- `parameters::`[`FCANNParams{T}`](@ref) `= FCANN.initializeparams_saxe(num_features, layers, 1, reslayers; use_μP)`: Network parameters for state-value function (outputs single value)
+- `dropout::T = zero(T)`: Dropout probability for regularization
+- `activation_list::Vector{Bool} = fill(true, length(layers))`: Activation function flags per layer
+- `l2::T = zero(T)`: L2 regularization strength
+- `kwargs...`: Additional arguments passed to [`gradient_monte_carlo_control!`](@ref)
+
+# Returns
+- `NamedTuple`: Same structure as [`gradient_monte_carlo_control!`](@ref) with fields:
+  - `value_function::Function`: Action-value function `(state; activations, kwargs...) -> NamedTuple` with pre-allocated activations, returns `(action_values, maximizing_action, maximizing_value)`
+  - `step_history::Vector{Int64}`: Episode step counts
+  - `reward_history::Vector{T}`: Episode reward totals
+  - `error_history::Vector{T}`: Approximation errors
+  - `parameters::`[`FCANNParams{T}`](@ref): Final neural network parameters
+  - `success_rate::Real`: Episode success fraction
+
+# See Also
+[`gradient_monte_carlo_control!`](@ref), [`FCANNParams`](@ref), [`setup_fcann_action_value_arguments`](@ref), [`setup_fcann_value_arguments`](@ref), [`FCANN.initializeparams_saxe`](@ref)
+
+# Implementation
+Convenience wrapper that automatically configures neural network function approximation components:
+
+1. **Method Selection**: Chooses action-value or state-value approach based on MDP transition type
+2. **Parameter Initialization**: Creates neural network parameters using [`FCANN.initializeparams_saxe`](@ref) with appropriate output dimensions
+3. **Component Setup**: Configures network components via [`setup_fcann_action_value_arguments`](@ref) or [`setup_fcann_value_arguments`](@ref)
+4. **Activation Management**: Returns value function with pre-allocated activation storage for efficiency
+5. **Delegation**: Calls [`gradient_monte_carlo_control!`](@ref) with configured neural network components
+
+**Action-value method** creates network with `|actions|` outputs for direct q̂(s,a) approximation.
+**State-value method** creates network with single output and computes action values via transition distribution.
+
+# Performance Notes
+- Uses μP initialization for stable training across network widths
+- Pre-allocates activation storage to avoid repeated memory allocation
+- Supports dropout and L2 regularization for improved generalization
+- Residual connections available for deeper networks
+
+# Examples
+```julia-repl
+julia> mountaincar_tile_setup = setup_mountain_car_tiles((1/10f0, 1/10f0), 12);
+julia> output = gradient_monte_carlo_control_fcann(mountain_car_mdp, 1f0, 1000,
+                                                  mountaincar_tile_setup.update_feature_vector!,
+                                                  mountaincar_tile_setup.num_features,
+                                                  [64, 32]; α=1f-4, ϵ=0.1f0,
+                                                  max_steps=10_000, suppress_warning=true,
+                                                  ignore_unfinished_episodes=true);
+julia> output.value_function(mountain_car_mdp.initialize_state())
+(action_values = [0.12f0, -0.08f0, 0.15f0], maximizing_action = 3, maximizing_value = 0.15f0)
+```
+"""
 function gradient_monte_carlo_control_fcann(mdp::StateMDP, γ::T, num_episodes::Integer, update_feature_vector!::Function, num_features::Integer, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = FCANN.initializeparams_saxe(num_features, layers, length(mdp.actions), reslayers; use_μP = use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), kwargs...) where T<:Real
 	setup = setup_fcann_action_value_arguments(parameters, num_features, layers, reslayers, l2, dropout, use_μP, activation_list)
 	(value_function, step_history, reward_history, error_history, parameters, success_rate) = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
@@ -3808,14 +5608,14 @@ version = "17.4.0+2"
 # ╟─6351304f-50ac-4755-86e1-cd4680f2d803
 # ╟─e7bf61d7-c362-433d-9b83-6537d308c255
 # ╟─d88ebdb9-47bc-478c-b471-804a02ad2acf
-# ╠═9043a684-6f16-48d0-83d4-2e00f9b7dbc2
+# ╟─9043a684-6f16-48d0-83d4-2e00f9b7dbc2
 # ╠═0226d8a3-bb22-4a32-9700-e234abf518a6
 # ╠═1393f7a6-05c7-48a3-96a9-130eb6d45937
 # ╠═3273ed4a-6787-4635-8399-65ddf65b31ea
 # ╠═94fa7f7d-c77c-4df5-a7b9-b3c931cb3bce
 # ╠═a7f44f65-e17b-464f-abac-7703082811ba
 # ╠═8d61f29b-68a9-4ca3-a8d7-59737bc2c009
-# ╠═fc0b88f3-fbf9-450d-b770-b34357ffad49
+# ╟─fc0b88f3-fbf9-450d-b770-b34357ffad49
 # ╠═991492f4-7dfc-43aa-ab6c-a6b1f3e38225
 # ╠═8b7e1031-9864-439c-86eb-11aa08f53b90
 # ╟─05e2fff5-4871-4468-a00e-9c1b7ba0ffc6
@@ -3832,17 +5632,13 @@ version = "17.4.0+2"
 # ╟─dc2cffeb-9adf-4956-afa3-ac82af377c59
 # ╠═de3e4afe-f935-4b33-9218-08d403743c60
 # ╠═d82faf3b-c975-4b23-ad62-473bd943c4e2
-# ╠═b697c5ba-4647-4998-a153-1e97dd91cb23
-# ╠═b8cd582e-26fc-4f21-85cc-950bac60bee0
-# ╠═526689e2-85ea-47d5-9791-5aa730f8b1ab
-# ╠═b9ebd6bb-90a1-4945-85ed-023206e2420a
-# ╠═2c620fe4-2f62-40f8-a666-8dced1e0b84a
-# ╠═56b0d69b-b7c3-4365-9b02-e0d5e8a85f94
+# ╟─b697c5ba-4647-4998-a153-1e97dd91cb23
+# ╟─b8cd582e-26fc-4f21-85cc-950bac60bee0
+# ╟─526689e2-85ea-47d5-9791-5aa730f8b1ab
 # ╟─8d096d0d-8fea-421a-aa33-82269d3fe7e2
 # ╠═be1ad356-de4b-469c-bb65-81d630f07674
-# ╠═7e87f2ec-c96f-4897-bb61-c27913f6944f
-# ╠═4c94be37-dcd7-4b32-8e7f-3371ddaa254a
-# ╠═00e7783f-7f17-4944-a085-ea87509cd75a
+# ╟─7e87f2ec-c96f-4897-bb61-c27913f6944f
+# ╟─4c94be37-dcd7-4b32-8e7f-3371ddaa254a
 # ╟─a22e5d34-4b8d-479c-985c-d6abd41a6c80
 # ╟─b990ba67-42c8-4ab9-943d-085392204fdd
 # ╠═f221fb13-4ef2-4ebe-b71b-fe6adbddb1e4
@@ -3924,8 +5720,8 @@ version = "17.4.0+2"
 # ╟─98a5d65e-4253-4523-a74e-99d03be03b89
 # ╠═8ed6f8fd-8574-4d5a-9964-ce8a32629c6f
 # ╠═1410db13-4b73-4a87-af34-30a5232af4ba
-# ╠═36a53700-9e9a-4131-89c8-dbd520d5c407
-# ╠═39a07c8a-0253-42b8-ba8d-f00b02ca82a5
+# ╟─36a53700-9e9a-4131-89c8-dbd520d5c407
+# ╟─39a07c8a-0253-42b8-ba8d-f00b02ca82a5
 # ╟─f7410fe7-e3d8-4047-8fa7-f076476e9d3a
 # ╠═cbac1927-b087-4c4c-98ae-6aa5f0b824ad
 # ╟─b5409b69-a254-4355-b2b9-99394eceb2f7
@@ -3947,24 +5743,26 @@ version = "17.4.0+2"
 # ╠═e6bf5b6e-75cd-49b3-bf36-7ed6dee11aaf
 # ╟─69a06405-57cd-42e5-96b1-5cc77d74aa03
 # ╠═a9fdb1fd-3f62-4e1c-9157-c4eee6215261
-# ╠═aceeb425-cd5f-4c4c-903e-d4359d2de88d
-# ╠═db778942-1bed-4c42-a2f0-a176a0364772
+# ╟─aceeb425-cd5f-4c4c-903e-d4359d2de88d
+# ╟─db778942-1bed-4c42-a2f0-a176a0364772
 # ╟─063e6f33-8b65-463c-a96f-5411f0ba0326
 # ╠═91447aff-5598-4f02-acd5-6a90c563f4f6
 # ╠═4e955391-ac29-412e-8ed2-bad3b46961b0
 # ╠═12fa7b75-d13f-4a16-8562-1142002f3f3f
-# ╠═7c22d050-bd56-4b84-8a01-e575475db099
-# ╠═e04b9ac4-7e7f-4f6a-b068-d62b319a23fa
+# ╟─7c22d050-bd56-4b84-8a01-e575475db099
+# ╟─e04b9ac4-7e7f-4f6a-b068-d62b319a23fa
 # ╟─1a7ba296-52ca-4069-85fa-792d08d77b0e
 # ╠═eb28458f-b222-4f8e-9a5b-8203d3997f7b
 # ╠═d66cd124-7111-401a-a3e8-1059b31c6db7
 # ╠═bc1d7cce-c0f4-47a8-b674-8acb82491c7f
+# ╟─0a494e3e-0af5-4497-b80e-e471acc1fabc
 # ╠═49e43d51-05d6-415b-a685-76e50904c5bc
 # ╠═db189316-e880-4cc8-9070-ccfe2b4fc545
 # ╠═7bc49107-9de5-4985-8750-979f36b3aa81
 # ╠═ab4cb3db-3a2d-4145-826b-b1001114eeff
 # ╠═0e3e506d-1959-47fd-8da9-b3dfd294be67
 # ╠═53c5558b-e713-4c72-bdf8-e162c3892e6f
+# ╟─86cd431e-7b05-410a-b943-ba03b286f3f0
 # ╠═d3ba78fa-f032-4bb9-9359-ef3bcff2252d
 # ╠═ae5c5377-8b44-4c82-a63c-d2cb8a0d6667
 # ╠═2306039b-7b4d-4013-be1b-1402231ef8e8
@@ -3975,11 +5773,13 @@ version = "17.4.0+2"
 # ╠═7146649a-1052-4ff6-8f44-eb448b849a6a
 # ╠═38fe547e-6982-471a-ac11-02b07bdd0157
 # ╠═c1ab5827-e3e5-4e8b-9322-e4a5fe0314c4
+# ╟─6f79c437-7264-412c-839f-5bc9252eede8
 # ╠═501b7284-6e04-4a15-b8e4-2601156b0345
 # ╠═2441b61e-5954-41e2-8ee4-38b16ed04cef
 # ╟─6f4f8b64-0c17-446e-bfb6-0540871ad9e0
 # ╠═1a56e4dd-15dd-47b3-afd8-1dd7f5b690ac
 # ╠═c94da551-06b2-4e2b-bf39-ceb5cb5c390c
+# ╟─0e34a25b-f8ee-4da9-8664-b6c094163759
 # ╠═3b66c97b-ebad-4d13-987c-ac0172b349d1
 # ╠═86f7dcde-b27e-4096-bec8-c5d17fd553d2
 # ╟─ad692a51-e93b-4480-8a6c-2ad86dc6766b
@@ -4031,7 +5831,7 @@ version = "17.4.0+2"
 # ╠═06834750-cc3a-468a-b0c2-81349c288a33
 # ╠═d04bf8ac-9905-4e80-93db-c5c28c31359b
 # ╟─31260d29-6131-4e44-b6e6-e78399501c54
-# ╠═b4085947-f4c7-4664-8d94-8090a67ea6c4
+# ╟─b4085947-f4c7-4664-8d94-8090a67ea6c4
 # ╠═164c68ef-01b8-43be-bc75-919dd99a6e03
 # ╠═cc285969-c33f-4d19-8e47-397b59e67299
 # ╠═0714a1cf-9288-4f1e-ba72-d82608704d69
@@ -4044,7 +5844,7 @@ version = "17.4.0+2"
 # ╟─fa048d3d-6a5a-4f47-8e58-2a3b6a905e50
 # ╟─ca4928fb-0fcb-4835-95ff-a65abf5102b8
 # ╟─8ae2f369-8c73-4116-a6d8-1a1e4aae35e0
-# ╠═c75dc51c-cbff-48b1-b0fd-108828929b51
+# ╟─c75dc51c-cbff-48b1-b0fd-108828929b51
 # ╠═a9d1381b-566a-4422-81fc-38efde1d2608
 # ╠═9b3035f6-fe59-4748-a1cd-3c2ce61c6608
 # ╟─52ab5b04-8500-4310-8723-0fba097358da
