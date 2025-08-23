@@ -3428,25 +3428,28 @@ end
 
 # ╔═╡ 8e8add6f-99ab-4aa7-b236-87915c6be9c2
 begin
-	function BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{StateAggregationFeatureVector}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real}
+	function BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, V<:StateAggregationFeatureVector}
 		!isone(c2) && output .*= c2
-		(M, N) = size(θ)
+		N = length(X)
+		(M, O) = size(θ)
 		if O2 == 'N'
-			for j in 1:N
-				@inbounds @simd for i in eachindex(X)
-					k = X[i].group_index
-					output[i, j] += c1*θ[k, i]
+			for k in 1:O
+				@inbounds @simd for j in 1:N
+					x = X[j]
+					i = x.group_index
+					output[j, k] += c1*θ[i, j]
 				end
 			end
-		elseif O == 'T'
-			for j in 1:M
-				@inbounds @simd for i in eachindex(X)
-					k = X[i].group_index
-					output[i, j] += c1*θ[i, k]
+		elseif O2 == 'T'
+			for k in 1:M
+				@inbounds @simd for j in 1:N
+					x = X[j]
+					i = x.group_index
+					output[j, k] += c1*θ[i, j]
 				end
 			end
 		else
-			error("Unknown orientation for matrix of $O")
+			error("Unknown orientation for matrix of $O1")
 		end
 	end
 
@@ -3463,33 +3466,32 @@ begin
 		end
 	end
 
-	function BLAS.gemm!(O1::Char, O2::Char, c1::T, θ::Matrix{T}, X::Vector{BinaryFeatureVector}, c2::T, output::Matrix{T}) where T<:Real
+	function BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, V<:BinaryFeatureVector}
 		output .*= c2
-		(M, N) = size(θ)
-		if O == 'N'
-			for j in 1:N
-				for i in eachindex(X)
-					x = X[i]
-					l = x.num_features
-					inds = x.active_features
-					@inbounds @simd for k in inds
-						output[i, j] += c1*θ[k, i]
+		N = length(X) 
+		(M, O) = size(θ)
+		if O2 == 'N'
+			for k in 1:O
+				for j in 1:N
+					x = X[j]
+					@inbounds @simd for ind in 1:x.num_features
+						i = x.active_features[ind]
+						output[j, k] += c1*θ[i, k]
 					end
 				end
 			end
-		elseif O == 'T'
-			for j in 1:M
-				for i in eachindex(X)
-					x = X[i]
-					l = x.num_features
-					inds = x.active_features
-					@inbounds @simd for k in inds
-						output[i, j] += c1*θ[i, k]
+		elseif O2 == 'T'
+			for k in 1:M
+				for j in 1:N
+					x = X[j]
+					@inbounds @simd for ind in 1:x.num_features
+						i = x.active_features[ind]
+						output[j, k] += c1*θ[k, i]
 					end
 				end
 			end
 		else
-			error("Unknown orientation for matrix of $O")
+			error("Unknown orientation for matrix of $O1")
 		end
 	end
 
