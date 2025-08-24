@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.17
 
 using Markdown
 using InteractiveUtils
@@ -168,9 +168,9 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 		step += 1
 	end
 
-	q̂ = form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
+	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
 
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters))
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end
 
 # ╔═╡ bea94375-277b-4f38-ad9d-4fa7fc646364
@@ -909,7 +909,7 @@ function exercise_11_3_2(;winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), maxsteps 
 	winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1])
 	sarsa_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [winit winit])
 
-	q_learning_output = semi_gradient_q_learning_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [winit winit])
+	q_learning_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [winit winit], compute_value = compute_q_learning_value)
 	
 	p1 = plot([scatter(y = [a[i, 1] for a in sarsa_output.parameter_history], name = "Parameter $i", showlegend=false) for i in 1:8], Layout(xaxis_title = "Step", yaxis_title = "Parameter Value"))
 	p2 = plot([scatter(y = [a[i, 2] for a in q_learning_output.parameter_history], name = "Parameter $i") for i in 1:8])
@@ -2262,7 +2262,7 @@ function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_e
 	s = mdp.initialize_state()
 	ep = 1
 	step = 1
-	d = get_feature_length(feature_vector)
+	d = length(feature_vector)
 
 	state_representation1 = deepcopy(feature_vector)
 	state_representation2 = deepcopy(feature_vector)
@@ -2446,7 +2446,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 	s = mdp.initialize_state()
 	ep = 1
 	step = 1
-	d = get_feature_length(feature_vector)
+	d = length(feature_vector)
 
 	state_representation1 = deepcopy(feature_vector)
 	state_representation2 = deepcopy(feature_vector)
@@ -2508,9 +2508,9 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 		step += 1
 	end
 
-	q̂ = form_value_function(mdp, update_state_representation!, update_linear_action_values!, feature_vector, parameters)
+	q̂, form_kwargs = form_value_function(mdp, update_state_representation!, update_linear_action_values!, feature_vector, parameters)
 	
-	return (value_function = q̂, parameters = parameters, episode_errors = episode_errors, parameter_history = parameter_history)
+	return (value_function = q̂, parameters = parameters, episode_errors = episode_errors, parameter_history = parameter_history, form_kwargs = form_kwargs)
 end
 
 # ╔═╡ 85bf8c44-348b-4825-b89a-33ec7614bb25
@@ -2518,7 +2518,7 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 	s = mdp.initialize_state()
 	ep = 1
 	step = 1
-	d = get_feature_length(feature_vector)
+	d = length(feature_vector)
 	
 	state_representation1 = deepcopy(feature_vector)
 	state_representation2 = deepcopy(feature_vector)
@@ -2574,9 +2574,9 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 		step += 1
 	end
 
-	q̂ = form_value_function(mdp, γ, update_state_representation!, linear_value_function, feature_vector, parameters)
+	q̂, form_kwargs = form_value_function(mdp, γ, update_state_representation!, linear_value_function, feature_vector, parameters)
 		
-	return (value_function = q̂, parameters = parameters, episode_errors = episode_errors, parameter_history = parameter_history)
+	return (value_function = q̂, parameters = parameters, episode_errors = episode_errors, parameter_history = parameter_history, form_kwargs = form_kwargs)
 end
 
 # ╔═╡ cfe7ed5a-514a-4753-b029-9118813fa0ed
@@ -2639,9 +2639,6 @@ end
 #=╠═╡
 tdc_control_baird()
   ╠═╡ =#
-
-# ╔═╡ f3753f04-ec45-42c9-ba54-d348499f6473
-#add episode detection to tdc algorithm
 
 # ╔═╡ 4b932772-b69f-427a-b8f4-ee52fba4696a
 #add parameter study comparing TDC and semi-gradient q learning
@@ -3822,7 +3819,6 @@ version = "17.4.0+2"
 # ╠═344a94a8-58ad-4cb5-ad1c-dcf779a6ea76
 # ╠═4ffc878c-d856-4183-96ea-ef77447b8a5c
 # ╠═41bd4480-7672-4adf-924a-5bc1e9d4b45e
-# ╠═f3753f04-ec45-42c9-ba54-d348499f6473
 # ╠═a9443d53-1eae-4eab-b001-904be1523ca4
 # ╠═4b932772-b69f-427a-b8f4-ee52fba4696a
 # ╠═38e6ef4c-63c1-4df5-9451-f40df4fe57e7

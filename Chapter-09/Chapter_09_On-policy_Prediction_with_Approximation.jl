@@ -593,17 +593,35 @@ begin
 end
 
 # ╔═╡ 1f0b9d36-3592-47a0-b32a-a7e19b763e1b
-#value_function is something that that takes only the feature vector and parameters to generate a state value estimation.  this function converts that into a function that can be called with only the state as an argument.  by default the keyword arguments are designed to make the function thread safe so that any modified internal arguments are generated each time it is called.  There is also an option to pass additional keyword arguments through to the original value function in case that is needed or desired to make the function threadsafe
-function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::P) where {V, P}
-	function v̂(s; x = deepcopy(feature_vector), parameters = parameters, kwargs...)
-		update_feature_vector!(x, s)
-		value_function(x, parameters; kwargs...)
+begin
+	#value_function is something that that takes only the feature vector and parameters to generate a state value estimation.  this function converts that into a function that can be called with only the state as an argument.  by default the arguments are designed to make the function thread safe so that any modified internal arguments are generated each time it is called.  It also returns a function to create an instance of the arguments in case the function needs to be used repeatedly on a single thread
+	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::P) where {V, P}
+		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::P = parameters, kwargs...)
+			update_feature_vector!(feature_vector, s)
+			value_function(feature_vector, parameters; kwargs...)
+		end
+	
+		#also return a method that acts on the feature vector itself which has already been updated
+		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
+
+		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters)
+		
+		return (v̂, form_kwargs)
 	end
 
-	#also return a method that acts on the feature vector itself which has already been updated
-	v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
+	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::FCANNParams) where V
+		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::FCANNParams = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+			update_feature_vector!(feature_vector, s)
+			value_function(feature_vector, parameters; activations = activations, kwargs...)
+		end
 	
-	return v̂
+		#also return a method that acts on the feature vector itself which has already been updated
+		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
+
+		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+		
+		return (v̂, form_kwargs)
+	end
 end
 
 # ╔═╡ ba58242a-306a-4631-92b4-34bc9e354fae
@@ -1143,8 +1161,8 @@ function gradient_monte_carlo_estimation!(parameters, generate_episode::Function
 		error = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, view(trajectory[1], 1:n_steps), view(trajectory[2], 1:n_steps), γ, α, calculate_error)
 		error_history[ep] = error
 	end
-	v̂ = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
-	return (value_function = v̂, error_history = error_history, parameters = parameters)
+	v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
+	return (value_function = v̂, error_history = error_history, parameters = parameters, form_kwargs = form_kwargs)
 end;
 
 # ╔═╡ 9296a8a1-7edd-4ac4-8fa4-842317d693bc
@@ -1607,9 +1625,9 @@ begin
 			epstep += 1
 		end
 
-		v̂ = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
+		v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
 
-		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters)
+		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs)
 	end
 
 	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...)
@@ -3193,10 +3211,10 @@ function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F
 	#this vector will be updated with the active features
 	tiling_features = zeros(Int64, num_tilings)
 
-	function update_feature_vector!(x::BinaryFeatureVector, s::S)
-		update_tile_features!(tiling_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
-		update_binary_feature_vector!(x, tiling_features)
-	end
+	feature_vector.active_features = tiling_features
+	feature_vector.num_features = num_tilings
+
+	update_feature_vector!(x::BinaryFeatureVector, s::S) = update_tile_features!(x.active_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
 
 	function update_feature_vector!(x::Vector{T}, s::S)
 		update_tile_features!(tiling_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
