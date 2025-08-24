@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.17
 
 using Markdown
 using InteractiveUtils
@@ -415,6 +415,8 @@ md"""
 """
 
 # ╔═╡ 9d512c7b-3d49-439a-a971-1a3dad065d6e
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function n_step_TD_prediction(mrp::TabularMRP{X, S, P, F}, γ::X, num_episodes, n::Integer; v_est::Vector{X} = initialize_state_value(mrp), α::X = one(X)/100, calc_err::Function = (v_est) -> zero(T), static_values = false, save_error = false, epkwargs...) where {X<:Real, S, P, F}
 	#initialize
 	stateindexbuffer = MVector{n+1, Int64}(zeros(Int64, n+1))
@@ -481,8 +483,11 @@ function n_step_TD_prediction(mrp::TabularMRP{X, S, P, F}, γ::X, num_episodes, 
 	
 	return v_est, error_history
 end
+  ╠═╡ =#
 
 # ╔═╡ d55aca40-b03a-4f6b-84e6-ced6c8f67da1
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function offline_λ_return_prediction!(params, mrp::StateMRP{T, S, P, F1, F2}, γ::T, λ::T, num_episodes::Integer, state_representation, update_state_representation!::Function, estimate_value::Function, update_params!::Function; α::T = one(T)/100, calc_err::Function = params -> zero(T), static_params = false, save_error = false, epkwargs...) where {T<:Real, S, P, F1, F2}
 	#initialize
 	if static_params
@@ -532,6 +537,7 @@ function offline_λ_return_prediction!(params, mrp::StateMRP{T, S, P, F1, F2}, �
 	
 	return params, error_history
 end
+  ╠═╡ =#
 
 # ╔═╡ a5877ac6-3bd8-4832-bf19-618b01ba16e2
 #=╠═╡
@@ -653,8 +659,17 @@ md"""
 ### *Semi-gradient TD(λ) for estimating $\hat v \approx v_\pi$*
 """
 
-# ╔═╡ dc6ad0ac-f92c-4ed8-a0a6-9eeb2641c709
-const FCANNParams{T} = Tuple{Vector{Matrix{T}}, Vector{Vector{T}}} where T<:Float32
+# ╔═╡ 0b2e26e4-e87a-49a8-a7a6-c5b225af82b3
+begin
+	decay_trace!(z, c) = z .*= c
+	function decay_trace!(z::FCANNParams{T}, c::T) where T<:Real
+		for i in eachindex(z.weights[1])
+			decay_trace!(z.weights[1][i], c)
+			decay_trace!(z.weights[2][i], c)
+		end
+		return z
+	end
+end
 
 # ╔═╡ 5542897d-eb37-4e96-ac33-d36fc8adb603
 begin
@@ -662,25 +677,27 @@ begin
 		z .= (γ*λ .* z) .+ ∇v
 	end
 
-	function update_trace!(z::FCANNParams, γ::Float32, λ::Float32, ∇v::FCANNParams)
-		for i in eachindex(z[1])
-			update_trace!(z[1][i], γ, λ, ∇v[1][i])
-			update_trace!(z[2][i], γ, λ, ∇v[2][i])
+	function update_trace!(z::Vector{T}, γ::T, λ::T, ∇v::BinaryFeatureVector) where T<:Real
+		z .*= γ*λ 
+		for i in 1:∇v.num_features
+			j = ∇v.active_features[i] 
+			z[j] .+ one(T)
 		end
+		return z
 	end
-end
 
-# ╔═╡ f8d65b5b-9e9d-43d9-948d-d1a65a7666c8
-begin
-	function update_parameters!(parameters, α, δ, z)
-		parameters .+= α*δ .* z
+	function update_trace!(z::Vector{T}, γ::T, λ::T, ∇v::StateAggregationFeatureVector) where T<:Real
+		z .*= γ*λ 
+		z[∇v.group_index] += one(T)
+		return z
 	end
-	
-	function update_parameters!(parameters::FCANNParams, α::Float32, δ::Float32, z::FCANNParams)
-		for i in eachindex(z[1])
-			update_parameters!(parameters[1][i], α, δ, z[1][i])
-			update_parameters!(parameters[2][i], α, δ, z[2][i])
+
+	function update_trace!(z::FCANNParams, γ::Float32, λ::Float32, ∇v::FCANNParams)
+		for i in eachindex(z.weights[1])
+			update_trace!(z.weights[1][i], γ, λ, ∇v.weights[1][i])
+			update_trace!(z.weights[2][i], γ, λ, ∇v.weights[2][i])
 		end
+		return z
 	end
 end
 
@@ -690,9 +707,9 @@ begin
 		z .= zero(T)
 	end
 	function zero_trace!(z::FCANNParams)
-		for i in eachindex(first(z))
-			zero_trace!(z[1][i])
-			zero_trace!(z[2][i])
+		for i in eachindex(first(z.weights))
+			zero_trace!(z.weights[1][i])
+			zero_trace!(z.weights[2][i])
 		end
 	end
 end
@@ -700,70 +717,80 @@ end
 # ╔═╡ 5610a0ba-60a8-4da6-8f68-50b1c5e82686
 begin
 	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function semi_gradient_TDλ!(parameters::P, state_representation::X, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function, estimate_value::Function, update_gradient!::Function; α = one(T)/10, calculate_error::Function = params -> zero(T), ∇v::P = deepcopy(parameters), z::P = deepcopy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where {P, X, T<:Real}
+	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = deepcopy(parameters), save_episode_steps::Bool = false, kwargs...) where {P, X, T<:Real}
+		#initialize records
+		step_rewards = Vector{T}()
+		episode_steps = Vector{Int64}()
+		episode_rewards = Vector{T}()
+		episode_errors = Vector{T}()
+
+		#initialize variables
 		s = initialize_state()
 		update_state_representation!(state_representation, s)
-		v̂ = estimate_value(state_representation, parameters)
-		update_gradient!(∇v, state_representation, parameters)
-		(r, s′) = transition(s)
-		if isterm(s′)
-			v̂′ = zero(T)
-		else
-			update_state_representation!(state_representation, s′)
-			v̂′ = estimate_value(state_representation, parameters)
-		end
 		ep = 1
 		step = 1
-		episode_error_history = Vector{T}()
-		step_error_history = Vector{T}()
-		
-		#initialize eligibility vector to 0
-		z .= zero(T)
+		epstep = 1
+		eperr = zero(T)
+		rtot = zero(T)
+		zero_trace!(z)
 		
 		while (ep <= max_episodes) && (step <= max_steps)
-			update_trace!(z, γ, λ, ∇v)
+			v̂ = estimate_value(state_representation, parameters)
+			update_value_gradient!(∇v̂, state_representation, parameters)
+			
 			#by default does: 
 			# z .= (γ*λ .* z) .+ ∇v
-			δ = r + γ*v̂′ - v̂
-			update_parameters!(parameters, α, δ, z)
-			#by default does: 
-			# parameters .+= α*δ .* z
-			save_step_errors && push!(step_error_history, calculate_error(parameters))
-	
-			if isterm(s′)
-				s = initialize_state()
-				update_state_representation!(state_representation, s)
-				#reset eligibility vector to 0 at the start of a new episode
-				zero_trace!(z)
-				# z .= zero(T)
-				ep += 1
-				save_episode_errors && push!(episode_error_history, calculate_error(parameters))
-			else
-				s = s′
-			end
-
-			#note that the state representation here will be for s on the next step
-			# v̂ = estimate_value(state_representation, parameters)
-			v̂ = update_gradient!(∇v, state_representation, parameters)
+			decay_trace!(z, γ*λ)
+			update_params_with_gradient!(z, one(T), ∇v̂)
+			# update_trace!(z, γ, λ, ∇v̂)
 			
 			(r, s′) = transition(s)
-			
-			if isterm(s′)
+			rtot += r
+			save_episode_steps && push!(step_rewards, r)
+
+			terminated = isterm(s′)
+			if terminated
+				push!(episode_steps, step)
+				push!(episode_rewards, rtot)
 				v̂′ = zero(T)
+				ep += 1
+				rtot = zero(T)
+				s′ = initialize_state()
+				update_state_representation!(state_representation, s′)
 			else
 				update_state_representation!(state_representation, s′)
 				v̂′ = estimate_value(state_representation, parameters)
 			end
+
+			target = r + γ*v̂′
+			δ = target - v̂
+
+			eperr += calculate_error(target, v̂, s)
+
+			if terminated
+				push!(episode_errors, eperr / epstep)
+				eperr = zero(T)
+				epstep = 0
+			end
+
+			#by default does: 
+			# parameters .+= α*δ .* z
+			update_params_with_gradient!(parameters, α*δ, z)
+			s = s′
 			step += 1
+			epstep += 1
+			terminated && zero_trace!(z)
 		end
-		return (episode_errors = episode_error_history, step_errors = step_error_history)
+
+		v̂, form_kwargs = form_state_value_function(estimate_value, update_state_representation!, state_representation, parameters)
+		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs)
 	end
 
 	#when evaluating an MRP, there is no policy and the transition is just from the environment
-	semi_gradient_TDλ!(parameters::P, state_representation::X, mrp::StateMRP, args...; kwargs...) where {P, X} = semi_gradient_TDλ!(parameters, state_representation, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
+	semi_gradient_TDλ!(parameters, mrp::StateMRP, args...; kwargs...) = semi_gradient_TDλ!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
 
 	#when evaluating an MDP, there is a policy and the transition uses it to select actions
-	semi_gradient_TDλ!(parameters::P, state_representation::X, mdp::StateMDP, π::Function, args...; kwargs...) where {P, X} = semi_gradient_TDλ!(parameters, state_representation, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
+	semi_gradient_TDλ!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
 end
 
 # ╔═╡ 5e5fdcee-356e-46d4-a5b0-3c433aee989d
@@ -784,35 +811,10 @@ md"""
 """
 
 # ╔═╡ 24468748-009d-42a3-918d-4ba18b23c9ed
-#for linear function approximation the number of parameters also define the size of the state representation.  the function that updates the state representation is all that is required to calculate the updates.  problem will either be an MRP or and MDP plus a policy to evaluate
-function run_linear_semi_gradient_TDλ(problem, num_params::Integer, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; parameters::Vector{T} = zeros(T, num_params), state_representation::Vector{T} = zeros(T, num_params), kwargs...) where {T<:Real}
-	@assert length(parameters) == length(state_representation) == num_params
+begin
+	semi_gradient_TDλ_linear(mrp::StateMRP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mrp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 	
-	#the value estimation function is just the dot product of the parameters with the state representation
-	estimate_value(x, w) = dot(x, w)
-
-	#the gradient is just identical to the state representation
-	function update_gradient!(∇v, x, w)
-		∇v .= x
-		return dot(x, w)
-	end
-
-	error_history = semi_gradient_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!, estimate_value, update_gradient!; kwargs...)
-
-	#once the learning is done we can estimate values with the final version of the parameters.  these versions of the value function allow the computation to occur with a passed state representation vector and set of parameters or to use the existing parameters and define a new state vector each time
-	function v!(x::Vector{T}, s, w::Vector{T})
-		update_state_representation!(x, s)
-		estimate_value(x, w)
-	end
-
-	v!(x::Vector{T}, s) = v!(x, s, parameters)
-
-	function v(args...)
-		x = zeros(T, num_params)
-		v!(x, args...)
-	end
-	
-	return (value_function = v, error_history = error_history)
+	semi_gradient_TDλ_linear(mdp::StateMDP, π::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mdp, π, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 end
 
 # ╔═╡ be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
@@ -820,7 +822,21 @@ md"""
 #### Non-Linear Version of TD$(\lambda)$ with Neural Network
 """
 
+# ╔═╡ 52098913-ea06-497d-afad-a9fef99fb428
+begin
+	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function,hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
+		setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
+		semi_gradient_TDλ!(params, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	end
+
+	semi_gradient_TDλ_fcann(mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ_fcann((mdp, π), args...; kwargs...)
+	
+	semi_gradient_TDλ_fcann(mrp::StateMRP, args...; kwargs...) = semi_gradient_TDλ_fcann((mrp,), args...; kwargs...)
+end
+
 # ╔═╡ cfb775b2-ecd8-4518-854f-384bf35ba9af
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	import Base.copyto!
 	function copyto!(dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, src::Base.Broadcast.Broadcasted) where {T<:Real}
@@ -848,8 +864,11 @@ begin
 	end
 	
 end
+  ╠═╡ =#
 
 # ╔═╡ 3c1fdc9c-42ad-4eae-9103-e834a1056878
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	import Base.broadcast!
 	function broadcast!(f, dest::Vector{Array{T, N}}, x::Vector{Array{T, N}}, y::Vector{Array{T, N}}) where {T<:Real, N}
@@ -882,8 +901,11 @@ begin
 
 	broadcast!(f, dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, c::Real, x::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}) where T<:Real = broadcast!(f, dest, x, c)
 end
+  ╠═╡ =#
 
 # ╔═╡ 43675f77-a930-424a-bf60-6362354317ed
+# ╠═╡ disabled = true
+#=╠═╡
 #for non-linear function approximation the state representation can be uncoupled from the number of parameters as long as the output size of the network is 1.  the FCANN package is used to calculate the gradient of the output but a number of memory arguments must be instantiated to run the function without allocating new memory each time.  The size of the network also must be specified in terms of hidden layers.
 function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, input_size::Integer, hidden_layers::AbstractVector{I}, update_state_representation!::Function; res_layers = 1, dropout = zero(T), parameters::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}} = FCANN.initializeparams_saxe(input_size, hidden_layers, 1, res_layers; use_μP = true), l2 = zero(T), maxnorm = typemax(T), kwargs...) where {T<:Real, I<:Integer}
 	
@@ -920,6 +942,7 @@ function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integ
 	
 	return (value_function = v, error_history = error_history)
 end
+  ╠═╡ =#
 
 # ╔═╡ f92b8423-b05f-4058-ac91-4b3c6d447820
 md"""
@@ -933,10 +956,10 @@ function test_fcann_tdλ_random_walk(λ::Float32, hidden_layers::Vector{Int64}; 
 	xmin = 1
 	xmax = nstates
 	scalex(x) = (2f0*(x - 1f0) / (nstates - 1)) - 1f0 #scale x to between -1 and 1
-	function update_state_representation!(x::Matrix{Float32}, s::Float32) 
+	function update_state_representation!(x::Vector{Float32}, s::Float32) 
 		x[1] = scalex(s)
 	end
-	output = run_fcann_semi_gradient_TDλ((mrp,), 1f0, λ, max_episodes, max_steps, 1, hidden_layers, update_state_representation!; kwargs...)
+	output = semi_gradient_TDλ_fcann(mrp, 1f0, λ, max_episodes, max_steps, [0f0], update_state_representation!, hidden_layers; kwargs...)
 	plot(output.value_function.(1f0:1000f0), Layout(yaxis_range = [-1, 1]))
 end
   ╠═╡ =#
@@ -965,32 +988,22 @@ The algorithm below runs semi-gradient TD(λ) for a tabular problem without need
 # ╔═╡ 900760f0-b253-4db7-8c4f-4ca34777198d
 begin
 	#in the case of a tabular problem, this algorithm can be used with a trivial version of the linear algorithm
-	function run_tabular_semi_gradient_TDλ(states::Vector{S}, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), state_representation::Vector{Int64} = zeros(Int64, 1), kwargs...) where {T<:Real, S}
+	function semi_gradient_TDλ(states::Vector{S}, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real, S}
 		@assert length(parameters) == length(states)
 
+		feature_vector = StateAggregationFeatureVector(length(parameters))
+
 		#the state representation just stores the index of the state
-		function update_state_representation!(x::Vector{Int64}, i_s::Integer)
-			x[1] = i_s
+		function update_feature_vector!(x::StateAggregationFeatureVector, i_s::Integer)
+			x.group_index = i_s
 		end
 		
-		#the value estimation function is just the parameter at the state index
-		estimate_value(x, w) = w[x[1]]
-
-		#the gradient is just 1 at the state index and zero elsewhere
-		function update_gradient!(∇v, x, w)
-			∇v .= zero(T)
-			∇v[x[1]] = one(T)
-			return w[x[1]]
-		end
-
-		error_history = semi_gradient_TDλ!(parameters, state_representation, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, update_state_representation!, estimate_value, update_gradient!; kwargs...)
-		
-		return (state_values = parameters, error_history = error_history)
+		semi_gradient_TDλ!(parameters, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 	end
 
-	run_tabular_semi_gradient_TDλ(mrp::TabularMRP, args...; kwargs...) = run_tabular_semi_gradient_TDλ(mrp.states, mrp.initialize_state_index, i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
+	semi_gradient_TDλ(mrp::TabularMRP, args...; kwargs...) = semi_gradient_TDλ(mrp.states, mrp.initialize_state_index, i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
 
-	run_tabular_semi_gradient_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = run_tabular_semi_gradient_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, π), mdp.terminal_states, args...; kwargs...)
+	semi_gradient_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, π), mdp.terminal_states, args...; kwargs...)
 end
 
 # ╔═╡ 373a89e3-0b8d-49a0-982e-8bb300538429
@@ -1014,8 +1027,8 @@ If is revealing to revisit the random walk example (Example 7.1) to see how well
 # ╔═╡ 36d87b2a-6e1a-47b7-8af5-825d47e55eec
 #=╠═╡
 function run_random_walk_TDλ_estimation(mrp::TabularMRP, calc_err::Function, α, λ; num_episodes = 10, kwargs...)
-	output = run_tabular_semi_gradient_TDλ(mrp, 1f0, λ, num_episodes, typemax(Int64); save_episode_errors = true, α = α, calculate_error = calc_err, kwargs...)
-	return mean(output.error_history.episode_errors)
+	output = semi_gradient_TDλ(mrp, 1f0, λ, num_episodes, typemax(Int64); save_episode_errors = true, α = α, calculate_error = calc_err, kwargs...)
+	return sqrt(mean(output.episode_history.errors))
 end
   ╠═╡ =#
 
@@ -1034,8 +1047,9 @@ function tdλ_vs_offline_λ_error_random_walk(nstates, num_episodes; kwargs...)
 	c = (nstates + 1)/2
 	v_true = [(s-c)/c for s in 1:nstates]
 	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, eachindex(v_true)))
+	calc_err2(target, v̂, i_s) = (v̂ - v_true[i_s])^2
 	get_α_line1(λ) = α_vec |> Map(α -> run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
-	get_α_line2(λ) = α_vec |> Map(α -> run_random_walk_TDλ_estimation_trials(tabular_mrp, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
+	get_α_line2(λ) = α_vec |> Map(α -> run_random_walk_TDλ_estimation_trials(tabular_mrp, calc_err2, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
 	lines1 = λ_vec |> Map(λ -> get_α_line1(λ)) |> collect
 	lines2 = λ_vec |> Map(λ -> get_α_line2(λ)) |> collect
 
@@ -1335,160 +1349,123 @@ $\begin{flalign}
 # ╔═╡ 7f8fb89d-1a2e-4acd-9118-2ce3d3874341
 begin
 	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function true_online_TDλ!(parameters::P, state_representation::X, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; α = one(T)/10, calculate_error::Function = params -> zero(T), ∇v::P = copy(parameters), z::P = copy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where {P, X, T<:Real}
+	function true_online_TDλ!(parameters::Vector{T}, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::X, update_state_representation!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (target - v̂)^2, ∇v̂::P = deepcopy(state_representation), z::Vector{T} = copy(parameters), save_episode_steps::Bool = false, kwargs...) where {P, X, T<:Real}
+		#initialize records
+		step_rewards = Vector{T}()
+		episode_steps = Vector{Int64}()
+		episode_rewards = Vector{T}()
+		episode_errors = Vector{T}()
+
+		#initialize variables
 		s = initialize_state()
 		update_state_representation!(state_representation, s)
-		v̂ = dot(state_representation, parameters)
-		∇v .= state_representation
-		(r, s′) = transition(s)
-		if isterm(s′)
-			v̂′ = zero(T)
-		else
-			update_state_representation!(state_representation, s′)
-			v̂′ = dot(state_representation, parameters)
-		end
 		ep = 1
 		step = 1
-		episode_error_history = Vector{T}()
-		step_error_history = Vector{T}()
-		
+		epstep = 1
+		eperr = zero(T)
+		rtot = zero(T)
+
 		#initialize eligibility vector to 0
 		z .= zero(T)
 		v_old = zero(T)
-		
+	
 		while (ep <= max_episodes) && (step <= max_steps)
-			z .= (γ*λ .* z) .+ (one(T) - α*γ*λ*dot(z, ∇v)) .* ∇v
-			δ = r + γ*v̂′ - v̂
+			v̂ = linear_value_function(state_representation, parameters)
+			update_linear_value_gradient!(∇v̂, state_representation, parameters)
+			(r, s′) = transition(s)
+			rtot += r
+			save_episode_steps && push!(step_rewards, r)
+
+			terminated = isterm(s′)
+			if terminated
+				push!(episode_steps, step)
+				push!(episode_rewards, rtot)
+				v̂′ = zero(T)
+				ep += 1
+				rtot = zero(T)
+			else
+				update_state_representation!(state_representation, s′)
+				v̂′ = linear_value_function(state_representation, parameters)
+			end
+
+			
+			z .*= γ*λ
+			c = one(T) - α*γ*λ*linear_value_function(∇v̂, z)
+			update_params_with_gradient!(z, c, ∇v̂)
+			#by default computes this: z .= (γ*λ .* z) .+ (one(T) - α*γ*λ*dot(z, ∇v)) .* ∇v
+
+			target = r + γ*v̂′
+			eperr += calculate_error(target, v̂, s)
+			δ = target - v̂
 			a = v̂ - v_old
-			parameters .+= α .* ((δ + a) .* z .- (a .* ∇v))
-	
-			save_step_errors && push!(step_error_history, calculate_error(parameters))
-	
-			if isterm(s′)
+
+			update_params_with_gradient!(parameters, α*(δ + a), z)
+			update_params_with_gradient!(parameters, -α*a, ∇v̂)
+			#by default computes this: parameters .+= α .* ((δ + a) .* z .- (a .* ∇v))
+
+			if terminated
 				s = initialize_state()
 				update_state_representation!(state_representation, s)
 				#reset eligibility vector to 0 at the start of a new episode
 				z .= zero(T)
 				v_old = zero(T)
-				ep += 1
-				save_episode_errors && push!(episode_error_history, calculate_error(parameters))
+				push!(episode_errors, eperr / epstep)
+				eperr = zero(T)
+				epstep = 0
 			else
 				s = s′
 				v_old = v̂′
 			end
-
-			#note that the state representation here will be for s on the next step
-			v̂ = dot(state_representation, parameters)
-			∇v .= state_representation
-			
-			(r, s′) = transition(s)
-			
-			if isterm(s′)
-				v̂′ = zero(T)
-			else
-				update_state_representation!(state_representation, s′)
-				v̂′ = dot(state_representation, parameters)
-			end
 			step += 1
+			epstep += 1
 		end
-		return (episode_errors = episode_error_history, step_errors = step_error_history)
+		v̂, form_kwargs = form_state_value_function(linear_value_function, update_state_representation!, state_representation, parameters)
+		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs)
 	end
 
 	#when evaluating an MRP, there is no policy and the transition is just from the environment
-	true_online_TDλ!(parameters::P, state_representation::X, mrp::StateMRP, args...; kwargs...) where {P, X} = true_online_TDλ!(parameters, state_representation, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
+	true_online_TDλ!(parameters::Vector{T}, mrp::StateMRP, args...; kwargs...) where T<:Real = true_online_TDλ!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
 
 	#when evaluating an MDP, there is a policy and the transition uses it to select actions
-	true_online_TDλ!(parameters::P, state_representation::X, mdp::StateMDP, π::Function, args...; kwargs...) where {P, X} = true_online_TDλ!(parameters, state_representation, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
+	true_online_TDλ!(parameters::Vector{T}, mdp::StateMDP, π::Function, args...; kwargs...) where {T<:Real} = true_online_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
 end
 
 # ╔═╡ 34a28cfa-bf18-4dcf-8cf4-f6e9031d6fc2
-function true_online_TDλ(problem, state_representation::Vector{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, update_state_representation!::Function; parameters::Vector{T} = zeros(T), kwargs...) where T<:Real
-	errors = true_online_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!)
-
-	function v!(x, s)
-		update_state_representation!(x, s)
-		dot(parameters, x)
-	end
-
-	v(s; x = copy(state_representation)) = v!(x, s)
-	return (value_function = v, error_history = errors)
+begin
+	#convenience functions for calling true online algorithm on an MDP+policy or MRP problem
+	true_online_TDλ(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::LinearFeatureVector, update_state_representation!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(state_representation, init_value), kwargs...) where T<:Real = true_online_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, state_representation, update_state_representation!; kwargs...)
+	
+	true_online_TDλ(mdp::StateMDP, π::Function, args...; kwargs...) = true_online_TDλ((mdp, π), args...; kwargs...)
+	
+	true_online_TDλ(mrp::StateMRP, args...; kwargs...) = true_online_TDλ((mrp,), args...; kwargs...)
 end
 
-# ╔═╡ 4dc03d69-c90c-4d64-bb8e-600ecfe30eb8
+# ╔═╡ d1903e34-0463-4a63-a74b-fb827451e542
 begin
-	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function true_online_tabular_TDλ!(parameters::Vector{T}, initialize_state::Function, transition::Function, termstates::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, calculate_error::Function = params -> zero(T), z::Vector{T} = copy(parameters), save_step_errors::Bool = false, save_episode_errors::Bool = false, epkwargs...) where T<:Real
-		i_s = initialize_state()
-		v̂ = parameters[i_s]
-		(r, i_s′) = transition(i_s)
-		if termstates[i_s′]
-			v̂′ = zero(T)
-		else
-			v̂′ = parameters[i_s′]
-		end
-		ep = 1
-		step = 1
-		episode_error_history = Vector{T}()
-		step_error_history = Vector{T}()
-		
-		#initialize eligibility vector to 0
-		z .= zero(T)
-		v_old = zero(T)
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			z .*= γ*λ
-			z[i_s] += one(T) - α*γ*λ*z[i_s] 
-			δ = r + γ*v̂′ - v̂
-			a = v̂ - v_old
-			parameters .+= α .* (δ + a) .* z
-			parameters[i_s] -= α*a
-	
-			save_step_errors && push!(step_error_history, calculate_error(parameters))
-	
-			if termstates[i_s′]
-				i_s = initialize_state()
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				v_old = zero(T)
-				ep += 1
-				save_episode_errors && push!(episode_error_history, calculate_error(parameters))
-			else
-				i_s = i_s′
-				v_old = v̂′
-			end
+	#in the case of a tabular problem, this algorithm can be used with a trivial version of the linear algorithm
+	function true_online_TDλ(states::Vector{S}, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real, S}
+		@assert length(parameters) == length(states)
 
-			#note that the state representation here will be for s on the next step
-			v̂ = parameters[i_s]
-			(r, i_s′) = transition(i_s)
-			
-			if termstates[i_s′]
-				v̂′ = zero(T)
-			else
-				v̂′ = parameters[i_s′]
-			end
-			step += 1
+		feature_vector = StateAggregationFeatureVector(length(parameters))
+
+		#the state representation just stores the index of the state
+		function update_feature_vector!(x::StateAggregationFeatureVector, i_s::Integer)
+			x.group_index = i_s
 		end
-		return (episode_errors = episode_error_history, step_errors = step_error_history)
+		
+		true_online_TDλ!(parameters, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...)
 	end
 
-	#when evaluating an MRP, there is no policy and the transition is just from the environment
-	true_online_tabular_TDλ!(parameters, mrp::TabularMRP, args...; kwargs...) = true_online_tabular_TDλ!(parameters, mrp.initialize_state_index, s -> mrp.ptf(s), mrp.terminal_states, args...; kwargs...)
+	true_online_TDλ(mrp::TabularMRP, args...; kwargs...) = true_online_TDλ(mrp.states, mrp.initialize_state_index, i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
 
-	#when evaluating an MDP, there is a policy and the transition uses it to select actions
-	true_online_tabular_TDλ!(parameters, mdp::TabularMDP, π, args...; kwargs...) = true_online_tabular_TDλ!(parameters, mdp.initialize_state_index, s -> mdp.ptf(s, π), mdp.terminal_states, args...; kwargs...)
-
-	function true_online_tabular_TDλ(env::Union{TabularMRP{T, S, P, F}, TabularMDP{T, S, A, P, F}}, args...; parameters = zeros(T, length(env.states)), kwargs...) where {T<:Real, S, A, P, F}
-		@assert length(parameters) == length(env.states)
-		errors = true_online_tabular_TDλ!(parameters, env, args...; kwargs...)
-		return (parameters = parameters, error_history = errors)
-	end
+	true_online_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = true_online_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, π), mdp.terminal_states, args...; kwargs...)
 end
 
 # ╔═╡ d9f89b2c-8df8-415a-a0a8-21744be88cec
 #=╠═╡
 function run_random_walk_true_online_TDλ_estimation(mrp::TabularMRP, calc_err::Function, α, λ; num_episodes = 10, kwargs...)
-	output = true_online_tabular_TDλ(mrp, 1f0, λ, num_episodes, typemax(Int64); save_episode_errors = true, α = α, calculate_error = calc_err, kwargs...)
-	return mean(output.error_history.episode_errors)
+	output = true_online_TDλ(mrp, 1f0, λ, num_episodes, typemax(Int64); α = α, calculate_error = calc_err, kwargs...)
+	return sqrt(mean(output.episode_history.errors))
 end
   ╠═╡ =#
 
@@ -1507,8 +1484,9 @@ function true_online_tdλ_vs_offline_λ_error_random_walk(nstates, num_episodes;
 	c = (nstates + 1)/2
 	v_true = [(s-c)/c for s in 1:nstates]
 	calc_err(v) = sqrt(mean(i -> (v[i] - v_true[i])^2, eachindex(v_true)))
+	calc_err2(target, v̂, i_s) = (v̂ - v_true[i_s])^2
 	get_α_line1(λ) = α_vec |> Map(α -> run_random_walk_offline_λ_estimation_trials(mrp, nstates, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
-	get_α_line2(λ) = α_vec |> Map(α -> run_random_walk_true_online_TDλ_estimation_trials(tabular_mrp, calc_err, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
+	get_α_line2(λ) = α_vec |> Map(α -> run_random_walk_true_online_TDλ_estimation_trials(tabular_mrp, calc_err2, α, λ; num_episodes = num_episodes, kwargs...)) |> collect
 	lines1 = λ_vec |> Map(λ -> get_α_line1(λ)) |> collect
 	lines2 = λ_vec |> Map(λ -> get_α_line2(λ)) |> collect
 
@@ -1574,318 +1552,582 @@ md"""
 ## 12.7 Sarsa(λ)
 """
 
+# ╔═╡ 5eacdb68-f4ac-4615-b9aa-bb0ad1a31ede
+#to do next update this with unified style from chatper 10
+
+# ╔═╡ 43ba01e3-27d0-481c-8f93-8cd9c30b2a1d
+begin
+	abstract type AbstractEligibilityTrace end
+	struct ReplacingTrace <: AbstractEligibilityTrace end
+	struct AccumulatingTrace <: AbstractEligibilityTrace end
+	struct DutchTrace <: AbstractEligibilityTrace end
+end
+
+# ╔═╡ 58ea2a87-3a8c-4fa3-877e-b1aa4b0ba36f
+begin
+	#accumulating traces just add the gradient to z
+	update_trace_with_gradient!(z::Union{Array{T, N}, FCANNParams{T}}, ∇, ::AccumulatingTrace) where {T<:Real, N} = update_params_with_gradient!(z, one(T), ∇)
+
+	#the first step to a dutch trace is to apply the accumulating trace
+	update_trace_with_gradient!(z, ∇q̂, ::DutchTrace) = update_trace_with_gradient!(z, ∇q̂, AccumulatingTrace())
+
+	#replacing traces involve overwriting the eligibility trace value for any active feature of the current state to 1.  it is a technique that only has meaning for binary features and linear approximation, therefore I will throw an error whenever a replacing trace is attempted with the wrong technique
+	function update_trace_with_gradient!(z::Vector{T}, ∇::BinaryFeatureVector, ::ReplacingTrace) where T<:Real 
+		for i in 1:∇.num_features
+			j = ∇.active_features[i]
+			z[j] = one(T)
+		end
+		return z
+	end
+
+	function update_trace_with_gradient!(z::Vector{T}, ∇::StateAggregationFeatureVector, ::ReplacingTrace) where T<:Real 
+		z[∇.group_index] = one(T)
+		return z
+	end
+
+	function update_trace_with_gradient!(z::Matrix{T}, ∇::LinearActionValueGradient{I, V}, ::ReplacingTrace) where {T<:Real, I<:Integer, V<:BinaryFeatureVector}
+		for i in 1:∇.action_gradient.num_features
+			j = ∇.action_gradient.active_features[i]
+			z[j, ∇.action_index] = one(T)
+		end
+		return z
+	end
+
+	function update_trace_with_gradient!(z::Matrix{T}, ∇::LinearActionValueGradient{I, V}, ::ReplacingTrace) where {T<:Real, I<:Integer, V<:StateAggregationFeatureVector}
+		z[∇.action_gradient.group_index, ∇.action_index] = one(T)
+		return z
+	end
+
+	update_trace_with_gradient!(z::Vector{T}, ∇q̂::Vector{T}, ::ReplacingTrace) where {T<:Real} = error("Attempting to use replacing trace with non-binary features")
+
+	update_trace_with_gradient!(z::Matrix{T}, ∇q̂::LinearActionValueGradient{I, V}, ::ReplacingTrace) where {T<:Real, I<:Integer, V<:Vector{T}} = error("Attempting to use replacing trace with non-binary features")
+
+	update_trace_with_gradient!(z::FCANNParams{T}, ∇::FCANNParams{T}, ::ReplacingTrace) where {T<:Real} = error("Attempting to use replacing trace with non-linear approximation")
+end
+
+# ╔═╡ 01024201-7989-43f0-86f2-d3cd5ee219ae
+begin
+	#for accumulating and replacing traces do not do anything to z
+	apply_dutch_trace!(z, c, feature_vector, value_function, ∇, ::AccumulatingTrace) = z
+	apply_dutch_trace!(z, c, feature_vector, value_function, ∇, ::ReplacingTrace) = z
+	apply_dutch_trace!(z, c, feature_vector, i_a, update_action_values!, action_values, ∇, ::AccumulatingTrace) = z
+	apply_dutch_trace!(z, c, feature_vector, i_a, update_action_values!, action_values, ∇, ::ReplacingTrace) = z
+
+	#for linear approximation just apply the parameter update with a constant c which is computed ahead of time and passed into the function and the value function at the state using the eligibility trace as the parameters 
+	function apply_dutch_trace!(z, c, feature_vector, value_function::Function, ∇, ::DutchTrace)
+		vz = value_function(feature_vector, z)
+		update_params_with_gradient!(z, c*vz, ∇)
+	end
+
+	#when we use action values, we only need the action value associated with the action taken
+	function apply_dutch_trace!(z, c::T, feature_vector, i_a::Integer, update_action_values!::Function, action_values::Vector{T}, ∇, ::DutchTrace)  where {T<:Real}
+		update_action_values!(action_values, feature_vector, z)
+		update_params_with_gradient!(z, c*action_values[i_a], ∇)
+	end
+end
+
+# ╔═╡ b320dc0e-95dc-44d5-8ee4-455c4a858835
+function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+	#initialize records
+	episode_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	parameter_history = Vector{P}()
+	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+
+	#initialize variables
+	ep = 1
+	step = 1
+	epreward = zero(T)
+	decay = one(T)
+	s = mdp.initialize_state()
+	update_feature_vector!(feature_vector, s)
+	update_action_values!(action_values, feature_vector, parameters)
+	policy = copy(action_values)
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	i_a = sample_action(policy)
+	zero_trace!(z)
+	
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		q̂ = action_values[i_a]
+		update_value_gradient!(∇q̂, feature_vector, i_a, parameters)
+
+		update_trace_with_gradient!(z, ∇q̂, trace_type)
+		apply_dutch_trace!(z, -α*γ*λ, feature_vector, i_a, update_action_values!, action_values, ∇q̂, trace_type)
+
+		#take action and observe transition
+		(r, s′) = mdp.ptf(s, i_a)
+		epreward += r
+
+		terminated = mdp.isterm(s′)
+
+		if terminated
+			s′ = mdp.initialize_state()
+			push!(episode_rewards, epreward)
+			push!(episode_steps, step)
+			epreward = zero(T)
+			ep += 1
+		end
+
+		update_feature_vector!(feature_vector, s′)
+		update_action_values!(action_values, feature_vector, parameters)
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a′ = sample_action(policy)
+
+		q̂′ = terminated ? zero(T) : compute_value(action_values, policy, i_a′)
+
+		target = r + γ*q̂′
+
+		δ = target - q̂
+
+		decay *= (step > decay_step)*α_decay + (step <= decay_step)
+
+		update_params_with_gradient!(parameters, α*decay*δ, z)
+
+		update_action_values!(action_values, feature_vector, parameters)
+
+		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		s = s′
+		i_a = i_a′
+		step += 1
+
+		if terminated 
+			zero_trace!(z)
+		else
+			decay_trace!(z, λ*γ)
+		end
+	end
+	
+	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
+	
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+end
+
+# ╔═╡ efa11915-d86b-4686-85f9-84d7539e27cf
+sarsa_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ 84870ff4-d7a5-4214-abcb-3d74b7a8fe7b
+function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
+	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	
+	sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
+end
+
+# ╔═╡ 3a03bd95-f43d-47b5-93d6-88a9ef61d2b4
+get_num_actions(mdp::TabularMDP) = length(mdp.actions)
+
+# ╔═╡ c7caa90d-26bf-4179-b869-3385cb75b943
+function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F}
+	function update_feature_vector!(v, s::S)
+		i_s = mdp.state_index[s]
+		v.group_index = i_s
+		return v
+	end
+	
+	sarsa_λ_linear(StateMDP(mdp), γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...)
+end
+
 # ╔═╡ 21479229-c2ad-425f-98bb-77717ab40b02
 #given a state_action_value function, an exploration parameter ϵ, and a state index, produce a sampled action according to the ϵ-greedy policy
-function select_action!(action_values::Vector{T}, state_action_values::Matrix{T}, ϵ::T, i_s::Integer) where T<:Real
-	for i_a in eachindex(action_values)
-		action_values[i_a] = state_action_values[i_a, i_s]
-	end
-	make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-	sample_action(action_values)
-end
+# function select_action!(action_values::Vector{T}, state_action_values::Matrix{T}, ϵ::T, i_s::Integer) where T<:Real
+# 	for i_a in eachindex(action_values)
+# 		action_values[i_a] = state_action_values[i_a, i_s]
+# 	end
+# 	make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+# 	sample_action(action_values)
+# end
 
 # ╔═╡ 0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
 md"""
 ### *Vanilla Implementation*
 """
 
-# ╔═╡ cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
-begin
-	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature, since the tabular version is the simplest, consider adding expected sarsa and double expected sarsa versions here in a format that can accomodate q-learning even though it isn't guaranteed to be stable
-	function sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
-		#set the state action values of all terminal states to 0
-		for i_s in eachindex(mdp.states)
-			if mdp.terminal_states[i_s]
-				state_action_values[:, i_s] .= zero(T)
-			end
-		end
-
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		#initialize episode
-		i_s = mdp.initialize_state_index()
-		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
-		z .= zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			#take action and observe transition
-			(r, i_s′) = mdp.ptf(i_s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-			
-			δ = r - state_action_values[i_a, i_s]
-			z[i_a, i_s] = one(T) + use_accumulating_traces*!use_dutch_traces*z[i_a, i_s] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i_a, i_s]
-
-			if !mdp.terminal_states[i_s′]
-				i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
-				δ += γ*state_action_values[i_a′, i_s′]
-			end
-
-			state_action_values .+= α*δ .* z
-
-			if mdp.terminal_states[i_s′]
-				i_s = mdp.initialize_state_index()
-				i_a = select_action!(action_values, state_action_values, ϵ, i_s)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				i_s = i_s′
-				i_a = i_a′
-				z .*= γ*λ
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-
-	#non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
-	function sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		function select_action!(action_values, parameters, ϵ, active_features)
-			for i_a in eachindex(action_values)
-				q = zero(T)
-				for i in active_features
-					q += parameters[i, i_a]
-				end
-				action_values[i_a] = q
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
-			
-
-		#initialize episode
-		s = mdp.initialize_state()
-		active_features = get_active_features(s) 
-		i_a = select_action!(action_values, parameters, ϵ, active_features)
-		z .= zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			δ = r
-			
-			for i in active_features
-				δ -= parameters[i, i_a]
-				z[i, i_a] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i, i_a] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i, i_a]
-			end
-
-			if !mdp.isterm(s′)
-				active_features = get_active_features(s′)
-				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
-				for i in active_features
-					δ += γ*parameters[i, i_a′]
-				end
-			end
-
-			parameters .+= α*δ .* z
-
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				active_features = get_active_features(s)
-				i_a = select_action!(action_values, parameters, ϵ, active_features)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				z .*= γ*λ
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-
-	#non-tabular problem with general function approximation. 
-	function sarsa_λ!(parameters::Vector{P}, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, update_gradient!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, gradient::Vector{P} = deepcopy(parameters), z::Vector{P} = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real, P}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		function select_action!(action_values, parameters, ϵ, x)
-			for i_a in eachindex(action_values)
-				action_values[i_a] = value_function(x, parameters[i_a])
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
-	
-		#initialize episode
-		s = mdp.initialize_state()
-		update_feature_vector!(feature_vector, s)
-		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-		z .= zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-			δ = r - value_function(feature_vector, parameters[i_a])
-
-			update_gradient!(gradient[i_a], feature_vector, parameters[i_a])
-			
-			if use_dutch
-				d = dot(z[i_a], feature_vector)
-			end
-			
-			z[i_a] .= gradient[i_a] .+ (!use_dutch_traces * use_accumulating_traces) .* z[i_a]
-			if use_dutch_traces * !use_accumulating_traces
-				z[i_a] .-= α*λ*γ*d .* feature_vector
-			end
-
-			if !mdp.isterm(s′)
-				update_feature_vector!(feature_vector, s′)
-				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
-				δ += γ*value_function(feature_vector, parameters[i_a′])
-			end
-
-			for i_a in eachindex(mdp.actions)
-				parameters[i_a] .+= α*δ .* z[i_a]
-			end
-
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				update_feature_vector!(feature_vector, s)
-				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-				#reset eligibility vector to 0 at the start of a new episode
-				for i_a in eachindex(mdp.actions) z[i_a] .= zero(T) end
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				for i_a in eachindex(mdp.actions) z[i_a] .*= γ*λ end
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-end
-
 # ╔═╡ c5edfcbf-8d31-4dc4-b9d0-1a5439540710
-begin
-	function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; algo!::Function = sarsa_λ!, state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
-		history = algo!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
-		greedy_policy_lookup = [argmax(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+# begin
+# 	function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; algo!::Function = sarsa_λ!, state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
+# 		history = algo!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+# 		greedy_policy_lookup = [argmax(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
 		
-		greedy_policy(s::S) = greedy_policy_lookup[mdp.state_index[s]]
-		greedy_state_values = [maximum(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
+# 		greedy_policy(s::S) = greedy_policy_lookup[mdp.state_index[s]]
+# 		greedy_state_values = [maximum(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
 	
-		(state_action_values = state_action_values, state_values = greedy_state_values, greedy_policy_lookup = greedy_policy_lookup, greedy_policy_function = greedy_policy, history = history)
-	end
-end
+# 		(state_action_values = state_action_values, state_values = greedy_state_values, greedy_policy_lookup = greedy_policy_lookup, greedy_policy_function = greedy_policy, history = history)
+# 	end
+# end
+
+# ╔═╡ cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
+# begin
+# 	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature, since the tabular version is the simplest, consider adding expected sarsa and double expected sarsa versions here in a format that can accomodate q-learning even though it isn't guaranteed to be stable
+# 	function sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
+# 		#set the state action values of all terminal states to 0
+# 		for i_s in eachindex(mdp.states)
+# 			if mdp.terminal_states[i_s]
+# 				state_action_values[:, i_s] .= zero(T)
+# 			end
+# 		end
+
+# 		#initialize records
+# 		episode_step_history = Vector{T}()
+# 		step_rewards = Vector{T}()
+
+# 		#initialize episode
+# 		i_s = mdp.initialize_state_index()
+# 		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+# 		z .= zero(T)
+# 		ep = 1
+# 		step = 1
+		
+# 		while (ep <= max_episodes) && (step <= max_steps)
+# 			#take action and observe transition
+# 			(r, i_s′) = mdp.ptf(i_s, i_a)
+			
+# 			save_step_rewards && push!(step_rewards, r)
+			
+# 			δ = r - state_action_values[i_a, i_s]
+# 			z[i_a, i_s] = one(T) + use_accumulating_traces*!use_dutch_traces*z[i_a, i_s] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i_a, i_s]
+
+# 			if !mdp.terminal_states[i_s′]
+# 				i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
+# 				δ += γ*state_action_values[i_a′, i_s′]
+# 			end
+
+# 			state_action_values .+= α*δ .* z
+
+# 			if mdp.terminal_states[i_s′]
+# 				i_s = mdp.initialize_state_index()
+# 				i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+# 				#reset eligibility vector to 0 at the start of a new episode
+# 				z .= zero(T)
+# 				ep += 1
+# 				save_episode_steps && push!(episode_step_history, step)
+# 			else
+# 				i_s = i_s′
+# 				i_a = i_a′
+# 				z .*= γ*λ
+# 			end
+# 			step += 1
+# 		end
+		
+# 		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+# 	end
+
+# 	#non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
+# 	function sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real}
+# 		#initialize records
+# 		episode_step_history = Vector{T}()
+# 		step_rewards = Vector{T}()
+
+# 		function select_action!(action_values, parameters, ϵ, active_features)
+# 			for i_a in eachindex(action_values)
+# 				q = zero(T)
+# 				for i in active_features
+# 					q += parameters[i, i_a]
+# 				end
+# 				action_values[i_a] = q
+# 			end
+# 			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+# 			sample_action(action_values)
+# 		end
+			
+
+# 		#initialize episode
+# 		s = mdp.initialize_state()
+# 		active_features = get_active_features(s) 
+# 		i_a = select_action!(action_values, parameters, ϵ, active_features)
+# 		z .= zero(T)
+# 		ep = 1
+# 		step = 1
+		
+# 		while (ep <= max_episodes) && (step <= max_steps)
+# 			#take action and observe transition
+# 			(r, s′) = mdp.ptf(s, i_a)
+			
+# 			save_step_rewards && push!(step_rewards, r)
+
+# 			δ = r
+			
+# 			for i in active_features
+# 				δ -= parameters[i, i_a]
+# 				z[i, i_a] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i, i_a] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i, i_a]
+# 			end
+
+# 			if !mdp.isterm(s′)
+# 				active_features = get_active_features(s′)
+# 				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
+# 				for i in active_features
+# 					δ += γ*parameters[i, i_a′]
+# 				end
+# 			end
+
+# 			parameters .+= α*δ .* z
+
+# 			if mdp.isterm(s′)
+# 				s = mdp.initialize_state()
+# 				active_features = get_active_features(s)
+# 				i_a = select_action!(action_values, parameters, ϵ, active_features)
+# 				#reset eligibility vector to 0 at the start of a new episode
+# 				z .= zero(T)
+# 				ep += 1
+# 				save_episode_steps && push!(episode_step_history, step)
+# 			else
+# 				s = s′
+# 				i_a = i_a′
+# 				z .*= γ*λ
+# 			end
+# 			step += 1
+# 		end
+		
+# 		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+# 	end
+
+# 	#non-tabular problem with general function approximation. 
+# 	function sarsa_λ!(parameters::Vector{P}, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, update_gradient!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, gradient::Vector{P} = deepcopy(parameters), z::Vector{P} = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real, P}
+# 		#initialize records
+# 		episode_step_history = Vector{T}()
+# 		step_rewards = Vector{T}()
+
+# 		function select_action!(action_values, parameters, ϵ, x)
+# 			for i_a in eachindex(action_values)
+# 				action_values[i_a] = value_function(x, parameters[i_a])
+# 			end
+# 			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+# 			sample_action(action_values)
+# 		end
+	
+# 		#initialize episode
+# 		s = mdp.initialize_state()
+# 		update_feature_vector!(feature_vector, s)
+# 		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+# 		z .= zero(T)
+# 		ep = 1
+# 		step = 1
+		
+# 		while (ep <= max_episodes) && (step <= max_steps)
+# 			#take action and observe transition
+# 			(r, s′) = mdp.ptf(s, i_a)
+			
+# 			save_step_rewards && push!(step_rewards, r)
+# 			δ = r - value_function(feature_vector, parameters[i_a])
+
+# 			update_gradient!(gradient[i_a], feature_vector, parameters[i_a])
+			
+# 			if use_dutch
+# 				d = dot(z[i_a], feature_vector)
+# 			end
+			
+# 			z[i_a] .= gradient[i_a] .+ (!use_dutch_traces * use_accumulating_traces) .* z[i_a]
+# 			if use_dutch_traces * !use_accumulating_traces
+# 				z[i_a] .-= α*λ*γ*d .* feature_vector
+# 			end
+
+# 			if !mdp.isterm(s′)
+# 				update_feature_vector!(feature_vector, s′)
+# 				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
+# 				δ += γ*value_function(feature_vector, parameters[i_a′])
+# 			end
+
+# 			for i_a in eachindex(mdp.actions)
+# 				parameters[i_a] .+= α*δ .* z[i_a]
+# 			end
+
+# 			if mdp.isterm(s′)
+# 				s = mdp.initialize_state()
+# 				update_feature_vector!(feature_vector, s)
+# 				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
+# 				#reset eligibility vector to 0 at the start of a new episode
+# 				for i_a in eachindex(mdp.actions) z[i_a] .= zero(T) end
+# 				ep += 1
+# 				save_episode_steps && push!(episode_step_history, step)
+# 			else
+# 				s = s′
+# 				i_a = i_a′
+# 				for i_a in eachindex(mdp.actions) z[i_a] .*= γ*λ end
+# 			end
+# 			step += 1
+# 		end
+		
+# 		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+# 	end
+# end
 
 # ╔═╡ 31926565-8c2f-42a9-bc73-4f3001a38bf4
 md"""
 ### *Dynamic Programming Implementation*
 """
 
+# ╔═╡ 4cab7b59-f080-4bea-86dc-3c860a618c35
+function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+	#initialize records
+	episode_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	parameter_history = Vector{P}()
+	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+
+	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
+
+	#initialize variables
+	ep = 1
+	step = 1
+	epreward = zero(T)
+	decay = one(T)
+	s = mdp.initialize_state()
+	zero_trace!(z)
+	
+	policy = copy(action_values)
+	
+	
+	while (ep <= max_episodes) && (step <= max_steps)
+		update_feature_vector!(feature_vector, s)
+		v̂ = value_function(feature_vector, parameters)		
+		update_value_gradient!(∇v̂, feature_vector, parameters)
+		
+		update_trace_with_gradient!(z, ∇v̂, trace_type)
+		apply_dutch_trace!(z, -α*γ*λ, feature_vector, value_function, ∇v̂, trace_type)
+
+		target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ, action_value_args...; kwargs...)
+		δ = target - v̂
+		
+		decay *= (step > decay_step)*α_decay + (step <= decay_step)
+		update_params_with_gradient!(parameters, α*decay*δ, z)
+
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a = sample_action(policy)
+
+		#take action and observe transition
+		(r, s′) = mdp.ptf(s, i_a)
+		epreward += r
+
+		if mdp.isterm(s′)
+			s′ = mdp.initialize_state()
+			push!(episode_rewards, epreward)
+			push!(episode_steps, step)
+			epreward = zero(T)
+			zero_trace!(z)
+			ep += 1
+		elseif !isapprox(target, action_values[i_a])
+			#if the selected action is not the greedy action then zero out the trace since it is an off policy selection
+			zero_trace!(z)
+		else
+			decay_trace!(z, λ*γ)
+		end
+
+		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		s = s′
+		step += 1
+	end
+	
+	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
+	
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+end
+
+# ╔═╡ 258be19f-0b01-4d5e-ae82-2ef07ba4cc9c
+dp_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ 5f623b73-4d7d-4c69-acaf-9a668c352bf9
+function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
+	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+end
+
+# ╔═╡ da6944b0-1d1b-4b92-a765-5e28c133cff5
+function test_dp_λ(; kwargs...)
+	mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
+	function update_feature_vector!(v, s) 
+		v.group_index = mdp.state_index[s]
+	end
+	dp_λ_linear(StateMDP(mdp), 1f0, -.5f0, 10, 10000, StateAggregationFeatureVector(length(mdp.states)), update_feature_vector!; kwargs...)
+end
+
+# ╔═╡ 08c7beae-9dee-468e-b276-aa56a8f24f1f
+test_dp_λ()
+
 # ╔═╡ 8c95178c-8e75-4036-b0cb-bec936dcbd28
 begin
 	#dp λ with binary features
-	function dp_λ!(parameters::Vector{T}, get_active_features::Function, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
+	# function dp_λ!(parameters::Vector{T}, get_active_features::Function, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
+	# 	#initialize records
+	# 	episode_step_history = Vector{T}()
+	# 	step_rewards = Vector{T}()
 
-		function value_function(active_features)
-			v = zero(T)
-			for i in active_features
-				v += parameters[i]
-			end
-			return v
-		end
+	# 	function value_function(active_features)
+	# 		v = zero(T)
+	# 		for i in active_features
+	# 			v += parameters[i]
+	# 		end
+	# 		return v
+	# 	end
 
-		function calculate_action_value(s, i_a)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T)
-			for i in eachindex(rewards)
-				s′ = states[i]
-				q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
-			end
-			return q
-		end
+	# 	function calculate_action_value(s, i_a)
+	# 		(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+	# 		q = zero(T)
+	# 		for i in eachindex(rewards)
+	# 			s′ = states[i]
+	# 			q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
+	# 		end
+	# 		return q
+	# 	end
 
-		function select_action!(action_values, parameters, ϵ, active_features)
-			for i_a in eachindex(action_values)
-				action_values[i_a] = calculate_action_value(s, i_a)
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
+	# 	function select_action!(action_values, parameters, ϵ, active_features)
+	# 		for i_a in eachindex(action_values)
+	# 			action_values[i_a] = calculate_action_value(s, i_a)
+	# 		end
+	# 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+	# 		sample_action(action_values)
+	# 	end
 			
 
-		#initialize episode
-		s = mdp.initialize_state()
-		active_features = get_active_features(s) 
-		i_a = select_action!(action_values, parameters, ϵ, active_features)
-		z .= zero(T)
-		ep = 1
-		step = 1
+	# 	#initialize episode
+	# 	s = mdp.initialize_state()
+	# 	active_features = get_active_features(s) 
+	# 	i_a = select_action!(action_values, parameters, ϵ, active_features)
+	# 	z .= zero(T)
+	# 	ep = 1
+	# 	step = 1
 		
-		while (ep <= max_episodes) && (step <= max_steps)
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
+	# 	while (ep <= max_episodes) && (step <= max_steps)
+	# 		#take action and observe transition
+	# 		(r, s′) = mdp.ptf(s, i_a)
 			
-			save_step_rewards && push!(step_rewards, r)
+	# 		save_step_rewards && push!(step_rewards, r)
 
-			δ = r
+	# 		δ = r
 			
-			for i in active_features
-				δ -= parameters[i]
-				z[i] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i]
-			end
+	# 		for i in active_features
+	# 			δ -= parameters[i]
+	# 			z[i] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i]
+	# 		end
 
-			if !mdp.isterm(s′)
-				active_features = get_active_features(s′)
-				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
-				for i in active_features
-					δ += γ*parameters[i]
-				end
-			end
+	# 		if !mdp.isterm(s′)
+	# 			active_features = get_active_features(s′)
+	# 			i_a′ = select_action!(action_values, parameters, ϵ, active_features)
+	# 			for i in active_features
+	# 				δ += γ*parameters[i]
+	# 			end
+	# 		end
 
-			parameters .+= α*δ .* z
+	# 		parameters .+= α*δ .* z
 
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				active_features = get_active_features(s)
-				i_a = select_action!(action_values, parameters, ϵ, active_features)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				z .*= γ*λ
-			end
-			step += 1
-		end
+	# 		if mdp.isterm(s′)
+	# 			s = mdp.initialize_state()
+	# 			active_features = get_active_features(s)
+	# 			i_a = select_action!(action_values, parameters, ϵ, active_features)
+	# 			#reset eligibility vector to 0 at the start of a new episode
+	# 			z .= zero(T)
+	# 			ep += 1
+	# 			save_episode_steps && push!(episode_step_history, step)
+	# 		else
+	# 			s = s′
+	# 			i_a = i_a′
+	# 			z .*= γ*λ
+	# 		end
+	# 		step += 1
+	# 	end
 		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
+	# 	return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	# end
 end
 
 # ╔═╡ a7c8d853-9411-40df-83a3-46da00722697
@@ -1911,6 +2153,11 @@ md"""
 #### Sarsa$(λ)$ Parameter Study
 """
 
+# ╔═╡ 38512c69-54dc-4eb6-9a22-2a6bb3e38d89
+#=╠═╡
+@bind study_trace_type Select([ReplacingTrace() => "replacing trace", AccumulatingTrace() => "acculating trace", DutchTrace() => "dutch trace"])
+  ╠═╡ =#
+
 # ╔═╡ a4e10d47-2d41-4586-a328-11ea7234d7bd
 #=╠═╡
 @bind gridworld_λ_params PlutoUI.combine() do Child
@@ -1930,21 +2177,175 @@ md"""
 # ╔═╡ 2aa76caf-a448-4570-9e86-6c4d22bb21d0
 begin
 	#given a state_action_value function, an exploration parameter ϵ, and a state index, produce a sampled action according to the ϵ-greedy policy
-	function update_action_values!(action_values::Vector{T}, state_action_values::Matrix{T}, i_s::Integer) where T<:Real
-		for i_a in eachindex(action_values)
-			action_values[i_a] = state_action_values[i_a, i_s]
-		end
-	end
+	# function update_action_values!(action_values::Vector{T}, state_action_values::Matrix{T}, i_s::Integer) where T<:Real
+	# 	for i_a in eachindex(action_values)
+	# 		action_values[i_a] = state_action_values[i_a, i_s]
+	# 	end
+	# end
 
-	function update_action_values!(action_values::Vector{T}, parameters::Matrix{T}, active_features) where T<:Real
-		for i_a in eachindex(action_values)
-			q = zero(T)
-			for i in active_features
-				q += parameters[i, i_a]
-			end
-			action_values[i_a] = q
-		end
-	end
+	# function update_action_values!(action_values::Vector{T}, parameters::Matrix{T}, active_features) where T<:Real
+	# 	for i_a in eachindex(action_values)
+	# 		q = zero(T)
+	# 		for i in active_features
+	# 			q += parameters[i, i_a]
+	# 		end
+	# 		action_values[i_a] = q
+	# 	end
+	# end
+end
+
+# ╔═╡ 21d23d80-49d0-4edf-854a-5489eb7d75d0
+begin
+	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
+	# function expected_sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, use_TB = false, target_ϵ = ϵ, epkwargs...) where {T<:Real}
+	# 	#set the state action values of all terminal states to 0
+	# 	for i_s in eachindex(mdp.states)
+	# 		if mdp.terminal_states[i_s]
+	# 			state_action_values[:, i_s] .= zero(T)
+	# 		end
+	# 	end
+
+	# 	#initialize records
+	# 	episode_step_history = Vector{T}()
+	# 	step_rewards = Vector{T}()
+
+	# 	#initialize episode
+	# 	i_s = mdp.initialize_state_index()
+	# 	i_a = select_action!(action_values, state_action_values, ϵ, i_s)
+	# 	z .= zero(T)
+	# 	ep = 1
+	# 	step = 1
+		
+	# 	while (ep <= max_episodes) && (step <= max_steps)
+	# 		#take action and observe transition
+	# 		(r, i_s′) = mdp.ptf(i_s, i_a)
+			
+	# 		save_step_rewards && push!(step_rewards, r)
+			
+	# 		δ = r - state_action_values[i_a, i_s]
+	# 		z[i_a, i_s] = one(T) + use_accumulating_traces*!use_dutch_traces*z[i_a, i_s] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i_a, i_s]
+
+	# 		if !mdp.terminal_states[i_s′]
+	# 			update_action_values!(action_values, state_action_values, i_s′)
+	# 			action_values2 .= action_values
+	# 			make_ϵ_greedy_policy!(action_values2; ϵ = target_ϵ)
+				
+	# 			#expected future value with target policy ϵ, for expected sarsa this is usually the same as the behavior policy ϵ but for something like q-learning this would be 0
+	# 			for i_a′ in eachindex(mdp.actions)
+	# 				δ += γ*action_values2[i_a′]*state_action_values[i_a′, i_s′]
+	# 			end
+
+	# 			#select action based on ϵ greedy policy
+	# 			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+	# 			i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
+	# 			ρ = action_values2[i_a′] 
+	# 			if !use_TB
+	# 				ρ /= action_values[i_a′] #uses tree backup if selected which just ignores eligibility traces for non greedy actions
+	# 			end
+	# 		end
+
+	# 		state_action_values .+= α*δ .* z
+
+	# 		if mdp.terminal_states[i_s′]
+	# 			i_s = mdp.initialize_state_index()
+	# 			select_action!(action_values, state_action_values, ϵ, i_s)
+	# 			#reset eligibility vector to 0 at the start of a new episode
+	# 			z .= zero(T)
+	# 			ep += 1
+	# 			save_episode_steps && push!(episode_step_history, step)
+	# 		else
+	# 			i_s = i_s′
+	# 			i_a = i_a′
+	# 			z .*= γ*λ*ρ
+	# 		end
+	# 		step += 1
+	# 	end
+		
+	# 	return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	# end
+
+	# #non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
+	# function expected_sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α::T = one(T)/10, ϵ::T = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), target_ϵ::T = ϵ, save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, use_TB::Bool = false, epkwargs...) where {T<:Real}
+	# 	#initialize records
+	# 	episode_step_history = Vector{T}()
+	# 	step_rewards = Vector{T}()
+
+	# 	function select_action!(action_values, parameters, ϵ, active_features)
+	# 		for i_a in eachindex(action_values)
+	# 			q = zero(T)
+	# 			for i in active_features
+	# 				q += parameters[i, i_a]
+	# 			end
+	# 			action_values[i_a] = q
+	# 		end
+	# 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+	# 		sample_action(action_values)
+	# 	end
+			
+
+	# 	#initialize episode
+	# 	s = mdp.initialize_state()
+	# 	active_features = get_active_features(s) 
+	# 	i_a = select_action!(action_values, parameters, ϵ, active_features)
+	# 	z .= zero(T)
+	# 	ep = 1
+	# 	step = 1
+		
+	# 	while (ep <= max_episodes) && (step <= max_steps)
+	# 		#take action and observe transition
+	# 		(r, s′) = mdp.ptf(s, i_a)
+			
+	# 		save_step_rewards && push!(step_rewards, r)
+
+	# 		δ = r
+			
+	# 		for i in active_features
+	# 			δ -= parameters[i, i_a]
+	# 			z[i, i_a] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i, i_a] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i, i_a]
+	# 		end
+
+	# 		if !mdp.isterm(s′)
+	# 			active_features = get_active_features(s′)
+	# 			update_action_values!(action_values, parameters, active_features)
+	# 			action_values2 .= action_values
+	# 			make_ϵ_greedy_policy!(action_values2; ϵ = target_ϵ)
+
+	# 			#use expected update value based on target policy ϵ which is just ϵ in the case of expected sarsa and 0 in the case of q learning
+	# 			for i_a′ in eachindex(mdp.actions)
+	# 				for i in active_features
+	# 					δ += γ*action_values2[i_a′]*parameters[i, i_a′]
+	# 				end
+	# 			end
+
+	# 			#select action according to behavior policy
+	# 			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+	# 			i_a′ = select_action!(action_values, parameters, ϵ, active_features)
+	# 			ρ = action_values2[i_a′] 
+	# 			if !use_TB
+	# 				ρ /= action_values[i_a′]
+	# 			end
+	# 		end
+
+	# 		parameters .+= α*δ .* z
+
+	# 		if mdp.isterm(s′)
+	# 			s = mdp.initialize_state()
+	# 			active_features = get_active_features(s)
+	# 			i_a = select_action!(action_values, parameters, ϵ, active_features)
+	# 			#reset eligibility vector to 0 at the start of a new episode
+	# 			z .= zero(T)
+	# 			ep += 1
+	# 			save_episode_steps && push!(episode_step_history, step)
+	# 		else
+	# 			s = s′
+	# 			i_a = i_a′
+	# 			z .*= γ*λ*ρ
+	# 		end
+	# 		step += 1
+	# 	end
+		
+	# 	return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	# end
 end
 
 # ╔═╡ 06885c43-2ace-45ff-b77f-f3ceaaf999de
@@ -1961,607 +2362,6 @@ md"""
 md"""
 #### True Online Sarsa$(λ)$ Parameter Study
 """
-
-# ╔═╡ ded7c8e0-f44c-44c9-afad-070d325c180b
-begin
-	#true online dp λ for binary features
-	function true_online_dp_λ!(parameters::Vector{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
-		function get_feature_values(v::Vector{T}, active_features)
-			x = zero(T)
-			for i in active_features
-				x += v[i]
-			end
-			return x
-		end
-
-		value_function(active_features) = get_feature_values(parameters, active_features)
-
-		function calculate_action_value(s, i_a)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T)
-			for i in eachindex(rewards)
-				s′ = states[i]
-				q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
-			end
-			return q
-		end
-
-		function select_action!(action_values, parameters, ϵ, active_features)
-			for i_a in eachindex(action_values)
-				action_values[i_a] = calculate_action_value(s, i_a)
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
-	
-		#initialize episode
-		s = mdp.initialize_state()
-		active_features = get_active_features(s)
-		i_a = select_action!(action_values, parameters, ϵ, active_features)
-		z .= zero(T)
-		v_old = zero(T)
-		ep = 1
-		step = 1
-
-		while (ep <= max_episodes) && (step <= max_steps)
-			v = get_feature_values(parameters, active_features)
-
-			#represents the portion of the eligibility trace update that depends on the current feature vector
-			dt =  one(T) - α*γ*λ*get_feature_values(z, active_features)
-
-			z .*= γ*λ
-
-			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
-			for i in active_features
-				parameters[i] -= α*(v - v_old)
-				z[i] += dt
-			end
-			
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			if mdp.isterm(s′)
-				v′ = zero(T)
-			else
-				active_features = get_active_features(s′)
-				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
-				v′ = get_feature_values(parameters, active_features)
-			end
-			
-			δ = r + γ*v′ - v
-
-			parameters .+= α*(δ + v - v_old) .* z
-			
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				active_features = get_active_features(s)
-				i_a = select_action!(action_values, parameters, ϵ, active_features)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				v_old = zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				v_old = v′
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-end
-
-# ╔═╡ 8b6b5084-3972-4bd4-9ca2-423f1c627788
-md"""
-### *Example: Mountain Car Sarsa(λ) Variations*
-"""
-
-# ╔═╡ 5bc128ec-2934-4aa5-a922-9017f647e1b3
-md"""
-#### Sarsa(λ) Parameter Studies With Mountain Car Tile Coding
-"""
-
-# ╔═╡ c19209dc-bddf-4390-95a9-fc1d1d836a8a
-md"""
-##### Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
-"""
-
-# ╔═╡ 5652f3fd-ec23-4dfb-a171-1e1ed0de275a
-#=╠═╡
-@bind run_mountaincar_λ_study1 CounterButton("Run Parameter Study (could take several minutes)")
-  ╠═╡ =#
-
-# ╔═╡ 2c425a9a-49ae-48d3-8ab7-f3c12b081180
-md"""
-##### Expected Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
-"""
-
-# ╔═╡ d7c7316d-aac3-4500-ac3c-0c21b9cf5215
-#=╠═╡
-@bind run_mountaincar_λ_study2 CounterButton("Run Parameter Study (could take several minutes)")
-  ╠═╡ =#
-
-# ╔═╡ aea15e6d-9873-406b-993b-04717dad01c6
-md"""
-##### DP$$(λ)$$ with $$\epsilon = 0.01$$
-
-In this method the full transition distribution is used and only state values are estimated.
-"""
-
-# ╔═╡ c57b4792-928a-4450-9364-786e9f186cc8
-#=╠═╡
-@bind run_mountaincar_λ_study3 CounterButton("Run Parameter Study (could take several minutes)")
-  ╠═╡ =#
-
-# ╔═╡ b28f47cc-eda7-4961-b6b3-569753386249
-md"""
-##### True Online Sarsa$$(λ)$$ with $$ϵ = 0.01$$
-
-Notice that here a slightly lower value of $\lambda$ is optimal which increases the degree of bootstrapping compared to Sarsa$(\lambda)$
-"""
-
-# ╔═╡ 31633123-0249-4d15-b6fe-59480d3038eb
-#=╠═╡
-@bind run_mountaincar_λ_study4 CounterButton("Run Parameter Study (could take several minutes)")
-  ╠═╡ =#
-
-# ╔═╡ 48c87368-6f11-4330-9a29-3ecbf60cd146
-md"""
-##### True Online Expected Sarsa$$(λ)$$ with $$ϵ = 0.01$$
-
-Similar results to above as we'd expect for such a small value of $\epsilon$
-"""
-
-# ╔═╡ 831b925f-9f76-48e2-9de0-32724215c568
-#=╠═╡
-@bind run_mountaincar_λ_study5 CounterButton("Run Parameter Study (could take several minutes)")
-  ╠═╡ =#
-
-# ╔═╡ 438726e5-f9a1-4bf7-abda-e5bb0eb30c39
-md"""
-##### True Online DP$$(λ)$$ with $$ϵ = 0.01$$
-
-Bests results so far which also favor a higher value of $\lambda$ which indicates less reliance on bootstrapping.
-"""
-
-# ╔═╡ 4d00dfcc-7b01-4335-95ba-0b31fa0e62ad
-#=╠═╡
-@bind run_mountaincar_λ_study6 CounterButton("Run Parameter Study (could take several minutes)")
-  ╠═╡ =#
-
-# ╔═╡ 0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
-md"""
-##### Results Visualization for Best Training Parameters
-"""
-
-# ╔═╡ 3ac75a88-6894-4c48-ae2a-30c822814888
-#this version of sarsa_λ assumes binary features so the only information needed is the number of features and a function that returns something that can iterate over active features
-function sarsa_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, num_features::Integer, get_active_features::Function; parameters::Matrix{T} = zeros(T, num_features, length(mdp.actions)), algo! = sarsa_λ!, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	history = algo!(parameters, get_active_features, mdp, γ, λ, max_episodes, max_steps; kwargs...)
-
-	function get_action_values(active_features)
-		action_values = zeros(T, length(mdp.actions))
-		for i_a in eachindex(mdp.actions)
-			for i in active_features
-				action_values[i_a] += parameters[i, i_a]
-			end
-		end
-		return action_values
-	end
-
-	function value_function(s::S)
-		action_values = get_action_values(get_active_features(s))
-		q = maximum(action_values)
-		policy = copy(action_values)
-		make_greedy_policy!(policy)
-		i_a = sample_action(policy)
-		(value = q, action = i_a, action_values = action_values)
-	end
-
-	greedy_policy(s::S) = value_function(s).action
-	(value_function = value_function, greedy_policy = greedy_policy, history = history)
-end
-
-# ╔═╡ 2c8beba6-4436-4603-88f2-20f847c5e916
-function test_sarsa_λ(; kwargs...)
-	mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
-	sarsa_λ(mdp, 1f0, -.5f0, 10, 100; kwargs...)
-end
-
-# ╔═╡ a36d205c-9a77-4b24-8e57-7bfceee9f4af
-#=╠═╡
-function gridworld_sarsaλ_parameter_study(mdp, steps; nruns = 50, λ_list = [0f0, 0.5f0, 0.6f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
-	value_iteration_output = value_iteration_v(mdp, 1f0)
-	best_steps = abs(value_iteration_output.final_value[mdp.initialize_state_index()])
-	traces = [begin 
-		output = [begin
-			1:nruns |> Map() do _ 
-				output = sarsa_λ(mdp, 1f0, λ, typemax(Int64), steps; save_episode_steps=true, α = α, kwargs...)
-				step_history = output.history.episode_steps
-				isempty(step_history) && return NaN
-				step_history[end]/length(step_history)
-			end |> foldxt(+) |> a -> a/nruns 
-		end for α in α_list]
-		scatter(x = α_list, y = output, name = "λ = $λ")
-	end for λ in λ_list]
-	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Steps per Episode <br> Averaged Over $steps Steps & $nruns Runs", yaxis_range = [1.3*best_steps, best_steps*2.6]))
-end
-  ╠═╡ =#
-
-# ╔═╡ cc263d1a-d098-472b-8a2f-92e1ddedfdc4
-#this version of sarsa_λ assumes binary features so the only information needed is the number of features and a function that returns something that can iterate over active features
-function dp_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, num_features::Integer, get_active_features::Function; parameters::Vector{T} = zeros(T, num_features), algo! = dp_λ!, kwargs...) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
-	history = algo!(parameters, get_active_features, mdp, γ, λ, max_episodes, max_steps; kwargs...)
-
-	function value_function(active_features)
-		v = zero(T)
-		for i in active_features
-			v += parameters[i]
-		end
-		return v
-	end
-
-	function calculate_action_value(s, i_a)
-		(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-		q = zero(T)
-		for i in eachindex(rewards)
-			s′ = states[i]
-			q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
-		end
-		return q
-	end
-
-	value_function(s::S) = value_function(get_active_features(s))
-		
-
-	function select_action!(action_values, s, parameters, ϵ)
-		for i_a in eachindex(action_values)
-			action_values[i_a] = calculate_action_value(s, i_a)
-		end
-		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-		sample_action(action_values)
-	end
-
-	function greedy_policy(s::S)
-		action_values = zeros(T, length(mdp.actions))
-		select_action!(action_values, s, parameters, zero(T))
-	end
-	
-	(value_function = value_function, greedy_policy = greedy_policy, calculate_action_value = calculate_action_value, history = history)
-end
-
-# ╔═╡ a7d6239c-b7d2-41f0-a474-02c607448183
-begin
-	#calculates which tile a state is in for the tiling represented by one offset
-	function get_active_features(num_features::Integer, state::T, offset::T, displacement::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where T<:Real
-		[begin
-			i = max(1, ceil(Int64, (scale_state(state, min_value, range) + offset*displacement*(tiling-1)) / tile_size))
-			min(i + (tiling - 1)*num_tiles, num_features)
-		end
-		for tiling in 1:num_tilings]
-	end
-
-	function get_active_features(num_features::Integer, state::NTuple{N, T}, offset::NTuple{N, T}, displacement::NTuple{N, Int64}, num_tilings::Integer, tile_size::NTuple{N, T}, num_tiles::NTuple{N, Int64}, min_values::NTuple{N, T}, ranges::NTuple{N, T}) where {N, T<:Real}
-		total_tiles = prod(num_tiles)
-		(begin
-			base = 1
-			index = 0
-			for d in 1:N
-				i = max(1, ceil(Int64, (scale_state(state[d], min_values[d], ranges[d]) + offset[d]*displacement[d]*(tiling - 1)) / tile_size[d]))
-				index += i * base
-				base *= num_tiles[d]
-			end
-			min(index + (tiling - 1)*total_tiles, num_features)
-		end
-		for tiling in 1:num_tilings)
-	end
-end
-
-# ╔═╡ a51c4911-8878-4eef-9ed4-4402d380dc4d
-#this version of tile coding setup just produces a function that returns the active indices as a generator rather than actually update the feature vector
-function tile_coding_setup(min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}}
-	#states must be tuples with k elements or some number value
-	k = S == T ? 1 : N
-
-	#ensure that all tile sizes are some percentage of the total state space
-	@assert all(0 < l < 1 for l in tile_size)
-
-	max_d = k == 1 ? displacement_vector : maximum(displacement_vector)
-
-	s_range = if k == 1
-		max_value - min_value
-	else
-		Tuple(max_value[i] - min_value[i] for i in 1:k)
-	end
-
-	#number of tiles in each direction of the state space
-	num_tiles = if k == 1
-		x = inv(tile_size)
-		if isinteger(x)
-			Int64(x) + 1
-		else
-			ceil(Int64, x)
-		end
-	else
-		Tuple(begin
-			x = inv(l)
-			if isinteger(x)
-				Int64(x) + 1
-			else
-				ceil(Int64, x)
-			end
-		end
-		for l in tile_size)
-	end
-
-	features_per_tiling = prod(num_tiles)
-
-
-	num_features = features_per_tiling*num_tilings
-
-	#the vector representing how much each offset is shifted from the base for single unit shifts
-	offset = k == 1 ? tile_size/num_tilings/max_d : Tuple(T(l/num_tilings/max_d) for l in tile_size)
-
-	f(s::S) = get_active_features(num_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
-
-	(num_features = num_features, get_active_features = f)
-end
-
-# ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
-#=╠═╡
-function run_mountaincar_λ_parameter_study(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list; algo = sarsa_λ, seed = rand(UInt64), ymin = 100, ymax = 400, kwargs...)
-	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
-	Random.seed!(seed)
-	mdp = algo == sarsa_λ ? MountainCarTask.mdp : MountainCarTask.dist_mdp
-	traces = [begin
-		y = [begin
-			1:num_trials |> Map() do _
-				output = algo(mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, save_episode_steps = true, kwargs...)
-				step_history = output.history.episode_steps
-				isempty(step_history) && return NaN
-				step_history[end] / length(step_history)
-			end |> foldxt(+) |> x -> x/num_trials
-		end
-		for α in α_list]
-		scatter(x = α_list, y = y, name = "λ = $λ")
-	end
-	for λ in λ_list]
-	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Average Steps Per Episode Averaged <br> Over the First $num_steps Steps and $num_trials Runs", yaxis_range = [ymin, ymax], xaxis_type = "log"))
-end
-  ╠═╡ =#
-
-# ╔═╡ 111cda26-bd25-49ed-9ba7-4ee8f71b063f
-#=╠═╡
-if run_mountaincar_λ_study1 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.025f0, 0.15f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ f1a8df55-a5ef-475e-a0c4-ed31b1c6c9f5
-#=╠═╡
-if run_mountaincar_λ_study3 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.005f0, 0.07f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ, ymin = 140, ymax = 200)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ cc14f0a2-d0bc-40fa-83fa-b99e62351282
-#=╠═╡
-if run_mountaincar_λ_study6 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.02f0, 6), [0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ, algo! = true_online_dp_λ!, ymin = 130, ymax = 200)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ 66112956-63a3-4629-8fba-958ff04f59e2
-function run_mountaincar_dp_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs...)
-	tile_coding = tile_coding_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings, (1, 3))
-	output = dp_λ(MountainCarTask.dist_mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding...; α = α, kwargs...)
-end
-
-# ╔═╡ 7a0f8a69-467b-4059-b717-97d8e7a7a5fd
-# ╠═╡ skip_as_script = true
-#=╠═╡
-const mountaincar_test_output = run_mountaincar_dp_λ(100_000, 12, 8, 0.001f0, 0.99f0, ϵ = 0.01f0, algo! = true_online_dp_λ!)
-  ╠═╡ =#
-
-# ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
-md"""
-> ### *Exercise 12.6* 
-> Modify the pseudocode for Sarsa(λ) to use dutch traces (12.11) without the other distinctive features of a true online algorithm.  Assume linear function approximation and binary features.
-
-See the above function `sarsa_λ`.  In the step where $z_i$ is updated an additional term is subtracted in the case of using dutch traces which matches equation (12.11)
-"""
-
-# ╔═╡ 5a88de5e-5837-41c8-8150-b8d65ffc2fdf
-function update_action_values!(action_values::Vector{T}, x::Vector{T}, parameters::Vector{Vector{T}}) where T<:Real
-	i_a_best = 1
-	q_max = typemin(T)
-	for (i_a, p) in enumerate(parameters)
-		q = dot(p, x)
-		action_values[i_a] = q
-		newmax = q > q_max
-		i_a_best = newmax*i_a + !newmax*i_a_best
-		q_max = newmax*q + !newmax*q_max
-	end
-	return q_max, i_a_best
-end
-
-# ╔═╡ 21d23d80-49d0-4edf-854a-5489eb7d75d0
-begin
-	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
-	function expected_sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, use_TB = false, target_ϵ = ϵ, epkwargs...) where {T<:Real}
-		#set the state action values of all terminal states to 0
-		for i_s in eachindex(mdp.states)
-			if mdp.terminal_states[i_s]
-				state_action_values[:, i_s] .= zero(T)
-			end
-		end
-
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		#initialize episode
-		i_s = mdp.initialize_state_index()
-		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
-		z .= zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			#take action and observe transition
-			(r, i_s′) = mdp.ptf(i_s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-			
-			δ = r - state_action_values[i_a, i_s]
-			z[i_a, i_s] = one(T) + use_accumulating_traces*!use_dutch_traces*z[i_a, i_s] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i_a, i_s]
-
-			if !mdp.terminal_states[i_s′]
-				update_action_values!(action_values, state_action_values, i_s′)
-				action_values2 .= action_values
-				make_ϵ_greedy_policy!(action_values2; ϵ = target_ϵ)
-				
-				#expected future value with target policy ϵ, for expected sarsa this is usually the same as the behavior policy ϵ but for something like q-learning this would be 0
-				for i_a′ in eachindex(mdp.actions)
-					δ += γ*action_values2[i_a′]*state_action_values[i_a′, i_s′]
-				end
-
-				#select action based on ϵ greedy policy
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-				i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
-				ρ = action_values2[i_a′] 
-				if !use_TB
-					ρ /= action_values[i_a′] #uses tree backup if selected which just ignores eligibility traces for non greedy actions
-				end
-			end
-
-			state_action_values .+= α*δ .* z
-
-			if mdp.terminal_states[i_s′]
-				i_s = mdp.initialize_state_index()
-				select_action!(action_values, state_action_values, ϵ, i_s)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				i_s = i_s′
-				i_a = i_a′
-				z .*= γ*λ*ρ
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-
-	#non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
-	function expected_sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α::T = one(T)/10, ϵ::T = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = copy(action_values), target_ϵ::T = ϵ, save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, use_TB::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		function select_action!(action_values, parameters, ϵ, active_features)
-			for i_a in eachindex(action_values)
-				q = zero(T)
-				for i in active_features
-					q += parameters[i, i_a]
-				end
-				action_values[i_a] = q
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
-			
-
-		#initialize episode
-		s = mdp.initialize_state()
-		active_features = get_active_features(s) 
-		i_a = select_action!(action_values, parameters, ϵ, active_features)
-		z .= zero(T)
-		ep = 1
-		step = 1
-		
-		while (ep <= max_episodes) && (step <= max_steps)
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			δ = r
-			
-			for i in active_features
-				δ -= parameters[i, i_a]
-				z[i, i_a] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i, i_a] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i, i_a]
-			end
-
-			if !mdp.isterm(s′)
-				active_features = get_active_features(s′)
-				update_action_values!(action_values, parameters, active_features)
-				action_values2 .= action_values
-				make_ϵ_greedy_policy!(action_values2; ϵ = target_ϵ)
-
-				#use expected update value based on target policy ϵ which is just ϵ in the case of expected sarsa and 0 in the case of q learning
-				for i_a′ in eachindex(mdp.actions)
-					for i in active_features
-						δ += γ*action_values2[i_a′]*parameters[i, i_a′]
-					end
-				end
-
-				#select action according to behavior policy
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
-				ρ = action_values2[i_a′] 
-				if !use_TB
-					ρ /= action_values[i_a′]
-				end
-			end
-
-			parameters .+= α*δ .* z
-
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				active_features = get_active_features(s)
-				i_a = select_action!(action_values, parameters, ϵ, active_features)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				z .*= γ*λ*ρ
-			end
-			step += 1
-		end
-		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	end
-end
-
-# ╔═╡ fb1bde32-35e4-4985-ad88-6b5408f3c7f7
-#=╠═╡
-if run_mountaincar_λ_study2 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.025f0, 0.15f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, algo! = expected_sarsa_λ!, seed = 45, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
 
 # ╔═╡ 771cca22-d61d-498a-98be-90fa59e09571
 begin
@@ -2783,15 +2583,6 @@ begin
 	end
 end
 
-# ╔═╡ 6b449c6c-249e-4193-96ea-caccee683de0
-#=╠═╡
-if run_mountaincar_λ_study4 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_sarsa_λ!, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
 # ╔═╡ b6d67598-b020-4626-a572-adfb9e75edba
 begin
 	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature
@@ -2957,14 +2748,412 @@ begin
 	end
 end
 
-# ╔═╡ d01f8b48-06c1-4dc7-afae-3a2e1b3ba751
+# ╔═╡ ded7c8e0-f44c-44c9-afad-070d325c180b
+begin
+	#true online dp λ for binary features
+	function true_online_dp_λ!(parameters::Vector{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, epkwargs...) where {T<:Real}
+		#initialize records
+		episode_step_history = Vector{T}()
+		step_rewards = Vector{T}()
+
+		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
+		function get_feature_values(v::Vector{T}, active_features)
+			x = zero(T)
+			for i in active_features
+				x += v[i]
+			end
+			return x
+		end
+
+		value_function(active_features) = get_feature_values(parameters, active_features)
+
+		function calculate_action_value(s, i_a)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T)
+			for i in eachindex(rewards)
+				s′ = states[i]
+				q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
+			end
+			return q
+		end
+
+		function select_action!(action_values, parameters, ϵ, active_features)
+			for i_a in eachindex(action_values)
+				action_values[i_a] = calculate_action_value(s, i_a)
+			end
+			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+			sample_action(action_values)
+		end
+	
+		#initialize episode
+		s = mdp.initialize_state()
+		active_features = get_active_features(s)
+		i_a = select_action!(action_values, parameters, ϵ, active_features)
+		z .= zero(T)
+		v_old = zero(T)
+		ep = 1
+		step = 1
+
+		while (ep <= max_episodes) && (step <= max_steps)
+			v = get_feature_values(parameters, active_features)
+
+			#represents the portion of the eligibility trace update that depends on the current feature vector
+			dt =  one(T) - α*γ*λ*get_feature_values(z, active_features)
+
+			z .*= γ*λ
+
+			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
+			for i in active_features
+				parameters[i] -= α*(v - v_old)
+				z[i] += dt
+			end
+			
+			#take action and observe transition
+			(r, s′) = mdp.ptf(s, i_a)
+			
+			save_step_rewards && push!(step_rewards, r)
+
+			if mdp.isterm(s′)
+				v′ = zero(T)
+			else
+				active_features = get_active_features(s′)
+				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
+				v′ = get_feature_values(parameters, active_features)
+			end
+			
+			δ = r + γ*v′ - v
+
+			parameters .+= α*(δ + v - v_old) .* z
+			
+			if mdp.isterm(s′)
+				s = mdp.initialize_state()
+				active_features = get_active_features(s)
+				i_a = select_action!(action_values, parameters, ϵ, active_features)
+				#reset eligibility vector to 0 at the start of a new episode
+				z .= zero(T)
+				v_old = zero(T)
+				ep += 1
+				save_episode_steps && push!(episode_step_history, step)
+			else
+				s = s′
+				i_a = i_a′
+				v_old = v′
+			end
+			step += 1
+		end
+		
+		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+	end
+end
+
+# ╔═╡ 8b6b5084-3972-4bd4-9ca2-423f1c627788
+md"""
+### *Example: Mountain Car Sarsa(λ) Variations*
+"""
+
+# ╔═╡ 5bc128ec-2934-4aa5-a922-9017f647e1b3
+md"""
+#### Sarsa(λ) Parameter Studies With Mountain Car Tile Coding
+"""
+
+# ╔═╡ c19209dc-bddf-4390-95a9-fc1d1d836a8a
+md"""
+##### Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
+"""
+
+# ╔═╡ 5652f3fd-ec23-4dfb-a171-1e1ed0de275a
 #=╠═╡
-if run_mountaincar_λ_study5 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_expected_sarsa_λ!, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
+@bind run_mountaincar_λ_study1 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 2c425a9a-49ae-48d3-8ab7-f3c12b081180
+md"""
+##### Expected Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
+"""
+
+# ╔═╡ d7c7316d-aac3-4500-ac3c-0c21b9cf5215
+#=╠═╡
+@bind run_mountaincar_λ_study2 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ aea15e6d-9873-406b-993b-04717dad01c6
+md"""
+##### DP$$(λ)$$ with $$\epsilon = 0.01$$
+
+In this method the full transition distribution is used and only state values are estimated.
+"""
+
+# ╔═╡ c57b4792-928a-4450-9364-786e9f186cc8
+#=╠═╡
+@bind run_mountaincar_λ_study3 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ b28f47cc-eda7-4961-b6b3-569753386249
+md"""
+##### True Online Sarsa$$(λ)$$ with $$ϵ = 0.01$$
+
+Notice that here a slightly lower value of $\lambda$ is optimal which increases the degree of bootstrapping compared to Sarsa$(\lambda)$
+"""
+
+# ╔═╡ 31633123-0249-4d15-b6fe-59480d3038eb
+#=╠═╡
+@bind run_mountaincar_λ_study4 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 48c87368-6f11-4330-9a29-3ecbf60cd146
+md"""
+##### True Online Expected Sarsa$$(λ)$$ with $$ϵ = 0.01$$
+
+Similar results to above as we'd expect for such a small value of $\epsilon$
+"""
+
+# ╔═╡ 831b925f-9f76-48e2-9de0-32724215c568
+#=╠═╡
+@bind run_mountaincar_λ_study5 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 438726e5-f9a1-4bf7-abda-e5bb0eb30c39
+md"""
+##### True Online DP$$(λ)$$ with $$ϵ = 0.01$$
+
+Bests results so far which also favor a higher value of $\lambda$ which indicates less reliance on bootstrapping.
+"""
+
+# ╔═╡ 4d00dfcc-7b01-4335-95ba-0b31fa0e62ad
+#=╠═╡
+@bind run_mountaincar_λ_study6 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
+md"""
+##### Results Visualization for Best Training Parameters
+"""
+
+# ╔═╡ 2e6b7c33-c6b2-4fa0-9d71-acf7cb818b9b
+#=╠═╡
+function smooth_error(error_history, n)
+	l = length(error_history)
+	[mean(error_history[max(1, i-n):i]) for i in n+1:l]
 end
   ╠═╡ =#
+
+# ╔═╡ 20836990-b332-478a-b99b-6f4ef4659392
+md"""
+#### Sarsa λ Parameter Studies with Non-linear Approximation
+"""
+
+# ╔═╡ a1c173d7-f5ac-4eb3-96c7-c2f020cdf3d5
+md"""
+##### Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
+"""
+
+# ╔═╡ 03f0034a-9acf-4745-a927-51fc2554a7e4
+#=╠═╡
+@bind run_mountaincar_λ_fcann_study1 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 3d6df2fa-35e5-4a02-b53f-30936f404b3f
+#=╠═╡
+@bind run_mountaincar_λ_fcann_study3 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 3ac75a88-6894-4c48-ae2a-30c822814888
+#this version of sarsa_λ assumes binary features so the only information needed is the number of features and a function that returns something that can iterate over active features
+function sarsa_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, num_features::Integer, get_active_features::Function; parameters::Matrix{T} = zeros(T, num_features, length(mdp.actions)), algo! = sarsa_λ!, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	history = algo!(parameters, get_active_features, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+
+	function get_action_values(active_features)
+		action_values = zeros(T, length(mdp.actions))
+		for i_a in eachindex(mdp.actions)
+			for i in active_features
+				action_values[i_a] += parameters[i, i_a]
+			end
+		end
+		return action_values
+	end
+
+	function value_function(s::S)
+		action_values = get_action_values(get_active_features(s))
+		q = maximum(action_values)
+		policy = copy(action_values)
+		make_greedy_policy!(policy)
+		i_a = sample_action(policy)
+		(value = q, action = i_a, action_values = action_values)
+	end
+
+	greedy_policy(s::S) = value_function(s).action
+	(value_function = value_function, greedy_policy = greedy_policy, history = history)
+end
+
+# ╔═╡ 2c8beba6-4436-4603-88f2-20f847c5e916
+function test_sarsa_λ(; kwargs...)
+	mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
+	sarsa_λ(mdp, 1f0, -.5f0, 10, 10000; kwargs...)
+end
+
+# ╔═╡ 84d71a29-7e38-4877-bfb8-57d4af2ec0d0
+test_sarsa_λ()
+
+# ╔═╡ a36d205c-9a77-4b24-8e57-7bfceee9f4af
+#=╠═╡
+function gridworld_sarsaλ_parameter_study(mdp, steps; nruns = 50, λ_list = [0f0, 0.5f0, 0.6f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
+	value_iteration_output = value_iteration_v(mdp, 1f0)
+	best_steps = abs(value_iteration_output.final_value[mdp.initialize_state_index()])
+	traces = [begin 
+		output = [begin
+			1:nruns |> Map() do _ 
+				output = sarsa_λ(mdp, 1f0, λ, typemax(Int64), steps; α = α, kwargs...)
+				step_history = output.episode_steps
+				isempty(step_history) && return NaN
+				step_history[end]/length(step_history)
+			end |> foldxt(+) |> a -> a/nruns 
+		end for α in α_list]
+		scatter(x = α_list, y = output, name = "λ = $λ")
+	end for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Steps per Episode <br> Averaged Over $steps Steps & $nruns Runs", yaxis_range = [1.3*best_steps, best_steps*2.6]))
+end
+  ╠═╡ =#
+
+# ╔═╡ cc263d1a-d098-472b-8a2f-92e1ddedfdc4
+#this version of sarsa_λ assumes binary features so the only information needed is the number of features and a function that returns something that can iterate over active features
+# function dp_λ(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, num_features::Integer, get_active_features::Function; parameters::Vector{T} = zeros(T, num_features), algo! = dp_λ!, kwargs...) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
+# 	history = algo!(parameters, get_active_features, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+
+# 	function value_function(active_features)
+# 		v = zero(T)
+# 		for i in active_features
+# 			v += parameters[i]
+# 		end
+# 		return v
+# 	end
+
+# 	function calculate_action_value(s, i_a)
+# 		(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+# 		q = zero(T)
+# 		for i in eachindex(rewards)
+# 			s′ = states[i]
+# 			q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
+# 		end
+# 		return q
+# 	end
+
+# 	value_function(s::S) = value_function(get_active_features(s))
+		
+
+# 	function select_action!(action_values, s, parameters, ϵ)
+# 		for i_a in eachindex(action_values)
+# 			action_values[i_a] = calculate_action_value(s, i_a)
+# 		end
+# 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+# 		sample_action(action_values)
+# 	end
+
+# 	function greedy_policy(s::S)
+# 		action_values = zeros(T, length(mdp.actions))
+# 		select_action!(action_values, s, parameters, zero(T))
+# 	end
+	
+# 	(value_function = value_function, greedy_policy = greedy_policy, calculate_action_value = calculate_action_value, history = history)
+# end
+
+# ╔═╡ a51c4911-8878-4eef-9ed4-4402d380dc4d
+#this version of tile coding setup just produces a function that returns the active indices as a generator rather than actually update the feature vector
+# function tile_coding_setup(min_value::S, max_value::S, tile_size::S, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S <: Union{T, NTuple{N, T}}}
+# 	#states must be tuples with k elements or some number value
+# 	k = S == T ? 1 : N
+
+# 	#ensure that all tile sizes are some percentage of the total state space
+# 	@assert all(0 < l < 1 for l in tile_size)
+
+# 	max_d = k == 1 ? displacement_vector : maximum(displacement_vector)
+
+# 	s_range = if k == 1
+# 		max_value - min_value
+# 	else
+# 		Tuple(max_value[i] - min_value[i] for i in 1:k)
+# 	end
+
+# 	#number of tiles in each direction of the state space
+# 	num_tiles = if k == 1
+# 		x = inv(tile_size)
+# 		if isinteger(x)
+# 			Int64(x) + 1
+# 		else
+# 			ceil(Int64, x)
+# 		end
+# 	else
+# 		Tuple(begin
+# 			x = inv(l)
+# 			if isinteger(x)
+# 				Int64(x) + 1
+# 			else
+# 				ceil(Int64, x)
+# 			end
+# 		end
+# 		for l in tile_size)
+# 	end
+
+# 	features_per_tiling = prod(num_tiles)
+
+
+# 	num_features = features_per_tiling*num_tilings
+
+# 	#the vector representing how much each offset is shifted from the base for single unit shifts
+# 	offset = k == 1 ? tile_size/num_tilings/max_d : Tuple(T(l/num_tilings/max_d) for l in tile_size)
+
+# 	f(s::S) = get_active_features(num_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+
+# 	(num_features = num_features, get_active_features = f)
+# end
+
+# ╔═╡ a7d6239c-b7d2-41f0-a474-02c607448183
+begin
+	#calculates which tile a state is in for the tiling represented by one offset
+	# function get_active_features(num_features::Integer, state::T, offset::T, displacement::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where T<:Real
+	# 	[begin
+	# 		i = max(1, ceil(Int64, (scale_state(state, min_value, range) + offset*displacement*(tiling-1)) / tile_size))
+	# 		min(i + (tiling - 1)*num_tiles, num_features)
+	# 	end
+	# 	for tiling in 1:num_tilings]
+	# end
+
+	# function get_active_features(num_features::Integer, state::NTuple{N, T}, offset::NTuple{N, T}, displacement::NTuple{N, Int64}, num_tilings::Integer, tile_size::NTuple{N, T}, num_tiles::NTuple{N, Int64}, min_values::NTuple{N, T}, ranges::NTuple{N, T}) where {N, T<:Real}
+	# 	total_tiles = prod(num_tiles)
+	# 	(begin
+	# 		base = 1
+	# 		index = 0
+	# 		for d in 1:N
+	# 			i = max(1, ceil(Int64, (scale_state(state[d], min_values[d], ranges[d]) + offset[d]*displacement[d]*(tiling - 1)) / tile_size[d]))
+	# 			index += i * base
+	# 			base *= num_tiles[d]
+	# 		end
+	# 		min(index + (tiling - 1)*total_tiles, num_features)
+	# 	end
+	# 	for tiling in 1:num_tilings)
+	# end
+end
+
+# ╔═╡ fbe8691b-6d71-4cba-90e4-5de63421f634
+md"""
+> ### *Exercise 12.6* 
+> Modify the pseudocode for Sarsa(λ) to use dutch traces (12.11) without the other distinctive features of a true online algorithm.  Assume linear function approximation and binary features.
+
+See the above function `sarsa_λ`.  In the step where $z_i$ is updated an additional term is subtracted in the case of using dutch traces which matches equation (12.11)
+"""
+
+# ╔═╡ 5a88de5e-5837-41c8-8150-b8d65ffc2fdf
+# function update_action_values!(action_values::Vector{T}, x::Vector{T}, parameters::Vector{Vector{T}}) where T<:Real
+# 	i_a_best = 1
+# 	q_max = typemin(T)
+# 	for (i_a, p) in enumerate(parameters)
+# 		q = dot(p, x)
+# 		action_values[i_a] = q
+# 		newmax = q > q_max
+# 		i_a_best = newmax*i_a + !newmax*i_a_best
+# 		q_max = newmax*q + !newmax*q_max
+# 	end
+# 	return q_max, i_a_best
+# end
 
 # ╔═╡ 5062690c-96b9-450a-9927-6a6707dfc511
 md"""
@@ -3309,16 +3498,22 @@ To simulate the movement of the cart, each time step requires knowledge of the p
 
 # ╔═╡ 1fa542f3-1e0e-41fc-ab09-e7eb0bd22483
 begin
-	struct CartPoleState{T <: Real}
-		x::T 	#horizontal position on track
-		θ::T 	#Angle of pendulum in radians measured as deviation from the vertical, 90° is horizontal and to the right
-		ẋ::T 	#horizontal velocity on track
-		θ̇::T 	#Range of change of pendulum angle
-		t::T 	#Time in seconds
-	end
+	CartPoleState{T} = @NamedTuple{x::T, θ::T, ẋ::T, θ̇::T, t::T}
+	# struct CartPoleState{T <: Real}
+	# 	x::T 	#horizontal position on track
+	# 	θ::T 	#Angle of pendulum in radians measured as deviation from the vertical, 90° is horizontal and to the right
+	# 	ẋ::T 	#horizontal velocity on track
+	# 	θ̇::T 	#Range of change of pendulum angle
+	# 	t::T 	#Time in seconds
+	# end
 	function CartPoleState(x::A, θ::B, ẋ::C, θ̇::D) where {A<:Real, B<:Real, C<:Real, D<:Real}
 		T = promote_type(A, B, C, D)
-		CartPoleState(T(x), T(θ), T(ẋ), T(θ̇), zero(T))
+		(x = T(x), θ = T(θ), ẋ = T(ẋ), θ̇ = T(θ̇), t = zero(T))
+	end
+
+	function CartPoleState(x::A, θ::B, ẋ::C, θ̇::D, t::E) where {A<:Real, B<:Real, C<:Real, D<:Real, E<:Real}
+		T = promote_type(A, B, C, D, E)
+		(x = T(x), θ = T(θ), ẋ = T(ẋ), θ̇ = T(θ̇), t = T(t))
 	end
 
 	CartPoleState() = CartPoleState(0f0, 0f0, 0f0, 0f0)
@@ -3434,11 +3629,11 @@ function create_cartpole_mdp(;
 
 	ptf = StateMDPTransitionSampler((s, i_a) -> step(s, actions[i_a]), initialize_state())
 
-	ptf_dist = StateMDPTransitionDistribution(dist_step, initialize_state())
+	ptf_deterministic = StateMDPTransitionDeterministic((s, i_a) -> step(s, actions[i_a]), initialize_state())
 
 	mdp = TabularRL.StateMDP(actions, ptf, initialize_state, failure)
-	mdp_dist = TabularRL.StateMDP(actions, ptf_dist, initialize_state, failure)
-	(mdp = mdp, mdp_dist = mdp_dist)
+	mdp_deterministic = TabularRL.StateMDP(actions, ptf_deterministic, initialize_state, failure)
+	(mdp = mdp, mdp_dist = mdp_deterministic)
 end
 
 # ╔═╡ a81603a0-34ee-4a9e-a8f8-7994c4d09cee
@@ -3605,13 +3800,137 @@ md"""
 To use tile coding with this type of state, we need to define the range of each relevant variable for the state, which is the 4 non-time parameters.  By default, we will use a throttle value of 300 and a step size of 0.04.  Based on the analysis above, we can constrain the other variables to x = [-50, 50], ẋ = [-50, 50], θ̇ = [-10, 10] with a failure angle of 70°.
 """
 
+# ╔═╡ 5fc69f86-2642-419a-b11b-f42abd5e8d4c
+function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, extract_values::Function, min_value::V, max_value::V, tile_size::V, num_tilings::Integer, displacement_vector::Union{Int64, NTuple{N, Int64}}) where {T<:Real, N, S, V <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+	#extract_values must transform a state into type V where V is either a tuple of values or a value
+	
+	#states must be tuples with k elements or some number value
+	k = V == T ? 1 : N
+
+	#ensure that all tile sizes are some percentage of the total state space
+	@assert all(0 < l < 1 for l in tile_size)
+
+	max_d = k == 1 ? displacement_vector : maximum(displacement_vector)
+
+	s_range = if k == 1
+		max_value - min_value
+	else
+		Tuple(max_value[i] - min_value[i] for i in 1:k)
+	end
+
+	#number of tiles in each direction of the state space
+	num_tiles = if k == 1
+		x = inv(tile_size)
+		if isinteger(x)
+			Int64(x) + 1
+		else
+			ceil(Int64, x)
+		end
+	else
+		Tuple(begin
+			x = inv(l)
+			if isinteger(x)
+				Int64(x) + 1
+			else
+				ceil(Int64, x)
+			end
+		end
+		for l in tile_size)
+	end
+
+	features_per_tiling = prod(num_tiles)
+
+	num_features = features_per_tiling*num_tilings
+
+	#the vector representing how much each offset is shifted from the base for single unit shifts
+	offset = k == 1 ? tile_size/num_tilings/max_d : Tuple(T(l/num_tilings/max_d) for l in tile_size)
+
+	feature_vector = BinaryFeatureVector(num_features)
+
+	#this vector will be updated with the active features
+	tiling_features = zeros(Int64, num_tilings)
+
+	function update_feature_vector!(x::BinaryFeatureVector, s::S)
+		values = extract_values(s)
+		update_tile_features!(tiling_features, values, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+		update_binary_feature_vector!(x, tiling_features)
+	end
+
+	function update_feature_vector!(x::Vector{T}, s::S)
+		values = extract_values(s)
+		update_tile_features!(tiling_features, values, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+		x .= zero(T)
+		@inbounds @simd for i in tiling_features
+			x[i] = one(T)
+		end
+		return x
+	end
+
+	function get_feature_vector(s::S)
+		x = zeros(T, num_features)
+		update_feature_vector!(x, s)
+	end
+
+	function get_active_features(s::S)
+		update_feature_vector!(feature_vector, s)
+		(feature_vector.active_features[i] for i in 1:feature_vector.num_features)
+	end
+
+	(feature_vector = feature_vector, update_feature_vector! = update_feature_vector!, num_features = num_features, get_active_features = get_active_features, get_feature_vector = get_feature_vector)
+end
+
+# ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
+#=╠═╡
+function run_mountaincar_λ_parameter_study(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list; algo = sarsa_λ_linear, seed = rand(UInt64), ymin = 100, ymax = 400, kwargs...)
+	mdp = algo == sarsa_λ_linear ? MountainCarTask.mdp : MountainCarTask.deterministic_mdp
+	tile_coding = tile_coding_feature_setup(mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	traces = [begin
+		y = [begin
+			Random.seed!(seed)
+			1:num_trials |> Map() do _
+				tile_coding = tile_coding_feature_setup(mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
+				output = algo(mdp, 1f0, λ, typemax(Int64), num_steps, deepcopy(tile_coding.feature_vector), tile_coding.update_feature_vector!; α = α, kwargs...)
+				step_history = output.episode_steps
+				isempty(step_history) && return NaN
+				l = length(step_history)
+				# -mean(output.episode_rewards[max(1, end-100):end])
+				step_history[end] / length(step_history)
+			end |> foldxt(+) |> x -> x/num_trials
+		end
+		for α in α_list]
+		scatter(x = α_list, y = y, name = "λ = $λ")
+	end
+	for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Average Steps Per Episode Averaged <br> Over the First $num_steps Steps and $num_trials Runs", yaxis_range = [ymin, ymax], xaxis_type = "log"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 23eec503-a083-4980-869b-d6019e9af5ab
+function run_mountaincar_sarsa_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs...)
+	tile_coding = tile_coding_feature_setup(MountainCarTask.deterministic_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	output = sarsa_λ_linear(MountainCarTask.mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding.feature_vector, tile_coding.update_feature_vector!; α = α, kwargs...)
+end
+
+# ╔═╡ 66112956-63a3-4629-8fba-958ff04f59e2
+function run_mountaincar_dp_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs...)
+	tile_coding = tile_coding_feature_setup(MountainCarTask.deterministic_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
+	output = dp_λ_linear(MountainCarTask.deterministic_mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding.feature_vector, tile_coding.update_feature_vector!; α = α, kwargs...)
+end
+
+# ╔═╡ 7a0f8a69-467b-4059-b717-97d8e7a7a5fd
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const mountaincar_test_output = run_mountaincar_dp_λ(100_000, 12, 8, 0.0008f0, 0.99f0, ϵ = 0.01f0)
+  ╠═╡ =#
+
 # ╔═╡ dda1399e-d232-478d-9a38-6891430b8755
 function setup_cartpole_problem(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max = deg2rad(70f0), ẋ_max = 50f0, θ̇_max = 10f0, num_tiles = (8, 8, 8, 8), num_tilings = 8, kwargs...)
-	tile_size = Tuple(1f0 / n for n in num_tiles)
-	setup = tile_coding_setup((-x_max, -θ_max, -ẋ_max, -θ̇_max), (x_max, θ_max, ẋ_max, θ̇_max), tile_size, num_tilings, (1, 3, 5, 7))
 	init_θ() = rand([-0.02f0, 0.02f0])
 	mdp, mdp_dist = create_cartpole_mdp(h = h, f = f, x_max = x_max, θ_max = θ_max, init_θ = init_θ, kwargs...)
-	(mdp = mdp, mdp_dist = mdp_dist, num_features = setup.num_features, get_active_features = s -> setup.get_active_features((s.x, s.θ, s.ẋ, s.θ̇)))
+	tile_size = Tuple(1f0 / n for n in num_tiles)
+	extract_values(s) = (s.x, s.θ, s.ẋ, s.θ̇)
+	setup = tile_coding_feature_setup(mdp, extract_values, (-x_max, -θ_max, -ẋ_max, -θ̇_max), (x_max, θ_max, ẋ_max, θ̇_max), tile_size, num_tilings, (1, 3, 5, 7))
+	(mdp = mdp, mdp_dist = mdp_dist, setup)
 end
 
 # ╔═╡ ca515bd9-6ff9-4642-b0ac-f7cfd522e7f6
@@ -3633,12 +3952,12 @@ md"""
 # ╔═╡ bee67ec3-98b8-41b9-895c-7d2db4cebfab
 #=╠═╡
 function solve_cartpole_tilecoding_sarsa_λ(α, λ, max_steps; ϵ = 0.01f0, algo! = sarsa_λ!, kwargs...)
-	setup = setup_cartpole_problem()
-	solution = sarsa_λ(setup.mdp, 1f0, λ, typemax(Int64), max_steps, setup.num_features, setup.get_active_features; α = α, algo! = algo!, save_episode_steps = true, ϵ = ϵ, kwargs...)
+	mdp, mdp_dist, setup = setup_cartpole_problem()
+	solution = sarsa_λ_linear(mdp, 1f0, λ, typemax(Int64), max_steps, setup.feature_vector, setup.update_feature_vector!; α = α, algo! = algo!, save_episode_steps = true, ϵ = ϵ, kwargs...)
 
-	episode_steps = solution.history.episode_steps[2:end] .- solution.history.episode_steps[1:end-1]
+	episode_steps = solution.episode_steps[2:end] .- solution.episode_steps[1:end-1]
 
-	episode = runepisode(setup.mdp; π = solution.greedy_policy, max_steps = 25_000)
+	episode = runepisode(mdp; π = s -> solution.value_function(s).maximizing_action, max_steps = 25_000)
 	p1 = display_cartpole_episode(episode[1], [1])
 	p2 = plot(scatter(y = 0.04*cumsum(episode_steps) ./ (1:length(episode_steps))), Layout(xaxis_title = "Episode", yaxis_title = "Seconds Per Episode"))
 	md"""
@@ -3649,12 +3968,7 @@ end
 
 # ╔═╡ 193e034f-1278-436f-b534-defc870cd36b
 #=╠═╡
-solve_cartpole_tilecoding_sarsa_λ(1f-1, 0.9f0, 25_000; algo! = sarsa_λ!, ϵ = 0.01f0)
-  ╠═╡ =#
-
-# ╔═╡ d7cc1ac9-f457-4665-a230-6458fc03664e
-#=╠═╡
-solve_cartpole_tilecoding_sarsa_λ(2f-1, 0.9f0, 25_000; algo! = expected_sarsa_λ!, ϵ = 0.01f0, target_ϵ = 0f0, use_TB = true)
+solve_cartpole_tilecoding_sarsa_λ(1f-1, 0.25f0, 100_000; compute_value = compute_sarsa_value, ϵ = 0.01f0, trace_type = ReplacingTrace())
   ╠═╡ =#
 
 # ╔═╡ 8621eeab-2c9e-4228-a150-d7792b5ebccb
@@ -3664,13 +3978,13 @@ md"""
 
 # ╔═╡ 8612ce94-9933-4a60-ae62-3fc164748d3f
 #=╠═╡
-function solve_cartpole_tilecoding_dp_λ(α, λ, max_steps; ϵ = 0.01f0, algo! = dp_λ!, kwargs...)
-	setup = setup_cartpole_problem(;kwargs...)
-	solution = dp_λ(setup.mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.num_features, setup.get_active_features; α = α, algo! = algo!, save_episode_steps = true, ϵ = ϵ)
+function solve_cartpole_tilecoding_dp_λ(α, λ, max_steps; ϵ = 0.01f0, kwargs...)
+	mdp, mdp_dist, setup = setup_cartpole_problem()
+	solution = dp_λ_linear(mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.feature_vector, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
 
-	episode_steps = solution.history.episode_steps[2:end] .- solution.history.episode_steps[1:end-1]
+	episode_steps = solution.episode_steps[2:end] .- solution.episode_steps[1:end-1]
 
-	episode = runepisode(setup.mdp; π = solution.greedy_policy, max_steps = 25_000)
+	episode = runepisode(mdp; π = s -> solution.value_function(s).maximizing_action, max_steps = 25_000)
 	p1 = display_cartpole_episode(episode[1], [1])
 	p2 = plot(scatter(y = 0.04*cumsum(episode_steps) ./ (1:length(episode_steps))), Layout(xaxis_title = "Episode", yaxis_title = "Seconds Per Episode"))
 	md"""
@@ -3681,19 +3995,221 @@ end
 
 # ╔═╡ 2bead4bf-0b97-4503-8971-c7c3ed1f8fff
 #=╠═╡
-solve_cartpole_tilecoding_dp_λ(1f-2, 0.25f0, 250_000; algo! = dp_λ!, ϵ = 0.01f0)
+solve_cartpole_tilecoding_dp_λ(1f-3, 0.1f0, 50_000; ϵ = 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ 9bdd4ce4-e9b9-4cc1-8c5d-fbc4c7a6f74a
+function normalized_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, extract_values::Function, min_value::V, max_value::V, range::T = one(T)) where {T<:Real, N, S, V <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+	#extract_values must transform a state into type V where V is either a tuple of values or a value
+	
+	#states must be tuples with k elements or some number value
+	k = V == T ? 1 : N
+
+	s_range = if k == 1
+		max_value - min_value
+	else
+		Tuple(max_value[i] - min_value[i] for i in 1:k)
+	end
+
+	feature_vector = zeros(T, k)
+
+	function update_feature_vector!(x::Vector{T}, s::S)
+		values = extract_values(s)
+		@inbounds @simd for i in 1:k
+			x[i] = (2*range)*scale_state(values[i], min_value[i], s_range[i]) - range
+		end
+		return x
+	end
+
+	(feature_vector = feature_vector, update_feature_vector! = update_feature_vector!, num_features = k)
+end
+
+# ╔═╡ 26d91353-58ee-41ec-8807-2ebc7d9e4e84
+#=╠═╡
+function run_mountaincar_λ_parameter_study(layers::Vector{Int64}, num_steps::Integer, num_trials::Integer, α_list, λ_list; algo = sarsa_λ_fcann, seed = rand(UInt64), ymin = 100, ymax = 400, kwargs...)
+	mdp = algo == sarsa_λ_fcann ? MountainCarTask.mdp : MountainCarTask.deterministic_mdp
+	setup = normalized_feature_setup(mdp, identity, (-1.2f0, -0.07f0), (0.5f0, 0.07f0); range = 1.725f0)
+	traces = [begin
+		y = [begin
+			Random.seed!(seed)
+			1:num_trials |> Map() do _
+				output = algo(mdp, 1f0, λ, typemax(Int64), num_steps, deepcopy(setup.feature_vector), setup.update_feature_vector!, layers; α = α, kwargs...)
+				step_history = output.episode_steps
+				isempty(step_history) && return num_steps
+				l = length(step_history)
+				# -mean(output.episode_rewards[max(1, end-100):end])
+				step_history[end] / length(step_history)
+			end |> foldxt(+) |> x -> x/num_trials
+		end
+		for α in α_list]
+		scatter(x = α_list, y = y, name = "λ = $λ")
+	end
+	for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Average Steps Per Episode Averaged <br> Over the First $num_steps Steps and $num_trials Runs", yaxis_range = [ymin, ymax], xaxis_type = "log", yaxis_type = "log"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 111cda26-bd25-49ed-9ba7-4ee8f71b063f
+#=╠═╡
+if run_mountaincar_λ_study1 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.0025f0, 0.25f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ fb1bde32-35e4-4985-ad88-6b5408f3c7f7
+#=╠═╡
+if run_mountaincar_λ_study2 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.15f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, compute_value = compute_expected_sarsa_value, seed = 45, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ f1a8df55-a5ef-475e-a0c4-ed31b1c6c9f5
+#=╠═╡
+if run_mountaincar_λ_study3 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.07f0, 8), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ_linear, ymin = 120, ymax = 200)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 6b449c6c-249e-4193-96ea-caccee683de0
+#=╠═╡
+if run_mountaincar_λ_study4 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_sarsa_λ!, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ d01f8b48-06c1-4dc7-afae-3a2e1b3ba751
+#=╠═╡
+if run_mountaincar_λ_study5 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_expected_sarsa_λ!, ymin = 150)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ cc14f0a2-d0bc-40fa-83fa-b99e62351282
+#=╠═╡
+if run_mountaincar_λ_study6 > 0
+	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.02f0, 6), [0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ, algo! = true_online_dp_λ!, ymin = 130, ymax = 200)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 7af6f5ed-178d-4b90-9226-02be6b13ed5a
+#=╠═╡
+if run_mountaincar_λ_fcann_study1 > 0
+	run_mountaincar_λ_parameter_study([16, 16], 1_000_000, 40, Base.LogRange(1f-5, 1f-2, 6), [.5f0, 0.99f0, 0.999f0]; ϵ = 0.01f0, seed = 45, ymin = 150, reslayers = 1, compute_value = compute_expected_sarsa_value)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ bf3584aa-2a17-43ef-95aa-035aa9505dd2
+#=╠═╡
+if run_mountaincar_λ_fcann_study3 > 0
+	run_mountaincar_λ_parameter_study([16, 16, 16], 100_000, 40, Base.LogRange(1f-8, 1f-4, 6), [0.0f0, 0.1f0, 0.2f0, 0.5f0]; ϵ = 0.05f0, seed = 45, ymin = 150, reslayers = 1, algo = dp_λ_fcann)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ ea1a07bd-740c-49d8-9e81-3443218a43fb
+(xtest, f!) = normalized_feature_setup(MountainCarTask.mdp, identity, (-1.2f0, -0.07f0), (0.5f0, 0.07f0))
+
+# ╔═╡ 741e2f22-d084-4366-8981-3988958be832
+f!(xtest, (-1.2f0, -0.07f0))
+
+# ╔═╡ 3a67fbf8-a762-4910-934d-ea12cbe226a0
+function run_mountaincar_sarsa_λ(layers::Vector{Int64}, num_steps, α, λ; kwargs...)
+	setup = normalized_feature_setup(MountainCarTask.mdp, identity, (-1.2f0, -0.07f0), (0.5f0, 0.07f0); range = 1.725f0)
+	output = sarsa_λ_fcann(MountainCarTask.mdp, 1f0, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, kwargs...)
+end
+
+# ╔═╡ 315db1e4-c730-46bc-8f5b-03cdfe5467f9
+const mountaincar_tilecoding_sarsa_λ = run_mountaincar_sarsa_λ(100_000, 12, 8, 1f-2, 0.5f0; ϵ = 0.01f0)
+
+# ╔═╡ 569c5552-cfc5-414d-8555-737f62abbb1c
+const mountaincar_sarsa_λ_fcann = run_mountaincar_sarsa_λ([8, 8, 8], 200_000, 1f-6, 0.1f0; ϵ = 0.05f0, reslayers=1, compute_value = compute_sarsa_value)
+
+# ╔═╡ da2391d6-b781-40b4-94c7-c1efc273353d
+function run_mountaincar_dp_λ_fcann(layers, num_steps, α, λ; usetiles = false, kwargs...)
+	setup = if usetiles
+		tile_coding_feature_setup(MountainCarTask.deterministic_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/12, 1f0/12), 8)
+	else
+		normalized_feature_setup(MountainCarTask.deterministic_mdp, identity, (-1.2f0, -0.07f0), (0.5f0, 0.07f0); range = 1.725f0)
+	end
+	output = dp_λ_fcann(MountainCarTask.deterministic_mdp, 1f0, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, kwargs...)
+end
+
+# ╔═╡ 8f8edda0-5a84-4f6b-a6f0-62ed394aaf3b
+const mountaincar_fcann_dp_λ_test = run_mountaincar_dp_λ_fcann(fill(16, 3), 200_000, 1f-6, 0.0f0; reslayers=1, ϵ = 0.05f0, usetiles=false)
+
+# ╔═╡ 6ee6d7d0-9381-4413-a361-e836ac5240de
+function setup_cartpole_problem_fcann(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max = deg2rad(70f0), ẋ_max = 50f0, θ̇_max = 10f0, kwargs...)
+	init_θ() = rand([-0.02f0, 0.02f0])
+	mdp, mdp_dist = create_cartpole_mdp(h = h, f = f, x_max = x_max, θ_max = θ_max, init_θ = init_θ, kwargs...)
+	extract_values(s) = (s.x, s.θ, s.ẋ, s.θ̇)
+	setup = normalized_feature_setup(mdp, extract_values,  (-x_max, -θ_max, -ẋ_max, -θ̇_max), (x_max, θ_max, ẋ_max, θ̇_max))
+	(mdp = mdp, mdp_dist = mdp_dist, setup)
+end
+
+# ╔═╡ 0834c4c0-4f04-4ac5-aff4-b69bd0448621
+#=╠═╡
+function solve_cartpole_fcann_sarsa_λ(layers, α, λ, max_steps; ϵ = 0.01f0, kwargs...)
+	mdp, mdp_dist, setup = setup_cartpole_problem_fcann()
+	solution = sarsa_λ_fcann(mdp, 1f0, λ, typemax(Int64), max_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, save_episode_steps = true, ϵ = ϵ, kwargs...)
+
+	episode_steps = solution.episode_steps[2:end] .- solution.episode_steps[1:end-1]
+
+	episode = runepisode(mdp; π = s -> solution.value_function(s).maximizing_action, max_steps = 25_000)
+	p1 = display_cartpole_episode(episode[1], [1])
+	p2 = plot(scatter(y = 0.04*cumsum(episode_steps) ./ (1:length(episode_steps))), Layout(xaxis_title = "Episode", yaxis_title = "Seconds Per Episode"))
+	md"""
+	$p1 $p2
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ d5b8fb49-c4f0-49db-80ec-d747769eb905
+#=╠═╡
+solve_cartpole_fcann_sarsa_λ(fill(64, 3), 2f-3, 0.1f0, 100_000; compute_value = compute_sarsa_value, ϵ = 0.01f0, trace_type = AccumulatingTrace())
+  ╠═╡ =#
+
+# ╔═╡ 8cbd2958-f378-4dea-bcbd-78f57ee61d9f
+#=╠═╡
+function solve_cartpole_dp_λ_fcann(layers, α, λ, max_steps; ϵ = 0.01f0, kwargs...)
+	mdp, mdp_dist, setup = setup_cartpole_problem_fcann()
+	solution = dp_λ_fcann(mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
+
+	episode_steps = solution.episode_steps[2:end] .- solution.episode_steps[1:end-1]
+
+	episode = runepisode(mdp; π = s -> solution.value_function(s).maximizing_action, max_steps = 25_000)
+	p1 = display_cartpole_episode(episode[1], [1])
+	p2 = plot(scatter(y = 0.04*cumsum(episode_steps) ./ (1:length(episode_steps))), Layout(xaxis_title = "Episode", yaxis_title = "Seconds Per Episode"))
+	md"""
+	$p1 $p2
+	"""
+end
   ╠═╡ =#
 
 # ╔═╡ 3795d653-f0ba-4191-a361-f41e8423e628
 #=╠═╡
-function cartpole_tilecoding_dp_λ_parameter_study(α_list, λ_list, max_steps; num_trials = 100, ϵ = 0.01f0, algo! = dp_λ!, kwargs...)
-	setup = setup_cartpole_problem(;kwargs...)
+function cartpole_tilecoding_dp_λ_parameter_study(α_list, λ_list, max_steps; num_trials = 100, ϵ = 0.01f0, kwargs...)
+	mdp, mdp_dist, setup = setup_cartpole_problem()
 	
 	traces = [begin
 		steps = [begin
 			1:num_trials |> Map() do i
-				solution = dp_λ(setup.mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.num_features, setup.get_active_features; α = α, algo! = algo!, save_episode_steps = true, ϵ = ϵ)
-				steps = solution.history.episode_steps
+				solution = dp_λ_linear(mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.feature_vector, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
+				steps = solution.episode_steps
 				isempty(steps) && return max_steps
 				steps[end]/length(steps)
 			end |> foldxt(+) |> x -> x / num_trials
@@ -3715,18 +4231,83 @@ end
 #=╠═╡
 if run_param_studies > 0
 	md"""
-	DP($\lambda$)
-	$(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-4, 1f0, 8), [0f0, 0.3f0, 0.5f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = dp_λ!))
+	DP($\lambda$) Accumulating Traces
+	$(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-6, 1f-1, 6), [0f0, 0.1f0, 0.2f0, 0.3f0, 0.5f0], 1_000; num_trials = 1_00, trace_type = AccumulatingTrace()))
 
+	DP($\lambda$) Replacing Traces
+	$(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-6, 1f-1, 6), [0f0, 0.1f0, 0.2f0, 0.3f0, 0.5f0], 1_000; num_trials = 1_00, trace_type = ReplacingTrace()))
 
-	True Online DP($λ$)
-	$(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-5, 1f-1, 8), [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = true_online_dp_λ!))
+	DP($\lambda$) Dutch Traces
+	$(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-6, 1f-1, 6), [0f0, 0.1f0, 0.2f0, 0.3f0, 0.5f0], 1_000; num_trials = 1_00, trace_type = DutchTrace()))
+	"""
+
+	# True Online DP($λ$)
+	# $(cartpole_tilecoding_dp_λ_parameter_study(Base.LogRange(1f-5, 1f-1, 8), [0f0, 0.5f0, 0.7f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], 10_000; algo! = true_online_dp_λ!))
+else
+	md"""
+	Waiting to run carpole parameter studies
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 94554ada-f01a-49f1-9289-50e3bd60c2e1
+#=╠═╡
+function cartpole_dp_λ_fcann_parameter_study(layers, α_list, λ_list, max_steps; num_trials = 100, ϵ = 0.01f0, kwargs...)
+	mdp, mdp_dist, setup = setup_cartpole_problem_fcann()
+	
+	traces = [begin
+		steps = [begin
+			1:num_trials |> Map() do i
+				solution = dp_λ_fcann(mdp_dist, 1f0, λ, typemax(Int64), max_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
+				steps = solution.episode_steps
+				isempty(steps) && return max_steps
+				steps[end]/length(steps)
+			end |> foldxt(+) |> x -> x / num_trials
+		end
+		for α in α_list]
+		scatter(x = α_list, y = steps, name = "λ = $λ")
+	end
+	for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate α", yaxis_title = "Average Episode Duration Over First $max_steps Steps", xaxis_type = "log"))
+end
+  ╠═╡ =#
+
+# ╔═╡ 96afd2ee-f312-4aa8-b593-d9bf2ad0d6cd
+#=╠═╡
+@bind run_fcann_param_studies CounterButton("Run Parameter Studies (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ 9601eb2d-de36-436f-91c0-906dcd2921f8
+#=╠═╡
+@bind fcann_study_layers PlutoUI.combine() do Child
+	md"""
+	Layer Size: $(Child(NumberField(1:256, default = 8)))
+	Num Layers: $(Child(NumberField(1:100, default = 3)))
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ c9be49a4-37c8-4b70-b005-e0b4580b2ecd
+#=╠═╡
+if run_fcann_param_studies > 0
+	md"""
+	
+	DP($\lambda$) Accumulating Traces
+	$(cartpole_dp_λ_fcann_parameter_study(fill(fcann_study_layers[1], fcann_study_layers[2]), Base.LogRange(1f-4, 1f-2, 8), [0f0, 0.1f0, 0.2f0, 0.4f0, 0.8f0], 100_000; num_trials = 1_00, trace_type = AccumulatingTrace(), reslayers = 1))
+	
+	DP($\lambda$) Dutch Traces
+	$(cartpole_dp_λ_fcann_parameter_study(fill(fcann_study_layers[1], fcann_study_layers[2]), Base.LogRange(1f-2, 2f0, 6), [0f0, 0.1f0, 0.2f0, 0.3f0, 0.5f0], 100_000; num_trials = 1_00, trace_type = DutchTrace(), reslayers = 1))
 	"""
 else
 	md"""
 	Waiting to run carpole parameter studies
 	"""
 end
+  ╠═╡ =#
+
+# ╔═╡ ac5e615b-910f-4fa8-94c0-e59e3317d7a8
+#=╠═╡
+solve_cartpole_dp_λ_fcann(fill(4, 3), 1f-6, 0.4f0, 10000_000; ϵ = 0.01f0, reslayers = 1, trace_type = AccumulatingTrace())
   ╠═╡ =#
 
 # ╔═╡ 0358288e-be4e-46c2-ac4c-16ace6f50187
@@ -3798,12 +4379,12 @@ const gridworld_mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward =
 
 # ╔═╡ 8d52f740-e1bf-4ac7-a299-38e7767a0831
 #=╠═╡
-gridworld_sarsaλ_parameter_study(gridworld_mdp, 5_000; use_replacing = true, ϵ = 0.01f0)
+gridworld_sarsaλ_parameter_study(gridworld_mdp, 5_000; ϵ = 0.01f0, trace_type = study_trace_type)
   ╠═╡ =#
 
 # ╔═╡ e323cbc2-1396-43fb-969a-1837bb60c5b5
 #=╠═╡
-gridworld_sarsaλ_parameter_study(gridworld_mdp, 5_000; ϵ = 0.01f0, algo! = expected_sarsa_λ!, α_list = Base.LogRange(0.4f0, 1.4f0, 8), nruns = 100)
+gridworld_sarsaλ_parameter_study(gridworld_mdp, 5_000; ϵ = 0.01f0, computer_value = compute_expected_sarsa_value, α_list = Base.LogRange(0.4f0, 1.4f0, 8), nruns = 100)
   ╠═╡ =#
 
 # ╔═╡ e047cce1-11a5-4bcb-8668-a767628da140
@@ -4291,12 +4872,12 @@ show_gridworld_exact_solution(gridworld_mdp)
 #=╠═╡
 function show_gridworld_sarsaλ_solution(mdp, λ, episodes; kwargs...)
 	output = sarsa_λ(mdp, 1f0, λ, episodes, typemax(Int64); kwargs...)
-	greedy_policy = TabularRL.make_greedy_policy(output.state_action_values)
+	greedy_policy = TabularRL.make_greedy_policy(output.final_parameters' |> collect)
 	
 	@htl("""
 	<div style = "display: flex">
 	$(show_grid_policy(mdp, greedy_policy, "sarsa_λ_policy"))
-	$(show_grid_value(mdp, output.state_values, "sarsa_λ_values"; square_pixels = 40))
+	$(show_grid_value(mdp, [output.value_function(s).maximizing_value for s in mdp.states], "sarsa_λ_values"; square_pixels = 40))
 	$(plot_path(mdp, greedy_policy; square_pixels = 40))
 	</div>
 	""")
@@ -4338,11 +4919,6 @@ function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
 end
   ╠═╡ =#
 
-# ╔═╡ 798544c9-215c-4516-a196-b00350512d48
-#=╠═╡
-plot_mountaincar_values(mountaincar_test_output.value_function, mountaincar_test_output.greedy_policy)
-  ╠═╡ =#
-
 # ╔═╡ 2e6c8ff9-4710-410d-b7e9-80563cc2af21
 #=╠═╡
 function show_mountaincar_trajectory(π::Function, max_steps::Integer, name)
@@ -4370,7 +4946,83 @@ end
 
 # ╔═╡ d4cd0741-1c01-407f-867c-2c804151c6fb
 #=╠═╡
-show_mountaincar_trajectory(mountaincar_test_output.greedy_policy, 1000, "")
+show_mountaincar_trajectory(s -> mountaincar_test_output.value_function(s).maximizing_action, 1000, "")
+  ╠═╡ =#
+
+# ╔═╡ cb992290-4bc2-4ebb-be3c-dc5d513ee5ef
+#=╠═╡
+function plot_mountaincar_action_values(q̂_mountain_car, n1, n2)
+	xvals = LinRange(-1.2f0, 0.5f0, n1)
+	vvals = LinRange(-0.07f0, 0.07f0, n2)
+	values = zeros(Float32, n1, n2)
+	actions = zeros(Float32, n1, n2)
+	for (i, x) in enumerate(xvals)
+		for (j, v) in enumerate(vvals)
+			q̂ = q̂_mountain_car((x, v))
+			values[j, i] = q̂.maximizing_value
+			actions[j, i] = MountainCarTask.actions[q̂.maximizing_action]
+		end
+	end
+	p1 = plot(heatmap(x = xvals, y = vvals, z = values), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Learned Value Function"))
+	p2 = plot(heatmap(x = xvals, y = vvals, z = actions, colorscale = "rb", showscale = false), Layout(xaxis_title = "position", yaxis_title = "velocity", title = "Policy (blue = accelerate left, <br>red = accelerate right, gray = no acceleration)"))
+	[p1 p2]
+end
+  ╠═╡ =#
+
+# ╔═╡ abe1f077-d211-4488-a10c-ec2ca5aac328
+#=╠═╡
+function display_mountaincar_results(output::NamedTuple; nsmooth = 100, npoints = 1000, ϵ = 0.05f0)
+	p1 = show_mountaincar_trajectory(s -> rand() < ϵ ? rand(1:3) : output.value_function(s).maximizing_action, 1000, "")
+
+	p2 = plot_mountaincar_action_values(output.value_function, 200, 200)
+
+	rewards = output.episode_rewards
+	if isempty(rewards)
+		p3 = nothing
+	elseif length(rewards) ≤ npoints
+		p3 = plot(rewards)
+	else
+		rewards = smooth_error(rewards, nsmooth)
+		l = length(rewards)
+		sample_inds = round.(Int64, LinRange(1, l, npoints))
+		p3 = plot(rewards[sample_inds])
+	end
+ 
+	@htl("""
+		 $p1
+		 <div style = "display: flex">
+		 $p2
+		 </div>
+		 $p3
+		 """)
+end
+  ╠═╡ =#
+
+# ╔═╡ da3cde1e-d11a-4ce5-b134-347c3baba11d
+#=╠═╡
+display_mountaincar_results(mountaincar_tilecoding_sarsa_λ)
+  ╠═╡ =#
+
+# ╔═╡ c3cd5a5f-6445-4df3-b492-0d22e641f37c
+#=╠═╡
+display_mountaincar_results(mountaincar_sarsa_λ_fcann)
+  ╠═╡ =#
+
+# ╔═╡ 5bcb4ec9-8b58-4cf2-8869-31a6760deb02
+#=╠═╡
+display_mountaincar_results(mountaincar_fcann_dp_λ_test)
+  ╠═╡ =#
+
+# ╔═╡ 798544c9-215c-4516-a196-b00350512d48
+#=╠═╡
+let
+	 output = plot_mountaincar_action_values(mountaincar_test_output.value_function, 200, 200)
+@htl("""
+	 <div style = "display: flex">
+	 $output
+	 </div>
+	 """)
+end
   ╠═╡ =#
 
 # ╔═╡ 214ceb34-7e31-4c89-a328-a492244fd4cf
@@ -5204,15 +5856,15 @@ version = "17.4.0+2"
 # ╟─57cf5ae7-d4dd-47e8-8090-c04fb39e0763
 # ╟─34dda4bf-f78f-4c83-ba10-9b206d2fbcb8
 # ╟─6f5168dc-f1f3-4533-a59e-bb85895f3b13
-# ╠═dc6ad0ac-f92c-4ed8-a0a6-9eeb2641c709
+# ╠═0b2e26e4-e87a-49a8-a7a6-c5b225af82b3
 # ╠═5542897d-eb37-4e96-ac33-d36fc8adb603
-# ╠═f8d65b5b-9e9d-43d9-948d-d1a65a7666c8
 # ╠═9ec58129-a14f-40a9-9c41-809500181bdd
 # ╠═5610a0ba-60a8-4da6-8f68-50b1c5e82686
 # ╟─5e5fdcee-356e-46d4-a5b0-3c433aee989d
 # ╟─1d3144f8-fecf-4c8f-8e47-626ad94ed15a
 # ╠═24468748-009d-42a3-918d-4ba18b23c9ed
 # ╟─be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
+# ╠═52098913-ea06-497d-afad-a9fef99fb428
 # ╠═cfb775b2-ecd8-4518-854f-384bf35ba9af
 # ╠═3c1fdc9c-42ad-4eae-9103-e834a1056878
 # ╠═43675f77-a930-424a-bf60-6362354317ed
@@ -5227,7 +5879,7 @@ version = "17.4.0+2"
 # ╠═b68f1171-6274-4d93-bf68-05b95cb5b2f8
 # ╠═da8c5f8b-5ab6-4a2b-93e8-18be4284b932
 # ╟─83a645f8-f806-4828-bc42-d24cfd26bad3
-# ╟─9a75dc05-883b-47a6-b8f0-ae0799c5fc19
+# ╠═9a75dc05-883b-47a6-b8f0-ae0799c5fc19
 # ╟─addedc75-375f-429f-8e2e-90ba2151dee0
 # ╟─5e1366cc-05cd-43b3-8a00-e56242a30d8f
 # ╠═4f9cbb26-6c9b-458a-b7e6-102f0dbf64cb
@@ -5243,7 +5895,7 @@ version = "17.4.0+2"
 # ╟─21df1418-8808-42f1-9fcd-26048705c5ce
 # ╠═7f8fb89d-1a2e-4acd-9118-2ce3d3874341
 # ╠═34a28cfa-bf18-4dcf-8cf4-f6e9031d6fc2
-# ╠═4dc03d69-c90c-4d64-bb8e-600ecfe30eb8
+# ╠═d1903e34-0463-4a63-a74b-fb827451e542
 # ╠═d9f89b2c-8df8-415a-a0a8-21744be88cec
 # ╠═00015316-0d9d-41ce-a001-09aede10049c
 # ╠═9c287f15-a78a-4e3f-a0b7-c901874b6cca
@@ -5251,12 +5903,27 @@ version = "17.4.0+2"
 # ╟─f7cc35c5-c1ed-440d-8723-8c1b8b966b8f
 # ╟─b36896b1-6802-48e1-8cd3-f08bf3b99e3e
 # ╟─0086dc4a-e0ba-43f0-a721-296cd50e1a76
+# ╠═5eacdb68-f4ac-4615-b9aa-bb0ad1a31ede
+# ╠═43ba01e3-27d0-481c-8f93-8cd9c30b2a1d
+# ╠═58ea2a87-3a8c-4fa3-877e-b1aa4b0ba36f
+# ╠═01024201-7989-43f0-86f2-d3cd5ee219ae
+# ╠═b320dc0e-95dc-44d5-8ee4-455c4a858835
+# ╠═efa11915-d86b-4686-85f9-84d7539e27cf
+# ╠═84870ff4-d7a5-4214-abcb-3d74b7a8fe7b
+# ╠═3a03bd95-f43d-47b5-93d6-88a9ef61d2b4
+# ╠═c7caa90d-26bf-4179-b869-3385cb75b943
 # ╠═21479229-c2ad-425f-98bb-77717ab40b02
 # ╟─0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
 # ╠═c5edfcbf-8d31-4dc4-b9d0-1a5439540710
 # ╠═2c8beba6-4436-4603-88f2-20f847c5e916
+# ╠═84d71a29-7e38-4877-bfb8-57d4af2ec0d0
 # ╠═cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
 # ╟─31926565-8c2f-42a9-bc73-4f3001a38bf4
+# ╠═4cab7b59-f080-4bea-86dc-3c860a618c35
+# ╠═258be19f-0b01-4d5e-ae82-2ef07ba4cc9c
+# ╠═5f623b73-4d7d-4c69-acaf-9a668c352bf9
+# ╠═da6944b0-1d1b-4b92-a765-5e28c133cff5
+# ╠═08c7beae-9dee-468e-b276-aa56a8f24f1f
 # ╠═8c95178c-8e75-4036-b0cb-bec936dcbd28
 # ╠═a7c8d853-9411-40df-83a3-46da00722697
 # ╟─51274911-2eaa-4b18-b977-d0f735746bec
@@ -5265,6 +5932,7 @@ version = "17.4.0+2"
 # ╟─078eecc3-05b3-4a58-91c8-fc8c28c9b144
 # ╟─d08aaab5-4065-41ef-867d-ea689c87a4f6
 # ╟─b3c83ae6-9f3a-49a5-b726-872ef3a15853
+# ╟─38512c69-54dc-4eb6-9a22-2a6bb3e38d89
 # ╠═8d52f740-e1bf-4ac7-a299-38e7767a0831
 # ╟─a4e10d47-2d41-4586-a328-11ea7234d7bd
 # ╠═26a64c5d-6c21-4e3b-af75-e8682e8d5ea1
@@ -5279,7 +5947,7 @@ version = "17.4.0+2"
 # ╠═e323cbc2-1396-43fb-969a-1837bb60c5b5
 # ╟─4fa824ba-51a3-4f5a-a990-dd05bbf2526a
 # ╟─7aa62007-0685-40d2-88ab-9c03add8e75a
-# ╟─e047cce1-11a5-4bcb-8668-a767628da140
+# ╠═e047cce1-11a5-4bcb-8668-a767628da140
 # ╟─f5a8cc64-f7a3-44ef-b925-d11df6a414f6
 # ╠═771cca22-d61d-498a-98be-90fa59e09571
 # ╠═b6d67598-b020-4626-a572-adfb9e75edba
@@ -5306,10 +5974,30 @@ version = "17.4.0+2"
 # ╟─4d00dfcc-7b01-4335-95ba-0b31fa0e62ad
 # ╟─cc14f0a2-d0bc-40fa-83fa-b99e62351282
 # ╟─0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
+# ╠═23eec503-a083-4980-869b-d6019e9af5ab
+# ╠═2e6b7c33-c6b2-4fa0-9d71-acf7cb818b9b
+# ╠═abe1f077-d211-4488-a10c-ec2ca5aac328
+# ╠═315db1e4-c730-46bc-8f5b-03cdfe5467f9
+# ╠═da3cde1e-d11a-4ce5-b134-347c3baba11d
+# ╟─20836990-b332-478a-b99b-6f4ef4659392
+# ╠═26d91353-58ee-41ec-8807-2ebc7d9e4e84
+# ╟─a1c173d7-f5ac-4eb3-96c7-c2f020cdf3d5
+# ╟─03f0034a-9acf-4745-a927-51fc2554a7e4
+# ╠═7af6f5ed-178d-4b90-9226-02be6b13ed5a
+# ╟─3d6df2fa-35e5-4a02-b53f-30936f404b3f
+# ╠═bf3584aa-2a17-43ef-95aa-035aa9505dd2
+# ╠═ea1a07bd-740c-49d8-9e81-3443218a43fb
+# ╠═741e2f22-d084-4366-8981-3988958be832
+# ╠═3a67fbf8-a762-4910-934d-ea12cbe226a0
+# ╠═569c5552-cfc5-414d-8555-737f62abbb1c
+# ╠═c3cd5a5f-6445-4df3-b492-0d22e641f37c
 # ╠═66112956-63a3-4629-8fba-958ff04f59e2
 # ╠═7a0f8a69-467b-4059-b717-97d8e7a7a5fd
-# ╠═798544c9-215c-4516-a196-b00350512d48
+# ╟─798544c9-215c-4516-a196-b00350512d48
 # ╠═d4cd0741-1c01-407f-867c-2c804151c6fb
+# ╠═da2391d6-b781-40b4-94c7-c1efc273353d
+# ╠═8f8edda0-5a84-4f6b-a6f0-62ed394aaf3b
+# ╠═5bcb4ec9-8b58-4cf2-8869-31a6760deb02
 # ╠═3ac75a88-6894-4c48-ae2a-30c822814888
 # ╠═cc263d1a-d098-472b-8a2f-92e1ddedfdc4
 # ╠═a51c4911-8878-4eef-9ed4-4402d380dc4d
@@ -5368,19 +6056,29 @@ version = "17.4.0+2"
 # ╟─b762a7f7-0a84-47e8-9425-f8982665ab7c
 # ╠═d1eef08b-60b5-4475-bb48-d8e8cb52235f
 # ╟─86c8efc2-970a-45a7-bc5e-10010cb39086
+# ╠═5fc69f86-2642-419a-b11b-f42abd5e8d4c
 # ╠═dda1399e-d232-478d-9a38-6891430b8755
 # ╠═ca515bd9-6ff9-4642-b0ac-f7cfd522e7f6
 # ╟─59766450-1f4d-451a-9fe9-bca26596d955
 # ╟─75871e7e-2834-4e81-940b-9dd063733e1e
 # ╠═bee67ec3-98b8-41b9-895c-7d2db4cebfab
 # ╠═193e034f-1278-436f-b534-defc870cd36b
-# ╠═d7cc1ac9-f457-4665-a230-6458fc03664e
+# ╠═0834c4c0-4f04-4ac5-aff4-b69bd0448621
+# ╠═d5b8fb49-c4f0-49db-80ec-d747769eb905
 # ╟─8621eeab-2c9e-4228-a150-d7792b5ebccb
 # ╠═8612ce94-9933-4a60-ae62-3fc164748d3f
-# ╟─2bead4bf-0b97-4503-8971-c7c3ed1f8fff
+# ╠═2bead4bf-0b97-4503-8971-c7c3ed1f8fff
+# ╠═9bdd4ce4-e9b9-4cc1-8c5d-fbc4c7a6f74a
+# ╠═6ee6d7d0-9381-4413-a361-e836ac5240de
+# ╠═8cbd2958-f378-4dea-bcbd-78f57ee61d9f
 # ╠═3795d653-f0ba-4191-a361-f41e8423e628
 # ╟─bf139624-fd32-46b8-9d47-1c98f8b41f19
 # ╟─be22308b-809d-4671-9d23-240f0acb9235
+# ╠═94554ada-f01a-49f1-9289-50e3bd60c2e1
+# ╟─96afd2ee-f312-4aa8-b593-d9bf2ad0d6cd
+# ╟─9601eb2d-de36-436f-91c0-906dcd2921f8
+# ╠═c9be49a4-37c8-4b70-b005-e0b4580b2ecd
+# ╠═ac5e615b-910f-4fa8-94c0-e59e3317d7a8
 # ╟─0358288e-be4e-46c2-ac4c-16ace6f50187
 # ╟─2fb6e491-be69-44e8-ae2d-9cb13ec0b66f
 # ╠═67f08f89-698c-4aa4-80d5-1ebcb830fc0c
@@ -5411,6 +6109,7 @@ version = "17.4.0+2"
 # ╟─f0fa43fc-6221-469d-accc-fff87b005a17
 # ╠═17083d16-6a9c-47e8-99f5-099067210029
 # ╠═2e6c8ff9-4710-410d-b7e9-80563cc2af21
+# ╠═cb992290-4bc2-4ebb-be3c-dc5d513ee5ef
 # ╟─214ceb34-7e31-4c89-a328-a492244fd4cf
 # ╠═909104f3-44c2-44ae-8186-11fd74b3ba4e
 # ╟─00000000-0000-0000-0000-000000000001
