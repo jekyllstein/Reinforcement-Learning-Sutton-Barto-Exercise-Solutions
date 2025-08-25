@@ -572,8 +572,20 @@ const dp_params_layers = fill(64, 3)
 # ╔═╡ 6014ac2d-7d49-483c-92b7-7b1e24466b42
 const dp_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_params_layers, 1, 1, true)
 
+# ╔═╡ a42b444a-5ecb-40e4-adef-1c5b7c7d3e7e
+
+
+# ╔═╡ 859e4315-e693-45fc-8c0b-2bdb2ff1e506
+
+
+# ╔═╡ cdb18175-6e09-47d0-9e00-48acf898b1c6
+
+
+# ╔═╡ 6be19e3a-e62d-4f5e-a0df-9974b502b362
+
+
 # ╔═╡ ed067ef4-0b0c-4f2c-9372-899cfc6449c5
-const dp_mastery_params_layers = fill(128, 3)
+const dp_mastery_params_layers = fill(256, 3)
 
 # ╔═╡ 33ffe90d-941f-4c84-93b5-628bd175140d
 const dp_mastery_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_mastery_params_layers, 1, 1, true)
@@ -630,6 +642,9 @@ const snapshot_params = deepcopy(dp_params)
 md"""
 ---
 """
+
+# ╔═╡ 9cc7e569-c07d-4420-aaab-1284edf04744
+
 
 # ╔═╡ 613bd115-02f7-4b4b-b834-1dcad6016788
 md"""
@@ -737,21 +752,38 @@ test_fcann_dp_end_time2, set_test_fcann_dp_end_time2 = @use_state(0.0)
 # 8 -> 0.81
 # 9 -> 0.68
 
-# ╔═╡ 2d82c02a-583a-4509-b396-cb97d1ebc67c
+# ╔═╡ 9a54a1ba-8e51-42c2-a44b-ab669f7533d4
 #=╠═╡
-if isnothing(test_fcann_dp_start_time2)
+begin
+function create_spawn_message(start_time::Nothing, end_time::Real)
 	md"""
 	##### Waiting to run process
 	"""
-elseif test_fcann_dp_start_time2 > test_fcann_dp_end_time2
+end
+	
+function create_spawn_message(start_time::Real, end_time::Nothing)
 	md"""
-	##### Currently running task starting at $(unix2datetime(test_fcann_dp_start_time2)) and displaying previous results completed at $(unix2datetime(test_fcann_dp_end_time2))
-	"""
-else
-	md"""
-	##### Displaying most recent results completed at $(unix2datetime(test_fcann_dp_end_time2)) in $(test_fcann_dp_end_time2 - test_fcann_dp_start_time2) seconds.  Ready to start a new task.
+	##### Currently running task started at $(unix2datetime(start_time)) and waiting for first result
 	"""
 end
+
+function create_spawn_message(start_time::Real, end_time::Real)
+	if start_time > end_time
+	md"""
+	##### Currently running task started at $(unix2datetime(start_time)) and displaying most recent result completed at $(unix2datetime(end_time))
+	"""
+	else
+	md"""
+	##### Displaying most recent result completed at $(unix2datetime(end_time)) in $(end_time - start_time) seconds.  Ready to start a new task
+		"""
+	end
+end
+end
+  ╠═╡ =#
+
+# ╔═╡ 2d82c02a-583a-4509-b396-cb97d1ebc67c
+#=╠═╡
+create_spawn_message(test_fcann_dp_start_time2, test_fcann_dp_end_time2)
   ╠═╡ =#
 
 # ╔═╡ c6e67132-a618-4371-bb74-00a9f34d16f0
@@ -1714,7 +1746,7 @@ md"""
 # ╔═╡ f8180571-8869-4904-929b-dc89a0a612c6
 function get_nstep_scramble_statistic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, scramble::Integer, output, ntrials::Integer) where {N, T, S, A<:NTuple{N, Int64}, P, F1, F2, F3}
 	1:ntrials |> Map() do i
-		runepisode(mdp; π = s -> output.value_function(s; output.form_kwargs()...).maximizing_action)[3][end] 
+		runepisode(mdp; π = s -> output.value_function(s; output.form_kwargs()...).maximizing_action, s0 = mdp.initialize_state(;nmoves = scramble))[3][end] 
 	end |> foldxt(+) |> x -> x / ntrials
 end
 
@@ -1728,14 +1760,54 @@ md"""
 ## Non-linear TD Learning
 """
 
-# ╔═╡ 341ec41b-bc42-4548-b11a-f9b326179422
-function run_dp_rubiks_2step_fcann_test(min_moves, max_moves; γ = 0.9f0, layers = [8, 8], num_steps = 10_000, kwargs...)
-	mdp =  make_tdcube_2step_mdp(min_moves, max_moves)
-	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_feature!, length(solved_cube_feature), layers; kwargs...)
-end
+# ╔═╡ b903b3af-4c89-4054-88cd-4dfcc3a7d6f0
+const fcann_2step_layers = fill(64, 3)
 
 # ╔═╡ 58f6a2f1-c6eb-4031-9671-22c0d6416862
-const fcann_2step_params = FCANN.initializeparams_saxe(48*48, [64, 64, 64], 1; use_μP=true)
+const fcann_2step_params = NonTabularRL.initialize_fcann_params(48*48, fcann_2step_layers, 1, 1, true)
+
+# ╔═╡ 8bc7748a-babe-46a9-9277-fc69d11220f9
+const dp_mastery_2move_params_layers = fill(256, 3)
+
+# ╔═╡ bd930459-d714-4cdd-a274-bc6ae44efb26
+const dp_mastery_2move_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_mastery_2move_params_layers, 1, 1, true)
+
+# ╔═╡ bca04135-4e8f-4d0d-9bd5-5af78a76455e
+dp_step_mastery_2move_fcann_results = @use_state(nothing)
+
+# ╔═╡ c873a5cd-2b65-4c80-80ee-9cdd57172b7f
+dp_step_mastery_2move_fcann_start_time = @use_state(nothing)
+
+# ╔═╡ de692498-e6e0-4d68-8975-1ff80abe0651
+dp_step_mastery_2move_fcann_end_time = @use_state(nothing)
+
+# ╔═╡ d2b7fac5-fcaa-4d0e-a611-87c50f6d4d84
+#=╠═╡
+create_spawn_message(dp_step_mastery_2move_fcann_start_time[1], dp_step_mastery_2move_fcann_end_time[1])
+  ╠═╡ =#
+
+# ╔═╡ fbee7bdb-e826-41bc-bca7-e900cc7c4dca
+const dp_mastery_2move_params_layers2 = fill(512, 3)
+
+# ╔═╡ afd359a6-8f15-4d79-9267-07a2683f7635
+const dp_mastery_2move_fcann_params2 = NonTabularRL.initialize_fcann_params(48*48, dp_mastery_2move_params_layers, 1, 1, true)
+
+# ╔═╡ eff2c88c-a308-42d7-b3f2-98da787c930c
+dp_step_mastery_2move_fcann_results2 = @use_state(nothing)
+
+# ╔═╡ f453625b-ac72-46a5-a2a5-e21492dcdd86
+dp_step_mastery_2move_fcann_start_time2 = @use_state(nothing)
+
+# ╔═╡ 1f4ca1e0-d4c1-4ccf-aad4-3cba3ba822c2
+dp_step_mastery_2move_fcann_end_time2 = @use_state(nothing)
+
+# ╔═╡ 9864c34a-405b-466e-ae1b-e0844c2d4019
+#=╠═╡
+create_spawn_message(dp_step_mastery_2move_fcann_start_time2[1], dp_step_mastery_2move_fcann_end_time2[1])
+  ╠═╡ =#
+
+# ╔═╡ 5120365b-1317-4a2f-803c-bbac28046923
+display_nstep_αdecay_output(::Nothing) = nothing
 
 # ╔═╡ 92f40a51-695c-459e-9861-3d3d59d55546
 md"""
@@ -2143,9 +2215,30 @@ function display_nstep_output(nstep_result; nsmooth = 100, npoints = 1000, min_s
 end
   ╠═╡ =#
 
-# ╔═╡ 26a14497-12d2-4aec-b17c-72544ab23709
+# ╔═╡ ee8842f2-86af-495b-9b37-41aa59dd4cc1
 #=╠═╡
-run_dp_rubiks_2step_fcann_test(6, 6; layers = [64, 64, 64], reslayers = 1, num_steps = 10_000, parameters = fcann_2step_params, α = 1f-5, ϵ = 0.01f0).episode_rewards |> v -> plot_rewards(v, 100, 1000)
+function display_nstep_αdecay_output(results)
+	αs = sort(collect(keys(results.output_dict)); rev = true)
+	rewards = mapreduce(a -> results.output_dict[a].episode_rewards, vcat, αs)
+
+	last_output = results.output_dict[last(αs)]
+	result = (mdp = results.mdp, output = (value_function = last_output.value_function, episode_rewards = rewards, final_reward = last_output.final_reward, total_passes = sum(results.output_dict[a].total_passes for a in αs), final_parameters = last_output.final_parameters, form_kwargs = last_output.form_kwargs))
+	@htl("""
+	Showing results over the following learning rates: $(reduce((a, b) -> "$a, $b", αs)) for scrambles: $(results.min_scramble) to $(results.max_scramble) and $(result.output.total_passes) passes
+		 
+	$(display_nstep_output(result))
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ 8918bd6e-4cc7-4f04-9f45-4ab9b2edb259
+#=╠═╡
+display_nstep_αdecay_output(dp_step_mastery_2move_fcann_results[1])
+  ╠═╡ =#
+
+# ╔═╡ ca57f9f0-4d9b-41d6-b7ec-931415b39641
+#=╠═╡
+display_nstep_αdecay_output(dp_step_mastery_2move_fcann_results2[1])
   ╠═╡ =#
 
 # ╔═╡ c6fbbf97-1a25-4b80-bd5c-89034efa3f07
@@ -2781,7 +2874,7 @@ end
 
 # ╔═╡ 2a0dc867-0b2b-4ad5-9bf9-ce8e1b0d545a
 #=╠═╡
-const step_mastery_dp_fcann_output = run_dp_step_mastery_fcann_test!(dp_mastery_fcann_params, 6, 6, deepcopy(rubiks_binary_feature), update_rubiks_feature!, 1_000_000, α = 1f-5, ϵ = 0.01f0)
+const step_mastery_dp_fcann_output = run_dp_step_mastery_fcann_test!(dp_mastery_fcann_params, 4, 4, deepcopy(rubiks_binary_feature), update_rubiks_feature!, 10_000, α = 1f-5, ϵ = 0.01f0)
   ╠═╡ =#
 
 # ╔═╡ 436bd68b-e3f0-4e22-8898-d1c586f7d69d
@@ -2935,20 +3028,20 @@ end
 
 # ╔═╡ 725317cb-e761-49f3-9c03-a15bf9c34da9
 function build_tabular_rubiks_mdp(nmoves::Integer)
-	@info "Building list of cube states"
+	# @info "Building list of cube states"
 	statelist = collect(build_nmove_list(nmoves))
-	@info "Done building list of $(length(statelist)) states for $nmoves moves"
-	@info "Building state index map"
+	# @info "Done building list of $(length(statelist)) states for $nmoves moves"
+	# @info "Building state index map"
 	state_index_map = build_lookup(statelist)
-	@info "Done building state index map"
+	# @info "Done building state index map"
 	nstates = length(state_index_map)
-	@info "Allocating matrices for transition maps"
+	# @info "Allocating matrices for transition maps"
 	state_transition_map = zeros(Int64, 12, nstates)
 	reward_transition_map = zeros(Float32, 12, nstates)
 	s′ = copy(solved_cube_indices)
 	s_vec = copy(solved_cube_indices)
 	i_s_term = state_index_map[SVector{48}(solved_cube_indices)]
-	@info "Building state and reward transition maps"
+	# @info "Building state and reward transition maps"
 	for s in statelist
 		i_s = state_index_map[s]
 		if i_s == i_s_term
@@ -2988,7 +3081,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 1938becf-e2cc-4c7b-b6ec-d1c3ff107ed9
-const rubiks_value_iteration = value_iteration_v(rubiks_tabular_mdp, 1f0)
+const rubiks_value_iteration = value_iteration_v(rubiks_tabular_mdp, 1f0; usethreads=true)
 
 # ╔═╡ afe35fcb-44f3-4deb-b1f6-8820b74679c1
 const test_tabular_episode = runepisode(rubiks_tabular_mdp; π = rubiks_value_iteration.optimal_policy, i_s0 = rubiks_tabular_mdp.state_index[tabular_eval_cube])
@@ -3220,6 +3313,109 @@ function run_dp_λ_rubiks_nstep_linear_curriculum_test(γ, λ, steps_per_move, m
 	end
 	return results
 end
+
+# ╔═╡ 341ec41b-bc42-4548-b11a-f9b326179422
+function run_dp_λ_rubiks_nstep_fcann_test(γ, λ, n, min_moves, max_moves, layers; num_steps = 10_000, kwargs...)
+	mdp =  make_rubiks_nstep_mdp(min_moves, max_moves, n)
+	output = NonTabularRL.dp_λ_fcann(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!, layers; kwargs...)
+	(mdp = mdp, output = output)
+end
+
+# ╔═╡ 26a14497-12d2-4aec-b17c-72544ab23709
+const dp_λ_2step_fcann_result = run_dp_λ_rubiks_nstep_fcann_test(0.9f0, 0.5f0, 2, 4, 4, fcann_2step_layers; reslayers = 1, num_steps = 100_000, parameters = fcann_2step_params, α = 1f-4, ϵ = 0.01f0)
+
+# ╔═╡ f0316e07-2873-4538-b7a5-01256b089561
+#=╠═╡
+display_nstep_output(dp_λ_2step_fcann_result)
+  ╠═╡ =#
+
+# ╔═╡ cde3b13f-86e0-46ad-8a74-84684cc32811
+#=╠═╡
+function run_dp_step_mastery_nmove_fcann_test!(parameters::FCANNParams{T}, min_moves::Integer, max_moves::Integer, moves_per_step::Integer, feature_vector, update_feature_vector!, step_interval; γ::T = 0.9f0, kwargs...) where T<:Real
+	function check_reward_progress(episode_rewards::Vector{T}) 
+		l = length(episode_rewards)
+		episode_check = max(1000, ceil(Int64, l/2))
+		mean(episode_rewards[max(1, l-episode_check):l])
+	end
+	layers = get_hidden_layers(parameters)
+	mdp = make_rubiks_nstep_mdp(min_moves, max_moves, moves_per_step)
+	first_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+	reward_check1 = check_reward_progress(first_output.episode_rewards)
+	# @info "After first learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check1"
+
+	second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+	reward_check2 = check_reward_progress(second_output.episode_rewards)
+	# @info "After second learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
+
+	episode_rewards = vcat(first_output.episode_rewards, second_output.episode_rewards)
+	pass = 2
+	while reward_check2 > reward_check1
+		pass += 1
+		# @info "Reward still improving so proceeding with pass number $pass"
+		reward_check1 = reward_check2
+		second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+		reward_check2 = check_reward_progress(second_output.episode_rewards)
+		episode_rewards = vcat(episode_rewards, second_output.episode_rewards)
+		# @info "After pass number $pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
+	end
+	# @info "Concluded learning after $pass passes"
+
+	output = (value_function = second_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check2, total_passes = pass, final_parameters = deepcopy(parameters), form_kwargs = second_output.form_kwargs)
+	return (mdp = mdp, output = output)
+end
+  ╠═╡ =#
+
+# ╔═╡ b9586038-58ca-467b-8cd5-f5a16663682e
+#=╠═╡
+function run_dp_α_decay_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval, α0::T; decay = T(0.5), kwargs...) where T<:Real
+	α = α0
+
+	(mdp, output1) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
+
+	results = Dict([α => output1])
+
+	α *= decay
+
+	(mdp, output2) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
+	results[α] = output2
+
+	reward_check2 = output2.final_reward
+	reward_check1 = output1.final_reward
+	while reward_check2 > reward_check1
+		reward_check1 = reward_check2
+		α *= decay
+		(mdp, output) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
+		reward_check2 = output.final_reward
+		results[α] = output
+	end
+
+	return (mdp = mdp, output_dict = results, min_scramble = min_moves, max_scramble = max_moves)
+end
+  ╠═╡ =#
+
+# ╔═╡ c74f80a7-71f6-49eb-9b9a-0c5c78cd7ec3
+#=╠═╡
+@use_effect([]) do
+	@spawn begin
+		dp_step_mastery_2move_fcann_start_time[2](time())
+		result = run_dp_α_decay_step_mastery_nmove_fcann_test!(dp_mastery_2move_fcann_params, 5, 7, 2, deepcopy(rubiks_binary_feature), update_rubiks_feature!, 1_000_000, 1f-3; ϵ = 0.01f0)
+		dp_step_mastery_2move_fcann_results[2](result)
+		dp_step_mastery_2move_fcann_end_time[2](time())
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ 0648f541-aee5-451f-89a2-f8c55fb0105b
+#=╠═╡
+@use_effect([]) do
+	@spawn begin
+		dp_step_mastery_2move_fcann_start_time2[2](time())
+		result = run_dp_α_decay_step_mastery_nmove_fcann_test!(dp_mastery_2move_fcann_params2, 5, 7, 2, deepcopy(rubiks_binary_feature), update_rubiks_feature!, 1_000_000, 1f-3; ϵ = 0.01f0)
+		dp_step_mastery_2move_fcann_results2[2](result)
+		dp_step_mastery_2move_fcann_end_time2[2](time())
+	end
+end
+  ╠═╡ =#
 
 # ╔═╡ f181e0a7-0e3f-43e2-af6e-70eb2ca98854
 function run_mcts_2step_episode(scramble_moves, dp_output; mcts_kwargs...)
@@ -3879,7 +4075,7 @@ md"""
 
 # ╔═╡ a1288e7e-4708-47b0-9f27-adc565dc3829
 #=╠═╡
-threadinfo(blas=true)
+threadinfo()
   ╠═╡ =#
 
 # ╔═╡ e956ffaa-01c3-4e44-8c9f-2298347fea03
@@ -4035,16 +4231,6 @@ function show_rubiks_nstep_episode(nstep_result::NamedTuple; kwargs...)
 	initial_score = score_cube(first(states).cube)
 	(max_reward = 48 - initial_score, reward_sum = sum(rewards), steps = steps, rendered_states = [render_cube(c.cube) for c in [states[1], states[end], sterm]], states = states)
 end
-  ╠═╡ =#
-
-# ╔═╡ 21796737-ca52-498f-80aa-1e09e1521cdb
-#=╠═╡
-render_cube(test_2step_episode[1][2].cube)
-  ╠═╡ =#
-
-# ╔═╡ 71ad45e3-7eeb-4a83-8d7b-a264731891b4
-#=╠═╡
-render_cube(test_2step_episode[4].cube)
   ╠═╡ =#
 
 # ╔═╡ 2e9374ef-f5dc-4212-89c1-235fd9ab86ca
@@ -5077,6 +5263,10 @@ version = "17.4.0+2"
 # ╠═6014ac2d-7d49-483c-92b7-7b1e24466b42
 # ╠═a2ef7212-d2b6-40ab-8af8-6d38ab9f39f2
 # ╠═98e24e54-e285-4c2f-984f-159e315fbdeb
+# ╠═a42b444a-5ecb-40e4-adef-1c5b7c7d3e7e
+# ╠═859e4315-e693-45fc-8c0b-2bdb2ff1e506
+# ╠═cdb18175-6e09-47d0-9e00-48acf898b1c6
+# ╠═6be19e3a-e62d-4f5e-a0df-9974b502b362
 # ╠═738f63c0-4101-48df-b73f-610bea1553af
 # ╠═ed067ef4-0b0c-4f2c-9372-899cfc6449c5
 # ╠═33ffe90d-941f-4c84-93b5-628bd175140d
@@ -5096,6 +5286,7 @@ version = "17.4.0+2"
 # ╠═c51f5247-732d-4096-9df9-4730cac95f5c
 # ╠═3089e389-0687-4e35-afe9-72a20f5a597b
 # ╟─fc70f91d-40ea-4de5-9deb-d5863aabb806
+# ╠═9cc7e569-c07d-4420-aaab-1284edf04744
 # ╟─613bd115-02f7-4b4b-b834-1dcad6016788
 # ╠═990be70c-2b10-4766-8f05-d0b535dbde07
 # ╠═29188eb0-6cad-48dd-8ea3-d1fa66b37d45
@@ -5121,7 +5312,8 @@ version = "17.4.0+2"
 # ╠═4c0482a1-0320-45d3-9246-8c38bd1f3a05
 # ╠═5a0a75e8-6478-4c1e-ac7a-68d30481aa4a
 # ╠═be9fce6d-2fcf-493f-9634-0da89160866c
-# ╟─2d82c02a-583a-4509-b396-cb97d1ebc67c
+# ╠═9a54a1ba-8e51-42c2-a44b-ab669f7533d4
+# ╠═2d82c02a-583a-4509-b396-cb97d1ebc67c
 # ╟─2d67019e-557e-4751-8c08-429be62b76d4
 # ╟─c6e67132-a618-4371-bb74-00a9f34d16f0
 # ╠═af124561-acb5-4ed3-8fb4-62e01e9b66f8
@@ -5351,12 +5543,32 @@ version = "17.4.0+2"
 # ╠═56cf2e20-41ee-46fb-a5d4-0b79642ac3b9
 # ╠═1f0429c4-e6c7-4b09-8896-62fdf5569148
 # ╠═affd9578-11a2-4150-862a-aad1f7cfa565
-# ╠═21796737-ca52-498f-80aa-1e09e1521cdb
-# ╠═71ad45e3-7eeb-4a83-8d7b-a264731891b4
 # ╟─8e317749-78a6-4835-8a2d-e4f4690c7c68
 # ╠═341ec41b-bc42-4548-b11a-f9b326179422
+# ╠═b903b3af-4c89-4054-88cd-4dfcc3a7d6f0
 # ╠═58f6a2f1-c6eb-4031-9671-22c0d6416862
 # ╠═26a14497-12d2-4aec-b17c-72544ab23709
+# ╠═f0316e07-2873-4538-b7a5-01256b089561
+# ╠═cde3b13f-86e0-46ad-8a74-84684cc32811
+# ╠═b9586038-58ca-467b-8cd5-f5a16663682e
+# ╠═8bc7748a-babe-46a9-9277-fc69d11220f9
+# ╠═bd930459-d714-4cdd-a274-bc6ae44efb26
+# ╠═bca04135-4e8f-4d0d-9bd5-5af78a76455e
+# ╠═c873a5cd-2b65-4c80-80ee-9cdd57172b7f
+# ╠═de692498-e6e0-4d68-8975-1ff80abe0651
+# ╠═c74f80a7-71f6-49eb-9b9a-0c5c78cd7ec3
+# ╟─d2b7fac5-fcaa-4d0e-a611-87c50f6d4d84
+# ╠═8918bd6e-4cc7-4f04-9f45-4ab9b2edb259
+# ╠═fbee7bdb-e826-41bc-bca7-e900cc7c4dca
+# ╠═afd359a6-8f15-4d79-9267-07a2683f7635
+# ╠═eff2c88c-a308-42d7-b3f2-98da787c930c
+# ╠═f453625b-ac72-46a5-a2a5-e21492dcdd86
+# ╠═1f4ca1e0-d4c1-4ccf-aad4-3cba3ba822c2
+# ╠═0648f541-aee5-451f-89a2-f8c55fb0105b
+# ╟─9864c34a-405b-466e-ae1b-e0844c2d4019
+# ╠═ca57f9f0-4d9b-41d6-b7ec-931415b39641
+# ╠═5120365b-1317-4a2f-803c-bbac28046923
+# ╠═ee8842f2-86af-495b-9b37-41aa59dd4cc1
 # ╟─92f40a51-695c-459e-9861-3d3d59d55546
 # ╟─d2ab9e40-1d90-40dc-b36b-6e778b821ac1
 # ╟─a713e511-7c05-4cb4-9fee-2043fb0d4242
