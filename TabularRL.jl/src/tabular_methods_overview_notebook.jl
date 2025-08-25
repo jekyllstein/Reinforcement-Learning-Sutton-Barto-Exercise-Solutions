@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.17
 
 using Markdown
 using InteractiveUtils
@@ -12,7 +12,7 @@ using Base.Threads, LinearAlgebra, Statistics, Random, StatsBase, DataStructures
 #=╠═╡
 begin
 	using PlutoUI, PlutoPlotly, PlutoProfile, HypertextLiteral, BenchmarkTools
-	TableOfContents()
+	TableOfContents(;aside = true)
 end
   ╠═╡ =#
 
@@ -595,7 +595,7 @@ begin
 	# Description
 	This function initializes the state value function for a tabular MDP. Each element of the vector represents the value of being in a particular state represented by the index.
 	"""
-	initialize_state_value(mdp; kwargs...) = initialize_state_value(mdp.ptf)
+	initialize_state_value(mdp; kwargs...) = initialize_state_value(mdp.ptf; kwargs...)
 	initialize_state_value(mrp::TabularMRP{T, S, P, F}; init_value::Real = zero(T)) where {T<:Real, S, P, F<:Function} = ones(T, length(mrp.states)) .* T(init_value)
 	initialize_state_value(ptf::TabularTransitionDistribution{T, 2}; init_value::Real = zero(T)) where {T<:Real} = ones(T, size(ptf.state_transition_map, 2)) .* T(init_value)
 	initialize_state_value(ptf::TabularTransitionDistribution{T, 1}; init_value::Real = zero(T)) where {T<:Real} = ones(T, length(ptf.state_transition_map)) .* T(init_value)
@@ -1792,15 +1792,37 @@ begin
 	end
 end
 
+# ╔═╡ a3b9be2d-694e-4a3f-a963-3eda38bc00db
+function bellman_update_sweep_parallel!(value_ests::Array{T, N}, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, sweep) where {T <: Real, ST, RT, N}
+	delt = Atomic{T}(zero(T))
+	num_updates = Atomic{Int64}(0)
+	@threads for args in sweep
+		newdelt = bellman_optimal_update!(value_ests, args..., ptf, γ)
+		atomic_max!(delt, newdelt)
+		atomic_add!(num_updates, 1)
+	end
+	return delt.value, num_updates.value
+end
+
 # ╔═╡ a68e5923-23f1-4c03-bf5d-e541056fb906
-function bellman_update_sweep!(value_ests::Array{T, N}, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, sweep) where {T <: Real, ST, RT, N}
+function bellman_update_sweep_sequential!(value_ests::Array{T, N}, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, sweep) where {T <: Real, ST, RT, N}
 	delt = zero(T)
 	num_updates = 0
 	for args in sweep
-		delt = max(delt, bellman_optimal_update!(value_ests, args..., ptf, γ))
+		newdelt = bellman_optimal_update!(value_ests, args..., ptf, γ)
+		delt = max(delt, newdelt)
 		num_updates += 1
 	end
 	return delt, num_updates
+end
+
+# ╔═╡ b422a6e9-4cfa-46aa-860a-9a42c0dcddba
+begin
+	bellman_update_sweep!(::Val{true}, args...) = bellman_update_sweep_parallel!(args...)
+	bellman_update_sweep!(::Val{false}, args...) = bellman_update_sweep_sequential!(args...)
+	function bellman_update_sweep!(value_ests::Array{T, N}, ptf::TabularTransitionDistribution, γ::T, sweep; usethreads::Bool = false) where {N, T<:Real}
+		bellman_update_sweep!(Val(usethreads), value_ests::Array{T, N}, ptf::TabularTransitionDistribution, γ::T, sweep)
+	end
 end
 
 # ╔═╡ f23c0d63-7cec-44b0-bd82-36077588ed23
@@ -2700,36 +2722,56 @@ end
 
 # ╔═╡ 7c9c22ee-f245-45e1-b1b3-e8d029468f65
 begin
-	function bellman_update_sweep!(value_ests::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, 2, ST, RT}, γ::T, sweep) where {T <: Real, ST, RT, N}
-		delt = zero(T)
-		num_updates = 0
-		for args in sweep
-			delt = max(delt, bellman_policy_update!(value_ests, π, args..., ptf, γ))
-			num_updates += 1
+	function bellman_update_sweep!(value_ests::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, 2, ST, RT}, γ::T, sweep; usethreads=false) where {T <: Real, ST, RT, N}
+		if usethreads
+			delt = Atomic{T}(zero(T))
+			num_updates = Atomic{Int64}(0)
+			@threads for args in sweep
+				atomic_max!(delt, bellman_policy_update!(value_ests, π, args..., ptf, γ))
+				atomic_add!(num_updates, 1)
+			end
+			return delt.value, num_updates.value
+		else
+			delt = zero(T)
+			num_updates = 0
+			for args in sweep
+				delt = max(delt, bellman_policy_update!(value_ests, π, args..., ptf, γ))
+				num_updates += 1
+			end
+			return delt, num_updates
 		end
-		return delt, num_updates
+		
 	end
 
-	function bellman_update_sweep!(V::Vector{T}, ptf::TabularTransitionDistribution{T, 1, ST, RT}, γ::T, statesweep) where {T <: Real, ST, RT}
+	function bellman_update_sweep!(V::Vector{T}, ptf::TabularTransitionDistribution{T, 1, ST, RT}, γ::T, statesweep; usethreads=false) where {T <: Real, ST, RT}
 		delt = zero(T)
 		num_updates = 0
-		for i_s in statesweep
-			x = bellman_state_value(ptf, i_s, γ, V)
-			delt = max(delt, calc_pct_change(V[i_s], x))
-			V[i_s] = x
-			num_updates += 1
+		if usethreads
+			@threads for i_s in statesweep
+				x = bellman_state_value(ptf, i_s, γ, V)
+				delt = max(delt, calc_pct_change(V[i_s], x))
+				V[i_s] = x
+				num_updates += 1
+			end
+		else
+			for i_s in statesweep
+				x = bellman_state_value(ptf, i_s, γ, V)
+				delt = max(delt, calc_pct_change(V[i_s], x))
+				V[i_s] = x
+				num_updates += 1
+			end
 		end
 		return delt, num_updates
 	end
 end
 
 # ╔═╡ 9925509b-ee7e-430c-a646-fbf59bc75e62
-function policy_evaluation!(value_estimate::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T; max_updates = typemax(Int64), θ = eps(zero(T)), sweep = make_uniform_sweep(value_estimate)) where {T<:Real, ST, RT, N}
+function policy_evaluation!(value_estimate::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T; max_updates = typemax(Int64), θ = eps(zero(T)), sweep = make_uniform_sweep(value_estimate), kwargs...) where {T<:Real, ST, RT, N}
 	delt = typemax(T)
 	total_updates = 0
 	iter = 1
 	while (delt > θ) && (total_updates <= max_updates)
-		delt, num_updates = bellman_update_sweep!(value_estimate, π, ptf, γ, sweep)
+		delt, num_updates = bellman_update_sweep!(value_estimate, π, ptf, γ, sweep; kwargs...)
 		total_updates += num_updates
 		iter += 1
 	end
@@ -2766,49 +2808,48 @@ plot([scatter(y = td0_prediction(random_walk_dist, 0.99f0; max_steps = 100_000)[
   ╠═╡ =#
 
 # ╔═╡ ecebce8b-0e2a-49d0-89f5-53bd0ffdd1a3
-function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, nmax::Integer,  save_history::Bool, sweep) where {T<:Real, ST, RT, N}
+function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, nmax::Integer,  save_history::Bool, sweep; kwargs...) where {T<:Real, ST, RT, N}
 	delt = typemax(T)
 	total_updates = 0
+	valuelist = Vector{Array{T, N}}()
 	if save_history
-		valuelist = [copy(v_est)]
+		push!(valuelist, copy(v_est))
 	end
 
 	n = 1
 	while (delt > θ) && (n < nmax)
-		delt, num_updates = bellman_update_sweep!(v_est, ptf, γ, sweep)
+		delt, num_updates = bellman_update_sweep!(v_est, ptf, γ, sweep; kwargs...)
 		total_updates += num_updates
 		n += 1
 		save_history && push!(valuelist, copy(v_est))
 	end
-
-	basereturn = (final_value = v_est, total_iterations = n, total_updates = total_updates)
-	save_history && return (;basereturn..., value_history = valuelist)
-	return basereturn
+	π = make_greedy_policy(v_est, ptf, γ)
+	(final_value = v_est, total_iterations = n, total_updates = total_updates, value_history = valuelist, optimal_policy = π)
 end
 
 # ╔═╡ 3c7b0f62-1dc2-4d5b-a468-67aaa9c5367d
-function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, nmax::Integer,  save_history::Bool, sweep) where {T<:Real, ST, RT, N}
+function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, nmax::Integer, save_history::Bool, sweep; kwargs...) where {T<:Real, ST, RT, N}
 	#when there is no discount rate in the arguments, treat this as an average reward problem where the average value is removed from the value function on each step
 	delt = typemax(T)
 	total_updates = 0
 	reward_estimates = Vector{T}()
+	valuelist = Vector{Array{T, N}}()
 	if save_history
-		valuelist = [copy(v_est)]
+		push!(valuelist, copy(v_est))
 	end
 
 	n = 1
 	v_est2 = copy(v_est)
 	while (delt > θ) && (n < nmax)
-		delt, vref, num_updates = bellman_update_sweep!(v_est, v_est2, ptf, sweep)
+		delt, vref, num_updates = bellman_update_sweep!(v_est, v_est2, ptf, sweep; kwargs...)
 		push!(reward_estimates, vref)
 		total_updates += num_updates
 		n += 1
 		save_history && push!(valuelist, copy(v_est))
 	end
+	π = make_greedy_policy(v_est, ptf, one(T))
 
-	basereturn = (final_value = v_est, reward_estimates = reward_estimates, total_iterations = n, total_updates = total_updates)
-	save_history && return (;basereturn..., value_history = valuelist)
-	return basereturn
+	(final_value = v_est, reward_estimates = reward_estimates, total_iterations = n, total_updates = total_updates, value_history = valuelist, optimal_policy = π)
 end
 
 # ╔═╡ 077f6514-614d-4208-8b31-e8f5afb6be61
@@ -2942,7 +2983,8 @@ end
 begin
 	policy_evaluation(ptf::TabularTransitionDistribution, π::Matrix, γ::Real, value_initializer::Function; kwargs...) = policy_evaluation!(value_initializer(ptf), π, ptf, γ; kwargs...)
 	
-	function policy_evaluation(mdp::TabularMDP, π::Matrix, γ::Real, value_initializer::Function; kwargs...) 				@assert (γ < 1) || any(mdp.terminal_states)
+	function policy_evaluation(mdp::TabularMDP, π::Matrix, γ::Real, value_initializer::Function; kwargs...) 				
+		@assert (γ < 1) || any(mdp.terminal_states)
 		policy_evaluation(mdp.ptf, π, γ, value_initializer; kwargs...)
 	end
 end
@@ -2994,26 +3036,25 @@ end
 
 # ╔═╡ 1e24a0aa-dbf9-422e-92c9-834f293a0c02
 begin
-	function value_iteration(ptf::TabularTransitionDistribution, γ::T, value_initializer::Function; θ::T = eps(zero(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep) where T<:Real
-		v_est = value_initializer(ptf)
+	function value_iteration(ptf::TabularTransitionDistribution, γ::T, v_est::Array{T, N}; θ::T = eps(zero(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep, kwargs...) where {N, T<:Real}
 		sweep = create_sweep(v_est)
-		est = value_iteration!(v_est, θ, ptf, γ, nmax, save_history, sweep)
-		π = make_greedy_policy(v_est, ptf, γ)
-		return (;est..., optimal_policy = π)
+		value_iteration!(v_est, θ, ptf, γ, nmax, save_history, sweep; kwargs...)
 	end
 
-	function value_iteration(ptf::TabularTransitionDistribution{T, ST, RT}, value_initializer::Function; θ::T = eps(zero(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep) where {T<:Real, ST, RT}
-		v_est = value_initializer(ptf)
+	function value_iteration(ptf::TabularTransitionDistribution{T, ST, RT}, v_est::Array{T, N}; θ::T = eps(zero(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep, kwargs...) where {N, T<:Real, ST, RT}
 		sweep = create_sweep(v_est)
-		est = value_iteration!(v_est, θ, ptf, nmax, save_history, sweep)
-		π = make_greedy_policy(v_est, ptf, one(T))
-		return (;est..., optimal_policy = π)
+		value_iteration!(v_est, θ, ptf, nmax, save_history, sweep; kwargs...)
 	end
 
 	function value_iteration(mdp::TabularMDP, γ::Real, args...; kwargs...)
 		isone(γ) && !any(mdp.terminal_states) && return value_iteration(mdp.ptf, args...; kwargs...)
 		value_iteration(mdp.ptf, γ, args...; kwargs...)
 	end
+
+	function value_iteration(mdp::TabularMDP, args...; kwargs...) 
+		any(mdp.terminal_states) && error("Attempting to use average reward criteria with episodic problem")
+		value_iteration(mdp.ptf, args...; kwargs...)
+		end
 end
 
 # ╔═╡ 78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
@@ -3078,6 +3119,15 @@ begin
 			new{typeof(first(rewards)), promote_type(S, eltype(states)), F}(step)
 		end
 	end
+
+	struct StateMDPTransitionDeterministic{T<:Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
+	step::F
+		function StateMDPTransitionDeterministic(step::F, s::S) where {F<:Function, S}
+			(r, s′) = step(s, 1)
+			@assert promote_type(S, typeof(s′)) != Any "There is no common type between the provided state $s and the transition state $s′"
+			new{typeof(r), promote_type(S, typeof(s′)), F}(step)
+		end
+	end
 			
 	struct StateMDPTransitionSampler{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 		step::F
@@ -3097,6 +3147,9 @@ begin
 
 	#when used as a functor just apply the step function to the state action pair indices
 	(ptf::StateMDPTransitionSampler{T, S, F})(s::S, i_a::Integer) where {T<:Real, S, F<:Function} = ptf.step(s, i_a)
+
+	#when used as a functor just apply the step function to the state action pair indices
+	(ptf::StateMDPTransitionDeterministic{T, S, F})(s::S, i_a::Integer) where {T<:Real, S, F<:Function} = ptf.step(s, i_a)
 end
 
 # ╔═╡ 4881aa60-5f0e-43b3-b3cd-24a523581e97
@@ -3199,19 +3252,17 @@ begin
 		StateMDPTransitionDistribution(step, first(mdp.states))
 	end
 
-	#given a tabular MDP, create a non-tabular sampler ptf
-	function make_non_tabular_ptf(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P<:TabularDeterministicTransition{T, 2}, F<:Function}
-		d = Dict(begin
+	#if the tabular MDP is deterministic then create a deterministic State transition
+	function make_non_tabular_ptf(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P<:TabularDeterministicTransition{T, 2}, F<:Function}		
+		function step(s::S, i_a::Integer) 
 			i_s = mdp.state_index[s]
-			transitions = [mdp.ptf(i_s, i_a) for i_a in eachindex(mdp.actions)]
-			s => [(t[1], mdp.states[t[2]]) for t in transitions] 
+			(r, i_s′) = mdp.ptf(i_s, i_a)
+			return (r, mdp.states[i_s′])
 		end
-		for s in mdp.states)
-			
-		step(s::S, i_a::Integer) = d[s][i_a]
-		StateMDPTransitionSampler(step, first(mdp.states))
+		StateMDPTransitionDeterministic(step, first(mdp.states))
 	end
 
+	#given a tabular MDP, create a non-tabular sampler ptf
 	function make_non_tabular_ptf(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P<:AbstractTabularTransition{T, 2}, F<:Function}
 		function step(s::S, i_a::Integer)
 			i_s = mdp.state_index[s]
@@ -3503,9 +3554,11 @@ begin
 		πgreedy = make_random_policy(ptf)
 		πlast = copy(πgreedy)
 		(v_π, num_iterations, num_updates) = policy_evaluation!(v_π, πgreedy, ptf, γ; eval_kwargs...)
+		π_list = Vector{Matrix{T}}()
+		v_list = Vector{Array{T, N}}()
 		if save_history
-			π_list = [copy(πgreedy)]
-			v_list = [copy(v_π)]
+			push!(π_list, copy(πgreedy))
+			push!(v_list, copy(v_π))
 		end
 		make_greedy_policy!(πgreedy, v_π, ptf, γ)
 		πlast .= πgreedy
@@ -3526,6 +3579,7 @@ begin
 		else
 			return πgreedy, v_π
 		end
+		return (greedy_policy = πgreedy, value_function = v_π, policy_history = π_list, value_history = v_list)
 	end
 
 	policy_iteration(ptf::TabularTransitionDistribution, γ::Real, value_initializer::Function; kwargs...) = policy_iteration!(value_initializer(ptf), ptf, γ; kwargs...)
@@ -3639,10 +3693,14 @@ begin
 		v_π2 = copy(v_π)
 		(v_π, r, num_iterations, num_updates) = differential_policy_evaluation!(v_π, v_π2, πgreedy, ptf; eval_kwargs...)
 		r_last = r
+
+		π_list = Vector{Matrix{T}}()
+		v_list = Vector{Array{T, N}}()
+		r_list = Vector{T}()
 		if save_history
-			π_list = [copy(πgreedy)]
-			v_list = [copy(v_π)]
-			r_list = [r]
+			push!(π_list, copy(πgreedy))
+			push!(v_list, copy(v_π))
+			push!(r_list, r)
 		end
 		make_greedy_policy!(πgreedy, v_π, ptf, one(T))
 		πlast .= πgreedy
@@ -3665,12 +3723,8 @@ begin
 		end
 
 		steady_state = calculate_μ(ptf, πlast; θ = 0f0, maxiter = 10_000)
-	
-		if save_history
-			return (policies = π_list, value_functions = v_list, steady_state_distribution = steady_state, average_rewards = r_list)
-		else
-			return (greedy_policy = πgreedy, value_function = v_π, steady_state_distribution = steady_state, average_reward = r)
-		end
+		return (greedy_policy = πgreedy, value_function = v_π, steady_state_distribution = steady_state, average_reward = r, policy_history = π_list, value_history = v_list, reward_history = r_list)
+		
 	end
 
 	differential_policy_iteration(ptf::TabularTransitionDistribution, value_initializer::Function; kwargs...) = differential_policy_iteration!(value_initializer(ptf), ptf; kwargs...)
@@ -3701,17 +3755,17 @@ const differential_policy_iteration_results = differential_policy_iteration_v(di
 
 # ╔═╡ d8d4732c-ed21-4e9b-b76e-9bfe0e3f367a
 #=╠═╡
-md"""Number of Policy Iterations: $(@bind differential_policy_iteration_count2 Slider(0:length(differential_policy_iteration_results.policies) .- 1; show_value=true, default = length(differential_policy_iteration_results.policies) - 1))"""
+md"""Number of Policy Iterations: $(@bind differential_policy_iteration_count2 Slider(0:length(differential_policy_iteration_results.policy_history) .- 1; show_value=true, default = length(differential_policy_iteration_results.policy_history) - 1))"""
   ╠═╡ =#
 
 # ╔═╡ 60e09cc3-3c66-434d-9e58-652de62a3275
 #=╠═╡
-plot(differential_policy_iteration_results.average_rewards, Layout(xaxis = attr(title = "Iterations", tickvals = 1:length(differential_policy_iteration_results.average_rewards)), yaxis_title = "Average Reward per Step"))
+plot(differential_policy_iteration_results.reward_history, Layout(xaxis = attr(title = "Iterations", tickvals = 1:length(differential_policy_iteration_results.reward_history)), yaxis_title = "Average Reward per Step"))
   ╠═╡ =#
 
 # ╔═╡ e5eaea84-8f7d-4d2f-bb34-01b5bbf98a4b
 #=╠═╡
-const avg_reward_policy_discounted_values = policy_evaluation_v(differential_gridworld, differential_policy_iteration_results.policies[differential_policy_iteration_count2+1], differential_policy_iteration_params.γ)
+const avg_reward_policy_discounted_values = policy_evaluation_v(differential_gridworld, differential_policy_iteration_results.policy_history[differential_policy_iteration_count2+1], differential_policy_iteration_params.γ)
   ╠═╡ =#
 
 # ╔═╡ 463ee683-0697-4b7a-b6b5-46a985ef82e0
@@ -3865,7 +3919,10 @@ function value_iteration(mdp::TabularAfterstateMDP, γ::T; init_value::T = zero(
 end
 
 # ╔═╡ eec3017b-6d02-49e6-aedf-9a494b426ec5
-value_iteration_v(problem, γ::T; init_value::T = zero(T), kwargs...) where {T<:Real} = value_iteration(problem, γ, x -> initialize_state_value(x; init_value = init_value); kwargs...)
+begin
+	value_iteration_v(problem, γ::T; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real} = value_iteration(problem, γ, v_est; kwargs...)
+	value_iteration_v(problem::TabularMDP{T, S, A, P, F}; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real, S, A, P, F} = value_iteration(problem, v_est; kwargs...)
+end
 
 # ╔═╡ 929c353b-f67c-49ff-85d3-0a27cafc59cf
 # ╠═╡ skip_as_script = true
@@ -3880,7 +3937,10 @@ const value_iteration_grid_example2 = value_iteration_v(deterministic_gridworld,
   ╠═╡ =#
 
 # ╔═╡ 2fe59959-5d89-4ae7-839c-ecf82e2c71d8
-value_iteration_q(problem, γ::T; init_value::T = zero(T), kwargs...) where {T<:Real} = value_iteration(problem, γ, x -> initialize_state_action_value(x; init_value = init_value); kwargs...)
+begin
+	value_iteration_q(problem, γ::T; init_value::T = zero(T), v_est::Matrix{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real} = value_iteration(problem, γ, v_est; kwargs...)
+	value_iteration_q(problem::TabularMDP{T, S, A, P, F}; init_value::T = zero(T), v_est::Matrix{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real, S, A, P, F} = value_iteration(problem, v_est; kwargs...)
+end
 
 # ╔═╡ 9bf8be28-a5b6-4e24-a514-910019be475c
 begin
@@ -4409,11 +4469,93 @@ function apply_uct!(v_hold::Vector{T}, action_values::Vector{T}, action_counts::
 	return v_hold
 end
 
+# ╔═╡ 439a324b-decf-4597-ba86-1280bec8f545
+function apply_uct!(action_values::Vector{T}, action_counts::Vector{T}, c::T) where {T<:Real}
+	ntot = sum(action_counts)
+
+	#if no samples have been collected yet then every action value is just from the approximation function.  in this case just use the approximated values on their own to select the best action
+	iszero(ntot) && return action_values 
+	
+	#for normal UCB selection, unvisited states have an infinite bonus
+	@inbounds @fastmath @simd for i in eachindex(action_values)
+		#unvisited states will always produce a value of Inf
+		action_values[i] += c * uct(action_counts[i], ntot)
+	end
+	return action_values
+end
+
 # ╔═╡ 4e906d8c-ca74-42e3-a9e3-b3980206fbe3
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""### *Example: Gridworld MCTS*"""
   ╠═╡ =#
+
+# ╔═╡ 263b2c0b-066f-46e0-b198-855afaf1642a
+md"""
+### Basic Distribution MCTS
+
+When I have an MDP that produces a transition distribution, I should be able to perform MCTS with only storing a table of state values.  The action value lookup can be constructed in real time and also I won't have redundant information for states that are revisted.
+"""
+
+# ╔═╡ 255f1c34-9724-41d4-a747-25ddc6424eb5
+function update_action_values!(action_values::Vector{T}, s::S, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, V::Dict{S, Tuple{Vector{T}, Vector{T}}}; est_kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
+	action_visits = V[s][2]
+	for i_a in eachindex(action_values)
+		if iszero(action_visits[i_a])
+			action_values[i_a] = T(Inf)
+		else
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			r_avg = dot(rewards, probabilities)
+			v′ = mapreduce(+, eachindex(probabilities)) do i
+				s′ = states[i]
+				mdp.isterm(s′) && return zero(T)
+				haskey(V, s′) && return probabilities[i]*V[s′][1][1]
+				v̂ = v_est(mdp, s′, γ; est_kwargs...)
+				V[s′] = ([v̂], zeros(T, length(mdp.actions)))
+				return probabilities[i]*v̂
+			end
+			action_values[i_a] = r_avg + γ*v′
+		end
+	end
+	return action_values
+end
+
+# ╔═╡ 0888d728-5983-4434-815b-ff803a849ade
+function simulate!(V::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, s, depth::Integer, c::T, action_values::Vector, update_tree_policy!::Function, apply_bonus!::Function, sample_state::Bool, step_kwargs::NamedTuple, est_kwargs::NamedTuple) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
+	#if the state is terminal, produce a value of 0
+	mdp.isterm(s) && return zero(T)
+	
+	#for a state where no actions have been attempted, expand a new node
+	if !haskey(V, s)
+		v̂ = v_est(mdp, s, γ; est_kwargs...)
+		V[s] = ([v̂], zeros(T, length(mdp.actions)))
+		return v̂
+	end
+
+	#if state is not selected for sampling then just return the estimate we have so far
+	!sample_state && return V[s][1][1]
+
+	depth ≤ 0 && return V[s][1][1]
+
+	#replace this part with a way to compute action values looking ahead one step with the mdp
+	update_action_values!(action_values, s, mdp, γ, v_est, V; est_kwargs...)
+	action_visits = V[s][2]
+	apply_bonus!(action_values, action_visits, c)
+	
+	update_tree_policy!(action_values, s)
+	i_a = sample_action(action_values)
+	(rewards, states, probabilities) = mdp.ptf.step(s, i_a; step_kwargs...)
+	i_select = sample_action(probabilities)
+	r_avg = dot(rewards, probabilities)
+	v′ = mapreduce(i -> simulate!(V, mdp, γ, v_est, states[i], depth-1, c, action_values, update_tree_policy!, apply_bonus!, i == i_select, step_kwargs, est_kwargs)*probabilities[i], +, eachindex(probabilities))
+	target = r_avg + γ*v′
+	
+	action_visits[i_a] += one(T)
+	δv = (target - V[s][1][1]) / sum(action_visits)
+	v = V[s][1][1] + δv
+	V[s][1][1] =v
+	return v
+end
 
 # ╔═╡ 8782fff3-891c-4fa1-b686-3199503370e4
 # ╠═╡ skip_as_script = true
@@ -4911,6 +5053,50 @@ begin
 	monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s::S; kwargs...) where {T<:Real, S, A, P <: AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function} = monte_carlo_tree_search(mdp, γ, (mdp, s, γ; vest_kwargs...) -> sample_rollout(mdp, make_random_policy(mdp), γ; s0 = s, max_steps = 1_000, vest_kwargs...), s; kwargs...)
 end
 
+# ╔═╡ 5c84d3b7-fee0-43cf-ac6f-c6e761c10b99
+
+#perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
+function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, s::S; 
+	depth = 10, 
+	nsims = 100, 
+	c = one(T), 
+	V = Dict{S, Tuple{Vector{T}, Vector{T}}}(), #for each state store its value estimate and a vector of how many times each action has been visited.  the sum of this vector is the total action visits
+	update_tree_policy! = (v, s) -> make_greedy_policy!(v), 
+	action_values = zeros(T, length(mdp.actions)),
+	apply_bonus! = apply_uct!,
+	make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
+	make_est_kwargs = k -> NamedTuple(), #option to create state estimation arguments that depend on the simulation number
+	sim_message = false
+	) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+
+	#I want to have a way of possible a kwargs such as the answer index to the simulator that can change with each simulation
+	t = time()
+	last_time = t
+	for k in 1:nsims
+		seed = rand(UInt64)
+		if sim_message
+			elapsed = time() - last_time
+			if elapsed > 5
+				last_time = time()
+				pct_done = k/nsims
+				total_time = time() - t
+				ett = total_time / pct_done
+				eta = ett - total_time
+				@info """Completed simulation $k of $nsims after $(round(Int64, total_time/60)) minutes
+				ETA: $(round(Int64, eta/60)) minutes"""
+			end
+		end
+		simulate!(V, mdp, γ, v_est, s, depth, c, action_values, update_tree_policy!, apply_bonus!, true, make_step_kwargs(seed), make_est_kwargs(seed))
+	end
+
+	update_action_values!(action_values, s, mdp, γ, v_est, V; make_est_kwargs(1)...)
+	make_greedy_policy!(action_values)
+	if sim_message
+		@info "Finished MCTS evaluation of state $s"
+	end
+	return sample_action(action_values),  action_values, V
+end
+
 # ╔═╡ f5e0b84b-32c1-4821-9c06-7d977c5d01ff
 #perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
 function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s::S, π_dist!::Function, pscale::T, topk::Integer; 
@@ -5020,12 +5206,12 @@ end
 # ╔═╡ 3e4fc9d3-1d87-431b-b348-09e7567149f0
 # ╠═╡ skip_as_script = true
 #=╠═╡
-monte_carlo_tree_search(mc_gridworld, 0.99f0, mc_gridworld.initialize_state(); nsims = 10_000, depth = 1_000, c = 1f0)
+monte_carlo_tree_search(mc_gridworld, 0.99f0, mc_gridworld.initialize_state(); nsims = 10_000, depth = 1_000, c = 1f0)[3][mc_gridworld.initialize_state()]
   ╠═╡ =#
 
 # ╔═╡ 84790981-a0ea-4680-a656-f591dea83b7e
 #=╠═╡
-monte_carlo_tree_search(mc_stochastic_gridworld, 0.99f0, mc_gridworld.initialize_state(); nsims = 10_000, depth = 1_000, c = 1f0)
+monte_carlo_tree_search(mc_stochastic_gridworld, 0.99f0, mc_gridworld.initialize_state(); nsims = 1_000, depth = 1_000, c = 1f0)#[3][mc_gridworld.initialize_state()]
   ╠═╡ =#
 
 # ╔═╡ 796eeb6c-1152-11ef-00b7-b543ec85b526
@@ -5548,8 +5734,8 @@ show_grid_policy(deterministic_gridworld.states, deterministic_gridworld.initial
 #=╠═╡
 @htl("""
 <div style = "display: flex; justify-content: space-around; align-items: flex-start;">
-	<div>Policy after Iteration $differential_policy_iteration_count2$(show_grid_policy(differential_gridworld.states, differential_gridworld.initialize_state_index, differential_gridworld.terminal_states, differential_policy_iteration_results.policies[differential_policy_iteration_count2+1], "differential_policy_iteration_deterministic_gridworld"))</div>
-	<div>Differential Value Function$(show_grid_value(differential_gridworld, differential_policy_iteration_results.value_functions[differential_policy_iteration_count2+1], "differential_values", square_pixels = 40))</div>
+	<div>Policy after Iteration $differential_policy_iteration_count2$(show_grid_policy(differential_gridworld.states, differential_gridworld.initialize_state_index, differential_gridworld.terminal_states, differential_policy_iteration_results.policy_history[differential_policy_iteration_count2+1], "differential_policy_iteration_deterministic_gridworld"))</div>
+	<div>Differential Value Function$(show_grid_value(differential_gridworld, differential_policy_iteration_results.value_history[differential_policy_iteration_count2+1], "differential_values", square_pixels = 40))</div>
 	<div>Discounted Value Function of Differential Policy$(show_grid_value(differential_gridworld, avg_reward_policy_discounted_values.value_function, "differential_discounted_values", square_pixels = 40))</div>
 </div>
 """)
@@ -5816,6 +6002,23 @@ end
 # ╠═╡ skip_as_script = true
 #=╠═╡
 show_mcts_solution(mc_gridworld; xmax = 10, ymax = 7, depth = 10)
+  ╠═╡ =#
+
+# ╔═╡ 9c7a562d-f375-4821-9fee-e4f974876ed6
+#=╠═╡
+function show_mcts_solution2(mdp::StateMDP; nsims = 10_000, depth = 1_000, c = 1f0, max_steps = typemax(Int64), kwargs...)
+	V = Dict{GridworldState, Tuple{Vector{Float32}, Vector{Float32}}}()
+
+	(states, actions, rewards, goal) = runepisode(mdp; π = s -> monte_carlo_tree_search(mdp, 0.99f0, s; nsims = nsims, depth = depth, c = c, V = V)[1], s0 = mdp.initialize_state(), max_steps = max_steps)
+
+	# return(states, Q, visit_counts)
+	plot_path(states, GridworldState(8, 4), mdp.initialize_state(); kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ b3426905-4a82-431b-a17f-48153660319d
+#=╠═╡
+show_mcts_solution2(mc_stochastic_gridworld; xmax = 10, ymax = 7, depth = 10, nsims = 10_000, max_steps = 30, c = 1f0)
   ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -6719,7 +6922,9 @@ version = "17.4.0+2"
 # ╟─0a7c9e73-81a7-45d9-bf9e-ebc61abeb552
 # ╠═5e2c1c41-722e-49a2-a705-ba6c9aebe824
 # ╠═aef53c15-74a1-4e7d-9598-3823755fb5af
+# ╠═a3b9be2d-694e-4a3f-a963-3eda38bc00db
 # ╠═a68e5923-23f1-4c03-bf5d-e541056fb906
+# ╠═b422a6e9-4cfa-46aa-860a-9a42c0dcddba
 # ╠═f23c0d63-7cec-44b0-bd82-36077588ed23
 # ╠═ecebce8b-0e2a-49d0-89f5-53bd0ffdd1a3
 # ╠═3c7b0f62-1dc2-4d5b-a468-67aaa9c5367d
@@ -6897,11 +7102,18 @@ version = "17.4.0+2"
 # ╠═3f35548e-1bfc-4262-9534-ad4bc159bcf9
 # ╠═31c20ab7-e4b4-4069-ada9-418f4bb5e81d
 # ╠═bbe7e7d9-9d10-46ba-af53-a22ccc59935d
+# ╠═439a324b-decf-4597-ba86-1280bec8f545
 # ╟─4e906d8c-ca74-42e3-a9e3-b3980206fbe3
 # ╠═3e4fc9d3-1d87-431b-b348-09e7567149f0
 # ╠═84790981-a0ea-4680-a656-f591dea83b7e
 # ╠═2a2d1b60-be6f-4f9c-8190-7c0a2d77d510
+# ╠═9c7a562d-f375-4821-9fee-e4f974876ed6
 # ╠═8ffd78db-cfc5-4695-a1c1-6a4e6aa32348
+# ╠═b3426905-4a82-431b-a17f-48153660319d
+# ╟─263b2c0b-066f-46e0-b198-855afaf1642a
+# ╠═255f1c34-9724-41d4-a747-25ddc6424eb5
+# ╠═0888d728-5983-4434-815b-ff803a849ade
+# ╠═5c84d3b7-fee0-43cf-ac6f-c6e761c10b99
 # ╟─8782fff3-891c-4fa1-b686-3199503370e4
 # ╠═9fe0b3d2-be8a-4832-a51f-5347d6cca5bc
 # ╠═f5e0b84b-32c1-4821-9c06-7d977c5d01ff

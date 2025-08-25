@@ -7,7 +7,7 @@ include("tabular_methods_overview_notebook.jl")
 
 #---------Types------------
 #dynamic programming mdp types
-export AbstractTransition, AbstractTabularTransition, TabularTransitionDistribution, TabularDeterministicTransition, TabularStochasticTransition, TabularMDPTransitionSampler, TabularMRPTransitionSampler, AbstractStateTransition, StateMDPTransitionDistribution, StateMDPTransitionSampler, StateMRPTransitionDistribution, StateMRPTransitionSampler
+export AbstractTransition, AbstractTabularTransition, TabularTransitionDistribution, TabularDeterministicTransition, TabularStochasticTransition, TabularMDPTransitionSampler, TabularMRPTransitionSampler, AbstractStateTransition, StateMDPTransitionDistribution, StateMDPTransitionSampler, StateMRPTransitionDistribution, StateMRPTransitionSampler, StateMDPTransitionDeterministic
 
 export AbstractMP, AbstractMDP, AbstractMRP, TabularMDP, TabularMRP, AbstractAfterstateMDP, TabularAfterstateMDP, StateMDP, StateMRP
 
