@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.17
 
 using Markdown
 using InteractiveUtils
@@ -157,6 +157,12 @@ end
 const corridor_mdp = make_corridor_mdp()
   ╠═╡ =#
 
+# ╔═╡ 727e422f-2994-410f-94c6-c5c8adb6fc07
+function get_corridor_episode_stats(output::NamedTuple; kwargs...) 
+	π(s) = output.value_function(s).maximizing_action
+	get_corridor_episode_stats(π; kwargs...)
+end
+
 # ╔═╡ 6bb0263e-368e-462a-948c-baf9cfa82512
 get_corridor_features(s) = 1:1
 
@@ -165,12 +171,17 @@ update_corridor_features!(x::Vector{T}, s) where T<:Real = x[1] = one(T)
 
 # ╔═╡ f2f2dd1d-180c-4d36-b515-5079d129f93a
 #=╠═╡
-sarsa_λ(corridor_mdp, 1f0, 0.9f0, typemax(Int64), 100_000, 1, get_corridor_features; ϵ = 0.0001f0, α = 0.000001f0, save_episode_steps = true).history.episode_steps |> a -> a ./ (1:length(a)) |> plot
+sarsa_λ_linear(corridor_mdp, 1f0, 0.9f0, typemax(Int64), 100_000, [1f0], update_corridor_features!; ϵ = 0.0001f0, α = 0.000001f0, save_episode_steps = true).episode_steps |> a -> a ./ (1:length(a)) |> plot
+  ╠═╡ =#
+
+# ╔═╡ e1493cea-19c4-475d-98a0-86d27fb04af1
+#=╠═╡
+sarsa_λ_linear(corridor_mdp, 1f0, 0.9f0, typemax(Int64), 100_000, [1f0], update_corridor_features!; ϵ = 0.001f0, α = 0.000001f0) # |> get_corridor_episode_stats
   ╠═╡ =#
 
 # ╔═╡ 3e5fc75b-61a5-49d5-b5bd-3d2847f5f72c
 #=╠═╡
-corridor_train = sarsa_λ(corridor_mdp, 1f0, 0.99f0, typemax(Int64), 1_000_000, 1, get_corridor_features; ϵ = 0.5f0, α = 0.0001f0)
+corridor_train = sarsa_λ_linear(corridor_mdp, 1f0, 0.99f0, typemax(Int64), 1_000_000, [1f0], update_corridor_features!; ϵ = 0.5f0, α = 0.0001f0)
   ╠═╡ =#
 
 # ╔═╡ 5334064b-5a16-4135-afa0-86a48291725b
@@ -648,27 +659,6 @@ md"""
 ### *REINFORCE Implementation*
 """
 
-# ╔═╡ 581f7e9b-a5c2-4841-9605-85f9585b0274
-update_linear_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::Matrix{T}) where T<:AbstractFloat = BLAS.gemv!('T', one(T), params, x, zero(T), action_preferences)
-
-# ╔═╡ a361f4c9-47ce-42ad-899c-87b611c0d471
-function update_binary_action_preferences!(action_preferences::Vector{T}, binary_features::BinaryFeatureVector, params::Matrix{T}) where T<:Real
-	@inbounds for i_a in eachindex(action_preferences)
-		action_preferences[i_a] = zero(T)
-		@simd for i in 1:binary_features.num_features
-			j = binary_features.active_features[i]
-			action_preferences[i_a] += params[j, i_a]
-		end
-	end
-	return action_preferences
-end
-
-# ╔═╡ cc3ac95e-a398-438a-ba3d-62b6733f6342
-function update_fcann_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams, activations::FCANNActivations{T}, reslayers::Integer) where T<:Float32
-	FCANN.forwardNOGRAD_base!(activations, params..., x, reslayers)
-	action_preferences .= activations[end]
-end
-
 # ╔═╡ 4634267b-5dea-4164-8bb2-1eb2fd4d7954
 function update_linear_eligibility_vector!(∇lnπ::Matrix{T}, action_preferences::Vector{T}, x::Vector{T}, i_a::Integer, params::Matrix{T}) where T<:AbstractFloat
 	update_linear_action_preferences!(action_preferences, x, params)
@@ -680,7 +670,7 @@ function update_linear_eligibility_vector!(∇lnπ::Matrix{T}, action_preference
 end
 
 # ╔═╡ 45f0a385-6465-4acc-8637-1b007a0fe215
-function update_fcann_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x::Vector{T}, i_a::Integer, params::FCANNParams, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales) where T<:Float32
+function update_fcann_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a::Integer, params::FCANNParams, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales) where T<:Float32
 	FCANN.nnCostFunction(params..., hidden_layers, x, i_a, l2, ∇lnπ..., tanh_grad_z, activations, deltas, dropout; resLayers = reslayers, loss_type = CrossEntropyLoss(), activation_list = activation_list)
 	@inbounds for i in eachindex(params[1])
 		for j in 1:2
@@ -696,22 +686,6 @@ mutable struct BinaryEligibilityVector{T, B <: BinaryFeatureVector}
 	π_dist::Vector{T}
 end
 
-# ╔═╡ b0a66a19-ee76-463b-a704-8fcee85444d0
-function update_params_with_gradient!(θ::Matrix{T}, α::T, ∇θ::BinaryEligibilityVector{T, B}) where {T<:Real, B<:BinaryFeatureVector}
-	@inbounds for i in eachindex(∇θ.π_dist)
-		@simd for j in 1:∇θ.binary_features.num_features
-			k = ∇θ.binary_features.active_features[j]
-			θ[k, i] -= α*∇θ.π_dist[i]
-		end
-	end
-	
-	@inbounds @simd for i in 1:∇θ.binary_features.num_features
-		j = ∇θ.binary_features.active_features[i]
-		θ[j, ∇θ.i_a] += α
-	end
-	return θ
-end
-
 # ╔═╡ 042fbafe-2401-4fb7-ac13-4531e0782c79
 function update_binary_eligibility_vector!(∇lnπ::BinaryEligibilityVector{T, B}, action_preferences::Vector{T}, binary_features::B, i_a::Integer, params::Matrix{T}) where {T<:Real, B<:BinaryFeatureVector}
 	update_binary_action_preferences!(action_preferences, binary_features, params)
@@ -720,20 +694,6 @@ function update_binary_eligibility_vector!(∇lnπ::BinaryEligibilityVector{T, B
 	∇lnπ.i_a = i_a
 	∇lnπ.π_dist .= action_preferences
 	return ∇lnπ
-end
-
-# ╔═╡ 65d2add6-fd6f-456c-92ed-3cd9d1862ef6
-function update_binary_policy_params!(params::Matrix{T}, active_features::BinaryFeatures, i_a::Integer, π_dist::Vector{T}, c::T) where T<:Real
-	@inbounds for i in eachindex(π_dist)
-		for j in active_features
-			params[j, i] -= c*π_dist[i]
-		end
-	end
-	
-	@inbounds for j in active_features
-		params[j, i_a] += c
-	end
-	return params
 end
 
 # ╔═╡ 96506201-6b66-49e6-8179-06952e2394e1
@@ -814,14 +774,6 @@ function form_state_policy_function(update_feature_vector!::Function, update_act
 		update_feature_vector!(x, s)
 		update_action_preferences!(action_preferences, x, params)
 		soft_max!(action_preferences)
-	end
-end
-
-# ╔═╡ e7566274-5518-4e28-8738-d4b1747d0cfb
-function form_state_value_function(update_feature_vector!::Function, value_function::Function)
-	function v!(x, s, value_params)
-		update_feature_vector!(x, s)
-		value_function(x, value_params)
 	end
 end
 
@@ -1901,14 +1853,9 @@ end
 plot(scatter(x = 1 .- LinRange(0.01, 0.99, 100), y = -[get_corridor_episode_stats(p) for p in 1 .- LinRange(0.01, 0.99, 100)]), Layout(xaxis_title = "probability of right action", yaxis_title = "sample mean value of starting state", width = 800, yaxis_range = [-60, -10]))
   ╠═╡ =#
 
-# ╔═╡ e1493cea-19c4-475d-98a0-86d27fb04af1
-#=╠═╡
-sarsa_λ(corridor_mdp, 1f0, 0.9f0, typemax(Int64), 100_000, 1, get_corridor_features; ϵ = 0.001f0, α = 0.000001f0).greedy_policy |> get_corridor_episode_stats
-  ╠═╡ =#
-
 # ╔═╡ 573878bb-020d-40f6-9329-3d5f91843010
 #=╠═╡
-get_corridor_episode_stats(corridor_train.greedy_policy; max_steps = 100, ntrials = 1_000_000)
+get_corridor_episode_stats(s -> corridor_train.value_function(s).maximizing_action; max_steps = 100, ntrials = 1_000_000)
   ╠═╡ =#
 
 # ╔═╡ 0c9986bb-54c0-4b08-9c29-4bfb0b68b54e
@@ -5777,6 +5724,7 @@ version = "17.4.0+2"
 # ╠═f7433324-acc3-49a5-b5b3-ada0c8f09d52
 # ╠═fb8904a9-ae64-41cc-93b6-5a25855edad0
 # ╠═cecc2a35-3850-4f66-84e8-e29da4f3d4b0
+# ╠═727e422f-2994-410f-94c6-c5c8adb6fc07
 # ╠═6bb0263e-368e-462a-948c-baf9cfa82512
 # ╠═1acc0d86-fd5b-4f2e-acb2-dc9a96d3b811
 # ╟─a019925a-460a-410e-a54b-50a4cfe0e90e
@@ -5820,15 +5768,10 @@ version = "17.4.0+2"
 # ╟─73b90260-d57a-449a-8db6-47f91e6a4e4f
 # ╟─ee72af8d-3cb8-4314-82df-580f068e1252
 # ╟─89901156-b874-416b-89c1-6dc434a4eb17
-# ╠═b0a66a19-ee76-463b-a704-8fcee85444d0
-# ╠═581f7e9b-a5c2-4841-9605-85f9585b0274
-# ╠═a361f4c9-47ce-42ad-899c-87b611c0d471
-# ╠═cc3ac95e-a398-438a-ba3d-62b6733f6342
 # ╠═4634267b-5dea-4164-8bb2-1eb2fd4d7954
 # ╠═45f0a385-6465-4acc-8637-1b007a0fe215
 # ╠═41dc149d-c6f3-4b0d-a856-06f3aaae3049
 # ╠═042fbafe-2401-4fb7-ac13-4531e0782c79
-# ╠═65d2add6-fd6f-456c-92ed-3cd9d1862ef6
 # ╠═0ac7ea44-14f6-4e80-80f9-d6df8059bb38
 # ╠═96506201-6b66-49e6-8179-06952e2394e1
 # ╠═961f02ee-a6e5-4fe8-b1d2-eb3f8824d290
@@ -5842,7 +5785,6 @@ version = "17.4.0+2"
 # ╟─cc45091e-b889-4d5a-9eef-84d80f792046
 # ╟─d83dc659-dce7-41dd-a8e7-2933ab39d15c
 # ╠═37ec6802-d4c2-4470-ad69-439d5a732f77
-# ╠═e7566274-5518-4e28-8738-d4b1747d0cfb
 # ╠═4fb83451-b6f8-4e6e-a131-1accc8e10b08
 # ╠═a7c9ae69-f4b8-471c-ab97-90642f3c2bdb
 # ╠═d1ed25e6-60c6-411f-a541-99986e5da2c5
