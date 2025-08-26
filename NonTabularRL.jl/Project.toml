@@ -25,6 +25,7 @@ TailRec = "f6209947-f0a9-4a6b-8802-d6ceac74b6f9"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [sources]
+TabularRL = {path = "../TabularRL.jl"}
 ApproximationUtils = {path = "../ApproximationUtils.jl"}
 FCANN = {url = "https://github.com/Blackbody-Research/FCANN.jl"}
 NVIDIALibraries = {url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}

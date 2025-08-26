@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.6
+# v0.20.17
 
 using Markdown
 using InteractiveUtils
@@ -342,6 +342,12 @@ get_symmetric_index(symmetric_boards[5])
 
 # ╔═╡ 2180c6dc-1f6d-4976-bd0f-cc8153e6b87d
 #what is the ϵ greedy policy for ttt for different values and how does it differ from greedy
+
+# ╔═╡ 9d2120cd-5582-4fa6-9a52-bad1121d9da3
+# ╠═╡ disabled = true
+#=╠═╡
+const value_iter_board1_result = value_iter_board1_status.is_o_move ? value_iter_o_vs_rand : value_iter_x_vs_rand#value_iter_o_vs_iter4 : value_iter_x_vs_iter4
+  ╠═╡ =#
 
 # ╔═╡ 7479eb78-0aab-4a28-b433-968aec5b980b
 d4_symmetries[8]
@@ -1848,6 +1854,11 @@ const value_iter_rotated_board = get_symmetric_index(value_iter_fixed_board[1])
 # ╔═╡ 8b6786f7-220c-4daa-b707-376c2c7bc14c
 const value_iter_board1_status = get_board_status(value_iter_fixed_board[1])
 
+# ╔═╡ 124519d9-b8b3-492b-a3af-36c48553bc52
+#=╠═╡
+const value_iter_board1_result = value_iter_board1_status.is_o_move ? strat_select[2] : strat_select[1]
+  ╠═╡ =#
+
 # ╔═╡ cb50cf2c-6adf-42de-be9a-085676876bbe
 #=╠═╡
 md"""
@@ -2294,17 +2305,6 @@ end
 # ╔═╡ 5328c966-d0ca-4e02-bfcf-9a585fe8a6c6
 eval_value_policy(board4, selfplay_ttt_value_results, "value_selfplay")
 
-# ╔═╡ 9d2120cd-5582-4fa6-9a52-bad1121d9da3
-# ╠═╡ disabled = true
-#=╠═╡
-const value_iter_board1_result = value_iter_board1_status.is_o_move ? value_iter_o_vs_rand : value_iter_x_vs_rand#value_iter_o_vs_iter4 : value_iter_x_vs_iter4
-  ╠═╡ =#
-
-# ╔═╡ 124519d9-b8b3-492b-a3af-36c48553bc52
-#=╠═╡
-const value_iter_board1_result = value_iter_board1_status.is_o_move ? strat_select[2] : strat_select[1]
-  ╠═╡ =#
-
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -2343,7 +2343,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.5"
+julia_version = "1.11.6"
 manifest_format = "2.0"
 project_hash = "fb175071a7c85444e2ee3da77dd1e4c18a1bb109"
 
