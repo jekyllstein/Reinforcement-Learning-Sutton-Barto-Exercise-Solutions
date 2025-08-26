@@ -2021,6 +2021,13 @@ Since we can always scramble a solved cube and track the sequence of moves, we d
 ## Reversing the Scramble
 """
 
+# ╔═╡ b8a2150f-9be4-4c12-b645-37c9b91c7728
+const valid_move_inds = Dict(begin
+	valid_moves = get_valid_moves(rubiks_moves[i_a])
+	i_a => [rubiks_move_index[x] for x in valid_moves]
+end
+							for i_a in 1:12)
+
 # ╔═╡ 4f79565b-860f-4862-92b0-fdc1b00f0c1d
 md"""
 Let's make a trajectory of scrambling a cube with 30 moves
@@ -2110,6 +2117,17 @@ const reversible_fcann_layers = fill(64, 3)
 
 # ╔═╡ 94a15d87-790e-4917-ba9f-446f699cfe92
 const reversible_fcann_params = NonTabularRL.initialize_fcann_params(48*48, reversible_fcann_layers, 1, 1, true)
+
+# ╔═╡ 621f415b-ef9b-4ad5-bcc0-dcf51af1d1f9
+md"""
+## Semi-gradient TD Estimation
+"""
+
+# ╔═╡ d28b936a-5ca6-494c-a6fd-c96c60d24add
+const reversible_fcann_td_layers = fill(128, 3)
+
+# ╔═╡ 55f31d00-a946-46e2-b021-855120b73e77
+const reversible_fcann_td_params = NonTabularRL.initialize_fcann_params(48*48, reversible_fcann_td_layers, 1, 1, true)
 
 # ╔═╡ 7fdfe56e-681a-4708-ac7e-5cbc7957adc1
 function form_policy_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, value_function::Function) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
@@ -2486,7 +2504,7 @@ end
 function form_reversible_policy(mc_output::NamedTuple)
 	q̂, form_kwargs = NonTabularRL.form_value_function(rubiks_reset_mdp, 0.9f0, update_rubiks_feature!, mc_output.value_function, deepcopy(rubiks_binary_feature), mc_output.parameters)
 
-	π(s) = q̂(s).maximizing_action
+	π(s) = q̂(s; form_kwargs()...).maximizing_action
 end
 
 # ╔═╡ 128c8762-e4a7-46e1-a673-39d0ffbf2f72
@@ -2719,7 +2737,15 @@ display_learning_output(step_mastery_dp_fcann_output)
 # ╔═╡ 4e9029e2-1c7c-4fc6-901d-c10a617c3cc0
 #=╠═╡
 function display_reversible_solution(output::NamedTuple; nsmooth = 100, npoints = 1000, max_scramble = 10, kwargs...)
-	p1 = plot_rewards(log.(output.error_history), nsmooth, npoints)
+	p1 = try 
+		plot_rewards(log.(output.error_history), nsmooth, npoints)
+		catch
+			try
+				plot_rewards(log.(output.error_history.errors), nsmooth, npoints)
+				catch
+				plot_rewards(log.(output.episode_history.errors), nsmooth, npoints)
+			end
+	end
 
 	π = form_reversible_policy(output)
 
@@ -3262,12 +3288,13 @@ function make_scramble_trajectory(num_actions)
 	cube′ = copy(cube)
 	states = Vector{typeof(cube)}(undef, num_actions)
 	actions = Vector{Int64}(undef, num_actions)
+	i_a = rand(eachindex(rubiks_moves))
 	for i in 1:num_actions
-		i_a = rand(eachindex(rubiks_moves))
 		actions[i] = i_a
 		rotate_cube(cube, i_a; cube′ = cube′)
 		cube .= cube′
 		states[i] = copy(cube)
+		i_a = rand(valid_move_inds[i_a])
 	end
 	return states, actions
 end
@@ -3301,9 +3328,44 @@ initialize_reversible_cube(30)
 # ╔═╡ fe415c36-f2b2-4b25-9ab2-33011fdc9f28
 function rubiks_reversible_move(cube::Vector{UInt8}, i_a::Integer; kwargs...)
 	cube′ = rotate_cube(cube, i_a; kwargs...)
-	r = Float32(cube′ == solved_cube_indices)
+	r = 2*Float32(cube′ == solved_cube_indices) - 1f0/8 #this produces values roughly from -1.75 to 1.75 for states from 30 moves away to the solved state
 	(r, cube′)
+	# (-1f0/15, cube′)
 end
+
+# ╔═╡ af0c2dba-c7ee-4f75-a31d-1bc1dffd3e84
+function rubiks_reversible_mrp_move(s::NamedTuple; kwargs...) 
+	i_a = s.π(s.cube)
+	(r, cube′) = rubiks_reversible_move(s.cube, i_a; kwargs...)
+	return (r, (cube = cube′, π = s.π))
+end
+
+# ╔═╡ dd14d0ff-5163-43da-b1be-3fc420682fe3
+const rubiks_reversible_mrp_transition = StateMRPTransitionSampler(rubiks_reversible_mrp_move, initialize_reversible_cube(1))
+
+# ╔═╡ 46749d40-8c07-43dc-bbff-013797fd56cd
+function make_rubiks_reversible_mrp(num_scramble::Integer)
+	StateMRP(rubiks_reversible_mrp_transition, () -> initialize_reversible_cube(num_scramble), s -> isequal(s.cube, solved_cube_indices))
+end
+
+# ╔═╡ 242a57ef-7e7e-4439-95cb-9f747b23d6b3
+const rubiks_reversible_mrp = make_rubiks_reversible_mrp(30)
+
+# ╔═╡ 00c67f96-456c-48d1-9d1b-0fcd8ddac671
+const reversible_linear_td_solution = semi_gradient_td0_estimation_linear(rubiks_reversible_mrp, 1f0, 400_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 1f-4)
+
+# ╔═╡ 51105316-c191-44a5-b4f3-703f30efebad
+#=╠═╡
+display_reversible_solution(reversible_linear_td_solution)
+  ╠═╡ =#
+
+# ╔═╡ 9fffc847-87c2-41d6-9f87-d10d645708da
+const reversible_fcann_td_solution = semi_gradient_td0_estimation_fcann(rubiks_reversible_mrp, 1f0, 1_000_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_td_layers; α = 1f-5, params = reversible_fcann_td_params)
+
+# ╔═╡ 42106894-5ae2-4a1e-a26e-0e8e7085d035
+#=╠═╡
+display_reversible_solution(reversible_fcann_td_solution)
+  ╠═╡ =#
 
 # ╔═╡ 99a280b6-a371-43ac-9a27-319501a47d96
 const rubiks_reversible_transition = StateMDPTransitionSampler(rubiks_reversible_move, initialize_reversible_cube(10))
@@ -3314,13 +3376,13 @@ function make_rubiks_reversible_mdp(num_scramble::Integer)
 end
 
 # ╔═╡ 717209cb-24de-4fae-b434-bf8258f39fc6
-const rubiks_reversible_mdp = make_rubiks_reversible_mdp(40)
+const rubiks_reversible_mdp = make_rubiks_reversible_mdp(30)
 
 # ╔═╡ 36f51608-7d65-4f21-ad71-98707f94b12a
 runepisode(rubiks_reversible_mdp; π = π_cube_reverse)
 
 # ╔═╡ 9d87dbb3-1a3c-47d3-a090-4eb76a5c6c2d
-const reversible_linear_mc_solution = gradient_monte_carlo_policy_estimation_linear(rubiks_reversible_mdp, π_cube_reverse, 0.999f0, 10_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 1f-4)
+const reversible_linear_mc_solution = gradient_monte_carlo_policy_estimation_linear(rubiks_reversible_mdp, π_cube_reverse, 1f0, 400_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 4f-6)
 
 # ╔═╡ a3555ab8-63b0-451f-a91d-995d7d8632bf
 #=╠═╡
@@ -3328,11 +3390,11 @@ display_reversible_solution(reversible_linear_mc_solution)
   ╠═╡ =#
 
 # ╔═╡ 9ffbb5d0-defa-4734-883e-7ff1f86e326b
-const reversible_fcann_mc_solution = gradient_monte_carlo_policy_estimation_fcann(rubiks_reversible_mdp, π_cube_reverse, 0.8f0, 10_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_layers; α = 1f-2, params = reversible_fcann_params)
+const reversible_fcann_mc_solution = gradient_monte_carlo_policy_estimation_fcann(rubiks_reversible_mdp, π_cube_reverse, 1f0, 1_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_layers; α = 1f-5, params = reversible_fcann_params)
 
 # ╔═╡ af9571f9-9d82-4563-83b1-d3dc23668b6c
 #=╠═╡
-display_reversible_solution(reversible_fcann_mc_solution)
+display_reversible_solution(reversible_fcann_mc_solution; ntrials = 100)
   ╠═╡ =#
 
 # ╔═╡ 1a0d2678-c228-40a3-a376-01df24292556
@@ -5229,6 +5291,7 @@ version = "17.4.0+2"
 # ╠═2e9374ef-f5dc-4212-89c1-235fd9ab86ca
 # ╠═9910ebb3-c074-4f68-8381-264e255c97a4
 # ╟─1377a706-5a89-495e-98cf-d1b4ac1511f8
+# ╠═b8a2150f-9be4-4c12-b645-37c9b91c7728
 # ╠═a56e5eb6-7ec3-45ce-b93d-2230691652b2
 # ╟─4f79565b-860f-4862-92b0-fdc1b00f0c1d
 # ╠═d41c9ab0-0712-4960-a2dc-aaf3661e0866
@@ -5249,10 +5312,14 @@ version = "17.4.0+2"
 # ╠═86ef6b80-f902-48da-9032-fca221c3ed6f
 # ╠═fe415c36-f2b2-4b25-9ab2-33011fdc9f28
 # ╠═a303ee2c-ac5c-4728-b191-ea5570538a4d
+# ╠═af0c2dba-c7ee-4f75-a31d-1bc1dffd3e84
 # ╠═99a280b6-a371-43ac-9a27-319501a47d96
+# ╠═dd14d0ff-5163-43da-b1be-3fc420682fe3
 # ╠═cb8d0b4a-39de-4a18-8048-7a525a6bfca8
+# ╠═46749d40-8c07-43dc-bbff-013797fd56cd
 # ╠═139cc887-f3ee-4810-aa97-2aec301c5238
 # ╠═717209cb-24de-4fae-b434-bf8258f39fc6
+# ╠═242a57ef-7e7e-4439-95cb-9f747b23d6b3
 # ╠═a19597b5-fa79-4808-8f60-9bafb1a0dbb4
 # ╠═36f51608-7d65-4f21-ad71-98707f94b12a
 # ╟─ce885abc-23ab-47d1-87d8-bdf5bd512212
@@ -5264,6 +5331,13 @@ version = "17.4.0+2"
 # ╠═94a15d87-790e-4917-ba9f-446f699cfe92
 # ╠═9ffbb5d0-defa-4734-883e-7ff1f86e326b
 # ╠═af9571f9-9d82-4563-83b1-d3dc23668b6c
+# ╟─621f415b-ef9b-4ad5-bcc0-dcf51af1d1f9
+# ╠═00c67f96-456c-48d1-9d1b-0fcd8ddac671
+# ╠═51105316-c191-44a5-b4f3-703f30efebad
+# ╠═d28b936a-5ca6-494c-a6fd-c96c60d24add
+# ╠═55f31d00-a946-46e2-b021-855120b73e77
+# ╠═9fffc847-87c2-41d6-9f87-d10d645708da
+# ╠═42106894-5ae2-4a1e-a26e-0e8e7085d035
 # ╠═4e9029e2-1c7c-4fc6-901d-c10a617c3cc0
 # ╠═7fdfe56e-681a-4708-ac7e-5cbc7957adc1
 # ╠═54f505d3-2a6b-4ce7-a0a4-96b62159dd4c
