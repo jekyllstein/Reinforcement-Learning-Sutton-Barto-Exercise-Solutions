@@ -3999,7 +3999,7 @@ solve_cartpole_tilecoding_dp_λ(1f-3, 0.1f0, 50_000; ϵ = 0.01f0)
   ╠═╡ =#
 
 # ╔═╡ 9bdd4ce4-e9b9-4cc1-8c5d-fbc4c7a6f74a
-function normalized_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, extract_values::Function, min_value::V, max_value::V, range::T = one(T)) where {T<:Real, N, S, V <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function normalized_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, extract_values::Function, min_value::V, max_value::V; range::T = one(T)) where {T<:Real, N, S, V <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
 	#extract_values must transform a state into type V where V is either a tuple of values or a value
 	
 	#states must be tuples with k elements or some number value
