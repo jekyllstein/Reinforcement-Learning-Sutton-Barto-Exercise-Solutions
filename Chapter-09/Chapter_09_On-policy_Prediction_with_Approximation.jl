@@ -3774,7 +3774,7 @@ function gradient_monte_carlo_estimation_fcann(mrp::StateMRP, γ::T, num_episode
 	#this version of the value function can be run with multiple threads
 	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
 
-	(value_function = v̂, error_history = history, parameters = params, activations = setup.activations)
+	(value_function = v̂, episode_history = history, parameters = params, activations = setup.activations)
 end
 
 # ╔═╡ b58cacd0-ca65-43f5-8678-7265ea2d46c8
@@ -3840,7 +3840,7 @@ function gradient_monte_carlo_policy_estimation_fcann(mdp::StateMDP, π::Functio
 	#this version of the value function can be run with multiple threads
 	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
 
-	(value_function = v̂, error_history = history, parameters = params, activations = setup.activations)
+	(value_function = v̂, episode_history = history, parameters = params, activations = setup.activations)
 end
 
 # ╔═╡ d81d8f7d-ed32-405d-b0c8-2ceff5845578
@@ -3911,7 +3911,7 @@ function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::
 	#this version of the value function can be run with multiple threads
 	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
 
-	(value_function = v̂, error_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
+	(value_function = v̂, episode_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
 end
 
 # ╔═╡ 4a3a4635-a046-4eec-ab95-2dce74ac0fbe
@@ -3984,7 +3984,7 @@ function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, 
 	#this version of the value function can be run with multiple threads
 	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
 
-	(value_function = v̂, error_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
+	(value_function = v̂, episode_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
 end
 
 # ╔═╡ 808026eb-4c5a-4f38-bb16-bbb1b2915906
