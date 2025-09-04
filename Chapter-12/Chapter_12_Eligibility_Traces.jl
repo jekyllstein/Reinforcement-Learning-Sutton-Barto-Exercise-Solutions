@@ -824,9 +824,9 @@ md"""
 
 # ╔═╡ 52098913-ea06-497d-afad-a9fef99fb428
 begin
-	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function,hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
-		setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-		semi_gradient_TDλ!(params, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
+		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+		semi_gradient_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 	end
 
 	semi_gradient_TDλ_fcann(mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ_fcann((mdp, π), args...; kwargs...)
