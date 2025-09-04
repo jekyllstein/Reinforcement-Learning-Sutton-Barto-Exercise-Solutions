@@ -65,7 +65,7 @@ The following displays a solved cube with the faces and squares listed in the co
 md"""
 # Rubik's Cube Moves
 
-Given our orientation convention, the only moves that need to be considered are face rotations.  Each of the 6 faces can be rotated clockwise or counter-clockwise with respect to the face itself.  Any other moves can be performed by repeatedly applying these "atomic" moves.
+Given our orientation convention, the only moves that need to be considered are face rotations.  Each of the 6 faces can be rotated clockwise or counter-clockwise with respect to the face itself.  A "Double" direction is just a half-turn which can be accomplished with a quarter turn repeated for either direction.  With these three directions no face needs to be moved more than once so any logical move list should switch the face being moved on every step.
 """
 
 # ╔═╡ c6ccf794-d7e4-4e7e-b4f7-7acbe2530722
@@ -73,6 +73,7 @@ begin
 	abstract type Direction end
 	struct Clockwise <: Direction end 
 	struct CounterClockwise <: Direction end 
+	struct Double <: Direction end
 	abstract type Face end
 	struct Top <: Face end 
 	struct Left <: Face end 
@@ -87,23 +88,32 @@ end
 const face_order = [Front, Top, Right, Back, Left, Bottom]
 
 # ╔═╡ ebf0eee8-b1d4-4f59-9727-518e6dd546bd
-const direction_order = [Clockwise, CounterClockwise]
+const direction_order = [Clockwise, CounterClockwise, Double]
 
 # ╔═╡ a9748352-649d-45c4-b33d-a4c8f2b5b247
 const rubiks_moves = [RubiksMove{F, D}() for F in face_order for D in direction_order]
+
+# ╔═╡ b31fda46-27e1-4b10-9cc3-de26557521f5
+md"""
+When a face is rotated, it affects the position of pieces on every other face except for the opposite one.  The opposite face is unaffected and the following vector lists the index of the single face unaffected by a move of the face at each index.  The purpose of this property is that it can be used to determine if a three move sequence is redundant since moves rotating two opposite faces should never be followed by a move of the starting face which would again be redundant.
+"""
+
+# ╔═╡ 42e03441-cd7c-4f3c-a30d-9814b36428c7
+const face_independence_lookup = [4, 6, 5, 1, 3, 2]
 
 # ╔═╡ ebc5bf2b-abef-4b4a-9f12-b0884c089350
 const rubiks_move_index = TabularRL.makelookup(rubiks_moves)
 
 # ╔═╡ 46bbd599-ae25-485e-b064-af28efde316f
 md"""
-Any move can be reversed by applying  the opposite rotation to the same face.  Any move followed by its reversal will result in the same cube state.
+Any move can be reversed by applying the opposite rotation to the same face.  Any move followed by its reversal will result in the same cube state.  A double rotation is its own reverse move.
 """
 
 # ╔═╡ 545ca130-8e89-48db-9ada-5f6467067ef3
 begin
 	reverse_move(move::RubiksMove{F, Clockwise}) where F<:Face= RubiksMove{F, CounterClockwise}()
 	reverse_move(move::RubiksMove{F, CounterClockwise}) where F<:Face = RubiksMove{F, Clockwise}()
+	reverse_move(move::RubiksMove{F, Double}) where F<:Face = RubiksMove{F, Double}()
 end
 
 # ╔═╡ 44e167a7-ebe7-4cb0-8e4c-9a5444f5f224
@@ -460,6 +470,27 @@ function update_rubiks_piece_vector!(v::AbstractVector{T}, cube::AbstractVector{
 	return v
 end
 
+# ╔═╡ b7586067-6d80-49c4-b8c4-877aa3e2ce3f
+function update_rubiks_feature!(x::NonTabularRL.BinaryFeatureVector{I1, 256}, s::AbstractVector{I2}) where {I1 <: Integer, I2 <: Integer}
+	pieces = calculate_cube_pieces(cube)
+	ind = 1
+	for (i, t) in enumerate(pieces.corner_pieces)
+		base_ind = (i-1)*11
+		x.active_features[ind] = base_ind + first(t)
+		ind += 1
+		x.active_features[ind] = base_ind + 8 + last(t)
+		ind += 1
+	end
+	corner_last_ind = 11*8
+	for (i, t) in enumerate(pieces.edge_pieces)
+		base_ind = (i-1)*14 + corner_last_ind
+		x.active_features[ind] = base_ind + first(t)
+		ind += 1
+		x.active_features[ind] = base_ind + 12 + last(t)
+		ind += 1
+	end
+end
+
 # ╔═╡ d2f662c5-dc52-45c2-a335-5cc7ce2eb486
 function get_active_rubiks_piece_features(cube::AbstractVector{I}) where {I <: Integer}
 	features = Vector{Int64}()
@@ -477,6 +508,17 @@ function get_active_rubiks_piece_features(cube::AbstractVector{I}) where {I <: I
 	end
 	return features
 end
+
+# ╔═╡ 5a6a4b92-7b02-441a-9f05-2f7924eec600
+function make_rubiks_piece_binary_vector(cube::AbstractVector{I}) where I <: Integer
+	v = NonTabularRL.BinaryFeatureVector(14*12 + 11*8)
+	v.num_features = 8*2 + 12*2
+	v.active_features = get_active_rubiks_piece_features(cube)
+	return v
+end
+
+# ╔═╡ d949035a-4258-46b2-b749-83397213c379
+initialize_piece_vector() = NonTabularRL.BinaryFeatureVector(256)
 
 # ╔═╡ 343aa4fe-f38d-42b7-967b-c589be65077d
 md"""
@@ -561,34 +603,33 @@ md"""
 """
 
 # ╔═╡ dd36dbbd-1807-42d2-ae8e-95ea9ad91069
-const sarsa_params_layers = fill(64, 3)
+const sarsa_params_layers = fill(16, 3)
 
 # ╔═╡ 0ac973d8-bd67-499f-a05d-1341fa9ca52b
-const sarsa_fcann_params = NonTabularRL.initialize_fcann_params(48*48, sarsa_params_layers, 12, 1, true)
+const sarsa_fcann_params = NonTabularRL.initialize_fcann_params(48*48, sarsa_params_layers, length(rubiks_moves), 1, true)
 
 # ╔═╡ 9e34bffc-e324-414d-a409-ef2cb13d365a
-const dp_params_layers = fill(64, 3)
+const dp_params_layers = fill(16, 3)
 
 # ╔═╡ 6014ac2d-7d49-483c-92b7-7b1e24466b42
 const dp_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_params_layers, 1, 1, true)
-
-# ╔═╡ a42b444a-5ecb-40e4-adef-1c5b7c7d3e7e
-
-
-# ╔═╡ 859e4315-e693-45fc-8c0b-2bdb2ff1e506
-
-
-# ╔═╡ cdb18175-6e09-47d0-9e00-48acf898b1c6
-
-
-# ╔═╡ 6be19e3a-e62d-4f5e-a0df-9974b502b362
-
 
 # ╔═╡ ed067ef4-0b0c-4f2c-9372-899cfc6449c5
 const dp_mastery_params_layers = fill(256, 3)
 
 # ╔═╡ 33ffe90d-941f-4c84-93b5-628bd175140d
 const dp_mastery_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_mastery_params_layers, 1, 1, true)
+
+# ╔═╡ 2a0dc867-0b2b-4ad5-9bf9-ce8e1b0d545a
+# ╠═╡ disabled = true
+#=╠═╡
+const step_mastery_dp_fcann_output = run_dp_step_mastery_fcann_test!(dp_mastery_fcann_params, 4, 4, deepcopy(rubiks_binary_feature), update_rubiks_feature!, 10_000, α = 1f-5, ϵ = 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ 4f7eded4-f49f-4db1-b57a-da7160409199
+#=╠═╡
+display_learning_output(step_mastery_dp_fcann_output)
+  ╠═╡ =#
 
 # ╔═╡ 4f244f15-8f07-403c-a2b4-7b2cb9dc7284
 function run_dp_rubiks_fcann_test(min_moves, max_moves; γ = 0.99f0, layers = [8, 8], num_steps = 10_000, kwargs...)
@@ -1490,10 +1531,23 @@ function exhaustive_search(s0::Vector{UInt8}, max_turns::Integer; search_moves::
 end
   ╠═╡ =#
 
+# ╔═╡ 16d6e982-c564-4d77-93b2-c4180eabbd2d
+md"""
+## Creating Markov Reward Process From Tabular Solution
+"""
+
 # ╔═╡ 206a1146-4a01-412f-a17e-3d58cac83453
 md"""
 ## Linear Approximation of Value Function
 """
+
+# ╔═╡ 02523a61-5b7f-410c-ba3b-3564fcd8a35b
+md"""
+## Non-linear Approximation of Value Function
+"""
+
+# ╔═╡ fb49c6c1-1a4c-4d57-92e8-b4abda1d6533
+const mrp_nonlinear_layers = fill(16, 3)
 
 # ╔═╡ 91e6576c-0142-409c-8749-194c66ba3c9d
 # ╠═╡ disabled = true
@@ -1678,24 +1732,71 @@ md"""
 ## N-Step Action Space
 """
 
+# ╔═╡ 1735c965-8aa0-4c74-bb41-8800d145e09d
+const face_index = TabularRL.makelookup(face_order)
+
+# ╔═╡ 84d639ef-08d8-45c5-8df6-39e1dcb31abe
+begin
+	check_valid_move(::RubiksMove{F, D1}, ::RubiksMove{F, D2}) where {F<:Face, D1<:Direction, D2<:Direction} = false
+	check_valid_move(::RubiksMove, ::RubiksMove) = true
+	function check_valid_move(m1::RubiksMove{F1, D1}, m2::RubiksMove{F2, D2}, m3::RubiksMove{F3, D3}) where {F1<:Face, F2<:Face, F3<:Face, D1<:Direction, D2<:Direction, D3<:Direction}
+		!check_valid_move(m1, m2) && return false
+		!check_valid_move(m2, m3) && return false
+		face_independence_lookup[face_index[F1]] != face_index[F2] && return true
+		F3 != F1
+	end
+end
+
+# ╔═╡ 17779421-8406-4791-a6c0-03dd9c499193
+face_independence_lookup
+
 # ╔═╡ 44f7e193-61c2-4591-abe7-1800328abb18
-function get_valid_moves(m::RubiksMove{F, D}) where {F<:Face, D<:Direction}
-	bad_move = reverse_move(m)
-	setdiff(rubiks_moves, [bad_move])
+begin
+	get_valid_moves(m::RubiksMove) = filter(m2 -> check_valid_move(m, m2), rubiks_moves)
+	get_valid_moves(m1::RubiksMove, m2::RubiksMove) = filter(m3 -> check_valid_move(m1, m2, m3), rubiks_moves)
+end
+
+# ╔═╡ 546635bc-83d8-4b07-8b0e-df6d8a29d45f
+const valid_move_inds = Dict(begin
+	i_a = rubiks_move_index[m]
+	valid_moves = get_valid_moves(m)
+	valid_inds = [rubiks_move_index[m2] for m2 in valid_moves]
+	i_a => valid_inds
+end
+for m in rubiks_moves)
+
+# ╔═╡ 1e8f8041-0cf2-47f7-b24f-d4b81ef36360
+const valid_double_move_inds = mapreduce(vcat, keys(valid_move_inds)) do i_a
+	[begin
+		valid_moves = get_valid_moves(rubiks_moves[i_a], rubiks_moves[i_a2])
+		valid_inds = [rubiks_move_index[m3] for m3 in valid_moves]
+		(i_a, i_a2) => valid_inds
+	end
+	for i_a2 in valid_move_inds[i_a]]
+end |> Dict
+
+# ╔═╡ b609b7fc-3994-4488-beed-a151f1984d46
+begin
+	lookup_valid_moves() = eachindex(rubiks_moves)
+	lookup_valid_moves(i_a::Integer) = valid_move_inds[i_a]
+	lookup_valid_moves(move_inds::NTuple{1, Int64}) = lookup_valid_moves(first(move_inds))
+	lookup_valid_moves(move_inds::NTuple{N, Int64}) where N = valid_double_move_inds[(move_inds[N-1], move_inds[N])]
+	lookup_valid_moves(move_inds::Vector{Int64}) = lookup_valid_moves(Tuple(move_inds))
 end
 
 # ╔═╡ bd6ef1e0-0e75-4186-b597-01860adb10b4
-function extend_move(moves::Tuple)
-	last_move = last(moves)
-	newmoves = get_valid_moves(rubiks_moves[last_move])
-	[(moves..., rubiks_move_index[newmove]) for newmove in newmoves]
+begin
+	function extend_move(move_inds::NTuple{N, Int64}) where N
+		[(move_inds..., i_a) for i_a in valid_double_move_inds[(move_inds[N-1], move_inds[N])]]
+	end
+	
+	function extend_move(move_inds::NTuple{1, Int64})
+		[(move_inds..., i_a) for i_a in valid_move_inds[last(move_inds)]]
+	end
 end
 
 # ╔═╡ 7b61d79d-e304-488d-8cc8-ed70a0e7d052
-function extend_move(move::Integer)
-	newmoves = get_valid_moves(rubiks_moves[move])
-	[(move, rubiks_move_index[newmove]) for newmove in newmoves]
-end
+extend_move(move_index::Integer) = [(move, i_a) for i_a in valid_move_inds[move_index]]
 
 # ╔═╡ 1222ffc4-82a4-4397-89f0-e0b5ce568fed
 function make_rubiks_nstep_moves(previous_moves, n::Integer)
@@ -1707,7 +1808,7 @@ function make_rubiks_nstep_moves(previous_moves, n::Integer)
 end
 
 # ╔═╡ a67c9467-fe95-424d-92bf-1dd6eecfbd88
-make_rubiks_nstep_moves(n::Integer) = make_rubiks_nstep_moves([(i,) for i in 1:12], n-1)
+make_rubiks_nstep_moves(n::Integer) = make_rubiks_nstep_moves([(i,) for i in eachindex(rubiks_moves)], n-1)
 
 # ╔═╡ ddcbd552-d3a2-46ed-9a5d-d705730501c7
 const rubiks_nstep_moves = Dict(n => let
@@ -2022,11 +2123,14 @@ Since we can always scramble a solved cube and track the sequence of moves, we d
 """
 
 # ╔═╡ b8a2150f-9be4-4c12-b645-37c9b91c7728
+# ╠═╡ disabled = true
+#=╠═╡
 const valid_move_inds = Dict(begin
 	valid_moves = get_valid_moves(rubiks_moves[i_a])
 	i_a => [rubiks_move_index[x] for x in valid_moves]
 end
 							for i_a in 1:12)
+  ╠═╡ =#
 
 # ╔═╡ 4f79565b-860f-4862-92b0-fdc1b00f0c1d
 md"""
@@ -2287,7 +2391,7 @@ const face_names = ["Front", "Top", "Right", "Back", "Left", "Bottom"]
 	The display below shows the impact of applying the selected move to a solved cube.
 	
 	Select Face: $(Child(:face, Select([a[1] => a[2] for a in zip(face_order, face_names)])))
-	Select Rotation: $(Child(:rot, Select([Clockwise => "Clockwise", CounterClockwise => "Counter Clockwise"])))
+	Select Rotation: $(Child(:rot, Select([Clockwise => "Clockwise", CounterClockwise => "Counter Clockwise", Double => "Double"])))
 	"""
 end
   ╠═╡ =#
@@ -2355,6 +2459,34 @@ begin
 		
 		return cube′[:]
 	end
+
+	function get_rotation_indices(::RubiksMove{F, Double}) where F<:Face
+		cube = reshape(get_rotation_indices(RubiksMove{F, Clockwise}()), 8, 6)
+		rotation_mapping = clockwise_rotation_mapping[F]
+		
+		fnum = face2value[F]
+		cube′ = copy(cube)
+
+		#rotate face colors
+		@inbounds @simd for i in 1:8
+			cube′[i, fnum] = cube[clockwise_perm[i], fnum]
+		end
+
+		#rotate other colors
+		for i in 2:4
+			(origin_face, origin_inds) = rotation_mapping[i-1]
+			(destination_face, destination_inds) = rotation_mapping[i]
+			@inbounds @simd for j in 1:3
+				cube′[destination_inds[j], destination_face] = cube[origin_inds[j], origin_face]
+			end
+		end
+		(origin_face, origin_inds) = rotation_mapping[4]
+		(destination_face, destination_inds) = rotation_mapping[1]
+		@inbounds @simd for j in 1:3
+			cube′[destination_inds[j], destination_face] = cube[origin_inds[j], origin_face]
+		end
+		return cube′[:]
+	end
 end
 
 # ╔═╡ 95854163-4da3-4d67-b254-1eab96c9fcc6
@@ -2402,9 +2534,14 @@ end
 function initialize_rubiks_cube(num_actions)
 	cube = copy(solved_cube_indices)
 	cube′ = copy(cube)
-	for _ in 1:num_actions
-		rotate_cube(cube, rand(eachindex(rubiks_moves)); cube′ = cube′)
+	action_list = Vector{Int64}()
+	i_a = rand(eachindex(rubiks_moves))
+	action_list = [i_a]
+	for i in 1:num_actions
+		rotate_cube(cube, i_a; cube′ = cube′)
 		cube .= cube′
+		i_a = rand(lookup_valid_moves(action_list))
+		push!(action_list, i_a)
 	end
 	return cube
 end
@@ -2454,7 +2591,7 @@ mcts2_results[1](mcts_s0)
 mcts2_results[3][mcts_s0]
 
 # ╔═╡ 52eb3090-66a0-41aa-90ed-f658847f9601
-const tabular_eval_cube = initialize_rubiks_cube(7)
+const tabular_eval_cube = initialize_rubiks_cube(6)
 
 # ╔═╡ 5656dbff-1763-4464-bf7a-438983907e8e
 testcube = initialize_rubiks_cube(10)
@@ -2520,7 +2657,7 @@ function run_sarsa_rubiks_linear_test(min_scramble::Integer, max_scramble::Integ
 end
 
 # ╔═╡ 35ae742a-db14-4868-bb2d-d59cd9300de4
-const test_sarsa_output = run_sarsa_rubiks_linear_test(3, 5, 0.85f0; max_steps = 1_000_000, α = 0.004f0, ϵ = 0.01f0)
+const test_sarsa_output = run_sarsa_rubiks_linear_test(3, 5, 0.85f0; max_steps = 100_000, α = 0.004f0, ϵ = 0.01f0)
 
 # ╔═╡ d163d3cd-e8ca-44fb-81b2-66a2e1a92812
 function run_dp_rubiks_linear_test(min_moves, max_moves; γ = 0.9f0, num_steps = 10_000, kwargs...)
@@ -2535,7 +2672,7 @@ function run_dp_rubiks_linear_test(min_moves, max_moves, λ; γ = 0.9f0, num_ste
 end
 
 # ╔═╡ a538ead8-188b-4dd6-a105-a0c7a5d7d64f
-const test_dp_output = run_dp_rubiks_linear_test(2, 7, 0.95f0; num_steps = 10_000_000, α = 1f-5, ϵ = 0.01f0, trace_type = NonTabularRL.ReplacingTrace())
+const test_dp_output = run_dp_rubiks_linear_test(2, 5, 0.95f0; num_steps = 100_000, α = 1f-5, ϵ = 0.01f0, trace_type = NonTabularRL.ReplacingTrace())
 
 # ╔═╡ ae2427cb-be0a-4792-b0d9-5d14c17d9fb4
 monte_carlo_tree_search(rubiks_mcts_mdp, 0.9f0, (mdp, s, γ) -> test_dp_output.value_function(s).maximizing_value, rubiks_mcts_s0; depth = 1, nsims = 13)
@@ -2559,7 +2696,7 @@ function run_sarsa_rubiks_fcann_test(min_scramble::Integer, max_scramble::Intege
 end
 
 # ╔═╡ 699bf657-14cb-4575-925b-bedf97bc168c
-const test_sarsa_fcann_output = run_sarsa_rubiks_fcann_test(4, 5, sarsa_params_layers; max_steps = 1_000_000, α = 0.004f0, ϵ = 0.01f0, parameters = sarsa_fcann_params) # feature_vector = make_rubiks_feature(solved_cube_indices))
+const test_sarsa_fcann_output = run_sarsa_rubiks_fcann_test(4, 5, sarsa_params_layers; max_steps = 10_000, α = 0.004f0, ϵ = 0.01f0, parameters = sarsa_fcann_params) # feature_vector = make_rubiks_feature(solved_cube_indices))
 
 # ╔═╡ 9b1e056c-1025-45a9-b508-f16691fb5696
 function run_dp_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}, λ; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
@@ -2568,7 +2705,7 @@ function run_dp_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, 
 end
 
 # ╔═╡ a2ef7212-d2b6-40ab-8af8-6d38ab9f39f2
-const test_dp_fcann_output = run_dp_rubiks_fcann_test(4, 5, dp_params_layers; max_steps = 1_000_000, α = 0.01f0, ϵ = 0.01f0, parameters = dp_fcann_params) #, feature_vector = make_rubiks_feature(solved_cube_indices))
+const test_dp_fcann_output = run_dp_rubiks_fcann_test(4, 5, dp_params_layers; max_steps = 10_000, α = 0.01f0, ϵ = 0.01f0, parameters = dp_fcann_params) #, feature_vector = make_rubiks_feature(solved_cube_indices))
 
 # ╔═╡ bd50c529-c78f-48c4-8b30-bbbe4af87ca6
 #=╠═╡
@@ -2642,11 +2779,6 @@ function run_dp_step_mastery_fcann_test!(parameters::FCANNParams{T}, min_moves::
 
 	return (value_function = second_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check2, total_passes = pass, final_parameters = deepcopy(parameters), form_kwargs = second_output.form_kwargs)
 end
-  ╠═╡ =#
-
-# ╔═╡ 2a0dc867-0b2b-4ad5-9bf9-ce8e1b0d545a
-#=╠═╡
-const step_mastery_dp_fcann_output = run_dp_step_mastery_fcann_test!(dp_mastery_fcann_params, 4, 4, deepcopy(rubiks_binary_feature), update_rubiks_feature!, 10_000, α = 1f-5, ϵ = 0.01f0)
   ╠═╡ =#
 
 # ╔═╡ 436bd68b-e3f0-4e22-8898-d1c586f7d69d
@@ -2729,11 +2861,6 @@ display_learning_output(test_sarsa_fcann_output)
 display_learning_output(test_dp_fcann_output)
   ╠═╡ =#
 
-# ╔═╡ 4f7eded4-f49f-4db1-b57a-da7160409199
-#=╠═╡
-display_learning_output(step_mastery_dp_fcann_output)
-  ╠═╡ =#
-
 # ╔═╡ 4e9029e2-1c7c-4fc6-901d-c10a617c3cc0
 #=╠═╡
 function display_reversible_solution(output::NamedTuple; nsmooth = 100, npoints = 1000, max_scramble = 10, kwargs...)
@@ -2794,7 +2921,7 @@ PlutoPlotly.heatmap(;plot_feature_changes(50)..., colorscale = "Greys", showscal
 function update_nmove_list!(statelist::Set{SVector{48, UInt8}}, s0::Vector{UInt8}, nmoves::Integer)
 	push!(statelist, SVector{48}(s0))
 	nmoves == 0 && return nothing
-	for i_a in 1:12
+	for i_a in eachindex(rubiks_moves)
 		s′ = rotate_cube(s0, i_a)
 		update_nmove_list!(statelist, s′, nmoves - 1)
 	end
@@ -2805,7 +2932,7 @@ end
 function extend_statelist!(statelist::Set{SVector{48, UInt8}})
 	new_statelist = Set{SVector{48, UInt8}}()
 	for s0 in statelist
-		for i_a in 1:12
+		for i_a in eachindex(rubiks_moves)
 			s′ = rotate_cube(Vector(s0), i_a)
 			push!(new_statelist, SVector{48}(s′))
 		end
@@ -2828,28 +2955,26 @@ end
 
 # ╔═╡ 725317cb-e761-49f3-9c03-a15bf9c34da9
 function build_tabular_rubiks_mdp(nmoves::Integer)
-	# @info "Building list of cube states"
+	@info "Building list of cube states"
 	statelist = collect(build_nmove_list(nmoves))
-	# @info "Done building list of $(length(statelist)) states for $nmoves moves"
-	# @info "Building state index map"
+	@info "Done building list of $(length(statelist)) states for $nmoves moves"
+	@info "Building state index map"
 	state_index_map = build_lookup(statelist)
-	# @info "Done building state index map"
+	@info "Done building state index map"
 	nstates = length(state_index_map)
-	# @info "Allocating matrices for transition maps"
-	state_transition_map = zeros(Int64, 12, nstates)
-	reward_transition_map = zeros(Float32, 12, nstates)
-	s′ = copy(solved_cube_indices)
-	s_vec = copy(solved_cube_indices)
+	@info "Allocating matrices for transition maps"
+	state_transition_map = zeros(Int64, eachindex(rubiks_moves), nstates)
+	reward_transition_map = zeros(Float32, eachindex(rubiks_moves), nstates)
 	i_s_term = state_index_map[SVector{48}(solved_cube_indices)]
-	# @info "Building state and reward transition maps"
-	for s in statelist
+	@info "Building state and reward transition maps"
+	@threads for s in statelist
 		i_s = state_index_map[s]
 		if i_s == i_s_term
 			state_transition_map[:, i_s] .= i_s
 		else
-			# score1 = score_cube(s)
-			s_vec .= s
-			for i_a in 1:12
+			s′ = copy(solved_cube_indices)
+			s_vec = Vector(s)
+			for i_a in eachindex(rubiks_moves)
 				rotate_cube!(s′, s_vec, i_a)
 				(r, i_s′) = haskey(state_index_map, s′) ? (-1f0, state_index_map[s′]) : (-nmoves - 2f0, i_s_term)
 				state_transition_map[i_a, i_s] = i_s′
@@ -2861,7 +2986,7 @@ function build_tabular_rubiks_mdp(nmoves::Integer)
 end
 
 # ╔═╡ 0d62e009-81be-43d3-add5-ce4ac591dbc7
-const rubiks_tabular_mdp = build_tabular_rubiks_mdp(7)
+const rubiks_tabular_mdp = build_tabular_rubiks_mdp(6)
 
 # ╔═╡ dee2e1c5-8423-47b3-868d-483b871da731
 #this is the terminal state index and it appears in the transition map every time an invalid move occurs
@@ -2877,11 +3002,14 @@ end
 
 # ╔═╡ c079e451-0487-4e02-8f0e-b61e8963eeb2
 #=╠═╡
-[(scramble_moves = n, percent_solvable = compute_scramble_statistic(n)) for n in vcat(7:20, [30, 40])] |> DataFrame
+[(scramble_moves = n, percent_solvable = compute_scramble_statistic(n)) for n in vcat(6:20, [30, 40])] |> DataFrame
   ╠═╡ =#
 
 # ╔═╡ 1938becf-e2cc-4c7b-b6ec-d1c3ff107ed9
 const rubiks_value_iteration = value_iteration_v(rubiks_tabular_mdp, 1f0; usethreads=true)
+
+# ╔═╡ d7c391b1-0d13-409b-a0ac-c02fb766b839
+const rubiks_tabular_policy_lookup = [findfirst(!iszero, a) for a in eachcol(rubiks_value_iteration.optimal_policy)]
 
 # ╔═╡ afe35fcb-44f3-4deb-b1f6-8820b74679c1
 const test_tabular_episode = runepisode(rubiks_tabular_mdp; π = rubiks_value_iteration.optimal_policy, i_s0 = rubiks_tabular_mdp.state_index[tabular_eval_cube])
@@ -2898,7 +3026,7 @@ const value_lookup = DataFrame(state = rubiks_tabular_mdp.states, value = rubiks
 
 # ╔═╡ 84a08fd1-f8b5-4ca8-b0c0-2c306044d694
 #=╠═╡
-[size(value_lookup[(value = k,)], 1) / size(value_lookup[(value = k+1,)], 1) for k in -7:-1]
+[size(value_lookup[(value = k,)], 1) / size(value_lookup[(value = k+1,)], 1) for k in -6:-1]
   ╠═╡ =#
 
 # ╔═╡ a06c96f9-57c1-48e4-a725-08980892502e
@@ -2956,6 +3084,12 @@ bits2value(solved_cube_bits)
 
 # ╔═╡ 5b910da9-52ad-4e3e-a264-2fa6c6df3cf3
 const solved_rubiks_states = Set(rubiks_tabular_mdp.states)
+
+# ╔═╡ 37f28ba0-86b4-4c5d-96a4-e8adcec7c618
+function check_rubiks_tabular_value(s::AbstractVector{I}) where I <: Integer
+	haskey(rubiks_tabular_mdp.state_index, s) && return rubiks_value_iteration.final_value[rubiks_tabular_mdp.state_index[s]]
+	return typemin(Float32)
+end
 
 # ╔═╡ 73d40eb7-9213-4318-9bea-1a20edff2fbb
 function check_next_moves_recur3(current_cube, trajectory::Vector{Int64}, cubes::Vector{Vector{UInt8}}, depth::Integer, threshold::Integer, states_checked)
@@ -3018,6 +3152,88 @@ end
 
 # ╔═╡ 5e6aca94-4efa-444a-82fc-cea805c20815
 solve_rubiks_cube_ida_star(SVector{48}(initialize_rubiks_cube(30)); maxdepth = 8)
+
+# ╔═╡ 3ac7bdb3-b4a8-4a64-82ea-dcd2dce14b6d
+function rubiks_tabular_policy(s::AbstractVector{I}) where I <: Integer
+	haskey(rubiks_tabular_mdp.state_index, s) && return rubiks_tabular_policy_lookup[rubiks_tabular_mdp.state_index[s]]
+
+	best_value = typemin(Float32)
+	best_action = 0
+	s′ = copy(s)
+	for i_a in eachindex(rubiks_moves)
+		rotate_cube!(s′, s, i_a)
+		candidate_value = check_rubiks_tabular_value(s′)
+		if candidate_value > best_value
+			best_value = candidate_value
+			best_action = i_a
+		end
+	end
+
+	iszero(best_action) && error("State is too far away from a known tabular solution")
+	return best_action
+end
+
+# ╔═╡ 30d9c367-01e6-4ee3-955a-7c1ad81cbbd5
+function create_rubiks_mrp(;scramble_moves::Integer = 7)
+	isterm(s) = s == solved_cube_indices
+	initialize_state(;num_actions = scramble_moves) = initialize_rubiks_cube(num_actions)
+
+	function step(s)
+		i_a = rubiks_tabular_policy(s)
+		s′ = rotate_cube(s, i_a)
+		r = Float32(isterm(s′))
+		(r, s′)
+	end
+
+	ptf = StateMRPTransitionSampler(step, initialize_state())
+	StateMRP(ptf, initialize_state, isterm)
+end
+
+# ╔═╡ 04bb99fd-2e99-4af7-8582-5cbc46fad29e
+const rubiks_mrp = create_rubiks_mrp()
+
+# ╔═╡ 9084cb79-a89f-432d-a4f9-4b1f9ee65c4d
+function run_rubiks_mrp_linear(num_episodes::Integer, λ::Float32, α::Float32; scramble_moves::Integer = 7, γ = 0.9f0, kwargs...)
+	mrp = create_rubiks_mrp(;scramble_moves = scramble_moves)
+	output = NonTabularRL.semi_gradient_TDλ_linear(mrp, γ, λ, num_episodes, typemax(Int64), deepcopy(rubiks_binary_feature), update_rubiks_feature!; α = α, kwargs...)
+	
+	q̂, form_kwargs = NonTabularRL.form_value_function(rubiks_reset_mdp, γ, update_rubiks_feature!, output.value_function, deepcopy(rubiks_binary_feature), output.parameters)
+	
+	(episode_rewards = output.episode_history.errors, value_function = q̂, form_kwargs = form_kwargs)
+end
+
+# ╔═╡ d9460da6-d51f-458b-bd90-888961ffe3a0
+const linear_mrp_test = run_rubiks_mrp_linear(100_000, 0.75f0, 1f-4; scramble_moves = 6, trace_type = NonTabularRL.ReplacingTrace())
+
+# ╔═╡ db57648d-ea66-4ece-85af-0df97a725ae5
+#=╠═╡
+display_learning_output(linear_mrp_test)
+  ╠═╡ =#
+
+# ╔═╡ 837479ed-a3c7-46dc-8fa0-31c98bb3ef6e
+function initialize_rubiks_mrp_nonlinear_test(layers::Vector{Int64}; feature_vector = deepcopy(rubiks_binary_feature), kwargs...)
+
+	params = NonTabularRL.initialize_fcann_params(length(feature_vector), layers, 1, 1, true)
+	
+	function f!(num_episodes, λ, α; scramble_moves = 7, γ = 0.9f0, kwargs...)
+		mrp = create_rubiks_mrp(;scramble_moves = scramble_moves)
+		output = NonTabularRL.semi_gradient_TDλ_fcann(mrp, γ, λ, num_episodes, typemax(Int64), deepcopy(feature_vector), update_rubiks_feature!, layers; α = α, parameters = params, kwargs...)
+		q̂, form_kwargs = NonTabularRL.form_value_function(rubiks_reset_mdp, γ, update_rubiks_feature!, output.value_function, deepcopy(feature_vector), output.parameters)
+		(episode_rewards = output.episode_history.errors, value_function = q̂, form_kwargs = form_kwargs)
+	end
+	(parameters = params, update! = f!)
+end
+
+# ╔═╡ b2324cff-2b72-4ec8-a51e-5123a2cc8ebd
+const mrp_nonlinear_test = initialize_rubiks_mrp_nonlinear_test(mrp_nonlinear_layers)
+
+# ╔═╡ 91a90c89-a871-4776-a7d2-893fe8d7df63
+const nonlinear_mrp_output = mrp_nonlinear_test.update!(100_000, 0.1f0, 1f-4; scramble_moves = 3)
+
+# ╔═╡ 949b2c5b-9657-4d8c-99e0-eb983c582ed1
+#=╠═╡
+display_learning_output(nonlinear_mrp_output; max_scramble = 6)
+  ╠═╡ =#
 
 # ╔═╡ 39c7bb0d-093c-4be7-a366-2adcbfe7a7a6
 function value_iteration_π(s::Vector{UInt8})
@@ -3349,7 +3565,7 @@ function make_rubiks_reversible_mrp(num_scramble::Integer)
 end
 
 # ╔═╡ 242a57ef-7e7e-4439-95cb-9f747b23d6b3
-const rubiks_reversible_mrp = make_rubiks_reversible_mrp(30)
+const rubiks_reversible_mrp = make_rubiks_reversible_mrp(7)
 
 # ╔═╡ 00c67f96-456c-48d1-9d1b-0fcd8ddac671
 const reversible_linear_td_solution = semi_gradient_td0_estimation_linear(rubiks_reversible_mrp, 1f0, 400_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 1f-4)
@@ -3360,7 +3576,7 @@ display_reversible_solution(reversible_linear_td_solution)
   ╠═╡ =#
 
 # ╔═╡ 9fffc847-87c2-41d6-9f87-d10d645708da
-const reversible_fcann_td_solution = semi_gradient_td0_estimation_fcann(rubiks_reversible_mrp, 1f0, 1_000_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_td_layers; α = 1f-5, params = reversible_fcann_td_params)
+const reversible_fcann_td_solution = semi_gradient_td0_estimation_fcann(rubiks_reversible_mrp, 1f0, 1_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_td_layers; α = 1f-5, params = reversible_fcann_td_params)
 
 # ╔═╡ 42106894-5ae2-4a1e-a26e-0e8e7085d035
 #=╠═╡
@@ -3376,7 +3592,7 @@ function make_rubiks_reversible_mdp(num_scramble::Integer)
 end
 
 # ╔═╡ 717209cb-24de-4fae-b434-bf8258f39fc6
-const rubiks_reversible_mdp = make_rubiks_reversible_mdp(30)
+const rubiks_reversible_mdp = make_rubiks_reversible_mdp(7)
 
 # ╔═╡ 36f51608-7d65-4f21-ad71-98707f94b12a
 runepisode(rubiks_reversible_mdp; π = π_cube_reverse)
@@ -3390,7 +3606,7 @@ display_reversible_solution(reversible_linear_mc_solution)
   ╠═╡ =#
 
 # ╔═╡ 9ffbb5d0-defa-4734-883e-7ff1f86e326b
-const reversible_fcann_mc_solution = gradient_monte_carlo_policy_estimation_fcann(rubiks_reversible_mdp, π_cube_reverse, 1f0, 1_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_layers; α = 1f-5, params = reversible_fcann_params)
+const reversible_fcann_mc_solution = gradient_monte_carlo_policy_estimation_fcann(rubiks_reversible_mdp, π_cube_reverse, 1f0, 10_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_layers; α = 1f-5, params = reversible_fcann_params)
 
 # ╔═╡ af9571f9-9d82-4563-83b1-d3dc23668b6c
 #=╠═╡
@@ -3761,11 +3977,6 @@ const test_episode = runepisode(rubiks_cube_mdp; max_steps = 1_000)
 md"""
 # Dependencies
 """
-
-# ╔═╡ a1288e7e-4708-47b0-9f27-adc565dc3829
-#=╠═╡
-threadinfo()
-  ╠═╡ =#
 
 # ╔═╡ e956ffaa-01c3-4e44-8c9f-2298347fea03
 # ╠═╡ skip_as_script = true
@@ -4830,10 +5041,12 @@ version = "17.4.0+2"
 # ╟─8aa9a6dd-130a-4439-83a8-5b0385118a49
 # ╟─f1b1c2fc-6973-4ecd-ae9c-1f52a1fd2189
 # ╠═c6ccf794-d7e4-4e7e-b4f7-7acbe2530722
-# ╠═a9748352-649d-45c4-b33d-a4c8f2b5b247
-# ╠═ebc5bf2b-abef-4b4a-9f12-b0884c089350
 # ╠═ebf0eee8-b1d4-4f59-9727-518e6dd546bd
-# ╟─46bbd599-ae25-485e-b064-af28efde316f
+# ╠═a9748352-649d-45c4-b33d-a4c8f2b5b247
+# ╠═b31fda46-27e1-4b10-9cc3-de26557521f5
+# ╠═42e03441-cd7c-4f3c-a30d-9814b36428c7
+# ╠═ebc5bf2b-abef-4b4a-9f12-b0884c089350
+# ╠═46bbd599-ae25-485e-b064-af28efde316f
 # ╠═545ca130-8e89-48db-9ada-5f6467067ef3
 # ╟─44e167a7-ebe7-4cb0-8e4c-9a5444f5f224
 # ╠═7aedab25-1129-4ad5-bfc5-bd673b8d2509
@@ -4847,7 +5060,7 @@ version = "17.4.0+2"
 # ╟─d4613756-bc2d-4632-8e74-6fa11d5ae6a4
 # ╠═22879750-f3c1-4053-994c-fb1262107be3
 # ╟─0b826bd0-8a83-47d1-934b-e9ddc50c91a9
-# ╠═0fd13622-f89b-472b-9c82-9142acf07359
+# ╟─0fd13622-f89b-472b-9c82-9142acf07359
 # ╠═fabd617b-cff1-4939-8e10-b2d79861fd47
 # ╠═33d1609a-5c0d-4cb4-a7e1-1aca85da74e1
 # ╠═ec496cfb-238d-48a5-a482-cfbe35cf2854
@@ -4906,7 +5119,10 @@ version = "17.4.0+2"
 # ╟─e9d9cfd6-01b7-4d89-9870-57514eb03d22
 # ╠═c6482bad-7912-427e-bb19-4245e1818f56
 # ╠═67f2fe48-ef6e-4af2-9a4c-5af027cffabd
+# ╠═5a6a4b92-7b02-441a-9f05-2f7924eec600
+# ╠═b7586067-6d80-49c4-b8c4-877aa3e2ce3f
 # ╠═d2f662c5-dc52-45c2-a335-5cc7ce2eb486
+# ╠═d949035a-4258-46b2-b749-83397213c379
 # ╠═92b1d07f-6538-44f4-8b94-9be1ee83728a
 # ╟─343aa4fe-f38d-42b7-967b-c589be65077d
 # ╟─7e57369f-14d5-4a5e-b83d-951228fac2eb
@@ -4942,10 +5158,6 @@ version = "17.4.0+2"
 # ╠═6014ac2d-7d49-483c-92b7-7b1e24466b42
 # ╠═a2ef7212-d2b6-40ab-8af8-6d38ab9f39f2
 # ╠═98e24e54-e285-4c2f-984f-159e315fbdeb
-# ╠═a42b444a-5ecb-40e4-adef-1c5b7c7d3e7e
-# ╠═859e4315-e693-45fc-8c0b-2bdb2ff1e506
-# ╠═cdb18175-6e09-47d0-9e00-48acf898b1c6
-# ╠═6be19e3a-e62d-4f5e-a0df-9974b502b362
 # ╠═738f63c0-4101-48df-b73f-610bea1553af
 # ╠═ed067ef4-0b0c-4f2c-9372-899cfc6449c5
 # ╠═33ffe90d-941f-4c84-93b5-628bd175140d
@@ -5091,6 +5303,7 @@ version = "17.4.0+2"
 # ╠═c079e451-0487-4e02-8f0e-b61e8963eeb2
 # ╟─6e9091e1-afaa-46cf-8e21-6b38526640cb
 # ╠═1938becf-e2cc-4c7b-b6ec-d1c3ff107ed9
+# ╠═d7c391b1-0d13-409b-a0ac-c02fb766b839
 # ╟─7f45ed2c-996b-40dc-b2cd-4f6cc7bddc4c
 # ╠═52eb3090-66a0-41aa-90ed-f658847f9601
 # ╟─bcb9aec3-2d1b-4361-8fc3-6a2cfa20ddb3
@@ -5169,7 +5382,21 @@ version = "17.4.0+2"
 # ╠═81cbe49d-364b-450e-8e2f-c496525e3aae
 # ╠═7bb3fe7c-a8a5-41b0-b35c-2ca92a4d2eb0
 # ╠═a06c96f9-57c1-48e4-a725-08980892502e
+# ╟─16d6e982-c564-4d77-93b2-c4180eabbd2d
+# ╠═37f28ba0-86b4-4c5d-96a4-e8adcec7c618
+# ╠═3ac7bdb3-b4a8-4a64-82ea-dcd2dce14b6d
+# ╠═30d9c367-01e6-4ee3-955a-7c1ad81cbbd5
+# ╠═04bb99fd-2e99-4af7-8582-5cbc46fad29e
 # ╟─206a1146-4a01-412f-a17e-3d58cac83453
+# ╠═9084cb79-a89f-432d-a4f9-4b1f9ee65c4d
+# ╠═d9460da6-d51f-458b-bd90-888961ffe3a0
+# ╠═db57648d-ea66-4ece-85af-0df97a725ae5
+# ╟─02523a61-5b7f-410c-ba3b-3564fcd8a35b
+# ╠═837479ed-a3c7-46dc-8fa0-31c98bb3ef6e
+# ╠═fb49c6c1-1a4c-4d57-92e8-b4abda1d6533
+# ╠═b2324cff-2b72-4ec8-a51e-5123a2cc8ebd
+# ╠═91a90c89-a871-4776-a7d2-893fe8d7df63
+# ╠═949b2c5b-9657-4d8c-99e0-eb983c582ed1
 # ╠═91e6576c-0142-409c-8749-194c66ba3c9d
 # ╠═3f459caa-c83d-4cdc-8b6e-78459b00d312
 # ╠═abfc1d27-96a6-48dc-93d1-b2f5db4455ef
@@ -5195,19 +5422,25 @@ version = "17.4.0+2"
 # ╠═0624c4dc-d6e4-4a31-b13d-3618d124f857
 # ╠═323be52e-f967-44aa-a478-53b5f6575dab
 # ╟─92f16c16-5384-47cd-a8f6-31694b503ec8
-# ╠═bfefc8c5-8620-46c0-b6ef-5a8dd4106889
+# ╟─bfefc8c5-8620-46c0-b6ef-5a8dd4106889
+# ╠═1735c965-8aa0-4c74-bb41-8800d145e09d
+# ╠═84d639ef-08d8-45c5-8df6-39e1dcb31abe
+# ╠═17779421-8406-4791-a6c0-03dd9c499193
 # ╠═44f7e193-61c2-4591-abe7-1800328abb18
+# ╠═546635bc-83d8-4b07-8b0e-df6d8a29d45f
+# ╠═1e8f8041-0cf2-47f7-b24f-d4b81ef36360
+# ╠═b609b7fc-3994-4488-beed-a151f1984d46
 # ╠═bd6ef1e0-0e75-4186-b597-01860adb10b4
 # ╠═7b61d79d-e304-488d-8cc8-ed70a0e7d052
 # ╠═1222ffc4-82a4-4397-89f0-e0b5ce568fed
 # ╠═a67c9467-fe95-424d-92bf-1dd6eecfbd88
 # ╠═ddcbd552-d3a2-46ed-9a5d-d705730501c7
-# ╠═1f3cc59d-81c4-4c2f-a6d2-702d803b1f1d
+# ╟─1f3cc59d-81c4-4c2f-a6d2-702d803b1f1d
 # ╠═a38e34b1-57ac-496e-be00-73501b865b6f
 # ╠═ea436bfd-97df-4859-9bc4-14ee5f67ecaf
 # ╠═c676f6ab-07cd-4e55-b853-ff7a13c03f80
 # ╠═da55b6bc-ba84-4800-bab4-c5bbfae73b99
-# ╠═1060a7ff-4ed3-49e7-a4e4-12ec896e924d
+# ╟─1060a7ff-4ed3-49e7-a4e4-12ec896e924d
 # ╠═6f2724d4-dcf7-417b-966d-1ff8deeb2a65
 # ╠═440470e3-1f38-4041-b554-13a155f19cdf
 # ╠═8b26a4ce-d853-45a6-b83d-9d07f30b6621
@@ -5299,12 +5532,12 @@ version = "17.4.0+2"
 # ╠═00609e53-d6bd-4630-9a28-8e69acc10901
 # ╟─2026135e-5d97-4755-8de7-cd3175e37298
 # ╠═1d332f0c-bb86-49f8-9f61-2ba03354b3dd
-# ╠═a35f5d8b-a9ea-4d9c-84c2-44ceea2fbe56
+# ╟─a35f5d8b-a9ea-4d9c-84c2-44ceea2fbe56
 # ╠═bfbc45f1-900e-4596-965a-0dfe6e9bdc9c
 # ╠═75e1b19f-299b-4f05-a98a-87cc4ddb14d0
 # ╠═4aed6452-26e6-4a48-9a3a-b1be7d961157
 # ╠═fc8a9f05-2b66-4ef2-8e05-538f66b4b840
-# ╠═fa4fa0fe-113b-4537-a498-a1be486a9b8e
+# ╟─fa4fa0fe-113b-4537-a498-a1be486a9b8e
 # ╠═cb2dd4f3-b0ac-4148-877a-408831fea5ef
 # ╟─267c92f0-2b55-421a-8210-adad5e6ad811
 # ╟─c71826b6-e295-4c8f-8d73-52dbde7a39e7
@@ -5366,7 +5599,6 @@ version = "17.4.0+2"
 # ╠═c5256762-ca4a-4c81-805b-4f865efc2091
 # ╠═624eef76-16a7-4556-a466-14341346f7a5
 # ╠═c5c0f635-171d-4904-9675-d1b0a01f6d7a
-# ╠═a1288e7e-4708-47b0-9f27-adc565dc3829
 # ╠═e956ffaa-01c3-4e44-8c9f-2298347fea03
 # ╠═dcf12932-7854-481c-8bfa-f6a4b2956518
 # ╟─00000000-0000-0000-0000-000000000001
