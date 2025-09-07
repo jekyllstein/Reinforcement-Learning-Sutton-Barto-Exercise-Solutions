@@ -2338,7 +2338,7 @@ begin
 	end
 
 	#true online sarsaλ for linear features
-	function true_online_sarsa_λ!(parameters::Matrix{T}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, save_step_rewards::Bool = false, kwargs...) where {T<:Real}
+	function true_online_sarsa_λ!(parameters::Matrix{T}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, kwargs...) where {T<:Real}
 		policy = copy(action_values)
 		
 		#initialize records
@@ -2367,21 +2367,13 @@ begin
 
 			z .*= γ*λ
 
-			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
-			for i in active_features
-				parameters[i, i_a] -= α*(q - q_old)
-				z[i, i_a] += dt
-			end
+			update_params_with_gradient!(z, dt, feature_vector, i_a)
 
-			update_params_with_gradient!(z, dt, feature_vector)
-
-			update_params_with_gradient!(parameters, -α*(q - q_old), feature_vector)
+			update_params_with_gradient!(parameters, -α*(q - q_old), feature_vector, i_a)
 			
 			#take action and observe transition
 			(r, s′) = mdp.ptf(s, i_a)
 			rtot += r
-			
-			save_step_rewards && push!(step_rewards, r)
 
 			terminated = mdp.isterm(s′)
 			if terminated
@@ -2392,8 +2384,8 @@ begin
 			else
 				update_feature_vector!(feature_vector, s′)
 				update_linear_action_values!(action_values, feature_vector, parameters)
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
 				policy .= action_values
+				make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 				i_a′ = sample_action(policy)
 				q′ = compute_value(action_values, policy, i_a′)
 			end
@@ -2415,7 +2407,6 @@ begin
 				z .= zero(T)
 				q_old = zero(T)
 				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
 			else
 				s = s′
 				i_a = i_a′
@@ -2426,107 +2417,98 @@ begin
 
 		q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_linear_action_values!, feature_vector, parameters)
 	
-		return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(state_action_values), form_kwargs = form_kwargs)
+		return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 	end
+end
+
+# ╔═╡ b9467ce7-ace9-4034-a306-050bf1e53573
+begin
+	true_online_sarsa_λ(mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; init_value::T = zero(T), state_action_values::Matrix{T} = initialize_state_action_value(mdp; init_value = init_value), kwargs...) where T<:Real = true_online_sarsa_λ!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
+	
+	true_online_sarsa_λ(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = true_online_sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...)
 end
 
 # ╔═╡ ded7c8e0-f44c-44c9-afad-070d325c180b
-begin
-	#true online dp λ for binary features
-	function true_online_dp_λ!(parameters::Vector{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, epkwargs...) where {T<:Real}
-		#initialize records
-		episode_step_history = Vector{T}()
-		step_rewards = Vector{T}()
-
-		#uses the active features to compute the effective dot product of the feature vector of a state with the parameter or eligibility trace values for the specified action
-		function get_feature_values(v::Vector{T}, active_features)
-			x = zero(T)
-			for i in active_features
-				x += v[i]
-			end
-			return x
-		end
-
-		value_function(active_features) = get_feature_values(parameters, active_features)
-
-		function calculate_action_value(s, i_a)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T)
-			for i in eachindex(rewards)
-				s′ = states[i]
-				q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
-			end
-			return q
-		end
-
-		function select_action!(action_values, parameters, ϵ, active_features)
-			for i_a in eachindex(action_values)
-				action_values[i_a] = calculate_action_value(s, i_a)
-			end
-			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-			sample_action(action_values)
-		end
+#true online dp λ for linear features
+function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_parameter_history::Bool = false, kwargs...) where {T<:Real}
+	policy = copy(action_values)
+	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 	
-		#initialize episode
-		s = mdp.initialize_state()
-		active_features = get_active_features(s)
-		i_a = select_action!(action_values, parameters, ϵ, active_features)
-		z .= zero(T)
-		v_old = zero(T)
-		ep = 1
-		step = 1
+	#initialize records
+	episode_rewards = Vector{T}()
+	episode_steps = Vector{Int64}()
+	parameter_history = Vector{Vector{T}}()
+	
+	#initialize episode
+	s = mdp.initialize_state()
+	target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, γ, action_value_args...)
+	policy .= action_values
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	i_a = sample_action(policy)
+	z .= zero(T)
+	v_old = zero(T)
+	ep = 1
+	step = 1
 
-		while (ep <= max_episodes) && (step <= max_steps)
-			v = get_feature_values(parameters, active_features)
-
-			#represents the portion of the eligibility trace update that depends on the current feature vector
-			dt =  one(T) - α*γ*λ*get_feature_values(z, active_features)
-
-			z .*= γ*λ
-
-			#this portion of the parameter update only depends on the current feature vector, state-action value and old state-action value
-			for i in active_features
-				parameters[i] -= α*(v - v_old)
-				z[i] += dt
-			end
-			
-			#take action and observe transition
-			(r, s′) = mdp.ptf(s, i_a)
-			
-			save_step_rewards && push!(step_rewards, r)
-
-			if mdp.isterm(s′)
-				v′ = zero(T)
-			else
-				active_features = get_active_features(s′)
-				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
-				v′ = get_feature_values(parameters, active_features)
-			end
-			
-			δ = r + γ*v′ - v
-
-			parameters .+= α*(δ + v - v_old) .* z
-			
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
-				active_features = get_active_features(s)
-				i_a = select_action!(action_values, parameters, ϵ, active_features)
-				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
-				v_old = zero(T)
-				ep += 1
-				save_episode_steps && push!(episode_step_history, step)
-			else
-				s = s′
-				i_a = i_a′
-				v_old = v′
-			end
-			step += 1
-		end
+	rtot = zero(T)
+	while (ep <= max_episodes) && (step <= max_steps)
+		update_feature_vector!(feature_vector, s)
+		v = linear_value_function(feature_vector, parameters)
+		#represents the portion of the eligibility trace update that depends on the current feature vector
+		dt =  one(T) - α*γ*λ*linear_value_function(feature_vector, z)
+		z .*= γ*λ
+		update_params_with_gradient!(z, dt, feature_vector)
+		update_params_with_gradient!(parameters, -α*(v - v_old), feature_vector)
 		
-		return (episode_steps = episode_step_history, step_rewards = step_rewards)
+		target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, γ, action_value_args...)
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a = sample_action(policy)
+		
+		δ = target - v
+		
+		#take action and observe transition
+		(r, s′) = mdp.ptf(s, i_a)
+		rtot += r
+
+		terminated = mdp.isterm(s′)
+
+		if terminated
+			v′ = zero(T)
+		else
+			update_feature_vector!(feature_vector, s′)
+			v′ = linear_value_function(feature_vector, parameters)
+		end
+
+		parameters .+= α*(δ + v - v_old) .* z
+
+		if terminated
+			s′ = mdp.initialize_state()
+			#reset eligibility vector to 0 at the start of a new episode
+			z .= zero(T)
+			ep += 1
+			push!(episode_rewards, rtot)
+			push!(episode_steps, step)
+			rtot = zero(T)
+		end
+			
+		s = s′
+		v_old = v′
+		
+		update_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, γ, action_value_args...)
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a = sample_action(policy)
+		step += 1
 	end
+	
+	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, linear_value_function, feature_vector, parameters)
+
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end
+
+# ╔═╡ a2a6c291-3ea7-45d4-9608-40e25f1cfe7c
+true_online_dp_λ(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = true_online_dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...)
 
 # ╔═╡ 8b6b5084-3972-4bd4-9ca2-423f1c627788
 md"""
@@ -2538,6 +2520,21 @@ md"""
 #### Sarsa(λ) Parameter Studies With Mountain Car Tile Coding
 """
 
+# ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
+#=╠═╡
+function display_mountaincar_λ_parameter_study(α_list, λ_list, study::NamedTuple; num_trials = Base.Threads.nthreads(), algo = sarsa_λ_linear, ymin = 100, ymax = 400, num_steps = 50_000, kwargs...)
+	traces = [begin
+		y = [begin
+			study.update_results!(α, λ, algo; num_trials = num_trials, num_steps = num_steps, kwargs...)
+		end
+		for α in α_list]
+		scatter(x = α_list, y = y, name = "λ = $λ")
+	end
+	for λ in λ_list]
+	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Average Steps Per Episode Averaged <br> Over the First $num_steps Steps and $num_trials Runs", yaxis_range = [ymin, ymax], xaxis_type = "log"))
+end
+  ╠═╡ =#
+
 # ╔═╡ c19209dc-bddf-4390-95a9-fc1d1d836a8a
 md"""
 ##### Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
@@ -2548,14 +2545,16 @@ md"""
 @bind run_mountaincar_λ_study1 CounterButton("Run Parameter Study (could take several minutes)")
   ╠═╡ =#
 
-# ╔═╡ 2c425a9a-49ae-48d3-8ab7-f3c12b081180
-md"""
-##### Expected Sarsa$$(λ)$$ with $$\epsilon = 0.01$$
-"""
-
-# ╔═╡ d7c7316d-aac3-4500-ac3c-0c21b9cf5215
+# ╔═╡ a29d560d-fe30-4efc-8bce-90d652c738fa
 #=╠═╡
-@bind run_mountaincar_λ_study2 CounterButton("Run Parameter Study (could take several minutes)")
+@bind sarsa_λ_mountaincar_study_params PlutoUI.combine() do Child
+	md"""
+	Target Value: $(Child(:compute_value, Select([compute_expected_sarsa_value => "Expected Sarsa", compute_sarsa_value => "Sarsa", compute_q_learning_value => "Q Learning"])))
+	Number of Tiles Per Dimension: $(Child(:num_tiles, NumberField(2:20, default = 4)))
+	Number of Tilings: $(Child(:num_tilings, NumberField(2:20, default = 4)))
+	Trace Type: $(Child(:trace_type, Select([AccumulatingTrace() => "Accumulating Trace", ReplacingTrace() => "Replacing Trace", DutchTrace() => "Dutch Trace"])))
+	"""
+end |> confirm
   ╠═╡ =#
 
 # ╔═╡ aea15e6d-9873-406b-993b-04717dad01c6
@@ -2570,6 +2569,17 @@ In this method the full transition distribution is used and only state values ar
 @bind run_mountaincar_λ_study3 CounterButton("Run Parameter Study (could take several minutes)")
   ╠═╡ =#
 
+# ╔═╡ 118545ac-5ee9-4b61-b384-52dfb41a533b
+#=╠═╡
+@bind dp_λ_mountaincar_study_params PlutoUI.combine() do Child
+	md"""
+	Number of Tiles Per Dimension: $(Child(:num_tiles, NumberField(2:20, default = 14)))
+	Number of Tilings: $(Child(:num_tilings, NumberField(2:20, default = 10)))
+	Trace Type: $(Child(:trace_type, Select([AccumulatingTrace() => "Accumulating Trace", ReplacingTrace() => "Replacing Trace", DutchTrace() => "Dutch Trace"])))
+	"""
+end |> confirm
+  ╠═╡ =#
+
 # ╔═╡ b28f47cc-eda7-4961-b6b3-569753386249
 md"""
 ##### True Online Sarsa$$(λ)$$ with $$ϵ = 0.01$$
@@ -2582,16 +2592,15 @@ Notice that here a slightly lower value of $\lambda$ is optimal which increases 
 @bind run_mountaincar_λ_study4 CounterButton("Run Parameter Study (could take several minutes)")
   ╠═╡ =#
 
-# ╔═╡ 48c87368-6f11-4330-9a29-3ecbf60cd146
-md"""
-##### True Online Expected Sarsa$$(λ)$$ with $$ϵ = 0.01$$
-
-Similar results to above as we'd expect for such a small value of $\epsilon$
-"""
-
-# ╔═╡ 831b925f-9f76-48e2-9de0-32724215c568
+# ╔═╡ 4b9f3ab7-bb96-46f4-8af5-145f92f82d93
 #=╠═╡
-@bind run_mountaincar_λ_study5 CounterButton("Run Parameter Study (could take several minutes)")
+@bind true_online_sarsa_λ_mountaincar_study_params PlutoUI.combine() do Child
+	md"""
+	Target Value: $(Child(:compute_value, Select([compute_expected_sarsa_value => "Expected Sarsa", compute_sarsa_value => "Sarsa", compute_q_learning_value => "Q Learning"])))
+	Number of Tiles Per Dimension: $(Child(:num_tiles, NumberField(2:20, default = 4)))
+	Number of Tilings: $(Child(:num_tilings, NumberField(2:20, default = 4)))
+	"""
+end |> confirm
   ╠═╡ =#
 
 # ╔═╡ 438726e5-f9a1-4bf7-abda-e5bb0eb30c39
@@ -2604,6 +2613,16 @@ Bests results so far which also favor a higher value of $\lambda$ which indicate
 # ╔═╡ 4d00dfcc-7b01-4335-95ba-0b31fa0e62ad
 #=╠═╡
 @bind run_mountaincar_λ_study6 CounterButton("Run Parameter Study (could take several minutes)")
+  ╠═╡ =#
+
+# ╔═╡ f475a176-c2b0-4a22-8975-f5d2f54b6530
+#=╠═╡
+@bind true_online_dp_λ_mountaincar_study_params PlutoUI.combine() do Child
+	md"""
+	Number of Tiles Per Dimension: $(Child(:num_tiles, NumberField(2:20, default = 14)))
+	Number of Tilings: $(Child(:num_tilings, NumberField(2:20, default = 10)))
+	"""
+end |> confirm
   ╠═╡ =#
 
 # ╔═╡ 0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
@@ -3541,37 +3560,65 @@ function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F
 	(feature_vector = feature_vector, update_feature_vector! = update_feature_vector!, num_features = num_features, get_active_features = get_active_features, get_feature_vector = get_feature_vector)
 end
 
-# ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
+# ╔═╡ 5ad7c72e-b276-4dd8-a6de-df4e2e01f048
+setup_mountaincar_tiles(num_tiles::Integer, num_tilings::Integer) = tile_coding_feature_setup(MountainCarTask.mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
+
+# ╔═╡ c35b4242-8477-468f-bd86-32cda00229a4
+function run_mountaincar_λ_linear(α, λ, algo; num_steps = 50_000, num_tiles = 10, num_tilings = 10, kwargs...)
+	tile_coding = setup_mountaincar_tiles(num_tiles, num_tilings)
+	algo(MountainCarTask.deterministic_mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding.feature_vector, tile_coding.update_feature_vector!; α = α, kwargs...)
+end
+
+# ╔═╡ cd0b96eb-150c-4441-ad79-8c0305213cbd
+function run_mountaincar_λ_linear_trial(α, λ, algo; kwargs...)
+	output = run_mountaincar_λ_linear(α, λ, algo; kwargs...)
+	step_history = output.episode_steps
+	isempty(step_history) && return NaN
+	l = length(step_history)
+	return step_history[end] / l
+end
+
+# ╔═╡ 4bd74da4-382b-47af-bfca-78b3318e2df7
+const mountaincar_semi_gradient_linear_parameter_study = setup_parameter_study(run_mountaincar_λ_linear_trial, (:α, :λ, :algo), (num_steps = 50_000, num_tiles = 10, num_tilings = 10, compute_value = compute_sarsa_value, ϵ = 0.01f0, trace_type = AccumulatingTrace()))
+
+# ╔═╡ 111cda26-bd25-49ed-9ba7-4ee8f71b063f
 #=╠═╡
-function run_mountaincar_λ_parameter_study(num_steps::Integer, num_tiles::Integer, num_tilings::Integer, num_trials::Integer, α_list, λ_list; algo = sarsa_λ_linear, seed = rand(UInt64), ymin = 100, ymax = 400, kwargs...)
-	mdp = algo == sarsa_λ_linear ? MountainCarTask.mdp : MountainCarTask.deterministic_mdp
-	tile_coding = tile_coding_feature_setup(mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
-	traces = [begin
-		y = [begin
-			Random.seed!(seed)
-			1:num_trials |> Map() do _
-				tile_coding = tile_coding_feature_setup(mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
-				output = algo(mdp, 1f0, λ, typemax(Int64), num_steps, deepcopy(tile_coding.feature_vector), tile_coding.update_feature_vector!; α = α, kwargs...)
-				step_history = output.episode_steps
-				isempty(step_history) && return NaN
-				l = length(step_history)
-				# -mean(output.episode_rewards[max(1, end-100):end])
-				step_history[end] / length(step_history)
-			end |> foldxt(+) |> x -> x/num_trials
-		end
-		for α in α_list]
-		scatter(x = α_list, y = y, name = "λ = $λ")
-	end
-	for λ in λ_list]
-	plot(traces, Layout(xaxis_title = "Learning Rate", yaxis_title = "Average Steps Per Episode Averaged <br> Over the First $num_steps Steps and $num_trials Runs", yaxis_range = [ymin, ymax], xaxis_type = "log"))
+if run_mountaincar_λ_study1 > 0
+	display_mountaincar_λ_parameter_study(Base.LogRange(0.002f0, 0.4f0, 8), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], mountaincar_semi_gradient_linear_parameter_study; ymin = 100, ymax = 400, sarsa_λ_mountaincar_study_params...)
+else
+	md"""Waiting to run parameter study"""
 end
   ╠═╡ =#
 
-# ╔═╡ 23eec503-a083-4980-869b-d6019e9af5ab
-function run_mountaincar_sarsa_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs...)
-	tile_coding = tile_coding_feature_setup(MountainCarTask.deterministic_mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
-	output = sarsa_λ_linear(MountainCarTask.mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding.feature_vector, tile_coding.update_feature_vector!; α = α, kwargs...)
+# ╔═╡ f1a8df55-a5ef-475e-a0c4-ed31b1c6c9f5
+#=╠═╡
+if run_mountaincar_λ_study3 > 0
+	display_mountaincar_λ_parameter_study(Base.LogRange(0.002f0, 0.4f0, 8), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], mountaincar_semi_gradient_linear_parameter_study; ymin = 100, ymax = 400, algo = dp_λ_linear, dp_λ_mountaincar_study_params...)
+else
+	md"""Waiting to run parameter study"""
 end
+  ╠═╡ =#
+
+# ╔═╡ 6b449c6c-249e-4193-96ea-caccee683de0
+#=╠═╡
+if run_mountaincar_λ_study4 > 0
+	display_mountaincar_λ_parameter_study(Base.LogRange(0.002f0, 0.4f0, 8), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], mountaincar_semi_gradient_linear_parameter_study; ymin = 100, ymax = 400, algo = true_online_sarsa_λ, true_online_sarsa_λ_mountaincar_study_params...)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ cc14f0a2-d0bc-40fa-83fa-b99e62351282
+#=╠═╡
+if run_mountaincar_λ_study6 > 0
+	display_mountaincar_λ_parameter_study(Base.LogRange(0.001f0, 0.04f0, 8), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0], mountaincar_semi_gradient_linear_parameter_study; ymin = 100, ymax = 400, algo = true_online_dp_λ, true_online_dp_λ_mountaincar_study_params...)
+else
+	md"""Waiting to run parameter study"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 315db1e4-c730-46bc-8f5b-03cdfe5467f9
+const mountaincar_tilecoding_λ_best = run_mountaincar_λ_linear(0.002f0, 0.99f0, true_online_dp_λ; num_steps = 50_000, num_tiles = 14, num_tilings = 10, ϵ = 0.01f0)
 
 # ╔═╡ 66112956-63a3-4629-8fba-958ff04f59e2
 function run_mountaincar_dp_λ(num_steps, num_tiles, num_tilings, α, λ; kwargs...)
@@ -3711,60 +3758,6 @@ function run_mountaincar_λ_parameter_study(layers::Vector{Int64}, num_steps::In
 end
   ╠═╡ =#
 
-# ╔═╡ 111cda26-bd25-49ed-9ba7-4ee8f71b063f
-#=╠═╡
-if run_mountaincar_λ_study1 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.0025f0, 0.25f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ fb1bde32-35e4-4985-ad88-6b5408f3c7f7
-#=╠═╡
-if run_mountaincar_λ_study2 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.15f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, compute_value = compute_expected_sarsa_value, seed = 45, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ f1a8df55-a5ef-475e-a0c4-ed31b1c6c9f5
-#=╠═╡
-if run_mountaincar_λ_study3 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.07f0, 8), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ_linear, ymin = 120, ymax = 200)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ 6b449c6c-249e-4193-96ea-caccee683de0
-#=╠═╡
-if run_mountaincar_λ_study4 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_sarsa_λ!, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ d01f8b48-06c1-4dc7-afae-3a2e1b3ba751
-#=╠═╡
-if run_mountaincar_λ_study5 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.01f0, 0.1f0, 6), [0f0, 0.5f0, 0.8f0, 0.9f0, 0.95f0]; ϵ = 0.01f0, seed = 45, algo! = true_online_expected_sarsa_λ!, ymin = 150)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
-# ╔═╡ cc14f0a2-d0bc-40fa-83fa-b99e62351282
-#=╠═╡
-if run_mountaincar_λ_study6 > 0
-	run_mountaincar_λ_parameter_study(50_000, 12, 8, 40, Base.LogRange(0.001f0, 0.02f0, 6), [0.8f0, 0.9f0, 0.95f0, 0.99f0]; ϵ = 0.01f0, seed = 45, algo = dp_λ, algo! = true_online_dp_λ!, ymin = 130, ymax = 200)
-else
-	md"""Waiting to run parameter study"""
-end
-  ╠═╡ =#
-
 # ╔═╡ 7af6f5ed-178d-4b90-9226-02be6b13ed5a
 #=╠═╡
 if run_mountaincar_λ_fcann_study1 > 0
@@ -3794,9 +3787,6 @@ function run_mountaincar_sarsa_λ(layers::Vector{Int64}, num_steps, α, λ; kwar
 	setup = normalized_feature_setup(MountainCarTask.mdp, identity, (-1.2f0, -0.07f0), (0.5f0, 0.07f0); range = 1.725f0)
 	output = sarsa_λ_fcann(MountainCarTask.mdp, 1f0, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, kwargs...)
 end
-
-# ╔═╡ 315db1e4-c730-46bc-8f5b-03cdfe5467f9
-const mountaincar_tilecoding_sarsa_λ = run_mountaincar_sarsa_λ(100_000, 12, 8, 1f-2, 0.5f0; ϵ = 0.01f0)
 
 # ╔═╡ 569c5552-cfc5-414d-8555-737f62abbb1c
 const mountaincar_sarsa_λ_fcann = run_mountaincar_sarsa_λ([8, 8, 8], 200_000, 1f-6, 0.1f0; ϵ = 0.05f0, reslayers=1, compute_value = compute_sarsa_value)
@@ -4720,7 +4710,7 @@ end
 
 # ╔═╡ da3cde1e-d11a-4ce5-b134-347c3baba11d
 #=╠═╡
-display_mountaincar_results(mountaincar_tilecoding_sarsa_λ)
+display_mountaincar_results(mountaincar_tilecoding_λ_best)
   ╠═╡ =#
 
 # ╔═╡ c3cd5a5f-6445-4df3-b492-0d22e641f37c
@@ -5677,30 +5667,33 @@ version = "17.4.0+2"
 # ╠═65aa9202-7e9a-4590-865e-0b08c7b98e1e
 # ╠═65ca967c-2425-4c85-92e9-3f957e7ede2f
 # ╠═771cca22-d61d-498a-98be-90fa59e09571
+# ╠═b9467ce7-ace9-4034-a306-050bf1e53573
 # ╠═ded7c8e0-f44c-44c9-afad-070d325c180b
+# ╠═a2a6c291-3ea7-45d4-9608-40e25f1cfe7c
 # ╟─8b6b5084-3972-4bd4-9ca2-423f1c627788
 # ╟─5bc128ec-2934-4aa5-a922-9017f647e1b3
+# ╠═5ad7c72e-b276-4dd8-a6de-df4e2e01f048
+# ╠═c35b4242-8477-468f-bd86-32cda00229a4
+# ╠═cd0b96eb-150c-4441-ad79-8c0305213cbd
+# ╠═4bd74da4-382b-47af-bfca-78b3318e2df7
 # ╠═0324b4e2-2544-4bd6-b310-8a330b5a92c5
 # ╟─c19209dc-bddf-4390-95a9-fc1d1d836a8a
 # ╟─5652f3fd-ec23-4dfb-a171-1e1ed0de275a
+# ╟─a29d560d-fe30-4efc-8bce-90d652c738fa
 # ╟─111cda26-bd25-49ed-9ba7-4ee8f71b063f
-# ╟─2c425a9a-49ae-48d3-8ab7-f3c12b081180
-# ╟─d7c7316d-aac3-4500-ac3c-0c21b9cf5215
-# ╟─fb1bde32-35e4-4985-ad88-6b5408f3c7f7
 # ╟─aea15e6d-9873-406b-993b-04717dad01c6
 # ╟─c57b4792-928a-4450-9364-786e9f186cc8
+# ╟─118545ac-5ee9-4b61-b384-52dfb41a533b
 # ╟─f1a8df55-a5ef-475e-a0c4-ed31b1c6c9f5
 # ╟─b28f47cc-eda7-4961-b6b3-569753386249
 # ╟─31633123-0249-4d15-b6fe-59480d3038eb
+# ╟─4b9f3ab7-bb96-46f4-8af5-145f92f82d93
 # ╟─6b449c6c-249e-4193-96ea-caccee683de0
-# ╟─48c87368-6f11-4330-9a29-3ecbf60cd146
-# ╟─831b925f-9f76-48e2-9de0-32724215c568
-# ╟─d01f8b48-06c1-4dc7-afae-3a2e1b3ba751
 # ╟─438726e5-f9a1-4bf7-abda-e5bb0eb30c39
 # ╟─4d00dfcc-7b01-4335-95ba-0b31fa0e62ad
-# ╟─cc14f0a2-d0bc-40fa-83fa-b99e62351282
+# ╟─f475a176-c2b0-4a22-8975-f5d2f54b6530
+# ╠═cc14f0a2-d0bc-40fa-83fa-b99e62351282
 # ╟─0a5bec4a-0e65-4753-a1e8-f7b3c6a061df
-# ╠═23eec503-a083-4980-869b-d6019e9af5ab
 # ╠═2e6b7c33-c6b2-4fa0-9d71-acf7cb818b9b
 # ╠═abe1f077-d211-4488-a10c-ec2ca5aac328
 # ╠═315db1e4-c730-46bc-8f5b-03cdfe5467f9
