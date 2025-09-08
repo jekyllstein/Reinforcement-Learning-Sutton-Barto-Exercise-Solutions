@@ -3080,7 +3080,7 @@ begin
 	# Returns
 	- `Vector{I}`: The modified input vector `x` containing tile indices for each tiling
 	"""
-	function update_tile_features!(x::Vector{I}, state::T, offset::T, d::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where {I<:Integer, T<:Real}
+	function update_tile_features!(x::Vector{I}, state::T, feature_inds::Int64, offset::T, d::Int64, num_tilings::Integer, tile_size::T, num_tiles::Int64, min_value::T, range::T) where {I<:Integer, T<:Real}
 		l = num_tiles*num_tilings
 		for tiling in 1:num_tilings
 			i = max(1, ceil(Int64, (scale_state(state, min_value, range) + offset*d*(tiling-1)) / tile_size))
@@ -3089,14 +3089,32 @@ begin
 		return x
 	end
 
-	function update_tile_features!(x::Vector{I}, state::NTuple{N, T}, offset::NTuple{N, T}, displacement::NTuple{N, Int64}, num_tilings::Integer, tile_size::NTuple{N, T}, num_tiles::NTuple{N, Int64}, min_values::NTuple{N, T}, ranges::NTuple{N, T}) where {I <: Integer, N, T<:Real}
+	function update_tile_features!(x::Vector{I}, state::NTuple{N, T}, feature_inds::NTuple{N2, Int64}, offset::NTuple{N2, T}, displacement::NTuple{N2, Int64}, num_tilings::Integer, tile_size::NTuple{N2, T}, num_tiles::NTuple{N2, Int64}, min_values::NTuple{N2, T}, ranges::NTuple{N2, T}) where {I <: Integer, N, N2, T<:Real}
 		total_tiles = prod(num_tiles)
 		l = total_tiles*num_tilings
 		for tiling in 1:num_tilings
 			base = 1
 			index = 0
-			for d in 1:N
-				i = max(1, ceil(Int64, (scale_state(state[d], min_values[d], ranges[d]) + offset[d]*displacement[d]*(tiling - 1)) / tile_size[d]))
+			for d in 1:N2
+				d_state = feature_inds[d]
+				i = max(1, ceil(Int64, (scale_state(state[d_state], min_values[d], ranges[d]) + offset[d]*displacement[d]*(tiling - 1)) / tile_size[d]))
+				index += i * base
+				base *= num_tiles[d]
+			end
+			x[tiling] = min(index + (tiling - 1)*total_tiles, l)
+		end
+		return x
+	end
+
+	function update_tile_features!(x::Vector{I}, state::NamedTuple, feature_inds::NTuple{N2, Symbol}, offset::NTuple{N2, T}, displacement::NTuple{N2, Int64}, num_tilings::Integer, tile_size::NTuple{N2, T}, num_tiles::NTuple{N2, Int64}, min_values::NTuple{N2, T}, ranges::NTuple{N2, T}) where {I <: Integer, N2, T<:Real}
+		total_tiles = prod(num_tiles)
+		l = total_tiles*num_tilings
+		for tiling in 1:num_tilings
+			base = 1
+			index = 0
+			for d in 1:N2
+				d_state = feature_inds[d]
+				i = max(1, ceil(Int64, (scale_state(state[d_state], min_values[d], ranges[d]) + offset[d]*displacement[d]*(tiling - 1)) / tile_size[d]))
 				index += i * base
 				base *= num_tiles[d]
 			end
@@ -3110,6 +3128,13 @@ end
 begin
 	form_default_displacement_vector(s::Real) = 1
 	form_default_displacement_vector(s::NTuple{N, T}) where {N, T<:Real} = Tuple(i*2 + 1 for i in 0:N-1)
+end
+
+# ╔═╡ bed3b1f4-9b69-4009-9e0b-22e74d309fca
+begin
+	form_default_value_inds(s::Real) = 1
+	form_default_value_inds(s::NTuple{N, T}) where {N, T<:Real} = Tuple(1:N)
+	form_default_value_inds(s::NamedTuple) = keys(s)
 end
 
 # ╔═╡ bb81db16-7c4d-4e08-bf17-45147be2b0db
@@ -3164,9 +3189,9 @@ julia> # Use with high-level linear TD learning
 julia> result = semi_gradient_td0_estimation_linear(mrp, 0.9f0, 1000, 10000,
            setup.feature_vector, setup.update_feature_vector!)
 """
-function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, tile_size::S, num_tilings::Integer; displacement_vector::Union{Int64, NTuple{N, Int64}} = form_default_displacement_vector(min_value)) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S2, max_value::S2, tile_size::S2, num_tilings::Integer; displacement_vector::Union{Int64, NTuple{N2, Int64}} = form_default_displacement_vector(min_value), value_inds::Union{Int64, NTuple{N2, Int64}, NTuple{N2, Symbol}} = form_default_value_inds(problem.initialize_state())) where {T<:Real, N, N2, S <: Union{T, NTuple{N, T}, NamedTuple}, S2 <: Union{T, NTuple{N2, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
 	#states must be tuples with k elements or some number value
-	k = S == T ? 1 : N
+	k = S == T ? 1 : N2
 
 	#ensure that all tile sizes are some percentage of the total state space
 	@assert all(0 < l < 1 for l in tile_size)
@@ -3214,10 +3239,10 @@ function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F
 	feature_vector.active_features = tiling_features
 	feature_vector.num_features = num_tilings
 
-	update_feature_vector!(x::BinaryFeatureVector, s::S) = update_tile_features!(x.active_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+	update_feature_vector!(x::BinaryFeatureVector, s::S) = update_tile_features!(x.active_features, s, value_inds, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
 
 	function update_feature_vector!(x::Vector{T}, s::S)
-		update_tile_features!(tiling_features, s, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
+		update_tile_features!(tiling_features, s, value_inds, offset, displacement_vector, num_tilings, tile_size, num_tiles, min_value, s_range)
 		x .= zero(T)
 		@inbounds @simd for i in tiling_features
 			x[i] = one(T)
@@ -3245,7 +3270,7 @@ begin
 end
 
 # ╔═╡ 3968fcf6-c7b6-42bc-a416-fdfcb270f92c
-tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S, max_value::S, num_tiles::Union{Int64, NTuple{N, Int64}}, num_tilings::Integer; kwargs...) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function} = tile_coding_feature_setup(problem, min_value, max_value, get_tile_size(min_value, num_tiles), num_tilings; kwargs...)
+tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S2, max_value::S2, num_tiles::Union{Int64, NTuple{N2, Int64}}, num_tilings::Integer; kwargs...) where {T<:Real, N, N2, S <: Union{T, NTuple{N, T}, NamedTuple}, S2 <: Union{T, NTuple{N2, T}}, A, P, F1<:Function, F2<:Function, F3<:Function} = tile_coding_feature_setup(problem, min_value, max_value, get_tile_size(min_value, num_tiles), num_tilings; kwargs...)
 
 # ╔═╡ e6514762-31e0-4916-aa21-c280674c2fc1
 md"""
@@ -5609,6 +5634,7 @@ version = "17.4.0+2"
 # ╠═d215b917-c43d-4c14-aa97-2310f922d71a
 # ╠═35d6dd59-1fd3-4aad-b24f-82dd466bcb83
 # ╠═c64b740a-ceeb-431c-9c71-6ab498fc4003
+# ╠═bed3b1f4-9b69-4009-9e0b-22e74d309fca
 # ╠═bb81db16-7c4d-4e08-bf17-45147be2b0db
 # ╠═ed20781e-c7d5-48c8-82bd-94d73478c13a
 # ╠═3968fcf6-c7b6-42bc-a416-fdfcb270f92c
