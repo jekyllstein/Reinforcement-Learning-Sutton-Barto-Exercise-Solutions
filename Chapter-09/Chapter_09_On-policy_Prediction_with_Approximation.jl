@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.17
+# v0.20.18
 
 using Markdown
 using InteractiveUtils
@@ -771,712 +771,6 @@ gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, args...; kwargs...) 
 # ╔═╡ a77f9819-04b2-4785-8eb0-c7e9dba6cecc
 Base.length(::AbstractBinaryFeatures{I, N}) where {I<:Integer, N} = N
 
-# ╔═╡ 76fb06c4-0841-40a2-996e-cb9a555ffc34
-begin
-	#here active_features is just something that can be enumerated
-	"""
-	    update_binary_feature_vector!(target, source) -> target
-	
-	Updates a binary feature vector in-place by copying active features from source.
-	
-	This function efficiently manages the sparse storage of active feature indices,
-	handling memory allocation and resizing as needed. Used internally by gradient
-	update functions for sparse feature representations.
-	
-	# Arguments
-	- `target::`[`BinaryFeatureVector`](@ref): Binary feature vector to update (modified in-place)
-	- `source`: Source of active features (see Methods for supported types)
-	
-	# See Also
-	[`update_linear_value_gradient!`](@ref)
-	
-	# Methods
-	
-	## From LinearFeatures
-	```julia
-	update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, active_features::LinearFeatures{I}) where {I <: Integer, N}
-	```
-	Updates binary feature vector from an enumerable collection of active feature indices.
-	Efficiently manages vector resizing by reusing existing storage when possible.
-	
-	- `x::`[`BinaryFeatureVector{I, N}`](@ref BinaryFeatureVector): Target binary feature vector
-	- `active_features::`[`LinearFeatures{I}`](@ref LinearFeatures): Enumerable collection of active feature indices
-	
-	### Examples
-	```julia-repl
-	julia> target = BinaryFeatureVector(10);
-	
-	julia> # LinearFeatures can be a vector of indices
-	       active_indices = [1, 3, 7, 9]
-	4-element Vector{Int64}:
-	 1
-	 3
-	 7
-	 9
-	
-	julia> update_binary_feature_vector!(target, active_indices);
-	
-	julia> target.active_features
-	4-element Vector{Int64}:
-	 1
-	 3
-	 7
-	 9
-	
-	julia> target.num_features
-	4
-	```
-	
-	## From BinaryFeatureVector
-	```julia
-	update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, y::BinaryFeatureVector{I, N}) where {I <: Integer, N}
-	```
-	Copies active features from one binary feature vector to another.
-	Optimizes memory usage by reusing existing storage and only allocating when necessary.
-	
-	- `x::`[`BinaryFeatureVector{I, N}`](@ref BinaryFeatureVector): Target binary feature vector
-	- `y::`[`BinaryFeatureVector{I, N}`](@ref BinaryFeatureVector): Source binary feature vector
-	
-	### Examples
-	```julia-repl
-	julia> target = BinaryFeatureVector(10);
-	
-	julia> source = BinaryFeatureVector(10);
-	
-	julia> source.active_features = [2, 4, 6];
-	
-	julia> source.num_features = 3;
-	
-	julia> update_binary_feature_vector!(target, source);
-	
-	julia> target.active_features
-	3-element Vector{Int64}:
-	 2
-	 4
-	 6
-	
-	julia> target.num_features
-	3
-	```
-	
-	# Performance Notes
-	- Reuses existing storage in target vector when possible to minimize allocations
-	- Uses `@simd` optimization for copying existing indices
-	- Only allocates new memory when target vector needs to grow
-	- Efficiently handles different source and target sizes using `extrema`
-	"""
-	function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, active_features::LinearFeatures{I}) where {I <: Integer, N}
-		l = length(x.active_features)
-		n = 0
-		for (i, f) in enumerate(active_features)
-			if i > l 
-				push!(x.active_features, f)
-			else
-				x.active_features[i] = f
-			end
-			n += 1
-		end
-		x.num_features = n
-		return x
-	end
-
-	function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, y::BinaryFeatureVector{I, N}) where {I <: Integer, N}
-		l1, l2 = extrema((x.num_features, y.num_features))
-		
-		#replace the features for the indices that have already been allocated
-		@inbounds @simd for i in 1:l1
-			x.active_features[i] = y.active_features[i]
-		end
-
-		#add any new indices required for x
-		for i in l1+1:l2
-			push!(x.active_features, y.active_features[i])
-		end
-		x.num_features = y.num_features
-		
-		return x
-	end
-end
-
-# ╔═╡ 1d107df4-36fa-49bd-bd48-5d5f49910b44
-begin
-	"""
-	    update_linear_value_gradient!(gradient, features, value_params) -> gradient
-	
-	Updates the gradient of a linear value function in-place based on feature representation.
-	
-	For linear value functions, the gradient with respect to parameters is simply the 
-	feature vector itself. This function efficiently updates gradient storage for 
-	different feature representations.
-	
-	# Arguments
-	- `gradient`: Gradient storage to update (modified in-place)
-	- `features`: Feature representation used to compute gradient
-	- `value_params`: Value function parameters (not used but maintained for API consistency)
-	
-	# See Also
-	[`linear_value_function`](@ref), [`update_params_with_gradient!`](@ref), [`update_binary_feature_vector!`](@ref)
-	
-	# Methods
-	
-	## Dense Features
-	```julia
-	update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params) where {T<:Real}
-	```
-	Updates dense gradient vector by copying feature values.
-	For linear functions: ∇v̂ = x (gradient equals features).
-	
-	- `∇v̂::Vector{T}`: Gradient vector to update
-	- `x::Vector{T}`: Dense feature vector
-	- `value_params`: Value function parameters (unused)
-	
-	## Binary Features
-	```julia
-	update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params)
-	```
-	Updates sparse binary gradient by copying active feature indices.
-	Calls [`update_binary_feature_vector!`](@ref) to efficiently copy sparse structure.
-	
-	- `∇v̂::`[`BinaryFeatureVector`](@ref): Sparse gradient to update
-	- `binary_features::`[`BinaryFeatureVector`](@ref): Input binary features
-	- `value_params`: Value function parameters (unused)
-	
-	## State Aggregation Features
-	```julia
-	update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params)
-	```
-	Updates state aggregation gradient by copying the active group index.
-	
-	- `∇v̂::`[`StateAggregationFeatureVector`](@ref): State aggregation gradient to update
-	- `feature_vector::`[`StateAggregationFeatureVector`](@ref): Input state aggregation features
-	- `value_params`: Value function parameters (unused)
-	
-	# Performance Notes
-	- Dense method uses vectorized assignment for efficiency
-	- Binary feature method delegates to optimized copying function
-	- State aggregation provides O(1) update time
-	- All methods modify gradient storage in-place to avoid allocations
-
-	    update_linear_value_gradient!(∇q̂::LinearActionValueGradient, x, i_a, value_params) -> LinearActionValueGradient
-
-	Updates action-value gradient storage with feature vector and action index.
-	
-	Extends the existing linear gradient system to handle action-value functions by delegating
-	gradient computation to [`update_linear_value_gradient!`](@ref) and storing the action index.
-	
-	# Arguments
-	- `∇q̂::LinearActionValueGradient`: Action-value gradient storage to update in-place
-	- `x::LinearFeatureVector`: Feature vector representing ∇q̂(s,a)
-	- `i_a::Integer`: Action index for this gradient
-	- `value_params`: Value function parameters (unused, maintains API consistency)
-	
-	# Returns
-	- `LinearActionValueGradient`: The updated gradient storage (same as input `∇q̂`)
-	"""
-	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params) where {T<:Real}
-		∇v̂ .= x
-		return ∇v̂
-	end
-
-	#with binary features we only need to store the active features
-	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params)
-		update_binary_feature_vector!(∇v̂, binary_features)
-	end
-
-	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params)
-		∇v̂.group_index = feature_vector.group_index
-		return ∇v̂
-	end
-end
-
-# ╔═╡ be546bdb-77a9-48c4-9a98-1205d73fc8c6
-"""
-    gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!,
-                                        value_function, update_value_gradient!, states, rewards,
-                                        γ, α, calculate_error) -> Real
-
-    gradient_monte_carlo_episode_update!(parameters, action_values, ∇q̂, feature_vector, 
-                                        update_feature_vector!, update_action_values!, 
-                                        update_value_gradient!, states, actions, rewards, 
-                                        γ, α, calculate_error) -> Real
-
-Internal function for Monte Carlo episode updates with gradient-based function approximation.
-
-Processes episode backward to compute exact returns and performs gradient descent parameter
-updates. Used internally by higher-level Monte Carlo algorithms. Supports both state-value
-function approximation (first method) and action-value function approximation (second method).
-
-# Type Parameters
-- `T <: Real`: Numeric type for parameters and computations
-- `S <: Any`: State data type
-- `I <: Integer`: Action index type (action-value method only)
-
-# Arguments
-
-## State-Value Method
-- `parameters::Vector{T}`: Value function parameters (modified in-place)
-- `∇v̂`: Gradient storage for state-value function (modified in-place)
-- `feature_vector`: Feature storage (modified in-place)
-- `update_feature_vector!::Function`: Feature extraction function
-- `value_function::Function`: Value function (features, params) -> value
-- `update_value_gradient!::Function`: Gradient computation function
-- `states::AbstractVector{S}`: Episode states (chronological order)
-- `rewards::AbstractVector{T}`: Episode rewards
-- `γ::T`: Discount factor
-- `α::T`: Learning rate
-- `calculate_error::Function`: Error function for statistics
-
-## Action-Value Method
-- `parameters::Vector{T}`: Action-value function parameters (modified in-place)
-- `action_values::Vector{T}`: Pre-allocated storage for action values at current state
-- `∇q̂`: Gradient storage for action-value function (modified in-place)
-- `feature_vector`: Feature storage (modified in-place)
-- `update_feature_vector!::Function`: Extract features from state: `(feature_vector, state) -> nothing`
-- `update_action_values!::Function`: Compute all action values: `(action_values, features, params) -> nothing`
-- `update_value_gradient!::Function`: Compute gradient for specific action: `(∇q̂, features, action_index, params) -> nothing`
-- `states::AbstractVector{S}`: Episode state sequence
-- `actions::AbstractVector{I}`: Episode action indices (1-based)
-- `rewards::AbstractVector{T}`: Episode reward sequence
-- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
-- `α::T`: Learning rate (step size)
-- `calculate_error::Function`: Error function: `(return, estimated_value, state) -> error`
-
-# Returns
-- `Real`: Average episode error across all state(-action) pairs
-
-# Implementation
-Backward pass through episode computing returns `g = γ * g + rewards[i]` and updating
-parameters via gradient descent:
-- **State-value**: `θ ← θ + α·(g - v̂)·∇v̂`
-- **Action-value**: `θ ← θ + α·(g - q̂)·∇q̂`
-
-Accumulates error statistics for convergence monitoring.
-
-# Performance Notes
-- Reuses provided storage objects to avoid allocations
-- Processes episode backward for efficient return computation
-- Compatible with any linear or nonlinear function approximation setup
-- Action-value method requires additional action value computation per step
-
-# See Also
-[`update_params_with_gradient!`](@ref), [`gradient_monte_carlo_estimation!`](@ref)
-"""
-function gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T, calculate_error::Function) where {T<:Real, S}
-	g = zero(T)
-	l = length(states)
-	episode_error = zero(T)
-	for i in l:-1:1
-		s = states[i]
-		update_feature_vector!(feature_vector, s)
-		v̂ = value_function(feature_vector, parameters)
-		update_value_gradient!(∇v̂, feature_vector, parameters)
-		g = γ * g + rewards[i]
-		δ = g - v̂
-		c = α*δ
-		update_params_with_gradient!(parameters, c, ∇v̂)
-		episode_error += calculate_error(g, v̂, s)
-	end
-	return episode_error / l
-end;
-
-# ╔═╡ 7542ff9c-c6a1-4d41-8863-05388fea8ce2
-"""
-    gradient_monte_carlo_estimation!(parameters, generate_episode, update_episode!, γ, num_episodes,
-                                    feature_vector, update_feature_vector!, value_function, ∇v̂,
-                                    update_value_gradient!; α=0.1, calculate_error, epkwargs...) 
-                                    where {T<:Real} -> NamedTuple
-
-Monte Carlo value function estimation with gradient-based function approximation.
-
-Coordinates episode generation, parameter updates, and error tracking across multiple episodes.
-Supports both direct usage with custom episode functions and convenient wrappers for standard
-problem types (MRPs, MDPs).
-
-# Type Parameters
-- `T <: Real`: Numeric type for parameters, rewards, and computations
-
-# Arguments
-- `parameters::Vector{T}`: Initial value function parameters (modified in-place)
-- `generate_episode::Function`: Function to generate initial episode trajectory
-- `update_episode!::Function`: Function to generate subsequent episodes (may reuse storage)
-- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
-- `num_episodes::Integer`: Number of episodes to run
-- `feature_vector`: Feature vector storage for state representations
-- `update_feature_vector!::Function`: Function to extract features from states
-- `value_function::Function`: Value function (features, params) -> value
-- `∇v̂`: Gradient storage for value function gradients
-- `update_value_gradient!::Function`: Function to compute value function gradient
-
-# Keyword Arguments
-- `α::Real`: Learning rate (default: 0.1)
-- `calculate_error::Function`: Error function for convergence tracking (default: squared error)
-- `epkwargs...`: Additional arguments passed to episode generation functions
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function`: Learned value function `v̂(s)` 
-  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
-  - `parameters::Vector{T}`: Final learned parameters
-
-# See Also
-[`gradient_monte_carlo_episode_update!`](@ref), [`form_state_value_function`](@ref),
-[`create_episode_functions`](@ref)
-
-# Methods
-
-## MRP Wrapper
-```julia
-gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, γ, num_episodes, feature_vector,
-                                 update_feature_vector!, value_function, ∇v̂, 
-                                 update_value_gradient!; kwargs...)
-```
-Convenience wrapper for Markov Reward Process policy evaluation.
-Automatically creates episode functions using [`create_episode_functions`](@ref).
-
-- `mrp::`[`StateMRP`](@ref): Markov reward process for episode generation
-
-
-# Algorithm Flow
-1. Generates initial episode using provided/created episode functions
-2. Performs Monte Carlo update on first episode
-3. For remaining episodes:
-   - Generates new episode with `update_episode!`
-   - Runs gradient-based parameter update via [`gradient_monte_carlo_episode_update!`](@ref)
-   - Records error for convergence tracking
-4. Forms final value function from learned parameters
-
-# Performance Notes
-- Reuses storage objects (feature_vector, ∇v̂) across episodes to minimize allocations
-- Uses views for variable-length episodes to avoid copying
-- Error history provides convergence diagnostics
-- Compatible with any differentiable function approximation method
-"""
-function gradient_monte_carlo_estimation!(parameters, generate_episode::Function, update_episode!::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
-	trajectory = generate_episode(; epkwargs...)
-	sqerr = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, trajectory[1], trajectory[2], γ, α, calculate_error)
-	error_history = zeros(T, num_episodes)
-	error_history[1] = sqrt(sqerr)
-	for ep in 2:num_episodes
-		(trajectory, n_steps) = update_episode!(trajectory; epkwargs...)
-		error = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, view(trajectory[1], 1:n_steps), view(trajectory[2], 1:n_steps), γ, α, calculate_error)
-		error_history[ep] = error
-	end
-	v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
-	return (value_function = v̂, error_history = error_history, parameters = parameters, form_kwargs = form_kwargs)
-end;
-
-# ╔═╡ 9296a8a1-7edd-4ac4-8fa4-842317d693bc
-"""
-    gradient_monte_carlo_policy_estimation!(parameters, mdp, π, γ, num_episodes, feature_vector,
-                                           update_feature_vector!, value_function, ∇v̂,
-                                           update_value_gradient!; α=0.1, calculate_error, epkwargs...)
-                                           where {T<:Real} -> NamedTuple
-
-Monte Carlo policy evaluation for Markov Decision Processes using gradient-based function approximation.
-
-Low-level wrapper that automatically creates episode generation functions for MDP policy evaluation.
-Coordinates episode generation using the given policy and delegates to the core Monte Carlo
-estimation routine. Typically called by higher-level policy evaluation algorithms.
-
-# Type Parameters
-- `T <: Real`: Numeric type for parameters, rewards, and computations
-
-# Arguments
-- `parameters::Vector{T}`: Initial value function parameters (modified in-place)
-- `mdp::`[`StateMDP`](@ref): Markov decision process for episode generation
-- `π::Function`: Policy function for action selection
-- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
-- `num_episodes::Integer`: Number of episodes to run
-- `feature_vector`: Feature vector storage for state representations
-- `update_feature_vector!::Function`: Function to extract features from states
-- `value_function::Function`: Value function (features, params) -> value
-- `∇v̂`: Gradient storage for value function gradients
-- `update_value_gradient!::Function`: Function to compute value function gradient
-
-# Keyword Arguments
-- `α::Real`: Learning rate (default: 0.1)
-- `calculate_error::Function`: Error function for convergence tracking (default: squared error)
-- `epkwargs...`: Additional arguments passed to episode generation (e.g., `max_steps`, `start_state`)
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function`: Learned state value function `v^π(s)` for policy π
-  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
-  - `parameters::Vector{T}`: Final learned parameters
-
-# Implementation Note
-This function automatically calls [`create_episode_functions`](@ref)`(mdp, π)` to generate the required 
-episode functions, then delegates to [`gradient_monte_carlo_estimation!`](@ref).
-
-# Performance Notes
-- Automatically handles MDP episode generation with policy π
-- Reuses storage objects across episodes to minimize allocations
-- Compatible with any differentiable function approximation method
-- Episode functions handle state-action-reward trajectories internally
-
-# See Also
-[`gradient_monte_carlo_estimation!`](@ref), [`create_episode_functions`](@ref), [`StateMDP`](@ref)
-"""
-gradient_monte_carlo_policy_estimation!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = gradient_monte_carlo_estimation!(parameters, create_episode_functions(mdp, π)..., args...; kwargs...)
-
-# ╔═╡ 412f6295-3eec-4966-98e3-2774bf62ed4f
-begin
-	"""
-	    initialize_linear_parameters(length_or_features, init_value) -> Vector{T}
-	    initialize_linear_parameters(feature_vector_length, num_actions, init_value) -> Matrix{T}
-	
-	Initializes parameter storage for linear function approximation.
-	
-	Creates parameter vectors for state-value functions or parameter matrices for action-value
-	functions, with all entries initialized to the specified value. Supports initialization 
-	from explicit dimensions or object representations.
-	
-	# Type Parameters  
-	- `T <: Real`: Numeric type for parameter values
-	
-	# Arguments
-	- `length_or_features`: Feature space size (Integer) or feature object
-	- `init_value`: Initial value for all parameters
-	- `feature_vector_length::Integer`: Number of features (action-value methods)
-	- `num_actions::Integer`: Number of actions (action-value methods)
-	
-	# Returns
-	- `Vector{T}`: Parameter vector for state-value functions
-	- `Matrix{T}`: Parameter matrix (features × actions) for action-value functions
-	
-	# See Also
-	[`get_feature_length`](@ref), [`get_num_actions`](@ref)
-	
-	# Methods
-	
-	## State-Value Parameters (Vector Storage)
-	
-	### Direct Length
-	```julia
-	initialize_linear_parameters(l::Integer, init_value::T) where T<:Real
-	```
-	Creates parameter vector with explicit length.
-	
-	- `l::Integer`: Length of parameter vector
-	- `init_value::T`: Initial value for all parameters
-	
-	### Object-Based Length
-	```julia
-	initialize_linear_parameters(x, init_value)
-	```
-	Creates parameter vector using object to determine length.
-	Uses [`get_feature_length`](@ref) to extract feature space size.
-	
-	- `x`: Feature object (vector, binary features, etc.)
-	- `init_value`: Initial value for all parameters
-	
-	## Action-Value Parameters (Matrix Storage)
-	
-	### Direct Dimensions
-	```julia
-	initialize_linear_parameters(feature_vector_length::Integer, num_actions::Integer, init_value::T) where T<:Real
-	```
-	Creates parameter matrix for action-value function approximation with explicit dimensions.
-	Returns matrix of size (features × actions) with all entries set to `init_value`.
-	
-	- `feature_vector_length::Integer`: Number of features in feature vector
-	- `num_actions::Integer`: Number of actions in action space
-	- `init_value::T`: Initial value for all parameters
-	
-	### Object-Based Dimensions
-	```julia
-	initialize_linear_parameters(feature_object, action_object, init_value)
-	```
-	Creates parameter matrix using objects to determine dimensions.
-	Delegates to [`get_feature_length`](@ref) and [`get_num_actions`](@ref) for dimension extraction.
-	
-	```julia-repl
-	julia> params = initialize_linear_parameters(feature_vector, mdp, 0.0f0)
-	```
-	
-	# Performance Notes
-	- Uses in-place multiplication for efficient initialization
-	- Matrix layout optimized for column-wise access (features × actions)
-	- Vector storage for state-value functions, matrix storage for action-value functions
-	"""
-	function initialize_linear_parameters(l::Integer, init_value::T) where T<:Real
-		params = ones(T, l)
-		params .*= init_value
-		return params
-	end
-	initialize_linear_parameters(x, init_value) = initialize_linear_parameters(length(x), init_value)
-end
-
-# ╔═╡ 966850ef-dd15-417b-b51c-9957f27e4664
-"""
-    gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, feature_vector,
-                                          update_feature_vector!; init_value=0.0,
-                                          params=initialize_linear_parameters(...), kwargs...)
-                                          where {T<:Real} -> NamedTuple
-
-High-level Monte Carlo policy evaluation for MRPs with linear function approximation.
-
-Complete Monte Carlo learning interface that automatically configures linear value function
-approximation components. Provides sensible defaults for parameter initialization and gradient
-computation, making it the primary entry point for MRP policy evaluation with linear features.
-
-# Type Parameters
-- `T <: Real`: Numeric type for parameters, rewards, and discount factor
-
-# Arguments
-- `mrp::`[`StateMRP`](@ref): Markov reward process for episode generation
-- `γ::T`: Discount factor (0 ≤ γ < 1)
-- `num_episodes::Integer`: Number of episodes to run for estimation
-- `feature_vector::`[`LinearFeatureVector`](@ref): Linear feature representation template
-- `update_feature_vector!::Function`: Function to extract linear features from states
-
-# Keyword Arguments
-- `init_value::T`: Initial value for all parameters (default: 0.0)
-- `params::Vector{T}`: Pre-initialized parameter vector (default: auto-initialized using `init_value`)
-- `kwargs...`: Additional arguments (e.g., `α`, `max_steps`, `calculate_error`)
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function`: Learned linear value function `v^π(s)`
-  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
-  - `parameters::Vector{T}`: Final learned parameter vector
-
-# Examples
-```julia-repl
-julia> # Setup linear feature representation
-       feature_template = [1.0, 0.5, 0.2];
-
-julia> # Run Monte Carlo estimation with linear approximation
-       result = gradient_monte_carlo_estimation_linear(
-           mrp, 0.95, 1000, feature_template, update_feature_vector!,
-           α = 0.01, max_steps = 200
-       );
-
-julia> # Check convergence
-       final_error = result.error_history[end]
-0.028
-
-julia> # Use learned value function
-       state_value = result.value_function(some_state)
-3.42
-
-julia> # Access final parameters
-       learned_weights = result.parameters
-3-element Vector{Float64}:
-  2.1
-  1.7
- -0.3
-```
-
-# Algorithm Details
-Automatically configures linear function approximation by:
-1. Initializing parameter vector using [`initialize_linear_parameters`](@ref)
-2. Setting up [`linear_value_function`](@ref) for value computation
-3. Using [`update_linear_value_gradient!`](@ref) for gradient computation
-4. Creating episode functions via [`create_episode_functions`](@ref) for the MRP
-5. Delegating to [`gradient_monte_carlo_estimation!`](@ref) for the core algorithm
-
-# Performance Notes
-- Automatically handles linear function approximation setup
-- Uses efficient linear value function and gradient computations
-- Reuses feature vector storage across episodes
-- Provides sensible parameter initialization defaults
-
-# See Also
-[`gradient_monte_carlo_estimation!`](@ref), [`LinearFeatureVector`](@ref), 
-[`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
-[`initialize_linear_parameters`](@ref)
-"""
-gradient_monte_carlo_estimation_linear(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
-
-# ╔═╡ 97539f3f-92bb-4b6f-a671-260251b4ddc7
-"""
-    gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, feature_vector,
-                                                  update_feature_vector!; init_value=0.0,
-                                                  params=initialize_linear_parameters(...), kwargs...)
-                                                  where {T<:Real} -> NamedTuple
-
-High-level Monte Carlo policy evaluation for MDPs with linear function approximation.
-
-Complete Monte Carlo learning interface that automatically configures linear value function
-approximation components for policy evaluation. Provides sensible defaults for parameter 
-initialization and gradient computation, making it the primary entry point for MDP policy
-evaluation with linear features.
-
-# Type Parameters
-- `T <: Real`: Numeric type for parameters, rewards, and discount factor
-
-# Arguments
-- `mdp::`[`StateMDP`](@ref): Markov decision process for episode generation
-- `π::Function`: Policy function for action selection
-- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
-- `num_episodes::Integer`: Number of episodes to run for estimation
-- `feature_vector::`[`LinearFeatureVector`](@ref): Linear feature representation template
-- `update_feature_vector!::Function`: Function to extract linear features from states
-
-# Keyword Arguments
-- `init_value::T`: Initial value for all parameters (default: 0.0)
-- `params::Vector{T}`: Pre-initialized parameter vector (default: auto-initialized using `init_value`)
-- `kwargs...`: Additional arguments (e.g., `α`, `max_steps`, `calculate_error`)
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function`: Learned state value function `v^π(s)` for policy π
-  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
-  - `parameters::Vector{T}`: Final learned parameter vector
-
-# Examples
-```julia-repl
-julia> # Setup linear feature representation
-       feature_template = [1.0, 0.0, 0.0, 0.0];
-
-julia> # Run Monte Carlo policy evaluation
-       result = gradient_monte_carlo_policy_estimation_linear(
-           mdp, policy, 0.9, 2000, feature_template, update_feature_vector!,
-           α = 0.02, max_steps = 150, init_value = 0.1
-       );
-
-julia> # Check convergence
-       final_error = result.error_history[end]
-0.041
-
-julia> # Evaluate policy at different states
-       result.value_function(1)
-4.67
-
-julia> result.value_function(5)
-2.31
-
-julia> # Inspect learned weights
-       result.parameters
-4-element Vector{Float64}:
-  3.2
-  1.8
- -0.5
-  2.1
-```
-
-# Algorithm Details
-Automatically configures linear function approximation by:
-1. Initializing parameter vector using [`initialize_linear_parameters`](@ref)
-2. Setting up [`linear_value_function`](@ref) for value computation
-3. Using [`update_linear_value_gradient!`](@ref) for gradient computation
-4. Creating episode functions via [`create_episode_functions`](@ref) for the MDP and policy
-5. Delegating to [`gradient_monte_carlo_estimation!`](@ref) for the core algorithm
-
-# Performance Notes
-- Automatically handles all linear function approximation setup
-- Uses efficient linear value function and gradient computations
-- Reuses feature vector storage across episodes
-- Provides sensible parameter initialization defaults
-
-# See Also
-[`gradient_monte_carlo_estimation!`](@ref), [`LinearFeatureVector`](@ref),
-[`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
-[`initialize_linear_parameters`](@ref), [`StateMDP`](@ref)
-"""
-gradient_monte_carlo_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
-
 # ╔═╡ df56b803-0aa5-4946-8338-601195e57a3e
 md"""
 ### *Semi-gradient TD(0) for estimating $$\hat v \approx v_\pi$$*
@@ -1484,297 +778,12 @@ md"""
 When $U_t \doteq R_{t+1} + \gamma \hat v(S_{t+1}, \boldsymbol{w})$ the target value is the same as for temporal difference learning.  Now that the target uses parameter estimates, our gradient update is no longer correct since the target also depends on the parameters.  Thus this method is called `semi` gradient and has good convergence properties in the linear case.
 """
 
-# ╔═╡ e8e26a28-90a5-4519-ab08-11b49a8a9499
-begin
-	"""
-	    semi_gradient_td0_estimation!(parameters, initialize_state, transition, isterm, γ, max_episodes,
-	                                  max_steps, feature_vector, update_feature_vector!, value_function,
-	                                  ∇v̂, update_value_gradient!; α=0.1, calculate_error, save_episode_steps=false)
-	                                  where {T<:Real} -> NamedTuple
-	
-	Semi-gradient TD(0) temporal difference learning with function approximation.
-	
-	Low-level TD learning implementation that performs online value function updates using
-	single-step temporal difference errors. Supports both episodic and continuing tasks
-	with flexible episode termination and state transition handling.
-	
-	# Type Parameters
-	- `T <: Real`: Numeric type for parameters, rewards, and computations
-	
-	# Arguments
-	- `parameters::Vector{T}`: Value function parameters (modified in-place)
-	- `initialize_state::Function`: Function to generate initial states for episodes
-	- `transition::Function`: State transition function `s -> (reward, next_state)`
-	- `isterm::Function`: Termination check function `state -> Bool`
-	- `γ::T`: Discount factor (0 ≤ γ < 1)
-	- `max_episodes::Integer`: Maximum number of episodes to run
-	- `max_steps::Integer`: Maximum total steps across all episodes
-	- `feature_vector`: Feature vector storage for state representations
-	- `update_feature_vector!::Function`: Function to extract features from states
-	- `value_function::Function`: Value function (features, params) -> value
-	- `∇v̂`: Gradient storage for value function gradients
-	- `update_value_gradient!::Function`: Function to compute value function gradient
-	
-	# Keyword Arguments
-	- `α::Real`: Learning rate (default: 0.1)
-	- `calculate_error::Function`: Error function for statistics (default: squared error)
-	- `save_episode_steps::Bool`: Whether to save step-by-step reward history (default: false)
-	
-	# Returns
-	- `NamedTuple` with fields:
-	  - `value_function`: Learned value function `v(s)`
-	  - `episode_history`: Episode statistics with `errors`, `steps`, and `rewards` vectors
-	  - `step_rewards::Vector{T}`: Step-by-step rewards (if `save_episode_steps=true`)
-	  - `parameters::Vector{T}`: Final learned parameters
-	
-	# See Also
-	[`update_params_with_gradient!`](@ref), [`form_state_value_function`](@ref)
-	
-	# Methods
-	
-	## MRP Wrapper
-	```julia
-	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ, max_episodes, max_steps,
-	                             feature_vector, update_feature_vector!, value_function,
-	                             ∇v̂, update_value_gradient!; kwargs...)
-	```
-	Convenience wrapper for Markov Reward Process evaluation.
-	Automatically extracts transition functions from MRP structure.
-	
-	- `mrp::`[`StateMRP`](@ref): Markov reward process for state transitions
-	
-	## MDP Policy Wrapper
-	```julia
-	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ, max_episodes,
-	                                    max_steps, feature_vector, update_feature_vector!,
-	                                    value_function, ∇v̂, update_value_gradient!; kwargs...)
-	```
-	Convenience wrapper for Markov Decision Process policy evaluation.
-	Automatically creates policy-based transition function from MDP and policy.
-	
-	- `mdp::`[`StateMDP`](@ref): Markov decision process for state transitions
-	- `π::Function`: Policy function for action selection
-	
-	# Algorithm Details
-	Implements classic TD(0) with function approximation:
-	1. For each step: observes current state, computes value and gradient
-	2. Takes environment step to get reward and next state
-	3. Computes TD target: `target = r + γ * v(s')` (or `r` if terminal)
-	4. Updates parameters: `θ ← θ + α * (target - v(s)) * ∇v(s)`
-	5. Tracks episode statistics and manages episode boundaries
-	
-	# Performance Notes
-	- Online learning with immediate parameter updates after each step
-	- Reuses feature and gradient storage across steps
-	- Optional step-by-step reward tracking for detailed analysis
-	- Handles both episodic and continuing task termination
-	- Compatible with any differentiable function approximation method
-	"""
-	function semi_gradient_td0_estimation!(parameters, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, save_episode_steps = false) where {T<:Real}
-		#initialize records
-		step_rewards = Vector{T}()
-		episode_steps = Vector{Int64}()
-		episode_rewards = Vector{T}()
-		episode_errors = Vector{T}()
-		
-		#initialize variables
-		s = initialize_state()
-		update_feature_vector!(feature_vector, s)
-		ep = 1
-		step = 1
-		epstep = 1
-		eperr = zero(T)
-		rtot = zero(T)
-		while (ep <= max_episodes) && (step <= max_steps)
-			update_value_gradient!(∇v̂, feature_vector, parameters)
-			v̂ = value_function(feature_vector, parameters)
-			(r, s′) = transition(s)
-			rtot += r
-			save_episode_steps && push!(step_rewards, r)
-			
-
-			terminated = isterm(s′)
-			if terminated
-				push!(episode_steps, step)
-				push!(episode_rewards, rtot)
-				v̂′ = zero(T)
-				ep += 1
-				rtot = zero(T)
-				s′ = initialize_state()
-				update_feature_vector!(feature_vector, s′)
-			else
-				update_feature_vector!(feature_vector, s′)
-				v̂′ = value_function(feature_vector, parameters)
-			end
-
-			target = r + γ*v̂′
-
-			δ = target - v̂
-
-			eperr += calculate_error(target, v̂, s)
-
-			if terminated
-				push!(episode_errors, eperr / epstep)
-				eperr = zero(T)
-				epstep = 0
-			end
-
-			update_params_with_gradient!(parameters, α*δ, ∇v̂)
-			s = s′
-			step += 1
-			epstep += 1
-		end
-
-		v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
-
-		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs)
-	end
-
-	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...)
-	
-	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π(s)), mdp.isterm, γ, max_episodes, max_steps, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...)
-end
-
 # ╔═╡ cb2005fd-d3e0-4f37-908c-77e4bbac45b8
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""
 ### Example 9.1: State Aggregation on the $(@bind num_states NumberField(100:100_000, default = 1000)) State Random Walk
 """
-  ╠═╡ =#
-
-# ╔═╡ de9bea60-c91d-4253-bdd8-a3c1fde8941c
-"""
-    make_random_walk_mrp(num_states::Integer) -> TabularMRP
-
-Generate a random walk Markov Reward Process with terminal states and stochastic transitions.
-
-Creates a symmetric random walk environment where an agent starts at the center state and
-can transition left or right with equal probability. Terminal states at both ends provide
-rewards of -1 (left) and +1 (right), while intermediate states provide zero reward.
-Transition probabilities are distance-dependent with wider spreads for longer walks.
-
-# Arguments
-- `num_states::Integer`: Number of non-terminal states in the random walk chain
-
-# Returns
-- [`TabularMRP`](@ref): Markov reward process with sparse transition matrices
-  - `states`: State space `[0, 1, ..., num_states, num_states+1]` where 0 and `num_states+1` are terminal
-  - `transition`: [`TabularStochasticTransition`](@ref) with sparse probability matrices
-  - `initialize_state`: Function returning center state index for episode initialization
-
-# Environment Structure
-The random walk has `num_states + 2` total states:
-- **Terminal states**: 0 (left, reward -1) and `num_states+1` (right, reward +1)  
-- **Non-terminal states**: 1, 2, ..., `num_states` (reward 0)
-- **Initial state**: Center state `⌈num_states/2⌉`
-
-# Transition Dynamics
-From each non-terminal state `s`, the agent:
-1. Moves left with probability 0.5, right with probability 0.5
-2. Transition spread: up to ±100 states with uniform probability within range
-3. **Boundary handling**: Transitions beyond state boundaries terminate with appropriate rewards
-4. **Sparse representation**: Uses [`SparseVector`](@ref) for memory efficiency
-
-# See Also
-[`TabularMRP`](@ref), [`TabularStochasticTransition`](@ref), [`make_chain_walk_mdp`](@ref)
-
-# Examples
-
-```julia-repl
-julia> mrp = make_random_walk_mrp(1000)
-TabularMRP with 1002 states (2 terminal)
-
-julia> mrp.states
-1002-element Vector{Int64}:
-   0    1    2  ...  999  1000  1001
-
-julia> initial_state = mrp.initialize_state()
-501
-
-```
-
-# Performance Notes
-- Uses [`SparseVector{Float32, Int64}`](@ref) for transition matrices to handle sparse connectivity
-- Memory complexity: O(num_states × average_transitions_per_state) 
-- Transition computation: O(1) lookup after preprocessing
-- Float32 precision for memory efficiency in large state spaces
-- Pre-computes all transition probabilities during construction
-- Terminal state handling avoids runtime boundary checks
-"""
-function make_random_walk_mrp(num_states::Integer)
-	states = collect(0:num_states+1)
-	state_index = TabularRL.makelookup(states)
-	initial_state = ceil(Int64, num_states / 2)
-	initialize_state_index() = initial_state + 1
-	state_transition_map = Vector{SparseVector{Float32, Int64}}(undef, num_states+2)
-	reward_transition_map = Vector{Vector{Float32}}(undef, num_states+2)
-	for s in states
-		if (s == 0) || (s == num_states+1)
-			v = zeros(Float32, num_states+2)
-			v[s+1] = 1f0
-			state_transition_map[s+1] = SparseVector(v)
-			reward_transition_map[s+1] = [0f0]
-		else
-			
-			state_transitions = SparseVector(zeros(Float32, num_states+2))
-			reward_transitions = Vector{Float32}()
-			minleft = s-100
-			maxright = s+100
-			ptermleft = if minleft > 0
-				0f0
-			else
-				Float32((-minleft + 1)/100)
-			end
-	
-			pnontermleft = 1f0 - ptermleft
-			nontermleftstates = max(1, s - 100):s-1
-			for s′ in nontermleftstates
-				state_transitions[s′+1] = (0.5f0 * pnontermleft) / length(nontermleftstates)
-			end
-			state_transitions[1] = ptermleft/2
-	
-			ptermright = if maxright <= num_states
-				0f0
-			else
-				Float32((maxright - num_states) / 100)
-			end
-	
-			pnontermright = 1f0 - ptermright
-			nontermrightstates = s+1:min(num_states, maxright)
-			for s′ in nontermrightstates
-				state_transitions[s′+1] = (0.5f0 * pnontermright) / length(nontermrightstates)
-			end
-			state_transitions[num_states+2] = ptermright/2
-			
-			state_transition_map[s+1] = state_transitions
-	
-			for i_s′ in state_transitions.nzind
-				r = if i_s′ == 1
-					-1f0
-				elseif i_s′ == num_states+2
-					1f0
-				else
-					0f0
-				end
-				push!(reward_transitions, r)
-			end
-			reward_transition_map[s+1] = reward_transitions
-		end
-	end
-	
-	TabularMRP(states, TabularStochasticTransition(state_transition_map, reward_transition_map), initialize_state_index)
-end;
-
-# ╔═╡ 7814bda0-4306-4060-8f9a-2bcf1cf8e132
-# ╠═╡ skip_as_script = true
-#=╠═╡
-const random_walk_tabular_mrp = make_random_walk_mrp(num_states)
-  ╠═╡ =#
-
-# ╔═╡ 69223862-4d74-46c9-8c78-b24d659151ac
-#=╠═╡
-const random_walk_v = mrp_evaluation(random_walk_tabular_mrp, 1f0)
   ╠═╡ =#
 
 # ╔═╡ f4459b0d-ee3e-47c7-9c82-981af622edfa
@@ -1803,11 +812,6 @@ Using the tabular MDP, we can visualize the transition probabilities for any sta
 # ╔═╡ 24e8b391-00ec-4ed5-85dc-0796eb85bf4f
 #=╠═╡
 md"""Select State to View Transition Probabilities: $(@bind smap Slider(1:num_states; default = ceil(Int64, num_states/2), show_value=true))"""
-  ╠═╡ =#
-
-# ╔═╡ 736b7667-904d-4a9c-bb10-a6b0b831bfb6
-#=╠═╡
-random_walk_tabular_mrp.ptf.state_transition_map[smap+1] |> v -> plot(bar(x = 0:num_states+1, y = v), Layout(xaxis_title = "State", yaxis_title = "Transition Probability"))
   ╠═╡ =#
 
 # ╔═╡ 9c3f07b1-61eb-4d70-9dde-986c032a0840
@@ -1986,11 +990,6 @@ md"""
 """
   ╠═╡ =#
 
-# ╔═╡ 1adf0786-0897-4119-9336-09de869463b4
-#=╠═╡
-random_walk_group_assign.(random_walk_tabular_mrp.states) |> v -> plot(scatter(x = random_walk_tabular_mrp.states, y = v), Layout(xaxis_title = "State", yaxis_title = "Aggregation Group", title = "$num_states Random Walk States Partitioned into $num_groups Groups"))
-  ╠═╡ =#
-
 # ╔═╡ b361815f-d5b0-4c71-b331-c3b48ce53e73
 md"""
 Using the simple gradient for state aggregation, we can construct a function that computes the state value estimate and gradient per parameter component.  In order to implement state aggregation, one must have a fixed number of groups and a function to map states to a group index.  There will be one parameter value per group, so the gradient function needs to provide a component for every group.  Once a state is assigned into a unique group index, the gradient values will all be zero except for at the group index.  The value estimate is just the parameter value at that index.  In the case of the random walk example, assigning states to groups is simply a matter of dividing the state value by the group size and finding the next highest integer value.
@@ -2063,142 +1062,6 @@ function state_aggregation_feature_setup(s::S, num_groups::Integer, assign_state
 	(feature_vector = x, update_feature_vector! = update_feature_vector!)
 end
 
-# ╔═╡ c52222b7-64bd-4285-bba3-e22529495af6
-"""
-    gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) -> NamedTuple
-
-Perform gradient Monte Carlo value estimation using state aggregation function approximation on an MRP.
-
-This is a high-level convenience function that combines state aggregation feature setup with linear gradient Monte Carlo estimation. It automatically constructs the appropriate sparse feature representation and initial weight vector for the specified state grouping, then delegates to the core linear function approximation algorithm. Particularly effective for large state spaces where tabular methods are impractical due to memory constraints.
-
-# Arguments
-- `mrp::StateMRP`: The Markov reward process to evaluate, supporting any state type
-- `γ::Real`: Discount factor for future rewards (0 ≤ γ ≤ 1)
-- `num_episodes::Integer`: Number of Monte Carlo episodes to run for estimation
-- `num_groups::Integer`: Number of state groups for aggregation (determines feature dimension)
-- `assign_state_group::Function`: State-to-group mapping function (state → group_index ∈ 1:num_groups)
-
-# Keyword Arguments
-All keyword arguments are passed through to [`gradient_monte_carlo_estimation_linear`](@ref):
-- `α::Real = 0.1`: Learning rate for gradient updates
-- `calculate_error::Function = (g, v̂, s) -> (g - v̂)^2`: Error function for convergence tracking
-- Additional episode generation arguments (e.g., `rng`, sampling parameters)
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function::Function`: Learned value function `v̂(s)` that maps states to estimated values
-  - `error_history::Vector{Float32}`: Per-episode error history for convergence analysis
-  - `parameters::Vector{Float32}`: Final learned weight vector (length num_groups)
-
-# See Also
-[`gradient_monte_carlo_estimation!`](@ref), [`state_aggregation_feature_setup`](@ref), [`make_random_walk_group_assign`](@ref), [`StateMRP`](@ref)
-
-# Algorithm Details
-1. Initialize state aggregation features using [`state_aggregation_feature_setup`](@ref)
-2. Create initial zero weight vector of length `num_groups`
-3. Delegate to [`gradient_monte_carlo_estimation!`](@ref) with constructed features and functions
-4. The underlying algorithm:
-   - Generates episode trajectories using MRP transition sampling
-   - Computes Monte Carlo returns for each state visit
-   - Updates weight parameters via gradient descent on squared error
-   - Tracks convergence through per-episode error history
-5. Forms final value function from learned parameters and feature mapping
-
-# Examples
-```julia-repl
-julia> # Create 1000-state random walk MRP
-       mrp = create_continuous_random_walk(1000);
-
-julia> # Define state aggregation: 10 groups of 100 states each
-       assign_groups = make_random_walk_group_assign(1000, 10);
-
-julia> # Run gradient Monte Carlo with state aggregation
-       results = gradient_monte_carlo_estimation_state_aggregation(
-           mrp, 0.9f0, 500, 10, assign_groups; α=0.05f0
-       );
-
-julia> # Check final results and convergence
-       println("Final weights: ", results.parameters)
-       println("Final error: ", results.error_history[end])
-       println("Episodes run: ", length(results.error_history))
-Final weights: Float32[-0.45, -0.36, -0.27, -0.18, -0.09, 0.0, 0.09, 0.18, 0.27, 0.36]
-Final error: 0.023f0
-Episodes run: 500
-
-julia> # Use learned value function to evaluate states
-       state_500 = 500.0f0;
-       estimated_value = results.value_function(state_500);
-       println("Estimated value at state 500: ", estimated_value)
-Estimated value at state 500: 0.0234f0
-```
-
-# Performance Notes
-- Memory efficient for large state spaces through sparse feature representation
-- Feature construction is performed once, then reused across all episodes
-- Automatically handles [`Float32`] precision for memory efficiency in large problems
-- State aggregation reduces parameter space from `|S|` to `num_groups` dimensions
-- Compatible with any [`StateMRP`](@ref) implementation via generic dispatch
-"""
-gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
-
-# ╔═╡ f64b78e1-76ff-4337-a9f0-aa2d3e3f33ac
-"""
-    gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) -> NamedTuple
-
-Perform gradient Monte Carlo policy evaluation using state aggregation function approximation on an MDP.
-
-This is a high-level convenience function that combines state aggregation feature setup with linear gradient Monte Carlo policy evaluation. It automatically constructs the appropriate sparse feature representation and initial weight vector for the specified state grouping, then delegates to the core linear function approximation algorithm. Particularly effective for large state spaces where tabular policy evaluation is impractical due to memory constraints.
-
-# Arguments
-- `mdp::StateMDP`: The Markov decision process to evaluate, supporting any state and action types
-- `π::Function`: Policy function mapping states to action selections (state → action)
-- `γ::Real`: Discount factor for future rewards (0 ≤ γ ≤ 1)
-- `num_episodes::Integer`: Number of Monte Carlo episodes to run for policy evaluation
-- `num_groups::Integer`: Number of state groups for aggregation (determines feature dimension)
-- `assign_state_group::Function`: State-to-group mapping function (state → group_index ∈ 1:num_groups)
-
-# Keyword Arguments
-All keyword arguments are passed through to [`gradient_monte_carlo_estimation!`](@ref):
-- `α::Real = 0.1`: Learning rate for gradient updates
-- `calculate_error::Function = (g, v̂, s) -> (g - v̂)^2`: Error function for convergence tracking
-- `epkwargs...`: Additional arguments passed to episode generation functions
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function::Function`: Learned state value function `v_π(s)` that maps states to estimated values
-  - `error_history::Vector{T}`: Per-episode error history for convergence analysis (where T matches γ type)
-  - `parameters::Vector{T}`: Final learned weight vector (length num_groups, where T matches γ type)
-
-# See Also
-[`gradient_monte_carlo_estimation!`](@ref), [`state_aggregation_feature_setup`](@ref), [`make_random_walk_group_assign`](@ref), [`StateMDP`](@ref)
-
-# Algorithm Details
-1. Initialize state aggregation features using [`state_aggregation_feature_setup`](@ref)
-2. Create initial zero weight vector of length `num_groups`
-3. Delegate to [`gradient_monte_carlo_estimation!`](@ref) with constructed features and functions
-4. The underlying algorithm:
-   - Generates episode trajectories using MDP transition sampling and policy π
-   - Computes Monte Carlo returns for each state visit under the policy
-   - Updates weight parameters via gradient descent on squared error
-   - Tracks convergence through per-episode error history
-5. Forms final value function from learned parameters and feature mapping
-
-# Examples
-```julia-repl
-julia> # Example usage with appropriate MDP and policy
-       results = gradient_monte_carlo_policy_estimation_state_aggregation(
-           mdp, policy, 0.9f0, 500, 10, assign_groups; α=0.05f0
-       );
-```
-
-# Performance Notes
-- Memory efficient for large state spaces through sparse feature representation
-- Feature construction is performed once, then reused across all episodes
-- State aggregation reduces parameter space from `|S|` to `num_groups` dimensions
-- Compatible with any [`StateMDP`](@ref) implementation via generic dispatch
-"""
-gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
-
 # ╔═╡ ace0693b-b4ce-43df-966e-0330d4399638
 #=╠═╡
 md"""
@@ -2242,72 +1105,6 @@ const random_walk_state_distribution = calculate_random_walk_state_distribution(
 # ╠═╡ skip_as_script = true
 #=╠═╡
 get_random_walk_true_value(s::Float32, values::Vector{Float32}) = values[Int64(s) + 1] 
-  ╠═╡ =#
-
-# ╔═╡ e3bd06e5-a16d-474c-b618-1c6f303eda00
-#=╠═╡
-function calc_random_walk_ve(g::Float32, v̂::Float32, s::Float32)
-	true_value = get_random_walk_true_value(s, random_walk_v.value_function)
-	(v̂ - true_value)^2
-end
-  ╠═╡ =#
-
-# ╔═╡ 9dc8143f-280c-426a-911b-8ec851c9f093
-#=╠═╡
-random_walk_ve_setup_kwargs = (calculate_error = calc_random_walk_ve,)
-  ╠═╡ =#
-
-# ╔═╡ ce3ce1eb-1b88-4d30-aab3-9fa23c9246fe
-#=╠═╡
-function calculate_random_walk_ve(v̂::Function)
-	states = Float32.(1:num_states)
-	estimates = v̂.(states)
-	sum(((random_walk_v.value_function .- estimates) .^2) .* random_walk_state_distribution)
-end
-  ╠═╡ =#
-
-# ╔═╡ 214714a5-ad1e-4439-8567-9095d10411a6
-# ╠═╡ skip_as_script = true
-#=╠═╡
-function figure_9_1()
-	v = random_walk_v.value_function[2:end-1]
-	(random_walk_v̂, error_history) = gradient_monte_carlo_estimation_state_aggregation(random_walk_state_mrp, 1f0, 100_000, num_groups, random_walk_group_assign; α = 2f-5, calculate_error = calc_random_walk_ve)
-	v̂ = random_walk_v̂.(Float32.(1:num_states))
-	x = 1:num_states
-	n1 = L"v_\pi"
-	n2 = L"\hat v"
-	tr1 = scatter(x = x, y = v, name = "True value $n1")
-	tr2 = scatter(x = x, y = v̂, name = "Approximate MC value $n2")
-	
-	state_distribution = calculate_random_walk_state_distribution()
-	n3 = L"\mu"
-	tr3 = bar(x = x, y = state_distribution, yaxis = "y2", name = "State distribution $n3", marker_color = "gray")
-
-	state_mean = sum(state_distribution[i]*i for i in eachindex(state_distribution))
-	state_variance = sum(state_distribution[i]*((i - state_mean)^2) for i in eachindex(state_distribution))
-	p1 = plot([tr1, tr2, tr3], Layout(xaxis_title = "State", yaxis_title = "Value scale", yaxis2 = attr(title = "Distribution scale", overlaying = "y", side = "right"), title = "State Mean Value: $state_mean, State Value Variance: $state_variance"))
-
-	p2 = plot(scatter(x = 1001:length(error_history), y = [sqrt(mean(error_history[i-1000:i])) for i in 1001:length(error_history)]), Layout(xaxis_title = "Episode", yaxis_title = "Value Error Over Previous 1000 Episodes"))
-	# p2 = plot(scatter(y = sqrt.(error_history)), Layout(xaxis_title = "Episode", yaxis_title = "Value Error"))
-	md"""
-	$p1
-	$p2
-	"""
-end
-  ╠═╡ =#
-
-# ╔═╡ c0e9ea1f-8cbe-4bc1-990f-ffd3ab1989cc
-# ╠═╡ skip_as_script = true
-#=╠═╡
-figure_9_1()
-  ╠═╡ =#
-
-# ╔═╡ 49320a88-206e-4283-b3fc-a5d1ac41ddc4
-#=╠═╡
-function smooth_error(error_history, n)
-	l = length(error_history)
-	[mean(error_history[i-n:i]) for i in n+1:l]
-end
   ╠═╡ =#
 
 # ╔═╡ 3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
@@ -2392,155 +1189,6 @@ md"""
 In order to define a linear method, one must provide a state representation vector which will be the same length as the parameter vector as well as a function to update that representation for a given state.  The update function will be called as `update_feature_vector!(state_representation, s)`
 """
 
-# ╔═╡ c737c14b-2ad6-4d95-9795-2b87f6f722cb
-"""
-    semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::Real, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; kwargs...) where {T<:Real} -> NamedTuple
-
-Semi-gradient TD(0) value estimation with linear function approximation on an MRP.
-
-High-level interface for temporal difference learning using linear value functions. Automatically
-sets up linear function approximation components (value function, gradient computation, parameter
-initialization) and delegates to the core TD(0) algorithm. Performs online learning with immediate
-parameter updates after each environment step.
-
-# Type Parameters
-- `T <: Real`: Numeric type for parameters, rewards, and computations (inferred from γ)
-
-# Arguments
-- `mrp::StateMRP`: The Markov reward process to evaluate, supporting any state type
-- `γ::Real`: Discount factor for temporal difference updates (0 ≤ γ < 1)
-- `max_episodes::Integer`: Maximum number of episodes to run
-- `max_steps::Integer`: Maximum total steps across all episodes
-- `feature_vector::LinearFeatureVector`: Linear feature representation for states
-- `update_feature_vector!::Function`: Function to extract features from states into feature_vector
-
-# Keyword Arguments
-- `init_value::Real = zero(T)`: Initial value for parameter initialization
-- `params::Vector{T} = initialize_linear_parameters(feature_vector, init_value)`: Initial parameter vector
-- Additional arguments passed to [`semi_gradient_td0_estimation!`](@ref):
-  - `α::Real = 0.1`: Learning rate for gradient updates
-  - `calculate_error::Function = (target, v̂, s) -> (v̂ - target)^2`: Error function for statistics
-  - `save_episode_steps::Bool = false`: Whether to save step-by-step reward history
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function::Function`: Learned value function `v(s)` that maps states to estimated values
-  - `episode_history::NamedTuple`: Episode statistics with fields:
-    - `errors::Vector{T}`: Per-episode average TD errors
-    - `steps::Vector{Int64}`: Steps taken in each episode
-    - `rewards::Vector{T}`: Total rewards accumulated in each episode
-  - `step_rewards::Vector{T}`: Step-by-step rewards (if `save_episode_steps=true`)
-  - `parameters::Vector{T}`: Final learned parameter vector
-
-# See Also
-[`semi_gradient_td0_estimation!`](@ref), [`LinearFeatureVector`](@ref), [`linear_value_function`](@ref), [`initialize_linear_parameters`](@ref)
-
-# Algorithm Details
-1. Initialize linear function approximation components:
-   - Parameter vector using [`initialize_linear_parameters`](@ref)
-   - Linear value function and gradient computation functions
-2. Delegate to [`semi_gradient_td0_estimation!`](@ref) which performs:
-   - Online TD(0) updates: θ ← θ + α * δ * ∇v(s) where δ = r + γv(s') - v(s)
-   - Episode management with termination checking
-   - Error and reward tracking across episodes
-3. Return learned value function and training statistics
-
-# Examples
-```julia-repl
-julia> # Create continuous random walk MRP
-       mrp = create_continuous_random_walk(1000);
-
-julia> # Set up linear features (e.g., polynomial basis)
-       features, update_fn = create_polynomial_features(3);
-
-julia> # Run TD(0) learning with linear approximation
-       results = semi_gradient_td0_estimation_linear(
-           mrp, 0.95f0, 100, 10000, features, update_fn; 
-           α=0.01f0, init_value=0.0f0
-       );
-
-julia> # Check convergence and final performance
-       println("Episodes completed: ", length(results.episode_history.errors))
-       println("Final episode error: ", results.episode_history.errors[end])
-       println("Parameter vector: ", results.parameters)
-Episodes completed: 100
-Final episode error: 0.023f0
-Parameter vector: Float32[0.12, -0.45, 0.08]
-
-julia> # Evaluate learned value function
-       test_state = 500.0f0;
-       estimated_value = results.value_function(test_state);
-       println("Value at state 500: ", estimated_value)
-Value at state 500: 0.034f0
-```
-
-# Performance Notes
-- Reuses feature vector and gradient storage to minimize allocations
-- Compatible with any [`LinearFeatureVector`](@ref) implementation
-"""
-semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
-
-# ╔═╡ 3307300f-cd72-4f16-bc46-39115a32e2ca
-"""
-    semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; kwargs...) where {T<:Real} -> NamedTuple
-
-Semi-gradient TD(0) policy evaluation with linear function approximation on an MDP.
-
-High-level interface for temporal difference policy evaluation using linear value functions. Automatically
-sets up linear function approximation components (value function, gradient computation, parameter
-initialization) and delegates to the core TD(0) algorithm. Performs online learning with immediate
-parameter updates after each environment step to estimate the state value function v^π(s) for the given policy.
-
-# Type Parameters
-- `T <: Real`: Numeric type for parameters, rewards, and computations (inferred from γ)
-
-# Arguments
-- `mdp::StateMDP`: The Markov decision process to evaluate, supporting any state and action types
-- `π::Function`: Policy function mapping states to action selections (state → action)
-- `γ::Real`: Discount factor for temporal difference updates (0 ≤ γ < 1)
-- `max_episodes::Integer`: Maximum number of episodes to run
-- `max_steps::Integer`: Maximum total steps across all episodes
-- `feature_vector::LinearFeatureVector`: Linear feature representation for states
-- `update_feature_vector!::Function`: Function to extract features from states into feature_vector
-
-# Keyword Arguments
-- `init_value::Real = zero(T)`: Initial value for parameter initialization
-- `params::Vector{T} = initialize_linear_parameters(feature_vector, init_value)`: Initial parameter vector
-- Additional arguments passed to [`semi_gradient_td0_estimation!`](@ref):
-  - `α::Real = 0.1`: Learning rate for gradient updates
-  - `calculate_error::Function = (target, v̂, s) -> (v̂ - target)^2`: Error function for statistics
-  - `save_episode_steps::Bool = false`: Whether to save step-by-step reward history
-
-# Returns
-- `NamedTuple` with fields:
-  - `value_function::Function`: Learned state value function `v_π(s)` that maps states to estimated values under policy π
-  - `episode_history::NamedTuple`: Episode statistics with fields:
-    - `errors::Vector{T}`: Per-episode average TD errors
-    - `steps::Vector{Int64}`: Steps taken in each episode
-    - `rewards::Vector{T}`: Total rewards accumulated in each episode under policy π
-  - `step_rewards::Vector{T}`: Step-by-step rewards (if `save_episode_steps=true`)
-  - `parameters::Vector{T}`: Final learned parameter vector
-
-# See Also
-[`semi_gradient_td0_estimation!`](@ref), [`LinearFeatureVector`](@ref), [`linear_value_function`](@ref), [`initialize_linear_parameters`](@ref)
-
-# Algorithm Details
-1. Initialize linear function approximation components:
-   - Parameter vector using [`initialize_linear_parameters`](@ref)
-   - Linear value function and gradient computation functions
-2. Delegate to [`semi_gradient_td0_estimation!`](@ref) which performs:
-   - Policy-based episode generation using π for action selection
-   - Online TD(0) updates: θ ← θ + α * δ * ∇v(s) where δ = r + γv(s') - v(s)
-   - Episode management with termination checking
-   - Error and reward tracking across policy rollouts
-3. Return learned value function v_π and training statistics
-
-# Performance Notes
-- Reuses feature vector and gradient storage to minimize allocations
-- Compatible with any [`LinearFeatureVector`](@ref) implementation
-"""
-semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
-
 # ╔═╡ 645ba5fc-8575-4b8f-8982-f8bd20ac27ff
 #=╠═╡
 md"""
@@ -2548,16 +1196,6 @@ md"""
 
 State aggregation is a special case of linear function approximation, so we can use the previous example to illustrate the convergence properties of semi-gradient TD(0) vs gradient Monte Carlo.  
 """
-  ╠═╡ =#
-
-# ╔═╡ 99f34d13-a19a-4a28-8173-2f683527d61a
-#=╠═╡
-semi_gradient_td0_estimation_state_aggregation(mrp::StateMRP, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_estimation_linear(mrp, γ, max_episodes, max_steps, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ 7889fc4a-3a77-41b4-983a-0b04740afeb7
-#=╠═╡
-semi_gradient_td0_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
   ╠═╡ =#
 
 # ╔═╡ cf9d7c7d-4519-410a-8a05-af90312e291c
@@ -2576,48 +1214,6 @@ Bootstrapping with state aggregation on the $num_states-state random walk task. 
 	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-8:1f0, default = 2f-4)))
 	"""
 end |> confirm
-  ╠═╡ =#
-
-# ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
-# ╠═╡ skip_as_script = true
-#=╠═╡
-function figure_9_2(;num_episodes = 100_000, α_mc = 2f-5, α_td = 2f-4)
-	v = random_walk_v.value_function[2:end-1]
-	
-	v̂_mc, err_history_mc = gradient_monte_carlo_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, num_groups, random_walk_group_assign; α = α_mc, calculate_error = calc_random_walk_ve)
-
-	#this function will produce the learned value estimate given a random walk state
-	v̂_td, episode_history_td = semi_gradient_td0_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α_td, calculate_error = calc_random_walk_ve)
-	err_history_td = episode_history_td.errors
-	
-	x = Float32.(1:num_states)
-
-	v̂_mc = v̂_mc.(x)
-	v̂_td = v̂_td.(x)
-	
-	n1 = L"v_\pi"
-	tr1 = scatter(x = x, y = v, name = "True value $n1")
-	tr2 = scatter(x = x, y = v̂_mc, name = "Monte Carlo Value Estimate")
-	tr3 = scatter(x = x, y = v̂_td, name = "TD(0) Value Estimate")
-
-	p1 = plot([tr2, tr3, tr1], Layout(xaxis_title = "State", yaxis_title = "Value"))
-
-	nsmooth = 100
-	tr1 = scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(err_history_mc, nsmooth)), name = "Monte Carlo Estimate Errors")
-	tr2 = scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(err_history_td, nsmooth)), name = "TD(0) Estimate Errors")
-	p2 = plot([tr1, tr2], Layout(xaxis_title = "Episode", yaxis_title = "Value Error", showlegend = false))
-	@htl("""
-	<div style = "display: flex;">
-	$p2
-	$p1
-	</div>
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ c05ea239-2eea-4f41-b4e3-993db0fe2de5
-#=╠═╡
-figure_9_2(;num_episodes = 100_000, fig_9_2_params...)
   ╠═╡ =#
 
 # ╔═╡ f5203959-29ef-406c-abac-4f01fa9630a3
@@ -2725,85 +1321,6 @@ Notice that these 9 exponents match the ones for the feature vector in exercise 
 """
   ╠═╡ =#
 
-# ╔═╡ 9d7ca70c-0e60-4029-8ea0-26192ccea849
-"""
-    order_features_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, min_values::S, max_values::S, feature_calculation::Function) -> NamedTuple
-
-Create ordered feature vector and update function for basis function approximation.
-
-Sets up feature representation for states using coefficient tuples from [`get_order_coefficients`](@ref)
-and a provided feature calculation function. Generates all coefficient combinations up to order n
-and creates optimized update function for extracting features from states. Compatible with polynomial,
-Fourier, and other basis functions that use ordered coefficient expansions.
-
-# Type Parameters
-- `T <: Real`: Numeric type for computations and feature values
-- `N`: Dimension of tuple states (automatically inferred)
-- `S <: Union{T, NTuple{N, T}}`: State type - either scalar `T` or N-dimensional tuple
-- `A`: Action type (for MDP problems)
-- `P`: Transition probability type
-- `F1 <: Function`: State initialization function type
-- `F2 <: Function`: Transition function type  
-- `F3 <: Function`: Termination function type (MDP only)
-
-# Arguments
-- `problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}`: MDP or MRP providing state type information
-- `n::Integer`: Maximum order for coefficient generation
-- `min_values::S`: Minimum bounds for state normalization (scalar T or tuple matching state dimension)  
-- `max_values::S`: Maximum bounds for state normalization (scalar T or tuple matching state dimension)
-- `feature_calculation::Function`: Function computing features from (state, min_vals, max_vals, coefficients)
-
-# Returns
-- `NamedTuple` with fields:
-  - `feature_vector::Vector{T}`: Pre-allocated feature storage of length (n+1)^k where k is state dimension
-  - `update_feature_vector!::Function`: Optimized function to populate features from state
-
-The returned values are designed to be passed directly as the `feature_vector` and `update_feature_vector!`
-arguments to linear function approximation methods.
-
-# See Also
-[`semi_gradient_td0_estimation_linear`](@ref), [`gradient_monte_carlo_estimation_linear`](@ref), [`gradient_monte_carlo_policy_estimation_linear`](@ref), [`get_order_coefficients`](@ref)
-
-# Performance Notes
-- Uses `@simd` optimization for fast feature computation
-- Pre-allocates feature vector to avoid repeated memory allocation
-- Feature vector size is (n+1)^k where k is inferred state dimensionality
-
-# Examples
-```julia-repl
-julia> # Set up features for linear TD(0) learning
-       features, update_fn = order_features_setup(mrp, 3, 0.0f0, 1000.0f0, polynomial_calc);
-
-julia> # Pass directly to TD(0) estimation
-       results = semi_gradient_td0_estimation_linear(
-           mrp, 0.95f0, 100, 10000, features, update_fn; α=0.01f0
-       );
-
-julia> # Or use with gradient Monte Carlo
-       mc_results = gradient_monte_carlo_estimation_linear(
-           mrp, 0.9f0, 500, features, update_fn; α=0.05f0
-       );
-```
-"""
-function order_features_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, min_values::S, max_values::S, feature_calculation::Function) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
-	#states must be tuples with k elements or some number value
-	k = S == T ? 1 : N
-	coefs = get_order_coefficients(k, n)
-
-	l = length(coefs)
-
-	function update_feature_vector!(x::Vector{T}, s::T)
-		@inbounds @simd for i in eachindex(x)
-			feature = feature_calculation(s, min_values, max_values, coefs[i])
-			x[i] = feature
-		end
-	end
-
-	x = zeros(T, l)
-
-	(feature_vector = x, update_feature_vector! = update_feature_vector!)
-end
-
 # ╔═╡ bc2e52ff-7f47-4141-aff1-e752fe217f6a
 begin
 	"""
@@ -2846,32 +1363,6 @@ md"""
 ### *Example: Linear Feature Vectors with Random Walk*
 """
 
-# ╔═╡ 1e58c332-d43e-4467-b7b1-377262d460c3
-#=╠═╡
-function show_random_walk_results((v̂_mc, mc_error), (v̂_td, td_history), name, nsmooth)
-	num_episodes = length(mc_error)
-	td_error = td_history.errors
-	p1 = plot([scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(mc_error, nsmooth)), name = "Monte Carlo"), scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(td_error, nsmooth)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged <br> over Previous $nsmooth Episodes", showlegend = false))
-	p2 = plot([scatter(x = 1:num_states, y = v̂_mc.(Float32.(1:num_states)), name = "Monte Carlo"), scatter(x = 1:num_states, y = v̂_td.(Float32.(1:num_states)), name = "TD(0)"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "$name Approximation", yaxis_title = "Value", xaxis_title = "State"))
-	@htl("""
-	<div style = "display: flex;">
-	$p1
-	$p2
-	</div>
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ 56212ab2-833a-4dec-bcdd-21bce1d680b6
-# ╠═╡ skip_as_script = true
-#=╠═╡
-function show_random_walk_linear_results(feature_vector::LinearFeatureVector, update_feature_vector!::Function, num_episodes, α_mc::T, α_td::T, name; nsmooth = 100) where T<:Real
-	v̂_mc, mc_error = gradient_monte_carlo_estimation_linear(random_walk_state_mrp, 1f0, num_episodes, feature_vector, update_feature_vector!; α = α_mc, calculate_error = calc_random_walk_ve)
-	v̂_td, td_history = semi_gradient_td0_estimation_linear(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), feature_vector, update_feature_vector!; α = α_td, calculate_error = calc_random_walk_ve)
-	show_random_walk_results((v̂_mc, mc_error), (v̂_td, td_history), name, nsmooth)
-end
-  ╠═╡ =#
-
 # ╔═╡ 93a617ee-db64-4351-b919-340d950fc148
 #=╠═╡
 @bind poly_feature_params PlutoUI.combine() do Child
@@ -2881,11 +1372,6 @@ end
 	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-8:1f0, default = 2f-4)))
 	"""
 end |> confirm
-  ╠═╡ =#
-
-# ╔═╡ 994f8556-964c-4c6b-8cfe-6f6a99c1ba29
-#=╠═╡
-show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, poly_feature_params.order_num, 1f0, Float32(num_states), calc_poly_feature)..., 25_000, poly_feature_params.α_mc, poly_feature_params.α_td, "Polynomial Basis Function Approximation")
   ╠═╡ =#
 
 # ╔═╡ ed00f1b2-79b0-406a-aabc-8c8c7ad61c31
@@ -2936,24 +1422,6 @@ Notice that for approximation techniques that are forced to do global approximat
 	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 3f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-8:1f0, default = 7f-4)))
 	"""
 end |> confirm
-  ╠═╡ =#
-
-# ╔═╡ 111a6762-ab4f-4db9-80f9-10c707623e0f
-#=╠═╡
-show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, fourier_feature_params.order_num, 1f0, Float32(num_states), calc_fourier_feature)..., 10_000, fourier_feature_params.α_mc, fourier_feature_params.α_td, "Fourier Basis Function Approximation")
-  ╠═╡ =#
-
-# ╔═╡ b4aefbb1-dbb7-490c-9fa7-0f68e5a9916c
-# ╠═╡ skip_as_script = true
-#=╠═╡
-function plot_value_error(errs, names, nsmooth)
-	l = length(first(errs))
-	traces = [begin
-		scatter(x = nsmooth:l, y = sqrt.(smooth_error(err, nsmooth)), name = names[i])
-	end
-	for (i, err) in enumerate(errs)]
-	plot(traces, Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged over <br> Previous $nsmooth Episodes"))
-end
   ╠═╡ =#
 
 # ╔═╡ a99ef185-0360-4005-9a8c-f10ca58babda
@@ -3340,14 +1808,6 @@ Notice that TD learning in this case is also more stable at higher learning rate
 end |> confirm
   ╠═╡ =#
 
-# ╔═╡ b5a3a529-2d74-4757-9d38-2eae28396d02
-#=╠═╡
-let
-	setup = tile_coding_feature_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_coding_learning_params.tile_size, tile_coding_learning_params.num_tilings)
-	show_random_walk_linear_results(setup.feature_vector, setup.update_feature_vector!, 10_000, tile_coding_learning_params.α_mc, tile_coding_learning_params.α_td, "Tile Coding Function Approximation")
-end
-  ╠═╡ =#
-
 # ╔═╡ a4d9efaf-1e1e-4115-973f-570014c1fd06
 md"""
 > ### *Exercise 9.4* 
@@ -3469,6 +1929,750 @@ begin
 	end
 end
 
+# ╔═╡ 66cadcfb-4fda-4509-80d6-aa22766a7e9c
+"""
+    fcann_value_function!(activations, x, params, reslayers) -> Nothing
+
+Compute forward pass of fully connected artificial neural network value function without gradient computation.
+
+# Type Parameters
+- `T <: Float32`: Numeric type restricted to Float32 for performance
+
+# Arguments
+- `activations::FCANNActivations{T}`: Pre-allocated activation storage (modified in-place)
+- `x::Vector{T}`: Input feature vector
+- `params::FCANNParams`: Network parameters containing weights and biases
+- `reslayers::Integer`: Number of residual layers in the network architecture
+
+# Returns
+- `activations::FCANNActivations{T}`: Function modifies `activations` in-place and returns them as output
+
+# See Also
+[`FCANNActivations`](@ref), [`FCANNParams`](@ref)
+"""
+fcann_value_function!(activations::FCANNActivations{T}, x, params::FCANNParams) where T<:Float32 = FCANN.forwardNOGRAD_base!(activations, params.weights..., x, params.reslayers)
+
+# ╔═╡ 4ddca4fe-8cce-47a7-875b-66d2284d9347
+#add all GPU functions and set up a test program to evaluate a non-linear problem and benchmark the performance for a small number of steps to see which one is desirable
+
+# ╔═╡ 94958deb-01e1-4544-bbc8-62f16768b650
+#=╠═╡
+function cuda_memcpy_test(n::Integer)
+	v = rand(Float32, n)
+	d_v = FCANN.cuda_allocate(v)
+
+	f1() = FCANN.memcpy!(d_v, v)
+	f2() = FCANN.cuda_allocate(v)
+	f3() = FCANN.memcpy!(v, d_v)
+	f4() = FCANN.host_allocate(d_v)
+
+	r1 = @benchmark $f1()
+	r2 = @benchmark $f2()
+	r3 = @benchmark $f3()
+	r4 = @benchmark $f4()
+
+	return (r1, r2, r3, r4)
+end
+  ╠═╡ =#
+
+# ╔═╡ 9e3efa3c-af2f-4aea-b923-a6d50a6b9fb5
+"""
+    update_fcann_value_gradient!(∇v̂, x, output_index, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list, scales) -> Nothing
+
+Compute gradient of FCANN value function with respect to network parameters.
+
+# Type Parameters
+- `T <: Float32`: Numeric type restricted to Float32 for performance
+- `B <: Bool`: Boolean type for activation function indicators
+
+# Arguments
+- `∇v̂::FCANNParams`: Gradient storage for network parameters (modified in-place)
+- `x::Vector{T}`: Input feature vector
+- `output_index::Integer`: Index of the target output neuron
+- `params::FCANNParams`: Network parameters containing weights, biases and reslayers
+- `hidden_layers::Vector{Int64}`: Architecture specification for hidden layer sizes
+- `l2::T`: L2 regularization coefficient
+- `tanh_grad_z::FCANNActivations{T}`: Pre-allocated storage for tanh gradient computations
+- `activations::FCANNActivations{T}`: Pre-allocated activation storage
+- `deltas::FCANNActivations{T}`: Pre-allocated delta storage for backpropagation
+- `dropout::T`: Dropout rate for regularization
+- `reslayers::Integer`: Number of residual layers in the network
+- `activation_list::AbstractVector{B}`: Boolean indicators for activation function types per layer
+- `scales`: Scaling factors applied to computed gradients
+
+# Returns
+- `Nothing`: Function modifies `∇v̂` in-place with scaled gradients
+"""
+function update_fcann_value_gradient!(∇v̂::FCANNParams, x, output_index::Integer, params::FCANNParams, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivations{T}, activations::FCANNActivations{T}, deltas::FCANNActivations{T}, dropout::T, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool}
+	FCANN.nnCostFunction(params.weights..., hidden_layers, x, output_index, l2, ∇v̂.weights..., tanh_grad_z, activations, deltas, dropout; resLayers = params.reslayers, loss_type = OutputIndex(), activation_list = activation_list)
+end
+
+# ╔═╡ 33522c13-f52f-495f-b150-488736389de4
+const FCANNParamsGPU = @NamedTuple{weights::Tuple{Vector{FCANN.CUDAArray}, Vector{FCANN.CUDAArray}}, reslayers::Int64}
+
+# ╔═╡ 6c9f2af4-2873-43b9-a3ae-3e5f2b1a81a6
+const FCANNActivationsGPU = Vector{FCANN.CUDAArray}
+
+# ╔═╡ b1af53f1-45b3-4ede-9388-0fab9740b6f8
+fcann_value_function!(activations::FCANNActivationsGPU, d_x::FCANN.CUDAArray, params::FCANNParamsGPU) = FCANN.forwardNOGRAD_base!(activations, params.weights..., d_x, params.reslayers)
+
+# ╔═╡ 64206a7a-b67c-4b86-bc42-cbad498d38f5
+function update_fcann_value_gradient!(∇v̂::FCANNParamsGPU, d_x::FCANN.CUDAArray, output_index::Integer, params::FCANNParamsGPU, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivationsGPU, activations::FCANNActivationsGPU, deltas::FCANNActivationsGPU, dropout::T, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool}
+	output_size = last(activations).size[1]
+	FCANN.nnCostFunction(params.weights..., d_x.size[1], output_size, hidden_layers, activations, tanh_grad_z, deltas, ∇v̂.weights..., d_x, output_index, l2, dropout; resLayers = params.reslayers, loss_type = OutputIndex(), activation_list = activation_list)
+end
+
+# ╔═╡ 2b922137-3110-4f91-94b1-4707d197b429
+"""
+    scale_fcann_params!(params, scales) -> Nothing
+
+Apply inverse scaling factors to FCANN network parameters in-place.
+
+# Type Parameters
+- `T <: Real`: Numeric type for scaling factors
+
+# Arguments
+- `params::FCANNParams`: Network parameters containing weights and biases (modified in-place)
+- `scales::Vector{T}`: Scaling factors to apply inversely to each parameter group
+
+# Returns
+- `Nothing`: Function modifies `params` in-place by dividing each parameter group by corresponding scale factor
+"""
+function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
+	@inbounds for i in eachindex(scales)
+		for j in 1:2
+			params.weights[j][i] .*= scales[i]
+		end
+	end
+end
+
+# ╔═╡ 1d43e61e-8428-4f50-8dc7-e322b1d256e8
+function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}) where T<:Real
+	@inbounds for i in eachindex(scales)
+		for j in 1:2
+			FCANN.cublasSscal(FCANN.cublas_handle, scales[i], params.weights[j][i])
+		end
+	end
+end
+
+# ╔═╡ 8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf
+#=╠═╡
+function benchmark_value_transfer()
+	d_x = FCANN.cuda_allocate([1f0])
+
+	f1() = FCANN.host_allocate(d_x)[1]
+
+	function f2()
+		dst = Ref{Float32}(0f0)
+		FCANN.cudaMemcpy(Base.pointer_from_objref(dst), d_x.ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
+		dst.x
+	end
+
+	b1 = @benchmark $f1()
+	b2 = @benchmark $f2()
+
+	(b1, b2)
+end
+  ╠═╡ =#
+
+# ╔═╡ 0f7ce70e-fb15-44e1-8f1b-dd082ae5911f
+function initialize_gpu_params(params::FCANNParams)
+	d_θ = FCANN.device_allocate(params.weights[1])
+	d_β = FCANN.device_allocate(params.weights[2])
+	return (weights = (d_θ, d_β), reslayers = params.reslayers)
+end
+
+# ╔═╡ e05a8d56-6010-4e3a-b976-0290f42c95dd
+Base.length(v::FCANN.CUDAArray) = prod(v.size)
+
+# ╔═╡ 76fb06c4-0841-40a2-996e-cb9a555ffc34
+begin
+	#here active_features is just something that can be enumerated
+	"""
+	    update_binary_feature_vector!(target, source) -> target
+	
+	Updates a binary feature vector in-place by copying active features from source.
+	
+	This function efficiently manages the sparse storage of active feature indices,
+	handling memory allocation and resizing as needed. Used internally by gradient
+	update functions for sparse feature representations.
+	
+	# Arguments
+	- `target::`[`BinaryFeatureVector`](@ref): Binary feature vector to update (modified in-place)
+	- `source`: Source of active features (see Methods for supported types)
+	
+	# See Also
+	[`update_linear_value_gradient!`](@ref)
+	
+	# Methods
+	
+	## From LinearFeatures
+	```julia
+	update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, active_features::LinearFeatures{I}) where {I <: Integer, N}
+	```
+	Updates binary feature vector from an enumerable collection of active feature indices.
+	Efficiently manages vector resizing by reusing existing storage when possible.
+	
+	- `x::`[`BinaryFeatureVector{I, N}`](@ref BinaryFeatureVector): Target binary feature vector
+	- `active_features::`[`LinearFeatures{I}`](@ref LinearFeatures): Enumerable collection of active feature indices
+	
+	### Examples
+	```julia-repl
+	julia> target = BinaryFeatureVector(10);
+	
+	julia> # LinearFeatures can be a vector of indices
+	       active_indices = [1, 3, 7, 9]
+	4-element Vector{Int64}:
+	 1
+	 3
+	 7
+	 9
+	
+	julia> update_binary_feature_vector!(target, active_indices);
+	
+	julia> target.active_features
+	4-element Vector{Int64}:
+	 1
+	 3
+	 7
+	 9
+	
+	julia> target.num_features
+	4
+	```
+	
+	## From BinaryFeatureVector
+	```julia
+	update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, y::BinaryFeatureVector{I, N}) where {I <: Integer, N}
+	```
+	Copies active features from one binary feature vector to another.
+	Optimizes memory usage by reusing existing storage and only allocating when necessary.
+	
+	- `x::`[`BinaryFeatureVector{I, N}`](@ref BinaryFeatureVector): Target binary feature vector
+	- `y::`[`BinaryFeatureVector{I, N}`](@ref BinaryFeatureVector): Source binary feature vector
+	
+	### Examples
+	```julia-repl
+	julia> target = BinaryFeatureVector(10);
+	
+	julia> source = BinaryFeatureVector(10);
+	
+	julia> source.active_features = [2, 4, 6];
+	
+	julia> source.num_features = 3;
+	
+	julia> update_binary_feature_vector!(target, source);
+	
+	julia> target.active_features
+	3-element Vector{Int64}:
+	 2
+	 4
+	 6
+	
+	julia> target.num_features
+	3
+	```
+	
+	# Performance Notes
+	- Reuses existing storage in target vector when possible to minimize allocations
+	- Uses `@simd` optimization for copying existing indices
+	- Only allocates new memory when target vector needs to grow
+	- Efficiently handles different source and target sizes using `extrema`
+	"""
+	function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, active_features::LinearFeatures{I}) where {I <: Integer, N}
+		l = length(x.active_features)
+		n = 0
+		for (i, f) in enumerate(active_features)
+			if i > l 
+				push!(x.active_features, f)
+			else
+				x.active_features[i] = f
+			end
+			n += 1
+		end
+		x.num_features = n
+		return x
+	end
+
+	function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, y::BinaryFeatureVector{I, N}) where {I <: Integer, N}
+		l1, l2 = extrema((x.num_features, y.num_features))
+		
+		#replace the features for the indices that have already been allocated
+		@inbounds @simd for i in 1:l1
+			x.active_features[i] = y.active_features[i]
+		end
+
+		#add any new indices required for x
+		for i in l1+1:l2
+			push!(x.active_features, y.active_features[i])
+		end
+		x.num_features = y.num_features
+		
+		return x
+	end
+end
+
+# ╔═╡ 1d107df4-36fa-49bd-bd48-5d5f49910b44
+begin
+	"""
+	    update_linear_value_gradient!(gradient, features, value_params) -> gradient
+	
+	Updates the gradient of a linear value function in-place based on feature representation.
+	
+	For linear value functions, the gradient with respect to parameters is simply the 
+	feature vector itself. This function efficiently updates gradient storage for 
+	different feature representations.
+	
+	# Arguments
+	- `gradient`: Gradient storage to update (modified in-place)
+	- `features`: Feature representation used to compute gradient
+	- `value_params`: Value function parameters (not used but maintained for API consistency)
+	
+	# See Also
+	[`linear_value_function`](@ref), [`update_params_with_gradient!`](@ref), [`update_binary_feature_vector!`](@ref)
+	
+	# Methods
+	
+	## Dense Features
+	```julia
+	update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params) where {T<:Real}
+	```
+	Updates dense gradient vector by copying feature values.
+	For linear functions: ∇v̂ = x (gradient equals features).
+	
+	- `∇v̂::Vector{T}`: Gradient vector to update
+	- `x::Vector{T}`: Dense feature vector
+	- `value_params`: Value function parameters (unused)
+	
+	## Binary Features
+	```julia
+	update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params)
+	```
+	Updates sparse binary gradient by copying active feature indices.
+	Calls [`update_binary_feature_vector!`](@ref) to efficiently copy sparse structure.
+	
+	- `∇v̂::`[`BinaryFeatureVector`](@ref): Sparse gradient to update
+	- `binary_features::`[`BinaryFeatureVector`](@ref): Input binary features
+	- `value_params`: Value function parameters (unused)
+	
+	## State Aggregation Features
+	```julia
+	update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params)
+	```
+	Updates state aggregation gradient by copying the active group index.
+	
+	- `∇v̂::`[`StateAggregationFeatureVector`](@ref): State aggregation gradient to update
+	- `feature_vector::`[`StateAggregationFeatureVector`](@ref): Input state aggregation features
+	- `value_params`: Value function parameters (unused)
+	
+	# Performance Notes
+	- Dense method uses vectorized assignment for efficiency
+	- Binary feature method delegates to optimized copying function
+	- State aggregation provides O(1) update time
+	- All methods modify gradient storage in-place to avoid allocations
+
+	    update_linear_value_gradient!(∇q̂::LinearActionValueGradient, x, i_a, value_params) -> LinearActionValueGradient
+
+	Updates action-value gradient storage with feature vector and action index.
+	
+	Extends the existing linear gradient system to handle action-value functions by delegating
+	gradient computation to [`update_linear_value_gradient!`](@ref) and storing the action index.
+	
+	# Arguments
+	- `∇q̂::LinearActionValueGradient`: Action-value gradient storage to update in-place
+	- `x::LinearFeatureVector`: Feature vector representing ∇q̂(s,a)
+	- `i_a::Integer`: Action index for this gradient
+	- `value_params`: Value function parameters (unused, maintains API consistency)
+	
+	# Returns
+	- `LinearActionValueGradient`: The updated gradient storage (same as input `∇q̂`)
+	"""
+	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params) where {T<:Real}
+		∇v̂ .= x
+		return ∇v̂
+	end
+
+	#with binary features we only need to store the active features
+	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params)
+		update_binary_feature_vector!(∇v̂, binary_features)
+	end
+
+	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params)
+		∇v̂.group_index = feature_vector.group_index
+		return ∇v̂
+	end
+end
+
+# ╔═╡ 412f6295-3eec-4966-98e3-2774bf62ed4f
+begin
+	"""
+	    initialize_linear_parameters(length_or_features, init_value) -> Vector{T}
+	    initialize_linear_parameters(feature_vector_length, num_actions, init_value) -> Matrix{T}
+	
+	Initializes parameter storage for linear function approximation.
+	
+	Creates parameter vectors for state-value functions or parameter matrices for action-value
+	functions, with all entries initialized to the specified value. Supports initialization 
+	from explicit dimensions or object representations.
+	
+	# Type Parameters  
+	- `T <: Real`: Numeric type for parameter values
+	
+	# Arguments
+	- `length_or_features`: Feature space size (Integer) or feature object
+	- `init_value`: Initial value for all parameters
+	- `feature_vector_length::Integer`: Number of features (action-value methods)
+	- `num_actions::Integer`: Number of actions (action-value methods)
+	
+	# Returns
+	- `Vector{T}`: Parameter vector for state-value functions
+	- `Matrix{T}`: Parameter matrix (features × actions) for action-value functions
+	
+	# See Also
+	[`get_feature_length`](@ref), [`get_num_actions`](@ref)
+	
+	# Methods
+	
+	## State-Value Parameters (Vector Storage)
+	
+	### Direct Length
+	```julia
+	initialize_linear_parameters(l::Integer, init_value::T) where T<:Real
+	```
+	Creates parameter vector with explicit length.
+	
+	- `l::Integer`: Length of parameter vector
+	- `init_value::T`: Initial value for all parameters
+	
+	### Object-Based Length
+	```julia
+	initialize_linear_parameters(x, init_value)
+	```
+	Creates parameter vector using object to determine length.
+	Uses [`get_feature_length`](@ref) to extract feature space size.
+	
+	- `x`: Feature object (vector, binary features, etc.)
+	- `init_value`: Initial value for all parameters
+	
+	## Action-Value Parameters (Matrix Storage)
+	
+	### Direct Dimensions
+	```julia
+	initialize_linear_parameters(feature_vector_length::Integer, num_actions::Integer, init_value::T) where T<:Real
+	```
+	Creates parameter matrix for action-value function approximation with explicit dimensions.
+	Returns matrix of size (features × actions) with all entries set to `init_value`.
+	
+	- `feature_vector_length::Integer`: Number of features in feature vector
+	- `num_actions::Integer`: Number of actions in action space
+	- `init_value::T`: Initial value for all parameters
+	
+	### Object-Based Dimensions
+	```julia
+	initialize_linear_parameters(feature_object, action_object, init_value)
+	```
+	Creates parameter matrix using objects to determine dimensions.
+	Delegates to [`get_feature_length`](@ref) and [`get_num_actions`](@ref) for dimension extraction.
+	
+	```julia-repl
+	julia> params = initialize_linear_parameters(feature_vector, mdp, 0.0f0)
+	```
+	
+	# Performance Notes
+	- Uses in-place multiplication for efficient initialization
+	- Matrix layout optimized for column-wise access (features × actions)
+	- Vector storage for state-value functions, matrix storage for action-value functions
+	"""
+	function initialize_linear_parameters(l::Integer, init_value::T) where T<:Real
+		params = ones(T, l)
+		params .*= init_value
+		return params
+	end
+	initialize_linear_parameters(x, init_value) = initialize_linear_parameters(length(x), init_value)
+end
+
+# ╔═╡ de9bea60-c91d-4253-bdd8-a3c1fde8941c
+"""
+    make_random_walk_mrp(num_states::Integer) -> TabularMRP
+
+Generate a random walk Markov Reward Process with terminal states and stochastic transitions.
+
+Creates a symmetric random walk environment where an agent starts at the center state and
+can transition left or right with equal probability. Terminal states at both ends provide
+rewards of -1 (left) and +1 (right), while intermediate states provide zero reward.
+Transition probabilities are distance-dependent with wider spreads for longer walks.
+
+# Arguments
+- `num_states::Integer`: Number of non-terminal states in the random walk chain
+
+# Returns
+- [`TabularMRP`](@ref): Markov reward process with sparse transition matrices
+  - `states`: State space `[0, 1, ..., num_states, num_states+1]` where 0 and `num_states+1` are terminal
+  - `transition`: [`TabularStochasticTransition`](@ref) with sparse probability matrices
+  - `initialize_state`: Function returning center state index for episode initialization
+
+# Environment Structure
+The random walk has `num_states + 2` total states:
+- **Terminal states**: 0 (left, reward -1) and `num_states+1` (right, reward +1)  
+- **Non-terminal states**: 1, 2, ..., `num_states` (reward 0)
+- **Initial state**: Center state `⌈num_states/2⌉`
+
+# Transition Dynamics
+From each non-terminal state `s`, the agent:
+1. Moves left with probability 0.5, right with probability 0.5
+2. Transition spread: up to ±100 states with uniform probability within range
+3. **Boundary handling**: Transitions beyond state boundaries terminate with appropriate rewards
+4. **Sparse representation**: Uses [`SparseVector`](@ref) for memory efficiency
+
+# See Also
+[`TabularMRP`](@ref), [`TabularStochasticTransition`](@ref), [`make_chain_walk_mdp`](@ref)
+
+# Examples
+
+```julia-repl
+julia> mrp = make_random_walk_mrp(1000)
+TabularMRP with 1002 states (2 terminal)
+
+julia> mrp.states
+1002-element Vector{Int64}:
+   0    1    2  ...  999  1000  1001
+
+julia> initial_state = mrp.initialize_state()
+501
+
+```
+
+# Performance Notes
+- Uses [`SparseVector{Float32, Int64}`](@ref) for transition matrices to handle sparse connectivity
+- Memory complexity: O(num_states × average_transitions_per_state) 
+- Transition computation: O(1) lookup after preprocessing
+- Float32 precision for memory efficiency in large state spaces
+- Pre-computes all transition probabilities during construction
+- Terminal state handling avoids runtime boundary checks
+"""
+function make_random_walk_mrp(num_states::Integer)
+	states = collect(0:num_states+1)
+	state_index = TabularRL.makelookup(states)
+	initial_state = ceil(Int64, num_states / 2)
+	initialize_state_index() = initial_state + 1
+	state_transition_map = Vector{SparseVector{Float32, Int64}}(undef, num_states+2)
+	reward_transition_map = Vector{Vector{Float32}}(undef, num_states+2)
+	for s in states
+		if (s == 0) || (s == num_states+1)
+			v = zeros(Float32, num_states+2)
+			v[s+1] = 1f0
+			state_transition_map[s+1] = SparseVector(v)
+			reward_transition_map[s+1] = [0f0]
+		else
+			
+			state_transitions = SparseVector(zeros(Float32, num_states+2))
+			reward_transitions = Vector{Float32}()
+			minleft = s-100
+			maxright = s+100
+			ptermleft = if minleft > 0
+				0f0
+			else
+				Float32((-minleft + 1)/100)
+			end
+	
+			pnontermleft = 1f0 - ptermleft
+			nontermleftstates = max(1, s - 100):s-1
+			for s′ in nontermleftstates
+				state_transitions[s′+1] = (0.5f0 * pnontermleft) / length(nontermleftstates)
+			end
+			state_transitions[1] = ptermleft/2
+	
+			ptermright = if maxright <= num_states
+				0f0
+			else
+				Float32((maxright - num_states) / 100)
+			end
+	
+			pnontermright = 1f0 - ptermright
+			nontermrightstates = s+1:min(num_states, maxright)
+			for s′ in nontermrightstates
+				state_transitions[s′+1] = (0.5f0 * pnontermright) / length(nontermrightstates)
+			end
+			state_transitions[num_states+2] = ptermright/2
+			
+			state_transition_map[s+1] = state_transitions
+	
+			for i_s′ in state_transitions.nzind
+				r = if i_s′ == 1
+					-1f0
+				elseif i_s′ == num_states+2
+					1f0
+				else
+					0f0
+				end
+				push!(reward_transitions, r)
+			end
+			reward_transition_map[s+1] = reward_transitions
+		end
+	end
+	
+	TabularMRP(states, TabularStochasticTransition(state_transition_map, reward_transition_map), initialize_state_index)
+end;
+
+# ╔═╡ 7814bda0-4306-4060-8f9a-2bcf1cf8e132
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const random_walk_tabular_mrp = make_random_walk_mrp(num_states)
+  ╠═╡ =#
+
+# ╔═╡ 69223862-4d74-46c9-8c78-b24d659151ac
+#=╠═╡
+const random_walk_v = mrp_evaluation(random_walk_tabular_mrp, 1f0)
+  ╠═╡ =#
+
+# ╔═╡ e3bd06e5-a16d-474c-b618-1c6f303eda00
+#=╠═╡
+function calc_random_walk_ve(g::Float32, v̂::Float32, s::Float32)
+	true_value = get_random_walk_true_value(s, random_walk_v.value_function)
+	(v̂ - true_value)^2
+end
+  ╠═╡ =#
+
+# ╔═╡ 9dc8143f-280c-426a-911b-8ec851c9f093
+#=╠═╡
+random_walk_ve_setup_kwargs = (calculate_error = calc_random_walk_ve,)
+  ╠═╡ =#
+
+# ╔═╡ ce3ce1eb-1b88-4d30-aab3-9fa23c9246fe
+#=╠═╡
+function calculate_random_walk_ve(v̂::Function)
+	states = Float32.(1:num_states)
+	estimates = v̂.(states)
+	sum(((random_walk_v.value_function .- estimates) .^2) .* random_walk_state_distribution)
+end
+  ╠═╡ =#
+
+# ╔═╡ 736b7667-904d-4a9c-bb10-a6b0b831bfb6
+#=╠═╡
+random_walk_tabular_mrp.ptf.state_transition_map[smap+1] |> v -> plot(bar(x = 0:num_states+1, y = v), Layout(xaxis_title = "State", yaxis_title = "Transition Probability"))
+  ╠═╡ =#
+
+# ╔═╡ 1adf0786-0897-4119-9336-09de869463b4
+#=╠═╡
+random_walk_group_assign.(random_walk_tabular_mrp.states) |> v -> plot(scatter(x = random_walk_tabular_mrp.states, y = v), Layout(xaxis_title = "State", yaxis_title = "Aggregation Group", title = "$num_states Random Walk States Partitioned into $num_groups Groups"))
+  ╠═╡ =#
+
+# ╔═╡ 49320a88-206e-4283-b3fc-a5d1ac41ddc4
+#=╠═╡
+function smooth_error(error_history, n)
+	l = length(error_history)
+	[mean(error_history[i-n:i]) for i in n+1:l]
+end
+  ╠═╡ =#
+
+# ╔═╡ 9d7ca70c-0e60-4029-8ea0-26192ccea849
+"""
+    order_features_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, min_values::S, max_values::S, feature_calculation::Function) -> NamedTuple
+
+Create ordered feature vector and update function for basis function approximation.
+
+Sets up feature representation for states using coefficient tuples from [`get_order_coefficients`](@ref)
+and a provided feature calculation function. Generates all coefficient combinations up to order n
+and creates optimized update function for extracting features from states. Compatible with polynomial,
+Fourier, and other basis functions that use ordered coefficient expansions.
+
+# Type Parameters
+- `T <: Real`: Numeric type for computations and feature values
+- `N`: Dimension of tuple states (automatically inferred)
+- `S <: Union{T, NTuple{N, T}}`: State type - either scalar `T` or N-dimensional tuple
+- `A`: Action type (for MDP problems)
+- `P`: Transition probability type
+- `F1 <: Function`: State initialization function type
+- `F2 <: Function`: Transition function type  
+- `F3 <: Function`: Termination function type (MDP only)
+
+# Arguments
+- `problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}`: MDP or MRP providing state type information
+- `n::Integer`: Maximum order for coefficient generation
+- `min_values::S`: Minimum bounds for state normalization (scalar T or tuple matching state dimension)  
+- `max_values::S`: Maximum bounds for state normalization (scalar T or tuple matching state dimension)
+- `feature_calculation::Function`: Function computing features from (state, min_vals, max_vals, coefficients)
+
+# Returns
+- `NamedTuple` with fields:
+  - `feature_vector::Vector{T}`: Pre-allocated feature storage of length (n+1)^k where k is state dimension
+  - `update_feature_vector!::Function`: Optimized function to populate features from state
+
+The returned values are designed to be passed directly as the `feature_vector` and `update_feature_vector!`
+arguments to linear function approximation methods.
+
+# See Also
+[`semi_gradient_td0_estimation_linear`](@ref), [`gradient_monte_carlo_estimation_linear`](@ref), [`gradient_monte_carlo_policy_estimation_linear`](@ref), [`get_order_coefficients`](@ref)
+
+# Performance Notes
+- Uses `@simd` optimization for fast feature computation
+- Pre-allocates feature vector to avoid repeated memory allocation
+- Feature vector size is (n+1)^k where k is inferred state dimensionality
+
+# Examples
+```julia-repl
+julia> # Set up features for linear TD(0) learning
+       features, update_fn = order_features_setup(mrp, 3, 0.0f0, 1000.0f0, polynomial_calc);
+
+julia> # Pass directly to TD(0) estimation
+       results = semi_gradient_td0_estimation_linear(
+           mrp, 0.95f0, 100, 10000, features, update_fn; α=0.01f0
+       );
+
+julia> # Or use with gradient Monte Carlo
+       mc_results = gradient_monte_carlo_estimation_linear(
+           mrp, 0.9f0, 500, features, update_fn; α=0.05f0
+       );
+```
+"""
+function order_features_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, n::Integer, min_values::S, max_values::S, feature_calculation::Function) where {T<:Real, N, S <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+	#states must be tuples with k elements or some number value
+	k = S == T ? 1 : N
+	coefs = get_order_coefficients(k, n)
+
+	l = length(coefs)
+
+	function update_feature_vector!(x::Vector{T}, s::T)
+		@inbounds @simd for i in eachindex(x)
+			feature = feature_calculation(s, min_values, max_values, coefs[i])
+			x[i] = feature
+		end
+	end
+
+	x = zeros(T, l)
+
+	(feature_vector = x, update_feature_vector! = update_feature_vector!)
+end
+
+# ╔═╡ 1e58c332-d43e-4467-b7b1-377262d460c3
+#=╠═╡
+function show_random_walk_results((v̂_mc, mc_error), (v̂_td, td_history), name, nsmooth)
+	num_episodes = length(mc_error)
+	td_error = td_history.errors
+	p1 = plot([scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(mc_error, nsmooth)), name = "Monte Carlo"), scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(td_error, nsmooth)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged <br> over Previous $nsmooth Episodes", showlegend = false))
+	p2 = plot([scatter(x = 1:num_states, y = v̂_mc.(Float32.(1:num_states)), name = "Monte Carlo"), scatter(x = 1:num_states, y = v̂_td.(Float32.(1:num_states)), name = "TD(0)"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "$name Approximation", yaxis_title = "Value", xaxis_title = "State"))
+	@htl("""
+	<div style = "display: flex;">
+	$p1
+	$p2
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ b4aefbb1-dbb7-490c-9fa7-0f68e5a9916c
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function plot_value_error(errs, names, nsmooth)
+	l = length(first(errs))
+	traces = [begin
+		scatter(x = nsmooth:l, y = sqrt.(smooth_error(err, nsmooth)), name = names[i])
+	end
+	for (i, err) in enumerate(errs)]
+	plot(traces, Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged over <br> Previous $nsmooth Episodes"))
+end
+  ╠═╡ =#
+
 # ╔═╡ 8e8add6f-99ab-4aa7-b236-87915c6be9c2
 begin
 	function BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, V<:StateAggregationFeatureVector}
@@ -3555,97 +2759,19 @@ begin
 	end
 end
 
-# ╔═╡ 66cadcfb-4fda-4509-80d6-aa22766a7e9c
-"""
-    fcann_value_function!(activations, x, params, reslayers) -> Nothing
-
-Compute forward pass of fully connected artificial neural network value function without gradient computation.
-
-# Type Parameters
-- `T <: Float32`: Numeric type restricted to Float32 for performance
-
-# Arguments
-- `activations::FCANNActivations{T}`: Pre-allocated activation storage (modified in-place)
-- `x::Vector{T}`: Input feature vector
-- `params::FCANNParams`: Network parameters containing weights and biases
-- `reslayers::Integer`: Number of residual layers in the network architecture
-
-# Returns
-- `activations::FCANNActivations{T}`: Function modifies `activations` in-place and returns them as output
-
-# See Also
-[`FCANNActivations`](@ref), [`FCANNParams`](@ref)
-"""
-function fcann_value_function!(activations::FCANNActivations{T}, x, params::FCANNParams) where T<:Float32
-	FCANN.forwardNOGRAD_base!(activations, params.weights..., x, params.reslayers)
-end
-
-# ╔═╡ 9e3efa3c-af2f-4aea-b923-a6d50a6b9fb5
-"""
-    update_fcann_value_gradient!(∇v̂, x, output_index, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list, scales) -> Nothing
-
-Compute gradient of FCANN value function with respect to network parameters.
-
-# Type Parameters
-- `T <: Float32`: Numeric type restricted to Float32 for performance
-- `B <: Bool`: Boolean type for activation function indicators
-
-# Arguments
-- `∇v̂::FCANNParams`: Gradient storage for network parameters (modified in-place)
-- `x::Vector{T}`: Input feature vector
-- `output_index::Integer`: Index of the target output neuron
-- `params::FCANNParams`: Network parameters containing weights, biases and reslayers
-- `hidden_layers::Vector{Int64}`: Architecture specification for hidden layer sizes
-- `l2::T`: L2 regularization coefficient
-- `tanh_grad_z::FCANNActivations{T}`: Pre-allocated storage for tanh gradient computations
-- `activations::FCANNActivations{T}`: Pre-allocated activation storage
-- `deltas::FCANNActivations{T}`: Pre-allocated delta storage for backpropagation
-- `dropout::T`: Dropout rate for regularization
-- `reslayers::Integer`: Number of residual layers in the network
-- `activation_list::AbstractVector{B}`: Boolean indicators for activation function types per layer
-- `scales`: Scaling factors applied to computed gradients
-
-# Returns
-- `Nothing`: Function modifies `∇v̂` in-place with scaled gradients
-"""
-function update_fcann_value_gradient!(∇v̂::FCANNParams, x, output_index::Integer, params::FCANNParams, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivations{T}, activations::FCANNActivations{T}, deltas::FCANNActivations{T}, dropout::T, activation_list::AbstractVector{B}, scales) where {T<:Float32, B<:Bool}
-	FCANN.nnCostFunction(params.weights..., hidden_layers, x, output_index, l2, ∇v̂.weights..., tanh_grad_z, activations, deltas, dropout; resLayers = params.reslayers, loss_type = OutputIndex(), activation_list = activation_list)
-	@inbounds for i in eachindex(params.weights[1])
-		for j in 1:2
-			∇v̂.weights[j][i] .*= scales[i]
-		end
-	end
-end
-
-# ╔═╡ 2b922137-3110-4f91-94b1-4707d197b429
-"""
-    scale_fcann_params!(params, scales) -> Nothing
-
-Apply inverse scaling factors to FCANN network parameters in-place.
-
-# Type Parameters
-- `T <: Real`: Numeric type for scaling factors
-
-# Arguments
-- `params::FCANNParams`: Network parameters containing weights and biases (modified in-place)
-- `scales::Vector{T}`: Scaling factors to apply inversely to each parameter group
-
-# Returns
-- `Nothing`: Function modifies `params` in-place by dividing each parameter group by corresponding scale factor
-"""
-function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
-	@inbounds for i in eachindex(scales)
-		for j in 1:2
-			params.weights[j][i] ./= scales[i]
-		end
-	end
-end
-
 # ╔═╡ b2c56d0e-668e-43cd-a886-bb830a60b132
 function get_network_dimensions(params::FCANNParams)
 	input_length = size(params.weights[1][1], 2)
 	num_hidden = length(params.weights[1])-1
 	hidden_layers = iszero(num_hidden) ? Vector{Int64}() : [length(params.weights[2][i]) for i in 1:num_hidden]
+	return (input_length, hidden_layers, num_hidden)
+end
+
+# ╔═╡ 6fb5606d-75fe-4108-adff-a6a644f572a2
+function get_network_dimensions(params::FCANNParamsGPU)
+	input_length = params.weights[1][1].size[2]
+	num_hidden = length(params.weights[1])-1
+	hidden_layers = iszero(num_hidden) ? Vector{Int64}() : [params.weights[2][i].size[1] for i in 1:num_hidden]
 	return (input_length, hidden_layers, num_hidden)
 end
 
@@ -3703,18 +2829,46 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 		end
 	end
 
-	function value_function(x, params; activations = activations) 			
-		fcann_value_function!(activations, x, params)[1]
+	function value_function(x, params::FCANNParams; activations::FCANNActivations = activations) 			
+		fcann_value_function!(activations, x, params)
 		return first(last(activations))
 	end
 	
-	function update_value_gradient!(∇v̂, x, params) 
-		update_fcann_value_gradient!(∇v̂, x, 1, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list, scales)
+	function update_value_gradient!(∇v̂::FCANNParams, x, params::FCANNParams) 
+		update_fcann_value_gradient!(∇v̂, x, 1, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list)
 		use_μP && scale_fcann_params!(∇v̂, scales)
 		return ∇v̂
 	end
 
-	return (gradient = deepcopy(params), value_function = value_function, update_gradient! = update_value_gradient!, activations = activations)
+	if in(:GPU, backendList)
+		d_activations = FCANN.device_allocate(activations)
+		d_tanh_grad_z = FCANN.device_allocate(tanh_grad_z)
+		d_deltas = FCANN.device_allocate(deltas)
+		d_params = initialize_gpu_params(params)
+		d_gradient = initialize_gpu_params(params)
+
+		function value_function(d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations) 			
+			fcann_value_function!(activations, d_x, params)
+			# return FCANN.host_allocate(last(activations))[1]
+
+			#this method is slightly faster for getting a single value, at least it doesn't allocate any memory
+			dst = Ref{Float32}(0f0)
+			FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
+			dst.x
+		end
+
+		function update_value_gradient!(∇v̂::FCANNParamsGPU, d_x::FCANN.CUDAArray, params::FCANNParamsGPU) 
+			update_fcann_value_gradient!(∇v̂, d_x, 1, params, hidden_layers, l2, d_tanh_grad_z, d_activations, d_deltas, dropout, activation_list)
+			use_μP && scale_fcann_params!(∇v̂, scales)
+			return ∇v̂
+		end
+
+		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params)
+	else
+		gpu_args = ()
+	end
+
+	return (gradient = deepcopy(params), value_function = value_function, update_gradient! = update_value_gradient!, activations = activations, gpu_args = gpu_args)
 end
 
 # ╔═╡ 9b5fbbdd-0b36-4893-b4bb-b05439f5a541
@@ -3726,6 +2880,1027 @@ begin
 
 	initialize_fcann_params(featurevector, args...) = initialize_fcann_params(length(featurevector), args...)
 end	
+
+# ╔═╡ a08ba8d3-082b-47a9-a8dd-13b0afdf88c1
+#=╠═╡
+function compare_cpu_gpu(input_size, hidden_layers, output_size, num_input)
+	params = initialize_fcann_params(input_size, hidden_layers, output_size, 0, true)
+	if num_input == 1
+		x = rand(Float32, input_size)
+		cpu_activations = FCANN.form_activations(params.weights[1])
+	else
+		x = rand(Float32, num_input, input_size)
+		cpu_activations = FCANN.form_activations(params.weights[1], num_input)
+	end
+	function run_cpu()
+		FCANN.forwardNOGRAD_base!(cpu_activations, params.weights..., x, params.reslayers)
+		return cpu_activations[end]
+	end
+	
+	cpu_benchmark = @benchmark $run_cpu()
+	
+	d_x = FCANN.cuda_allocate(x)
+	d_θ = FCANN.device_allocate(params.weights[1])
+	d_β = FCANN.device_allocate(params.weights[2])
+	d_activations = FCANN.device_allocate(cpu_activations)
+
+	function run_gpu()
+		# FCANN.memcpy!(d_x, x)
+		FCANN.forwardNOGRAD_base!(d_activations, d_θ, d_β, d_x, params.reslayers)
+		# FCANN.memcpy!(cpu_activations[end], d_activations[end])
+		# return cpu_activations[end]
+	end
+	gpu_benchmark = @benchmark $run_gpu()
+
+	(cpu = cpu_benchmark, gpu = gpu_benchmark, run_gpu = run_gpu)
+end
+  ╠═╡ =#
+
+# ╔═╡ 00d522cd-a4e6-45a0-a90f-6875f1b0da1c
+function update_params_with_gradient!(params::FCANNParamsGPU, α::T, ∇::FCANNParamsGPU) where T<:Float32
+	for i in eachindex(first(params.weights))
+		for j in 1:2
+			FCANN.cublasSaxpy(FCANN.cublas_handle, α, ∇.weights[j][i], params.weights[j][i])
+		end
+	end
+	return params
+end
+
+# ╔═╡ be546bdb-77a9-48c4-9a98-1205d73fc8c6
+"""
+    gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!,
+                                        value_function, update_value_gradient!, states, rewards,
+                                        γ, α, calculate_error) -> Real
+
+    gradient_monte_carlo_episode_update!(parameters, action_values, ∇q̂, feature_vector, 
+                                        update_feature_vector!, update_action_values!, 
+                                        update_value_gradient!, states, actions, rewards, 
+                                        γ, α, calculate_error) -> Real
+
+Internal function for Monte Carlo episode updates with gradient-based function approximation.
+
+Processes episode backward to compute exact returns and performs gradient descent parameter
+updates. Used internally by higher-level Monte Carlo algorithms. Supports both state-value
+function approximation (first method) and action-value function approximation (second method).
+
+# Type Parameters
+- `T <: Real`: Numeric type for parameters and computations
+- `S <: Any`: State data type
+- `I <: Integer`: Action index type (action-value method only)
+
+# Arguments
+
+## State-Value Method
+- `parameters::Vector{T}`: Value function parameters (modified in-place)
+- `∇v̂`: Gradient storage for state-value function (modified in-place)
+- `feature_vector`: Feature storage (modified in-place)
+- `update_feature_vector!::Function`: Feature extraction function
+- `value_function::Function`: Value function (features, params) -> value
+- `update_value_gradient!::Function`: Gradient computation function
+- `states::AbstractVector{S}`: Episode states (chronological order)
+- `rewards::AbstractVector{T}`: Episode rewards
+- `γ::T`: Discount factor
+- `α::T`: Learning rate
+- `calculate_error::Function`: Error function for statistics
+
+## Action-Value Method
+- `parameters::Vector{T}`: Action-value function parameters (modified in-place)
+- `action_values::Vector{T}`: Pre-allocated storage for action values at current state
+- `∇q̂`: Gradient storage for action-value function (modified in-place)
+- `feature_vector`: Feature storage (modified in-place)
+- `update_feature_vector!::Function`: Extract features from state: `(feature_vector, state) -> nothing`
+- `update_action_values!::Function`: Compute all action values: `(action_values, features, params) -> nothing`
+- `update_value_gradient!::Function`: Compute gradient for specific action: `(∇q̂, features, action_index, params) -> nothing`
+- `states::AbstractVector{S}`: Episode state sequence
+- `actions::AbstractVector{I}`: Episode action indices (1-based)
+- `rewards::AbstractVector{T}`: Episode reward sequence
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `α::T`: Learning rate (step size)
+- `calculate_error::Function`: Error function: `(return, estimated_value, state) -> error`
+
+# Returns
+- `Real`: Average episode error across all state(-action) pairs
+
+# Implementation
+Backward pass through episode computing returns `g = γ * g + rewards[i]` and updating
+parameters via gradient descent:
+- **State-value**: `θ ← θ + α·(g - v̂)·∇v̂`
+- **Action-value**: `θ ← θ + α·(g - q̂)·∇q̂`
+
+Accumulates error statistics for convergence monitoring.
+
+# Performance Notes
+- Reuses provided storage objects to avoid allocations
+- Processes episode backward for efficient return computation
+- Compatible with any linear or nonlinear function approximation setup
+- Action-value method requires additional action value computation per step
+
+# See Also
+[`update_params_with_gradient!`](@ref), [`gradient_monte_carlo_estimation!`](@ref)
+"""
+function gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T, calculate_error::Function) where {T<:Real, S}
+	g = zero(T)
+	l = length(states)
+	episode_error = zero(T)
+	for i in l:-1:1
+		s = states[i]
+		update_feature_vector!(feature_vector, s)
+		v̂ = value_function(feature_vector, parameters)
+		update_value_gradient!(∇v̂, feature_vector, parameters)
+		g = γ * g + rewards[i]
+		δ = g - v̂
+		c = α*δ
+		update_params_with_gradient!(parameters, c, ∇v̂)
+		episode_error += calculate_error(g, v̂, s)
+	end
+	return episode_error / l
+end;
+
+# ╔═╡ 92706281-51f8-46d7-b218-ef2f1adf7fb2
+function Base.copy(d_x::FCANN.CUDAArray)
+	x = FCANN.host_allocate(d_x)
+	FCANN.cuda_allocate(x)
+end
+
+# ╔═╡ a1283913-c816-4815-9cdb-fcb6cb70cdc8
+make_cpu_array(d_x::FCANN.CUDAArray) = Vector{d_x.element_type}(undef, d_x.size...)
+
+# ╔═╡ 16eff6bc-ce43-4d97-aa76-73df2ff76b29
+function form_state_value_function(value_function::Function, update_feature_vector!::Function, gpu_feature_vector::V, parameters::FCANNParamsGPU) where V <: FCANN.CUDAArray
+	function v̂(s; gpu_feature_vector::V = copy(feature_vector), feature_vector = make_cpu_array(gpu_feature_vector), parameters::FCANNParamsGPU = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+		update_feature_vector!(feature_vector, s; feature_vector = feature_vector)
+		value_function(feature_vector, parameters; activations = activations, kwargs...)
+	end
+
+	#also return a method that acts on the feature vector itself which has already been updated
+	v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
+
+	form_kwargs() = (gpu_feature_vector = copy(gpu_feature_vector), feature_vector = make_cpu_array(gpu_feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+	
+	return (v̂, form_kwargs)
+end
+
+# ╔═╡ 7542ff9c-c6a1-4d41-8863-05388fea8ce2
+"""
+    gradient_monte_carlo_estimation!(parameters, generate_episode, update_episode!, γ, num_episodes,
+                                    feature_vector, update_feature_vector!, value_function, ∇v̂,
+                                    update_value_gradient!; α=0.1, calculate_error, epkwargs...) 
+                                    where {T<:Real} -> NamedTuple
+
+Monte Carlo value function estimation with gradient-based function approximation.
+
+Coordinates episode generation, parameter updates, and error tracking across multiple episodes.
+Supports both direct usage with custom episode functions and convenient wrappers for standard
+problem types (MRPs, MDPs).
+
+# Type Parameters
+- `T <: Real`: Numeric type for parameters, rewards, and computations
+
+# Arguments
+- `parameters::Vector{T}`: Initial value function parameters (modified in-place)
+- `generate_episode::Function`: Function to generate initial episode trajectory
+- `update_episode!::Function`: Function to generate subsequent episodes (may reuse storage)
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `feature_vector`: Feature vector storage for state representations
+- `update_feature_vector!::Function`: Function to extract features from states
+- `value_function::Function`: Value function (features, params) -> value
+- `∇v̂`: Gradient storage for value function gradients
+- `update_value_gradient!::Function`: Function to compute value function gradient
+
+# Keyword Arguments
+- `α::Real`: Learning rate (default: 0.1)
+- `calculate_error::Function`: Error function for convergence tracking (default: squared error)
+- `epkwargs...`: Additional arguments passed to episode generation functions
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Learned value function `v̂(s)` 
+  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
+  - `parameters::Vector{T}`: Final learned parameters
+
+# See Also
+[`gradient_monte_carlo_episode_update!`](@ref), [`form_state_value_function`](@ref),
+[`create_episode_functions`](@ref)
+
+# Methods
+
+## MRP Wrapper
+```julia
+gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, γ, num_episodes, feature_vector,
+                                 update_feature_vector!, value_function, ∇v̂, 
+                                 update_value_gradient!; kwargs...)
+```
+Convenience wrapper for Markov Reward Process policy evaluation.
+Automatically creates episode functions using [`create_episode_functions`](@ref).
+
+- `mrp::`[`StateMRP`](@ref): Markov reward process for episode generation
+
+
+# Algorithm Flow
+1. Generates initial episode using provided/created episode functions
+2. Performs Monte Carlo update on first episode
+3. For remaining episodes:
+   - Generates new episode with `update_episode!`
+   - Runs gradient-based parameter update via [`gradient_monte_carlo_episode_update!`](@ref)
+   - Records error for convergence tracking
+4. Forms final value function from learned parameters
+
+# Performance Notes
+- Reuses storage objects (feature_vector, ∇v̂) across episodes to minimize allocations
+- Uses views for variable-length episodes to avoid copying
+- Error history provides convergence diagnostics
+- Compatible with any differentiable function approximation method
+"""
+function gradient_monte_carlo_estimation!(parameters, generate_episode::Function, update_episode!::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
+	trajectory = generate_episode(; epkwargs...)
+	sqerr = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, trajectory[1], trajectory[2], γ, α, calculate_error)
+	error_history = zeros(T, num_episodes)
+	error_history[1] = sqrt(sqerr)
+	for ep in 2:num_episodes
+		(trajectory, n_steps) = update_episode!(trajectory; epkwargs...)
+		error = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, view(trajectory[1], 1:n_steps), view(trajectory[2], 1:n_steps), γ, α, calculate_error)
+		error_history[ep] = error
+	end
+	v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
+	return (value_function = v̂, error_history = error_history, parameters = parameters, form_kwargs = form_kwargs)
+end;
+
+# ╔═╡ 9296a8a1-7edd-4ac4-8fa4-842317d693bc
+"""
+    gradient_monte_carlo_policy_estimation!(parameters, mdp, π, γ, num_episodes, feature_vector,
+                                           update_feature_vector!, value_function, ∇v̂,
+                                           update_value_gradient!; α=0.1, calculate_error, epkwargs...)
+                                           where {T<:Real} -> NamedTuple
+
+Monte Carlo policy evaluation for Markov Decision Processes using gradient-based function approximation.
+
+Low-level wrapper that automatically creates episode generation functions for MDP policy evaluation.
+Coordinates episode generation using the given policy and delegates to the core Monte Carlo
+estimation routine. Typically called by higher-level policy evaluation algorithms.
+
+# Type Parameters
+- `T <: Real`: Numeric type for parameters, rewards, and computations
+
+# Arguments
+- `parameters::Vector{T}`: Initial value function parameters (modified in-place)
+- `mdp::`[`StateMDP`](@ref): Markov decision process for episode generation
+- `π::Function`: Policy function for action selection
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run
+- `feature_vector`: Feature vector storage for state representations
+- `update_feature_vector!::Function`: Function to extract features from states
+- `value_function::Function`: Value function (features, params) -> value
+- `∇v̂`: Gradient storage for value function gradients
+- `update_value_gradient!::Function`: Function to compute value function gradient
+
+# Keyword Arguments
+- `α::Real`: Learning rate (default: 0.1)
+- `calculate_error::Function`: Error function for convergence tracking (default: squared error)
+- `epkwargs...`: Additional arguments passed to episode generation (e.g., `max_steps`, `start_state`)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Learned state value function `v^π(s)` for policy π
+  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
+  - `parameters::Vector{T}`: Final learned parameters
+
+# Implementation Note
+This function automatically calls [`create_episode_functions`](@ref)`(mdp, π)` to generate the required 
+episode functions, then delegates to [`gradient_monte_carlo_estimation!`](@ref).
+
+# Performance Notes
+- Automatically handles MDP episode generation with policy π
+- Reuses storage objects across episodes to minimize allocations
+- Compatible with any differentiable function approximation method
+- Episode functions handle state-action-reward trajectories internally
+
+# See Also
+[`gradient_monte_carlo_estimation!`](@ref), [`create_episode_functions`](@ref), [`StateMDP`](@ref)
+"""
+gradient_monte_carlo_policy_estimation!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = gradient_monte_carlo_estimation!(parameters, create_episode_functions(mdp, π)..., args...; kwargs...)
+
+# ╔═╡ 97539f3f-92bb-4b6f-a671-260251b4ddc7
+"""
+    gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, feature_vector,
+                                                  update_feature_vector!; init_value=0.0,
+                                                  params=initialize_linear_parameters(...), kwargs...)
+                                                  where {T<:Real} -> NamedTuple
+
+High-level Monte Carlo policy evaluation for MDPs with linear function approximation.
+
+Complete Monte Carlo learning interface that automatically configures linear value function
+approximation components for policy evaluation. Provides sensible defaults for parameter 
+initialization and gradient computation, making it the primary entry point for MDP policy
+evaluation with linear features.
+
+# Type Parameters
+- `T <: Real`: Numeric type for parameters, rewards, and discount factor
+
+# Arguments
+- `mdp::`[`StateMDP`](@ref): Markov decision process for episode generation
+- `π::Function`: Policy function for action selection
+- `γ::T`: Discount factor (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of episodes to run for estimation
+- `feature_vector::`[`LinearFeatureVector`](@ref): Linear feature representation template
+- `update_feature_vector!::Function`: Function to extract linear features from states
+
+# Keyword Arguments
+- `init_value::T`: Initial value for all parameters (default: 0.0)
+- `params::Vector{T}`: Pre-initialized parameter vector (default: auto-initialized using `init_value`)
+- `kwargs...`: Additional arguments (e.g., `α`, `max_steps`, `calculate_error`)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Learned state value function `v^π(s)` for policy π
+  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
+  - `parameters::Vector{T}`: Final learned parameter vector
+
+# Examples
+```julia-repl
+julia> # Setup linear feature representation
+       feature_template = [1.0, 0.0, 0.0, 0.0];
+
+julia> # Run Monte Carlo policy evaluation
+       result = gradient_monte_carlo_policy_estimation_linear(
+           mdp, policy, 0.9, 2000, feature_template, update_feature_vector!,
+           α = 0.02, max_steps = 150, init_value = 0.1
+       );
+
+julia> # Check convergence
+       final_error = result.error_history[end]
+0.041
+
+julia> # Evaluate policy at different states
+       result.value_function(1)
+4.67
+
+julia> result.value_function(5)
+2.31
+
+julia> # Inspect learned weights
+       result.parameters
+4-element Vector{Float64}:
+  3.2
+  1.8
+ -0.5
+  2.1
+```
+
+# Algorithm Details
+Automatically configures linear function approximation by:
+1. Initializing parameter vector using [`initialize_linear_parameters`](@ref)
+2. Setting up [`linear_value_function`](@ref) for value computation
+3. Using [`update_linear_value_gradient!`](@ref) for gradient computation
+4. Creating episode functions via [`create_episode_functions`](@ref) for the MDP and policy
+5. Delegating to [`gradient_monte_carlo_estimation!`](@ref) for the core algorithm
+
+# Performance Notes
+- Automatically handles all linear function approximation setup
+- Uses efficient linear value function and gradient computations
+- Reuses feature vector storage across episodes
+- Provides sensible parameter initialization defaults
+
+# See Also
+[`gradient_monte_carlo_estimation!`](@ref), [`LinearFeatureVector`](@ref),
+[`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
+[`initialize_linear_parameters`](@ref), [`StateMDP`](@ref)
+"""
+gradient_monte_carlo_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ f64b78e1-76ff-4337-a9f0-aa2d3e3f33ac
+"""
+    gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) -> NamedTuple
+
+Perform gradient Monte Carlo policy evaluation using state aggregation function approximation on an MDP.
+
+This is a high-level convenience function that combines state aggregation feature setup with linear gradient Monte Carlo policy evaluation. It automatically constructs the appropriate sparse feature representation and initial weight vector for the specified state grouping, then delegates to the core linear function approximation algorithm. Particularly effective for large state spaces where tabular policy evaluation is impractical due to memory constraints.
+
+# Arguments
+- `mdp::StateMDP`: The Markov decision process to evaluate, supporting any state and action types
+- `π::Function`: Policy function mapping states to action selections (state → action)
+- `γ::Real`: Discount factor for future rewards (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of Monte Carlo episodes to run for policy evaluation
+- `num_groups::Integer`: Number of state groups for aggregation (determines feature dimension)
+- `assign_state_group::Function`: State-to-group mapping function (state → group_index ∈ 1:num_groups)
+
+# Keyword Arguments
+All keyword arguments are passed through to [`gradient_monte_carlo_estimation!`](@ref):
+- `α::Real = 0.1`: Learning rate for gradient updates
+- `calculate_error::Function = (g, v̂, s) -> (g - v̂)^2`: Error function for convergence tracking
+- `epkwargs...`: Additional arguments passed to episode generation functions
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function::Function`: Learned state value function `v_π(s)` that maps states to estimated values
+  - `error_history::Vector{T}`: Per-episode error history for convergence analysis (where T matches γ type)
+  - `parameters::Vector{T}`: Final learned weight vector (length num_groups, where T matches γ type)
+
+# See Also
+[`gradient_monte_carlo_estimation!`](@ref), [`state_aggregation_feature_setup`](@ref), [`make_random_walk_group_assign`](@ref), [`StateMDP`](@ref)
+
+# Algorithm Details
+1. Initialize state aggregation features using [`state_aggregation_feature_setup`](@ref)
+2. Create initial zero weight vector of length `num_groups`
+3. Delegate to [`gradient_monte_carlo_estimation!`](@ref) with constructed features and functions
+4. The underlying algorithm:
+   - Generates episode trajectories using MDP transition sampling and policy π
+   - Computes Monte Carlo returns for each state visit under the policy
+   - Updates weight parameters via gradient descent on squared error
+   - Tracks convergence through per-episode error history
+5. Forms final value function from learned parameters and feature mapping
+
+# Examples
+```julia-repl
+julia> # Example usage with appropriate MDP and policy
+       results = gradient_monte_carlo_policy_estimation_state_aggregation(
+           mdp, policy, 0.9f0, 500, 10, assign_groups; α=0.05f0
+       );
+```
+
+# Performance Notes
+- Memory efficient for large state spaces through sparse feature representation
+- Feature construction is performed once, then reused across all episodes
+- State aggregation reduces parameter space from `|S|` to `num_groups` dimensions
+- Compatible with any [`StateMDP`](@ref) implementation via generic dispatch
+"""
+gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
+
+# ╔═╡ 966850ef-dd15-417b-b51c-9957f27e4664
+"""
+    gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, feature_vector,
+                                          update_feature_vector!; init_value=0.0,
+                                          params=initialize_linear_parameters(...), kwargs...)
+                                          where {T<:Real} -> NamedTuple
+
+High-level Monte Carlo policy evaluation for MRPs with linear function approximation.
+
+Complete Monte Carlo learning interface that automatically configures linear value function
+approximation components. Provides sensible defaults for parameter initialization and gradient
+computation, making it the primary entry point for MRP policy evaluation with linear features.
+
+# Type Parameters
+- `T <: Real`: Numeric type for parameters, rewards, and discount factor
+
+# Arguments
+- `mrp::`[`StateMRP`](@ref): Markov reward process for episode generation
+- `γ::T`: Discount factor (0 ≤ γ < 1)
+- `num_episodes::Integer`: Number of episodes to run for estimation
+- `feature_vector::`[`LinearFeatureVector`](@ref): Linear feature representation template
+- `update_feature_vector!::Function`: Function to extract linear features from states
+
+# Keyword Arguments
+- `init_value::T`: Initial value for all parameters (default: 0.0)
+- `params::Vector{T}`: Pre-initialized parameter vector (default: auto-initialized using `init_value`)
+- `kwargs...`: Additional arguments (e.g., `α`, `max_steps`, `calculate_error`)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function`: Learned linear value function `v^π(s)`
+  - `error_history::Vector{T}`: Per-episode error history for convergence analysis
+  - `parameters::Vector{T}`: Final learned parameter vector
+
+# Examples
+```julia-repl
+julia> # Setup linear feature representation
+       feature_template = [1.0, 0.5, 0.2];
+
+julia> # Run Monte Carlo estimation with linear approximation
+       result = gradient_monte_carlo_estimation_linear(
+           mrp, 0.95, 1000, feature_template, update_feature_vector!,
+           α = 0.01, max_steps = 200
+       );
+
+julia> # Check convergence
+       final_error = result.error_history[end]
+0.028
+
+julia> # Use learned value function
+       state_value = result.value_function(some_state)
+3.42
+
+julia> # Access final parameters
+       learned_weights = result.parameters
+3-element Vector{Float64}:
+  2.1
+  1.7
+ -0.3
+```
+
+# Algorithm Details
+Automatically configures linear function approximation by:
+1. Initializing parameter vector using [`initialize_linear_parameters`](@ref)
+2. Setting up [`linear_value_function`](@ref) for value computation
+3. Using [`update_linear_value_gradient!`](@ref) for gradient computation
+4. Creating episode functions via [`create_episode_functions`](@ref) for the MRP
+5. Delegating to [`gradient_monte_carlo_estimation!`](@ref) for the core algorithm
+
+# Performance Notes
+- Automatically handles linear function approximation setup
+- Uses efficient linear value function and gradient computations
+- Reuses feature vector storage across episodes
+- Provides sensible parameter initialization defaults
+
+# See Also
+[`gradient_monte_carlo_estimation!`](@ref), [`LinearFeatureVector`](@ref), 
+[`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
+[`initialize_linear_parameters`](@ref)
+"""
+gradient_monte_carlo_estimation_linear(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ c52222b7-64bd-4285-bba3-e22529495af6
+"""
+    gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) -> NamedTuple
+
+Perform gradient Monte Carlo value estimation using state aggregation function approximation on an MRP.
+
+This is a high-level convenience function that combines state aggregation feature setup with linear gradient Monte Carlo estimation. It automatically constructs the appropriate sparse feature representation and initial weight vector for the specified state grouping, then delegates to the core linear function approximation algorithm. Particularly effective for large state spaces where tabular methods are impractical due to memory constraints.
+
+# Arguments
+- `mrp::StateMRP`: The Markov reward process to evaluate, supporting any state type
+- `γ::Real`: Discount factor for future rewards (0 ≤ γ ≤ 1)
+- `num_episodes::Integer`: Number of Monte Carlo episodes to run for estimation
+- `num_groups::Integer`: Number of state groups for aggregation (determines feature dimension)
+- `assign_state_group::Function`: State-to-group mapping function (state → group_index ∈ 1:num_groups)
+
+# Keyword Arguments
+All keyword arguments are passed through to [`gradient_monte_carlo_estimation_linear`](@ref):
+- `α::Real = 0.1`: Learning rate for gradient updates
+- `calculate_error::Function = (g, v̂, s) -> (g - v̂)^2`: Error function for convergence tracking
+- Additional episode generation arguments (e.g., `rng`, sampling parameters)
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function::Function`: Learned value function `v̂(s)` that maps states to estimated values
+  - `error_history::Vector{Float32}`: Per-episode error history for convergence analysis
+  - `parameters::Vector{Float32}`: Final learned weight vector (length num_groups)
+
+# See Also
+[`gradient_monte_carlo_estimation!`](@ref), [`state_aggregation_feature_setup`](@ref), [`make_random_walk_group_assign`](@ref), [`StateMRP`](@ref)
+
+# Algorithm Details
+1. Initialize state aggregation features using [`state_aggregation_feature_setup`](@ref)
+2. Create initial zero weight vector of length `num_groups`
+3. Delegate to [`gradient_monte_carlo_estimation!`](@ref) with constructed features and functions
+4. The underlying algorithm:
+   - Generates episode trajectories using MRP transition sampling
+   - Computes Monte Carlo returns for each state visit
+   - Updates weight parameters via gradient descent on squared error
+   - Tracks convergence through per-episode error history
+5. Forms final value function from learned parameters and feature mapping
+
+# Examples
+```julia-repl
+julia> # Create 1000-state random walk MRP
+       mrp = create_continuous_random_walk(1000);
+
+julia> # Define state aggregation: 10 groups of 100 states each
+       assign_groups = make_random_walk_group_assign(1000, 10);
+
+julia> # Run gradient Monte Carlo with state aggregation
+       results = gradient_monte_carlo_estimation_state_aggregation(
+           mrp, 0.9f0, 500, 10, assign_groups; α=0.05f0
+       );
+
+julia> # Check final results and convergence
+       println("Final weights: ", results.parameters)
+       println("Final error: ", results.error_history[end])
+       println("Episodes run: ", length(results.error_history))
+Final weights: Float32[-0.45, -0.36, -0.27, -0.18, -0.09, 0.0, 0.09, 0.18, 0.27, 0.36]
+Final error: 0.023f0
+Episodes run: 500
+
+julia> # Use learned value function to evaluate states
+       state_500 = 500.0f0;
+       estimated_value = results.value_function(state_500);
+       println("Estimated value at state 500: ", estimated_value)
+Estimated value at state 500: 0.0234f0
+```
+
+# Performance Notes
+- Memory efficient for large state spaces through sparse feature representation
+- Feature construction is performed once, then reused across all episodes
+- Automatically handles [`Float32`] precision for memory efficiency in large problems
+- State aggregation reduces parameter space from `|S|` to `num_groups` dimensions
+- Compatible with any [`StateMRP`](@ref) implementation via generic dispatch
+"""
+gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
+
+# ╔═╡ 214714a5-ad1e-4439-8567-9095d10411a6
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function figure_9_1()
+	v = random_walk_v.value_function[2:end-1]
+	(random_walk_v̂, error_history) = gradient_monte_carlo_estimation_state_aggregation(random_walk_state_mrp, 1f0, 100_000, num_groups, random_walk_group_assign; α = 2f-5, calculate_error = calc_random_walk_ve)
+	v̂ = random_walk_v̂.(Float32.(1:num_states))
+	x = 1:num_states
+	n1 = L"v_\pi"
+	n2 = L"\hat v"
+	tr1 = scatter(x = x, y = v, name = "True value $n1")
+	tr2 = scatter(x = x, y = v̂, name = "Approximate MC value $n2")
+	
+	state_distribution = calculate_random_walk_state_distribution()
+	n3 = L"\mu"
+	tr3 = bar(x = x, y = state_distribution, yaxis = "y2", name = "State distribution $n3", marker_color = "gray")
+
+	state_mean = sum(state_distribution[i]*i for i in eachindex(state_distribution))
+	state_variance = sum(state_distribution[i]*((i - state_mean)^2) for i in eachindex(state_distribution))
+	p1 = plot([tr1, tr2, tr3], Layout(xaxis_title = "State", yaxis_title = "Value scale", yaxis2 = attr(title = "Distribution scale", overlaying = "y", side = "right"), title = "State Mean Value: $state_mean, State Value Variance: $state_variance"))
+
+	p2 = plot(scatter(x = 1001:length(error_history), y = [sqrt(mean(error_history[i-1000:i])) for i in 1001:length(error_history)]), Layout(xaxis_title = "Episode", yaxis_title = "Value Error Over Previous 1000 Episodes"))
+	# p2 = plot(scatter(y = sqrt.(error_history)), Layout(xaxis_title = "Episode", yaxis_title = "Value Error"))
+	md"""
+	$p1
+	$p2
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ c0e9ea1f-8cbe-4bc1-990f-ffd3ab1989cc
+# ╠═╡ skip_as_script = true
+#=╠═╡
+figure_9_1()
+  ╠═╡ =#
+
+# ╔═╡ e8e26a28-90a5-4519-ab08-11b49a8a9499
+begin
+	"""
+	    semi_gradient_td0_estimation!(parameters, initialize_state, transition, isterm, γ, max_episodes,
+	                                  max_steps, feature_vector, update_feature_vector!, value_function,
+	                                  ∇v̂, update_value_gradient!; α=0.1, calculate_error, save_episode_steps=false)
+	                                  where {T<:Real} -> NamedTuple
+	
+	Semi-gradient TD(0) temporal difference learning with function approximation.
+	
+	Low-level TD learning implementation that performs online value function updates using
+	single-step temporal difference errors. Supports both episodic and continuing tasks
+	with flexible episode termination and state transition handling.
+	
+	# Type Parameters
+	- `T <: Real`: Numeric type for parameters, rewards, and computations
+	
+	# Arguments
+	- `parameters::Vector{T}`: Value function parameters (modified in-place)
+	- `initialize_state::Function`: Function to generate initial states for episodes
+	- `transition::Function`: State transition function `s -> (reward, next_state)`
+	- `isterm::Function`: Termination check function `state -> Bool`
+	- `γ::T`: Discount factor (0 ≤ γ < 1)
+	- `max_episodes::Integer`: Maximum number of episodes to run
+	- `max_steps::Integer`: Maximum total steps across all episodes
+	- `feature_vector`: Feature vector storage for state representations
+	- `update_feature_vector!::Function`: Function to extract features from states
+	- `value_function::Function`: Value function (features, params) -> value
+	- `∇v̂`: Gradient storage for value function gradients
+	- `update_value_gradient!::Function`: Function to compute value function gradient
+	
+	# Keyword Arguments
+	- `α::Real`: Learning rate (default: 0.1)
+	- `calculate_error::Function`: Error function for statistics (default: squared error)
+	- `save_episode_steps::Bool`: Whether to save step-by-step reward history (default: false)
+	
+	# Returns
+	- `NamedTuple` with fields:
+	  - `value_function`: Learned value function `v(s)`
+	  - `episode_history`: Episode statistics with `errors`, `steps`, and `rewards` vectors
+	  - `step_rewards::Vector{T}`: Step-by-step rewards (if `save_episode_steps=true`)
+	  - `parameters::Vector{T}`: Final learned parameters
+	
+	# See Also
+	[`update_params_with_gradient!`](@ref), [`form_state_value_function`](@ref)
+	
+	# Methods
+	
+	## MRP Wrapper
+	```julia
+	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ, max_episodes, max_steps,
+	                             feature_vector, update_feature_vector!, value_function,
+	                             ∇v̂, update_value_gradient!; kwargs...)
+	```
+	Convenience wrapper for Markov Reward Process evaluation.
+	Automatically extracts transition functions from MRP structure.
+	
+	- `mrp::`[`StateMRP`](@ref): Markov reward process for state transitions
+	
+	## MDP Policy Wrapper
+	```julia
+	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ, max_episodes,
+	                                    max_steps, feature_vector, update_feature_vector!,
+	                                    value_function, ∇v̂, update_value_gradient!; kwargs...)
+	```
+	Convenience wrapper for Markov Decision Process policy evaluation.
+	Automatically creates policy-based transition function from MDP and policy.
+	
+	- `mdp::`[`StateMDP`](@ref): Markov decision process for state transitions
+	- `π::Function`: Policy function for action selection
+	
+	# Algorithm Details
+	Implements classic TD(0) with function approximation:
+	1. For each step: observes current state, computes value and gradient
+	2. Takes environment step to get reward and next state
+	3. Computes TD target: `target = r + γ * v(s')` (or `r` if terminal)
+	4. Updates parameters: `θ ← θ + α * (target - v(s)) * ∇v(s)`
+	5. Tracks episode statistics and manages episode boundaries
+	
+	# Performance Notes
+	- Online learning with immediate parameter updates after each step
+	- Reuses feature and gradient storage across steps
+	- Optional step-by-step reward tracking for detailed analysis
+	- Handles both episodic and continuing task termination
+	- Compatible with any differentiable function approximation method
+	"""
+	function semi_gradient_td0_estimation!(parameters, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, save_episode_steps = false) where {T<:Real}
+		#initialize records
+		step_rewards = Vector{T}()
+		episode_steps = Vector{Int64}()
+		episode_rewards = Vector{T}()
+		episode_errors = Vector{T}()
+		
+		#initialize variables
+		s = initialize_state()
+		update_feature_vector!(feature_vector, s)
+		ep = 1
+		step = 1
+		epstep = 1
+		eperr = zero(T)
+		rtot = zero(T)
+		while (ep <= max_episodes) && (step <= max_steps)
+			update_value_gradient!(∇v̂, feature_vector, parameters)
+			v̂ = value_function(feature_vector, parameters)
+			(r, s′) = transition(s)
+			rtot += r
+			save_episode_steps && push!(step_rewards, r)
+			
+
+			terminated = isterm(s′)
+			if terminated
+				push!(episode_steps, step)
+				push!(episode_rewards, rtot)
+				v̂′ = zero(T)
+				ep += 1
+				rtot = zero(T)
+				s′ = initialize_state()
+				update_feature_vector!(feature_vector, s′)
+			else
+				update_feature_vector!(feature_vector, s′)
+				v̂′ = value_function(feature_vector, parameters)
+			end
+
+			target = r + γ*v̂′
+
+			δ = target - v̂
+
+			eperr += calculate_error(target, v̂, s)
+
+			if terminated
+				push!(episode_errors, eperr / epstep)
+				eperr = zero(T)
+				epstep = 0
+			end
+
+			update_params_with_gradient!(parameters, α*δ, ∇v̂)
+			s = s′
+			step += 1
+			epstep += 1
+		end
+
+		v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
+
+		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs)
+	end
+
+	semi_gradient_td0_estimation!(parameters, mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, γ, max_episodes, max_steps, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...)
+	
+	semi_gradient_td0_policy_estimation!(parameters, mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...) where T<:Real = semi_gradient_td0_estimation!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π(s)), mdp.isterm, γ, max_episodes, max_steps, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; kwargs...)
+end
+
+# ╔═╡ c737c14b-2ad6-4d95-9795-2b87f6f722cb
+"""
+    semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::Real, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; kwargs...) where {T<:Real} -> NamedTuple
+
+Semi-gradient TD(0) value estimation with linear function approximation on an MRP.
+
+High-level interface for temporal difference learning using linear value functions. Automatically
+sets up linear function approximation components (value function, gradient computation, parameter
+initialization) and delegates to the core TD(0) algorithm. Performs online learning with immediate
+parameter updates after each environment step.
+
+# Type Parameters
+- `T <: Real`: Numeric type for parameters, rewards, and computations (inferred from γ)
+
+# Arguments
+- `mrp::StateMRP`: The Markov reward process to evaluate, supporting any state type
+- `γ::Real`: Discount factor for temporal difference updates (0 ≤ γ < 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector::LinearFeatureVector`: Linear feature representation for states
+- `update_feature_vector!::Function`: Function to extract features from states into feature_vector
+
+# Keyword Arguments
+- `init_value::Real = zero(T)`: Initial value for parameter initialization
+- `params::Vector{T} = initialize_linear_parameters(feature_vector, init_value)`: Initial parameter vector
+- Additional arguments passed to [`semi_gradient_td0_estimation!`](@ref):
+  - `α::Real = 0.1`: Learning rate for gradient updates
+  - `calculate_error::Function = (target, v̂, s) -> (v̂ - target)^2`: Error function for statistics
+  - `save_episode_steps::Bool = false`: Whether to save step-by-step reward history
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function::Function`: Learned value function `v(s)` that maps states to estimated values
+  - `episode_history::NamedTuple`: Episode statistics with fields:
+    - `errors::Vector{T}`: Per-episode average TD errors
+    - `steps::Vector{Int64}`: Steps taken in each episode
+    - `rewards::Vector{T}`: Total rewards accumulated in each episode
+  - `step_rewards::Vector{T}`: Step-by-step rewards (if `save_episode_steps=true`)
+  - `parameters::Vector{T}`: Final learned parameter vector
+
+# See Also
+[`semi_gradient_td0_estimation!`](@ref), [`LinearFeatureVector`](@ref), [`linear_value_function`](@ref), [`initialize_linear_parameters`](@ref)
+
+# Algorithm Details
+1. Initialize linear function approximation components:
+   - Parameter vector using [`initialize_linear_parameters`](@ref)
+   - Linear value function and gradient computation functions
+2. Delegate to [`semi_gradient_td0_estimation!`](@ref) which performs:
+   - Online TD(0) updates: θ ← θ + α * δ * ∇v(s) where δ = r + γv(s') - v(s)
+   - Episode management with termination checking
+   - Error and reward tracking across episodes
+3. Return learned value function and training statistics
+
+# Examples
+```julia-repl
+julia> # Create continuous random walk MRP
+       mrp = create_continuous_random_walk(1000);
+
+julia> # Set up linear features (e.g., polynomial basis)
+       features, update_fn = create_polynomial_features(3);
+
+julia> # Run TD(0) learning with linear approximation
+       results = semi_gradient_td0_estimation_linear(
+           mrp, 0.95f0, 100, 10000, features, update_fn; 
+           α=0.01f0, init_value=0.0f0
+       );
+
+julia> # Check convergence and final performance
+       println("Episodes completed: ", length(results.episode_history.errors))
+       println("Final episode error: ", results.episode_history.errors[end])
+       println("Parameter vector: ", results.parameters)
+Episodes completed: 100
+Final episode error: 0.023f0
+Parameter vector: Float32[0.12, -0.45, 0.08]
+
+julia> # Evaluate learned value function
+       test_state = 500.0f0;
+       estimated_value = results.value_function(test_state);
+       println("Value at state 500: ", estimated_value)
+Value at state 500: 0.034f0
+```
+
+# Performance Notes
+- Reuses feature vector and gradient storage to minimize allocations
+- Compatible with any [`LinearFeatureVector`](@ref) implementation
+"""
+semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ 99f34d13-a19a-4a28-8173-2f683527d61a
+#=╠═╡
+semi_gradient_td0_estimation_state_aggregation(mrp::StateMRP, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_estimation_linear(mrp, γ, max_episodes, max_steps, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function figure_9_2(;num_episodes = 100_000, α_mc = 2f-5, α_td = 2f-4)
+	v = random_walk_v.value_function[2:end-1]
+	
+	v̂_mc, err_history_mc = gradient_monte_carlo_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, num_groups, random_walk_group_assign; α = α_mc, calculate_error = calc_random_walk_ve)
+
+	#this function will produce the learned value estimate given a random walk state
+	v̂_td, episode_history_td = semi_gradient_td0_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α_td, calculate_error = calc_random_walk_ve)
+	err_history_td = episode_history_td.errors
+	
+	x = Float32.(1:num_states)
+
+	v̂_mc = v̂_mc.(x)
+	v̂_td = v̂_td.(x)
+	
+	n1 = L"v_\pi"
+	tr1 = scatter(x = x, y = v, name = "True value $n1")
+	tr2 = scatter(x = x, y = v̂_mc, name = "Monte Carlo Value Estimate")
+	tr3 = scatter(x = x, y = v̂_td, name = "TD(0) Value Estimate")
+
+	p1 = plot([tr2, tr3, tr1], Layout(xaxis_title = "State", yaxis_title = "Value"))
+
+	nsmooth = 100
+	tr1 = scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(err_history_mc, nsmooth)), name = "Monte Carlo Estimate Errors")
+	tr2 = scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(err_history_td, nsmooth)), name = "TD(0) Estimate Errors")
+	p2 = plot([tr1, tr2], Layout(xaxis_title = "Episode", yaxis_title = "Value Error", showlegend = false))
+	@htl("""
+	<div style = "display: flex;">
+	$p2
+	$p1
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ c05ea239-2eea-4f41-b4e3-993db0fe2de5
+#=╠═╡
+figure_9_2(;num_episodes = 100_000, fig_9_2_params...)
+  ╠═╡ =#
+
+# ╔═╡ 56212ab2-833a-4dec-bcdd-21bce1d680b6
+# ╠═╡ skip_as_script = true
+#=╠═╡
+function show_random_walk_linear_results(feature_vector::LinearFeatureVector, update_feature_vector!::Function, num_episodes, α_mc::T, α_td::T, name; nsmooth = 100) where T<:Real
+	v̂_mc, mc_error = gradient_monte_carlo_estimation_linear(random_walk_state_mrp, 1f0, num_episodes, feature_vector, update_feature_vector!; α = α_mc, calculate_error = calc_random_walk_ve)
+	v̂_td, td_history = semi_gradient_td0_estimation_linear(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), feature_vector, update_feature_vector!; α = α_td, calculate_error = calc_random_walk_ve)
+	show_random_walk_results((v̂_mc, mc_error), (v̂_td, td_history), name, nsmooth)
+end
+  ╠═╡ =#
+
+# ╔═╡ 994f8556-964c-4c6b-8cfe-6f6a99c1ba29
+#=╠═╡
+show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, poly_feature_params.order_num, 1f0, Float32(num_states), calc_poly_feature)..., 25_000, poly_feature_params.α_mc, poly_feature_params.α_td, "Polynomial Basis Function Approximation")
+  ╠═╡ =#
+
+# ╔═╡ 111a6762-ab4f-4db9-80f9-10c707623e0f
+#=╠═╡
+show_random_walk_linear_results(order_features_setup(random_walk_state_mrp, fourier_feature_params.order_num, 1f0, Float32(num_states), calc_fourier_feature)..., 10_000, fourier_feature_params.α_mc, fourier_feature_params.α_td, "Fourier Basis Function Approximation")
+  ╠═╡ =#
+
+# ╔═╡ b5a3a529-2d74-4757-9d38-2eae28396d02
+#=╠═╡
+let
+	setup = tile_coding_feature_setup(random_walk_state_mrp, 1f0, Float32(num_states), tile_coding_learning_params.tile_size, tile_coding_learning_params.num_tilings)
+	show_random_walk_linear_results(setup.feature_vector, setup.update_feature_vector!, 10_000, tile_coding_learning_params.α_mc, tile_coding_learning_params.α_td, "Tile Coding Function Approximation")
+end
+  ╠═╡ =#
+
+# ╔═╡ 3307300f-cd72-4f16-bc46-39115a32e2ca
+"""
+    semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; kwargs...) where {T<:Real} -> NamedTuple
+
+Semi-gradient TD(0) policy evaluation with linear function approximation on an MDP.
+
+High-level interface for temporal difference policy evaluation using linear value functions. Automatically
+sets up linear function approximation components (value function, gradient computation, parameter
+initialization) and delegates to the core TD(0) algorithm. Performs online learning with immediate
+parameter updates after each environment step to estimate the state value function v^π(s) for the given policy.
+
+# Type Parameters
+- `T <: Real`: Numeric type for parameters, rewards, and computations (inferred from γ)
+
+# Arguments
+- `mdp::StateMDP`: The Markov decision process to evaluate, supporting any state and action types
+- `π::Function`: Policy function mapping states to action selections (state → action)
+- `γ::Real`: Discount factor for temporal difference updates (0 ≤ γ < 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+- `feature_vector::LinearFeatureVector`: Linear feature representation for states
+- `update_feature_vector!::Function`: Function to extract features from states into feature_vector
+
+# Keyword Arguments
+- `init_value::Real = zero(T)`: Initial value for parameter initialization
+- `params::Vector{T} = initialize_linear_parameters(feature_vector, init_value)`: Initial parameter vector
+- Additional arguments passed to [`semi_gradient_td0_estimation!`](@ref):
+  - `α::Real = 0.1`: Learning rate for gradient updates
+  - `calculate_error::Function = (target, v̂, s) -> (v̂ - target)^2`: Error function for statistics
+  - `save_episode_steps::Bool = false`: Whether to save step-by-step reward history
+
+# Returns
+- `NamedTuple` with fields:
+  - `value_function::Function`: Learned state value function `v_π(s)` that maps states to estimated values under policy π
+  - `episode_history::NamedTuple`: Episode statistics with fields:
+    - `errors::Vector{T}`: Per-episode average TD errors
+    - `steps::Vector{Int64}`: Steps taken in each episode
+    - `rewards::Vector{T}`: Total rewards accumulated in each episode under policy π
+  - `step_rewards::Vector{T}`: Step-by-step rewards (if `save_episode_steps=true`)
+  - `parameters::Vector{T}`: Final learned parameter vector
+
+# See Also
+[`semi_gradient_td0_estimation!`](@ref), [`LinearFeatureVector`](@ref), [`linear_value_function`](@ref), [`initialize_linear_parameters`](@ref)
+
+# Algorithm Details
+1. Initialize linear function approximation components:
+   - Parameter vector using [`initialize_linear_parameters`](@ref)
+   - Linear value function and gradient computation functions
+2. Delegate to [`semi_gradient_td0_estimation!`](@ref) which performs:
+   - Policy-based episode generation using π for action selection
+   - Online TD(0) updates: θ ← θ + α * δ * ∇v(s) where δ = r + γv(s') - v(s)
+   - Episode management with termination checking
+   - Error and reward tracking across policy rollouts
+3. Return learned value function v_π and training statistics
+
+# Performance Notes
+- Reuses feature vector and gradient storage to minimize allocations
+- Compatible with any [`LinearFeatureVector`](@ref) implementation
+"""
+semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ 7889fc4a-3a77-41b4-983a-0b04740afeb7
+#=╠═╡
+semi_gradient_td0_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
+  ╠═╡ =#
 
 # ╔═╡ 74e42774-68e5-44b5-91c4-da87a20879e1
 """
@@ -3794,12 +3969,28 @@ julia> fetch.(values)
 """
 function gradient_monte_carlo_estimation_fcann(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	(value_function, history, params) = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+end
 
-	#this version of the value function can be run with multiple threads
-	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
+# ╔═╡ 322fa46d-125f-418b-90a2-6b8ddfc86b6d
+function setup_gpu_feature(feature_vector::Vector{T}, update_feature_vector!::Function) where T<:Real
+	gpu_feature = FCANN.cuda_allocate(feature_vector)
+	function update_gpu_feature!(d_x, s; feature_vector = feature_vector)
+		update_feature_vector!(feature_vector, s)
+		FCANN.memcpy!(d_x, feature_vector)
+	end
+	(feature_vector = gpu_feature, update_feature_vector! = update_gpu_feature!)
+end
 
-	(value_function = v̂, episode_history = history, parameters = params, activations = setup.activations)
+# ╔═╡ 78baf302-0ece-4682-bf65-b5fb0c0690d3
+function gradient_monte_carlo_estimation_fcann_gpu(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	gpu_feature = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = gradient_monte_carlo_estimation!(setup.gpu_args.params, mrp, γ, num_episodes, gpu_feature.feature_vector, gpu_feature.update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
+
+	(;output..., cpu_params = params)
 end
 
 # ╔═╡ b58cacd0-ca65-43f5-8678-7265ea2d46c8
@@ -3860,12 +4051,19 @@ julia> v_π = result.value_function((3, 4))  # Grid position (3,4)
 """
 function gradient_monte_carlo_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	(value_function, history, params) = gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+end
 
-	#this version of the value function can be run with multiple threads
-	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
+# ╔═╡ 11441409-4b8c-457c-9c9e-e4f7f809f4ec
+function gradient_monte_carlo_policy_estimation_fcann_gpu(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	gpu_feature = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = gradient_monte_carlo_policy_estimation!(setup.gpu_args.params, mdp, π, γ, num_episodes, gpu_feature.feature_vector, gpu_feature.update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	
+	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
 
-	(value_function = v̂, episode_history = history, parameters = params, activations = setup.activations)
+	(;output..., cpu_params = params)
 end
 
 # ╔═╡ d81d8f7d-ed32-405d-b0c8-2ceff5845578
@@ -3931,12 +4129,17 @@ julia> current_value = result.value_function(0.3f0)
 """
 function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	(value_function, history, step_rewards, params) = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+end
 
-	#this version of the value function can be run with multiple threads
-	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
-
-	(value_function = v̂, episode_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
+# ╔═╡ b896c2c8-8b9f-4c9f-afbd-701f440a2bc2
+function semi_gradient_td0_estimation_fcann_gpu(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	gpu_feature = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = semi_gradient_td0_estimation!(setup.gpu_args.params, mrp, γ, max_episodes, max_steps, gpu_feature.feature_vector, gpu_feature.update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
+	(;output..., cpu_params = params)
 end
 
 # ╔═╡ 4a3a4635-a046-4eec-ab95-2dce74ac0fbe
@@ -4012,109 +4215,15 @@ function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, 
 	(value_function = v̂, episode_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
 end
 
-# ╔═╡ 808026eb-4c5a-4f38-bb16-bbb1b2915906
-md"""
-### *Neural Network GPU Implementation*
-"""
-
-# ╔═╡ 3ac65a54-1ff6-441c-8edf-00c49b620389
-# ╠═╡ disabled = true
-#=╠═╡
-import NVIDIALibraries.DeviceArray.CUDAArray
-  ╠═╡ =#
-
-# ╔═╡ dd907b31-24f1-46f6-a2d5-7dd268530c94
-#=╠═╡
-function update_nn_parameters!(θs::Vector{CUDAArray}, βs::Vector{CUDAArray}, layers::Vector{Int64}, ∇θ::Vector{CUDAArray}, ∇β::Vector{CUDAArray}, input::CUDAArray, output::CUDAArray, ∇tanh_z::Vector{CUDAArray}, activations::Vector{CUDAArray}, δs::Vector{CUDAArray}, onesvec::CUDAArray, onesvec_params::Vector{CUDAArray}, normvec_params::Vector{CUDAArray}, α::Float32, scales::Vector{Float32}; λ = 0f0, c = Inf, dropout = 0f0)
-	(batchsize, input_layer_size) = input.size
-	(_, output_layer_size) = output.size
-	FCANN.nnCostFunction(θs, βs, input_layer_size, output_layer_size, layers, batchsize, onesvec, activations, ∇tanh_z, δs, ∇θ, ∇β, input, output, λ, dropout; costFunc = "sqErr", resLayers = 1)
-	FCANN.updateParams!(α, θs, βs, ∇θ, ∇β, scales)
-	if !isinf(c)
-		FCANN.scaleThetas!(θs[1:end-1], ∇θ[1:end-1], onesvec_params, normvec_params, c)
-	end
+# ╔═╡ a4ca8fe2-4e38-445d-aa83-73185ae778e0
+function semi_gradient_td0_policy_estimation_fcann_gpu(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	gpu_feature = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = semi_gradient_td0_policy_estimation!(setup.gpu_args.params, mdp, π, γ, max_episodes, max_steps, gpu_feature.feature_vector, gpu_feature.update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
+	(;output..., cpu_params = params)
 end
-  ╠═╡ =#
-
-# ╔═╡ 0facd6de-411a-43e0-820d-7d6eceff5b72
-# ╠═╡ disabled = true
-#=╠═╡
-import FCANN.device_allocate
-  ╠═╡ =#
-
-# ╔═╡ 65795424-8e50-4edb-9f6a-7045a9a22b9d
-# ╠═╡ disabled = true
-#=╠═╡
-import FCANN.cuda_allocate
-  ╠═╡ =#
-
-# ╔═╡ 6c752a2b-4d10-4865-aeff-ea717b9d3904
-#=╠═╡
-function fcann_gradient_gpu_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, layers::Vector{Int64}, feature_vector::Vector{Float32}, update_feature_vector!::Function; calculate_error::Function = (g, v̂, s) -> (g - v̂)^2, dropout = 0f0, λ = 0f0, c = Inf) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
-	s0 = problem.initialize_state()
-	update_feature_vector!(feature_vector, s0)
-	θ, β = FCANN.initializeparams_saxe(length(feature_vector), layers, 1, 1; use_μP = true)
-
-	∇θ = deepcopy(θ)
-	∇β = deepcopy(β)
-	∇tanh_z = FCANN.form_tanh_grads(layers, 1)
-	
-
-	function setup_training(batch_size::Integer)
-		activations = [zeros(Float32, batch_size, l) for l in [layers; 1]]
-		δs = deepcopy(activations)
-		onesvec = zeros(Float32, batch_size)
-		return (activations, δs, onesvec)
-	end
-
-	(activations, δs, onesvec) = setup_training(1)
-	
-
-	input_layer_size = length(feature_vector)
-
-	feature_matrix = reshape(feature_vector, 1, input_layer_size)
-	input = zeros(Float32, 1, input_layer_size)
-	output = zeros(Float32, 1, 1)
-	scales = ones(Float32, length(layers)+1)
-	for i in 2:length(scales)
-		scales[i] /= size(θ[i], 2)
-	end
-
-	d_input = cuda_allocate(input)
-	d_output = cuda_allocate(output)
-	d_θ = device_allocate(θ)
-	d_β = device_allocate(β)
-	d_∇θ = device_allocate(∇θ)
-	d_∇β = device_allocate(∇β)
-	d_∇tanh_z = device_allocate(∇tanh_z)
-	d_activations = device_allocate(activations)
-	d_δs = device_allocate(δs)
-	d_onesvec = cuda_allocate(onesvec)
-	d_onesvec_params = map(a -> cuda_allocate(ones(Float32, a)), [input_layer_size; layers])
-	d_normvec_params = map(a -> cuda_allocate(zeros(Float32, a)), [layers; 1])
-	
-	function update_parameters!(parameters, s::S, g::T, α::T, gradients, state_representation::Vector{Float32}, feature_matrix::Matrix{Float32}, input, output, ∇tanh_z, activations, δs, onesvec, onesvec_params, normvec_params, scales)
-		update_feature_vector!(state_representation, s)
-		feature_matrix .= state_representation
-		FCANN.memcpy!(input, feature_matrix)
-		FCANN.memcpy!(output, reshape([g], 1, 1))
-		update_nn_parameters!(parameters[1], parameters[2], layers, gradients[1], gradients[2], input, output, ∇tanh_z, activations, δs, onesvec, onesvec_params, normvec_params, α, scales; c = c, λ = λ, dropout = dropout)
-		calculate_error(g, FCANN.host_allocate(activations[end])[1, 1], s)
-	end
-
-	function v̂(s::S, parameters, state_representation, feature_matrix::Matrix{Float32}, input, activations) 
-		update_feature_vector!(state_representation, s)
-		feature_matrix .= state_representation
-		FCANN.memcpy!(input, feature_matrix)
-		FCANN.predict!(parameters[1], parameters[2], input, activations, 1)
-		return FCANN.host_allocate(activations[end])[1, 1]
-	end
-
-	update_args = ((d_∇θ, d_∇β), feature_vector, feature_matrix, d_input, d_output, d_∇tanh_z, d_activations, d_δs, d_onesvec, d_onesvec_params, d_normvec_params, scales)
-	
-	return (value_function = v̂, value_args = (feature_vector, feature_matrix, d_input, d_activations), parameter_update = update_parameters!, update_args = update_args, parameters = (d_θ, d_β))
-end
-  ╠═╡ =#
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 md"""
@@ -4146,9 +4255,31 @@ function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1,
 end
   ╠═╡ =#
 
+# ╔═╡ c7f4e213-395f-4703-b523-0d6a02e3fd65
+#=╠═╡
+function run_random_walk_fcann_monte_carlo_estimation_gpu(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+	gradient_monte_carlo_estimation_fcann_gpu(mrp, γ, num_episodes, [0f0], update_random_walk_vector!, layers; calculate_error = calc_random_walk_ve, kwargs...)
+end
+  ╠═╡ =#
+
+# ╔═╡ f5661feb-6dcd-4409-b2f1-b756253ef2e0
+md"""
+Comparing these two versions, we see that once the hidden layer size hits 1024 the gpu version becomes faster.  Also at a hidden layer size of 512 and a layer count of 10, the GPU version is faster.
+"""
+
+# ╔═╡ 00f30bd5-b904-4c95-89a3-ee39b877beae
+#=╠═╡
+run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 2, fill(512, 10), :vector)
+  ╠═╡ =#
+
+# ╔═╡ 28c0d60a-c2ac-4501-8f90-729664831fea
+#=╠═╡
+run_random_walk_fcann_monte_carlo_estimation_gpu(random_walk_state_mrp, 1f0, 2, fill(512, 10))
+  ╠═╡ =#
+
 # ╔═╡ 93a1f51f-1d83-408e-a860-26e6280c65ee
 #=╠═╡
-function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}, input_type::Symbol; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}, input_type::Symbol; use_gpu::Bool = false, kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
 	x, f! = if input_type == :tiles
 		setup = tile_coding_feature_setup(random_walk_state_mrp, 1f0, Float32(num_states), .2f0, 10)
 		setup.feature_vector, setup.update_feature_vector!
@@ -4157,18 +4288,24 @@ function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ
 	else
 		[0f0], update_random_walk_vector!
 	end
-	semi_gradient_td0_estimation_fcann(mrp, γ, num_episodes, typemax(Int64), x, f!, layers; calculate_error = calc_random_walk_ve, kwargs...)
+
+	f = !use_gpu ? semi_gradient_td0_estimation_fcann : semi_gradient_td0_estimation_fcann_gpu
+	f(mrp, γ, num_episodes, typemax(Int64), x, f!, layers; calculate_error = calc_random_walk_ve, kwargs...)
 end
   ╠═╡ =#
 
 # ╔═╡ fb244ed5-2827-4b39-a5b1-ced0815b000a
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td, input_type; nsmooth = 100)
+function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td, input_type; nsmooth = 100, use_gpu = false)
 	nn_layers = fill(layer_size, num_layers)
-	
-	v̂_mc, mc_error, mc_params = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; α = α_mc)
-	v̂_td, td_history, td_steps, td_params = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; α = α_td)
+
+	if !use_gpu || (input_type != :vector)
+		v̂_mc, mc_error, mc_params = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; α = α_mc)
+	else
+		v̂_mc, mc_error, mc_params = run_random_walk_fcann_monte_carlo_estimation_gpu(random_walk_state_mrp, 1f0, num_episodes, nn_layers; α = α_mc)
+	end
+	v̂_td, td_history, td_steps, td_params = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; use_gpu, α = α_td)
 	td_error = td_history.errors
 	p1 = plot([scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(mc_error, nsmooth)), name = "Monte Carlo"), scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(td_error, nsmooth)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged <br> over Previous $nsmooth Episodes", showlegend = false))
 	p2 = plot([scatter(y = v̂_mc.(Float32.(1:num_states)), name = "Monte Carlo"), scatter(y = v̂_td.(Float32.(1:num_states)), name = "TD(0)"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with $nn_layers Layers", yaxis_title = "Value", xaxis_title = "State"))
@@ -4198,7 +4335,7 @@ Notice again how TD learning is more stable at higher learning rates.  The neura
 
 	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 4f-3)))
 
-	Select Input:: $(Child(:input_type, Select([:vector, :tiles, :state_aggregation])))
+	Select Input:: $(Child(:input_type, Select([:vector, :tiles, :state_aggregation])))  Use GPU: $(CheckBox(default = false))
 	"""
 end |> confirm
   ╠═╡ =#
@@ -5026,7 +5163,7 @@ PlutoUI = "~0.7.69"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.6"
+julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "467bd178e4eaec23965efbca157f191edfe7a113"
 
@@ -5543,11 +5680,11 @@ version = "17.4.0+2"
 # ╠═7542ff9c-c6a1-4d41-8863-05388fea8ce2
 # ╠═ba58242a-306a-4631-92b4-34bc9e354fae
 # ╠═c466f78e-e464-4602-93c4-40362e4c0df2
-# ╟─9296a8a1-7edd-4ac4-8fa4-842317d693bc
+# ╠═9296a8a1-7edd-4ac4-8fa4-842317d693bc
 # ╠═a77f9819-04b2-4785-8eb0-c7e9dba6cecc
 # ╠═412f6295-3eec-4966-98e3-2774bf62ed4f
-# ╟─966850ef-dd15-417b-b51c-9957f27e4664
-# ╟─97539f3f-92bb-4b6f-a671-260251b4ddc7
+# ╠═966850ef-dd15-417b-b51c-9957f27e4664
+# ╠═97539f3f-92bb-4b6f-a671-260251b4ddc7
 # ╟─df56b803-0aa5-4946-8338-601195e57a3e
 # ╠═e8e26a28-90a5-4519-ab08-11b49a8a9499
 # ╟─cb2005fd-d3e0-4f37-908c-77e4bbac45b8
@@ -5588,7 +5725,7 @@ version = "17.4.0+2"
 # ╠═214714a5-ad1e-4439-8567-9095d10411a6
 # ╠═49320a88-206e-4283-b3fc-a5d1ac41ddc4
 # ╟─3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
-# ╟─701137fb-b497-47a5-9455-2f4b1c78a44e
+# ╠═701137fb-b497-47a5-9455-2f4b1c78a44e
 # ╟─6b339182-f81c-475c-bf28-d03b57eda76f
 # ╟─b6737cef-b6f9-4e40-82d8-bf887e17eb7c
 # ╟─3db9f60e-a823-4d78-bd16-e73cedffa755
@@ -5659,29 +5796,48 @@ version = "17.4.0+2"
 # ╠═0334d2ff-268d-4485-b460-89f82c4a99e1
 # ╠═8e8add6f-99ab-4aa7-b236-87915c6be9c2
 # ╠═66cadcfb-4fda-4509-80d6-aa22766a7e9c
+# ╠═b1af53f1-45b3-4ede-9388-0fab9740b6f8
+# ╠═4ddca4fe-8cce-47a7-875b-66d2284d9347
+# ╠═a08ba8d3-082b-47a9-a8dd-13b0afdf88c1
+# ╠═94958deb-01e1-4544-bbc8-62f16768b650
 # ╠═9e3efa3c-af2f-4aea-b923-a6d50a6b9fb5
+# ╠═33522c13-f52f-495f-b150-488736389de4
+# ╠═6c9f2af4-2873-43b9-a3ae-3e5f2b1a81a6
+# ╠═64206a7a-b67c-4b86-bc42-cbad498d38f5
 # ╠═2b922137-3110-4f91-94b1-4707d197b429
+# ╠═1d43e61e-8428-4f50-8dc7-e322b1d256e8
 # ╠═b2c56d0e-668e-43cd-a886-bb830a60b132
+# ╠═6fb5606d-75fe-4108-adff-a6a644f572a2
 # ╠═67db7264-2a5e-44be-98e7-e5d08d5e7273
+# ╠═8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf
+# ╠═0f7ce70e-fb15-44e1-8f1b-dd082ae5911f
 # ╠═9b5fbbdd-0b36-4893-b4bb-b05439f5a541
+# ╠═e05a8d56-6010-4e3a-b976-0290f42c95dd
+# ╠═00d522cd-a4e6-45a0-a90f-6875f1b0da1c
+# ╠═92706281-51f8-46d7-b218-ef2f1adf7fb2
+# ╠═a1283913-c816-4815-9cdb-fcb6cb70cdc8
+# ╠═16eff6bc-ce43-4d97-aa76-73df2ff76b29
 # ╠═74e42774-68e5-44b5-91c4-da87a20879e1
+# ╠═322fa46d-125f-418b-90a2-6b8ddfc86b6d
+# ╠═78baf302-0ece-4682-bf65-b5fb0c0690d3
 # ╠═b58cacd0-ca65-43f5-8678-7265ea2d46c8
+# ╠═11441409-4b8c-457c-9c9e-e4f7f809f4ec
 # ╠═d81d8f7d-ed32-405d-b0c8-2ceff5845578
+# ╠═b896c2c8-8b9f-4c9f-afbd-701f440a2bc2
 # ╠═4a3a4635-a046-4eec-ab95-2dce74ac0fbe
-# ╟─808026eb-4c5a-4f38-bb16-bbb1b2915906
-# ╠═3ac65a54-1ff6-441c-8edf-00c49b620389
-# ╠═dd907b31-24f1-46f6-a2d5-7dd268530c94
-# ╠═0facd6de-411a-43e0-820d-7d6eceff5b72
-# ╠═65795424-8e50-4edb-9f6a-7045a9a22b9d
-# ╠═6c752a2b-4d10-4865-aeff-ea717b9d3904
+# ╠═a4ca8fe2-4e38-445d-aa83-73185ae778e0
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
 # ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
+# ╠═c7f4e213-395f-4703-b523-0d6a02e3fd65
+# ╟─f5661feb-6dcd-4409-b2f1-b756253ef2e0
+# ╠═00f30bd5-b904-4c95-89a3-ee39b877beae
+# ╠═28c0d60a-c2ac-4501-8f90-729664831fea
 # ╠═93a1f51f-1d83-408e-a860-26e6280c65ee
 # ╠═fb244ed5-2827-4b39-a5b1-ced0815b000a
 # ╟─b1c84d59-3598-46a1-bc1a-fd691d14ab09
 # ╟─420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
-# ╠═40d07f16-b9ca-4782-bdd2-de15ec6b21e5
+# ╟─40d07f16-b9ca-4782-bdd2-de15ec6b21e5
 # ╟─b22ef023-4e6a-4114-b3c2-bf91e16e9a43
 # ╟─32c054ee-a7ee-4705-87c3-fb1a4bd956ab
 # ╠═a8d7e5f7-8509-4aa1-b4c6-669339cb173c
