@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.8
+# v0.20.18
 
 using Markdown
 using InteractiveUtils
@@ -274,7 +274,7 @@ The second approach is to sample from the state or state-action space according 
 
 Is the on-policy distribution of updates a good one?  Intuitively it seems like a good choice, at least better than the uniform distribution.  For example, if you are learning to play chess, you study positions that might arise in real games, not random positions of chess pieces.  The latter may be valid states, but to be able to accurately value them is a different skill from evaluating positions in real games.  We will also see in Part II that the on policy distribution has significant advantages when function approximation is used.  Whether or not function approximation is used, one might expect on-policy focusing to significantly improve the speed of planning.
 
-The following experiment attempts to assess empirically the value of sampling from the on policy distribution by comparing it directly to the alternative of *uniform* sampling.  In the *uniform* case, all state action pairs are updated once in place and in the *on-policy* case an episode is imulated starting from the same state and updating each state-action pair that occured under the current $\epsilon$-greedy policy $(\epsilon = 0.1)$.  The tasks were undiscounted episodic tasks, generated randomly as follows.  From each of the $\vert \mathcal{S} \vert$ states, two actions were possible, each of which results in one of $b$ next states, all equally likely, with a different random selection of $b$ states for each state-action pair.  The branching factor, $b$, was the same for all state-action pairs.  In addition, on all transitions there was a 0.1 probability of transition to the terminal state, ending the episode.  The expected reward on each transition was selected from a Gaussian distribution with mean 0 and variance 1.  At any point in the planning process one can stop and exhaustively compute $v_{\tilde \pi}(s_0)$, the true value of the start state under the greedy policy, $\tilde \pi$, given the current action-value function $Q$, as in indication of how well the agent would do on a new episode on which it acted greedily (all while assuming the model is correct).
+The following experiment attempts to assess empirically the value of sampling from the on policy distribution by comparing it directly to the alternative of *uniform* sampling.  In the *uniform* case, all state action pairs are updated once in place and in the *on-policy* case an episode is emulated starting from the same state and updating each state-action pair that occured under the current $\epsilon$-greedy policy $(\epsilon = 0.1)$.  The tasks were undiscounted episodic tasks, generated randomly as follows.  From each of the $\vert \mathcal{S} \vert$ states, two actions were possible, each of which results in one of $b$ next states, all equally likely, with a different random selection of $b$ states for each state-action pair.  The branching factor, $b$, was the same for all state-action pairs.  In addition, on all transitions there was a 0.1 probability of transition to the terminal state, ending the episode.  The expected reward on each transition was selected from a Gaussian distribution with mean 0 and variance 1.  At any point in the planning process one can stop and exhaustively compute $v_{\tilde \pi}(s_0)$, the true value of the start state under the greedy policy, $\tilde \pi$, given the current action-value function $Q$, as in indication of how well the agent would do on a new episode on which it acted greedily (all while assuming the model is correct).
 """
 
 # ╔═╡ e8a6e672-b860-404f-83c1-62a080f23112
@@ -2514,7 +2514,7 @@ Transducers = "~0.4.81"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.5"
+julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "e4591a89c5fddab51f04c4694c7fde7e51122fd3"
 

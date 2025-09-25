@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.17
+# v0.20.18
 
 using Markdown
 using InteractiveUtils
@@ -351,12 +351,26 @@ begin
 
 Samples an action index from a probability distribution represented by a vector.
 """
-function sample_action(v::AbstractVector{T}) where T<:AbstractFloat 
+function sample_action(v::AbstractVector{T}) where T<:Real 
 	i_a = 1
 	maxv = T(-Inf)
 	@inbounds @fastmath @simd for i in eachindex(v)
 		x = v[i]
 		g = log(x) - log(-log(rand(T)))
+		newmax = (g > maxv)
+		maxv = max(g, maxv)
+		i_a += newmax*(i - i_a)
+	end
+	return i_a
+	# sample(eachindex(v), weights(v))
+end
+
+function sample_action(v::AbstractVector{B}) where B<:Bool 
+	i_a = 1
+	maxv = -Inf
+	@inbounds @fastmath @simd for i in eachindex(v)
+		x = v[i]
+		g = log(x) - log(-log(rand()))
 		newmax = (g > maxv)
 		maxv = max(g, maxv)
 		i_a += newmax*(i - i_a)
@@ -380,7 +394,7 @@ Samples an action index from a probability distribution represented by a matrix.
 # Description
 This function samples an action index from a probability distribution represented by a matrix `π`. The matrix `π` represents the probability distribution over actions for each state. The distribution for the current state `i_s` is given by the column `π[:, i_s]`. The sampling is performed using the `sample_action` function, which samples from a probability distribution represented by a vector using the Gumbel-max trick.
 """
-function sample_action(π::Matrix{T}, i_s::Integer) where T<:AbstractFloat
+function sample_action(π::AbstractMatrix{T}, i_s::Integer) where T<:Real
 	(n, m) = size(π)
 	sample_action(view(π, :, i_s))
 end
@@ -982,7 +996,7 @@ end
 
 # ╔═╡ 6b3a1c09-8693-41e9-a87c-d47f9ca9e35b
 #when called with a policy distribution instead of an action, the MDP transition function will produce a sample
-function (ptf::AbstractTabularTransition{T, 2})(i_s::Integer, π::Matrix{T}) where {T<:Real} 
+function (ptf::AbstractTabularTransition{T, 2})(i_s::Integer, π::AbstractMatrix{T2}) where {T<:Real, T2 <: Real} 
 	i_a = sample_action(π, i_s)
 	(r, i_s′) = ptf(i_s, i_a)
 	return (r, i_s′, i_a)
@@ -1283,6 +1297,25 @@ md"""
 The following code implements policy iteration in the tabular case where the full probability transition function is available.  In this case, state values are sufficient, but one can also use state-action values with policy iteration.
 """
   ╠═╡ =#
+
+# ╔═╡ 4c299506-b7f6-477c-9c49-e9ea01ea9244
+function make_greedy_bit_policy(Q::Matrix{T}, args...) where T<:Real
+	π = BitMatrix(undef, size(Q)...)
+	for i_s in 1:size(Q, 2)
+		qmax = typemin(T)
+		@inbounds @simd for i_a in 1:size(Q, 1)
+			qmax = max(qmax, Q[i_a, i_s])
+		end
+
+		@inbounds @simd for i_a in 1:size(Q, 1)
+			π[i_a, i_s] = isequal(Q[i_a, i_s], qmax)
+		end
+	end
+	return π
+end
+
+# ╔═╡ cbf6d7b0-fc72-416c-801a-a9e723ecd2d4
+make_greedy_bit_policy(V::Vector{T}, ptf::TabularTransitionDistribution) where T<:Real = make_greedy_bit_policy(V, ptf, one(T))
 
 # ╔═╡ 5e04e2fd-e063-40d2-9770-0d504a8bbdf6
 md"""
@@ -1622,6 +1655,25 @@ begin
 	end
 end
 
+# ╔═╡ 9d0be18f-6eb2-4a48-931b-75f8ca307b69
+function make_greedy_bit_policy(V::Vector{T}, ptf::TabularTransitionDistribution, γ::T) where T<:Real
+	π = BitMatrix(undef, size(ptf.state_transition_map)...)
+	v = zeros(T, size(π, 1))
+	for i_s in 1:size(π, 2)
+		qmax = typemin(T)
+		@inbounds @simd for i_a in 1:size(π, 1)
+			q = bellman_state_action_value(ptf, i_s, i_a, γ, V)
+			v[i_a] = q
+			qmax = max(qmax, q)
+		end
+
+		@inbounds @simd for i_a in 1:size(π, 1)
+			π[i_a, i_s] = isequal(v[i_a], qmax)
+		end
+	end
+	return π
+end
+
 # ╔═╡ b7f5ed8b-32ac-483f-9178-e8cca531ccf5
 begin
 	function make_ϵ_greedy_policy!(v::AbstractVector{T}; ϵ = one(T)/10) where {T<:Real}
@@ -1759,20 +1811,20 @@ end
 
 # ╔═╡ aef53c15-74a1-4e7d-9598-3823755fb5af
 begin
-	function bellman_optimal_update!(Q::Matrix{T}, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T) where {T <: Real, ST, RT}
+	function bellman_optimal_update!(Q::Matrix{T}, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T; calc_delt::Function = calc_pct_change) where {T <: Real, ST, RT}
 		q = bellman_state_action_value(ptf, i_s, i_a, γ, Q)	
-		delt = calc_pct_change(Q[i_a, i_s], q)
+		delt = calc_delt(Q[i_a, i_s], q)
 		Q[i_a, i_s] = q
 		return delt
 	end
 
-	function bellman_optimal_update!(V::Vector{T}, i_s::Int64, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T) where {T <: Real, ST, RT}
+	function bellman_optimal_update!(V::Vector{T}, i_s::Int64, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T; calc_delt::Function = calc_pct_change) where {T <: Real, ST, RT}
 		(num_actions, num_states) = size(ptf.state_transition_map)
 		x = typemin(T)
 		@inbounds @simd for i_a in 1:num_actions
 			x = max(x, bellman_state_action_value(ptf, i_s, i_a, γ, V))
 		end
-		delt = calc_pct_change(V[i_s], x)
+		delt = calc_delt(V[i_s], x)
 		V[i_s] = x
 		return delt
 	end
@@ -1839,6 +1891,273 @@ function bellman_update_sweep!(value_ests::Array{T, N}, value_ests2::Array{T, N}
 	return delt, vref, num_updates
 end
 
+# ╔═╡ 34e5cd1b-9aa7-49d8-a070-deb4159c638d
+function update_sweep_trajectory!(sweep::Vector{I}, mdp::TabularMDP, π::Matrix{T}, stop_trigger::Vector{Bool}) where {I <: Integer, T<:Real}
+	i = 1
+	i_s = mdp.initialize_state_index()
+	l = length(sweep)
+	n = 0
+	while !first(stop_trigger)
+		sweep[i] = i_s
+		n += 1
+		i_a = sample_action(π, i_s)
+		r, i_s = mdp.ptf(i_s, i_a)
+		if mdp.terminal_states[i_s]
+			i_s = mdp.initialize_state_index()
+		end
+		i += 1
+		if i > l
+			i = 1
+		end
+	end
+	return n
+end
+
+# ╔═╡ 02056419-b008-4254-bbc1-369ab150b772
+begin
+	#update the value function as well as the associated ϵ-greedy policy
+	function bellman_optimal_trajectory_update!(V::Vector{T}, π::Matrix{T}, π_vec::Vector{T}, i_s::Int64, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, ϵ::T) where {T <: Real, ST, RT}
+		(num_actions, num_states) = size(ptf.state_transition_map)
+		x = typemin(T)
+		@inbounds @simd for i_a in 1:num_actions
+			q = bellman_state_action_value(ptf, i_s, i_a, γ, V)
+			π_vec[i_a] = q
+			# π[i_a, i_s] = q
+			x = max(x, q)
+		end
+		make_ϵ_greedy_policy!(π_vec; ϵ = ϵ)
+		@inbounds @simd for i_a in 1:num_actions
+			π[i_a, i_s] = π_vec[i_a]
+		end
+		# make_ϵ_greedy_policy!(π, i_s, x; ϵ = ϵ)
+		delt = calc_pct_change(V[i_s], x)
+		V[i_s] = x
+		return delt
+	end
+
+	function bellman_optimal_trajectory_update!(V′::Vector{T}, V::Vector{T}, π::Matrix{T}, π_vec::Vector{T}, i_s::Int64, ptf::TabularTransitionDistribution{T, ST, RT}, ϵ::T) where {T <: Real, ST, RT}
+		(num_actions, num_states) = size(ptf.state_transition_map)
+		x = typemin(T)
+		@inbounds @simd for i_a in 1:num_actions
+			q = bellman_state_action_value(ptf, i_s, i_a, one(T), V)
+			# π[i_a, i_s] = q
+			π_vec[i_a] = q
+			x = max(x, q)
+		end
+		# make_ϵ_greedy_policy!(π, i_s, x; ϵ = ϵ)
+		make_ϵ_greedy_policy!(π_vec; ϵ = ϵ)
+		@inbounds @simd for i_a in 1:num_actions
+			π[i_a, i_s] = π_vec[i_a]
+		end
+		V′[i_s] = x
+	end
+end
+
+# ╔═╡ a464175d-92c8-4f89-aebb-37e844bbaf2b
+begin
+	function bellman_update_trajectory!(v_est::Vector{T}, π::Matrix{T}, π_vec::Vector{T}, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, ϵ::T, sweep::Vector{I}) where {T <: Real, ST, RT, I<:Integer}
+		delt = zero(T)
+		num_updates = 0
+		for i_s in sweep
+			newdelt = bellman_optimal_trajectory_update!(v_est, π, π_vec, i_s, ptf, γ, ϵ)
+			delt = max(delt, newdelt)
+			num_updates += 1
+		end
+		return delt, num_updates
+	end
+
+	function bellman_update_trajectory!(v_est1::Vector{T}, v_est2::Vector{T}, π::Matrix{T}, π_vec::Vector{T}, ptf::TabularTransitionDistribution{T, ST, RT}, ϵ::T, sweep::Vector{I}) where {T <: Real, ST, RT, I<:Integer}
+		delt = zero(T)
+		num_updates = 0
+		for i_s in sweep
+			newdelt = bellman_optimal_trajectory_update!(v_est2, v_est1, π, π_vec, i_s, ptf, ϵ)
+			num_updates += 1
+		end
+		vref = v_est2[1]
+		v_est2 .-= vref
+		delt = maximum(calc_pct_change.(v_est1, v_est2))
+		v_est1 .= v_est2
+		return delt, vref, num_updates
+	end
+end
+
+# ╔═╡ 28d2441d-ccb9-46f1-92ce-64d4c099d60a
+begin
+	function value_iteration_trajectory!(v_est::Vector{T}, π::Matrix{T}, π_vec::Vector{T}, θ::T, ϵ::T, ptf::TabularTransitionDistribution{T, ST, RT}, nmax::Integer, save_history::Bool, sweep::Vector{I}, stop_trigger::Vector{Bool}; make_final_policy::Function = make_greedy_policy, show_message::Bool = true) where {T<:Real, ST, RT, I<:Integer}
+		#when there is no discount rate in the arguments, treat this as an average reward problem where the average value is removed from the value function on each step
+		delt = typemax(T)
+		total_updates = 0
+		reward_estimates = Vector{T}()
+		valuelist = Vector{Vector{T}}()
+		if save_history
+			push!(valuelist, copy(v_est))
+		end
+		n = 1
+		v_est2 = copy(v_est)
+		while (delt > θ) && (n <= nmax)
+			delt, vref, num_updates = bellman_update_trajectory!(v_est, v_est2, π, π_vec, ptf, ϵ, sweep)
+			push!(reward_estimates, vref)
+			total_updates += num_updates
+			show_message && @info "Completed sweep number $n with a delta of $delt"
+			n += 1
+			save_history && push!(valuelist, copy(v_est))
+		end
+		stop_trigger[1] = true
+		π = make_final_policy(v_est, ptf, one(T))
+	
+		(final_value = v_est, reward_estimates = reward_estimates, total_iterations = n, total_updates = total_updates, value_history = valuelist, optimal_policy = π)
+	end
+
+	function value_iteration_trajectory!(v_est::Vector{T}, π::Matrix{T}, π_vec::Vector{T}, θ::T, ϵ::T, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, nmax::Integer, save_history::Bool, sweep::Vector{I}, stop_trigger::Vector{Bool}; make_final_policy::Function = make_greedy_policy, show_message::Bool = true) where {T<:Real, ST, RT, I <: Integer}
+		#when there is no discount rate in the arguments, treat this as an average reward problem where the average value is removed from the value function on each step
+		delt = typemax(T)
+		total_updates = 0
+		valuelist = Vector{Vector{T}}()
+		if save_history
+			push!(valuelist, copy(v_est))
+		end
+	
+		n = 1
+		while (delt > θ) && (n <= nmax)
+			delt, num_updates = bellman_update_trajectory!(v_est, π, π_vec, ptf, γ, ϵ, sweep)
+			total_updates += num_updates
+			show_message && @info "Completed sweep number $n with a delta of $delt"
+			n += 1
+			save_history && push!(valuelist, copy(v_est))
+		end
+		stop_trigger[1] = true
+		π = make_final_policy(v_est, ptf, γ)
+	
+		(final_value = v_est, total_iterations = n, total_updates = total_updates, value_history = valuelist, optimal_policy = π)
+	end
+end
+
+# ╔═╡ 37ce519f-784e-4613-8e8f-044585f59bac
+function form_state_inverse_map(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P<:TabularDeterministicTransition, F}
+	state_inverse_map = [Set{Int64}() for _ in 1:length(mdp.states)]
+	for i_s in eachindex(mdp.states)
+		@inbounds @simd for i_a in eachindex(mdp.actions)
+			i_s′ = mdp.ptf.state_transition_map[i_a, i_s]
+			push!(state_inverse_map[i_s′], i_s)
+		end
+	end
+	return state_inverse_map
+end
+
+# ╔═╡ 4c117c00-9275-45dc-9d9e-4a21aab9bc50
+function form_state_inverse_map(mdp::TabularMDP{T, S, A, P, F}) where {T<:Real, S, A, P<:TabularStochasticTransition, F}
+	state_inverse_map = [Set{Int64}() for _ in 1:length(mdp.states)]
+	for i_s in eachindex(mdp.states)
+		for i_a in eachindex(mdp.actions)
+			v = mdp.ptf.state_transition_map[i_a, i_s]
+			for i_s′ in v.nzind
+				push!(state_inverse_map[i_s′], i_s)
+			end
+		end
+	end
+	return state_inverse_map
+end
+
+# ╔═╡ cd09438f-5827-4ad4-a3c2-890ee869bcd7
+function value_iteration_prioritized!(v_est::Vector{T}, θ::T, mdp::TabularMDP{T, S, A, P, F}, max_updates::Integer; make_final_policy::Function = make_greedy_policy, show_message = false, kwargs...) where {T<:Real, S, A, P <: TabularTransitionDistribution, F<:Function}
+	delt = typemax(T)
+	num_updates = 0
+
+	#maintains a queue of states ranked by their priority with the largest value first
+	priority_queue = PriorityQueue{Int64, T}(Base.Order.Reverse)
+	for i_s in eachindex(mdp.states)
+		bellman_optimal_update!(v_est2, v_est, i_s, mdp.ptf)
+		delt = abs(v_est2[i_s] - v_est[i_s])
+		if delt > θ
+			priority_queue[i_s] = delt
+		end
+		num_updates += 1
+	end
+
+	vref = v_est2[1]
+	v_est2 .-= vref
+	v_est .= v_est2
+
+	#each element is a dictionary whose keys are state indices and who's values are the set of actions that lead to the state who's index is represented by the vector index.
+	state_inverse_map = form_state_inverse_map(mdp)
+	v_est2 = copy(v_est)
+	
+	sweep = 1
+	while !isempty(priority_queue) && (num_updates < max_updates)
+		show_message && @info "After sweep # $sweep, queue has $(length(priority_queue)) states with top element $(first(priority_queue))"
+		i_s = dequeue!(priority_queue)
+		bellman_optimal_update!(v_est2, v_est, i_s, mdp.ptf)
+		num_updates += 1
+		delt = abs(v_est2[i_s] - v_est[i_s])
+		if delt > θ
+			priority_queue[i_s] = delt
+		end
+		for i_s′ in state_inverse_map[i_s]
+			bellman_optimal_update!(v_est2, v_est, i_s′, mdp.ptf)
+			delt = abs(v_est2[i_s′] - v_est[i_s′])
+			num_updates += 1
+			if delt > θ
+				priority_queue[i_s′] = delt
+			end
+		end
+		v_est2 .-= v_est2[1]
+		v_est .= v_est2
+		sweep += 1
+	end
+	π = make_final_policy(v_est, mdp.ptf, γ)
+	(final_value = v_est, total_updates = num_updates, optimal_policy = π)
+end
+
+# ╔═╡ c77f6588-a42b-4ec2-b3ee-54e1f237428e
+function value_iteration_prioritized!(v_est::Vector{T}, θ::T, mdp::TabularMDP{T, S, A, P, F}, γ::T, max_updates::Integer; show_message = false, make_final_policy::Function = make_greedy_policy, kwargs...) where {T<:Real, S, A, P <: TabularTransitionDistribution, F<:Function}
+	delt = typemax(T)
+	num_updates = 0
+
+	calc_delt(x1, x2) = abs(x1 - x2)
+
+	#maintains a queue of states ranked by their priority with the largest value first
+	priority_queue = PriorityQueue{Int64, T}(Base.Order.Reverse)
+	for i_s in eachindex(mdp.states)
+		delt = bellman_optimal_update!(v_est, i_s, mdp.ptf, γ; calc_delt = calc_delt)
+		if delt > θ
+			priority_queue[i_s] = delt
+		end
+		num_updates += 1
+	end
+
+	#each element is a dictionary whose keys are state indices and who's values are the set of actions that lead to the state who's index is represented by the vector index.
+	state_inverse_map = form_state_inverse_map(mdp)
+	sweep = 1
+
+	while !isempty(priority_queue) && (num_updates < max_updates)
+		show_message && @info "After sweep # $sweep, queue has $(length(priority_queue)) states with top element $(first(priority_queue))"
+		i_s = dequeue!(priority_queue)
+		delt = bellman_optimal_update!(v_est, i_s, mdp.ptf, γ; calc_delt = calc_delt)
+		num_updates += 1
+		if delt > θ
+			priority_queue[i_s] = delt
+		end
+		for i_s′ in state_inverse_map[i_s]
+			delt = bellman_optimal_update!(v_est, i_s′, mdp.ptf, γ; calc_delt = calc_delt)
+			num_updates += 1
+			if delt > θ
+				priority_queue[i_s′] = delt
+			end
+		end
+		sweep += 1
+	end
+	π = make_final_policy(v_est, mdp.ptf, γ)
+	(final_value = v_est, total_updates = num_updates, optimal_policy = π)
+end
+
+# ╔═╡ 9c584940-24ac-461d-900e-7ccfa690839e
+function value_iteration_prioritized(mdp::TabularMDP{T, S, A, P, F}, args...; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), θ::T = eps(zero(T)), max_updates::Integer = typemax(Int64), kwargs...) where {T<:Real, S, A, P<:TabularTransitionDistribution, F<:Function}
+	isempty(args) && any(mdp.terminal_states) && error("Attempting to use average reward criteria with episodic problem")
+	isone(first(args)) && !any(mdp.terminal_states) && error("For a continuing problem, cannot use γ = 1.  Omit it instead to treat this as an average reward problem.")
+
+	value_iteration_prioritized!(v_est, θ, mdp, args..., max_updates; kwargs...)
+end
+
 # ╔═╡ 40f6257d-db5c-4e21-9691-f3c9ffc9a9b5
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -1853,6 +2172,17 @@ If we apply value iteration using the state value function, we can compute the o
 # ╠═╡ skip_as_script = true
 #=╠═╡
 md"""Select discount rate for value iteration: $(@bind value_iteration_γ NumberField(0.00001f0:0.00001f0:1f0; default = 0.9f0))"""
+  ╠═╡ =#
+
+# ╔═╡ ec927347-14c7-46e2-8065-fa30532759d8
+#=╠═╡
+@btime value_iteration_prioritized_grid_example = value_iteration_prioritized(new_gridworld, value_iteration_γ; make_final_policy = make_greedy_bit_policy)
+  ╠═╡ =#
+
+# ╔═╡ 667e6f49-51dc-48cf-8296-d7ad905cd132
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const trajectory_gridworld_mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
   ╠═╡ =#
 
 # ╔═╡ a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
@@ -2808,7 +3138,7 @@ plot([scatter(y = td0_prediction(random_walk_dist, 0.99f0; max_steps = 100_000)[
   ╠═╡ =#
 
 # ╔═╡ ecebce8b-0e2a-49d0-89f5-53bd0ffdd1a3
-function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, nmax::Integer,  save_history::Bool, sweep; kwargs...) where {T<:Real, ST, RT, N}
+function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, γ::T, nmax::Integer,  save_history::Bool, sweep; show_message = true, make_final_policy::Function = make_greedy_policy, kwargs...) where {T<:Real, ST, RT, N}
 	delt = typemax(T)
 	total_updates = 0
 	valuelist = Vector{Array{T, N}}()
@@ -2820,15 +3150,16 @@ function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistr
 	while (delt > θ) && (n < nmax)
 		delt, num_updates = bellman_update_sweep!(v_est, ptf, γ, sweep; kwargs...)
 		total_updates += num_updates
+		show_message && @info "Completed sweep number $n with a delta of $delt"
 		n += 1
 		save_history && push!(valuelist, copy(v_est))
 	end
-	π = make_greedy_policy(v_est, ptf, γ)
+	π = make_final_policy(v_est, ptf, γ)
 	(final_value = v_est, total_iterations = n, total_updates = total_updates, value_history = valuelist, optimal_policy = π)
 end
 
 # ╔═╡ 3c7b0f62-1dc2-4d5b-a468-67aaa9c5367d
-function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, nmax::Integer, save_history::Bool, sweep; kwargs...) where {T<:Real, ST, RT, N}
+function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistribution{T, ST, RT}, nmax::Integer, save_history::Bool, sweep; show_message = true, make_final_policy::Function = make_greedy_policy, kwargs...) where {T<:Real, ST, RT, N}
 	#when there is no discount rate in the arguments, treat this as an average reward problem where the average value is removed from the value function on each step
 	delt = typemax(T)
 	total_updates = 0
@@ -2844,10 +3175,11 @@ function value_iteration!(v_est::Array{T, N}, θ::T, ptf::TabularTransitionDistr
 		delt, vref, num_updates = bellman_update_sweep!(v_est, v_est2, ptf, sweep; kwargs...)
 		push!(reward_estimates, vref)
 		total_updates += num_updates
+		show_message && @info "Completed sweep number $n with a delta of $delt"
 		n += 1
 		save_history && push!(valuelist, copy(v_est))
 	end
-	π = make_greedy_policy(v_est, ptf, one(T))
+	π = make_final_policy(v_est, ptf, one(T))
 
 	(final_value = v_est, reward_estimates = reward_estimates, total_iterations = n, total_updates = total_updates, value_history = valuelist, optimal_policy = π)
 end
@@ -3083,6 +3415,130 @@ During planning, the Q-planning algorithm randomly samples only from state-actio
 
 The collection of real experience and planning could occur simultaneously in these agents, but for a serial implementation it is assumed that the acting, model-learning, and direct RL processes are very fast while the planning process is the model computation-intensive.  Let us assume that after each step of acting, model-learning, and direct RL there is time for $n$ iterations of the Q-planning algorithm.  Without the model update and the $n$ loop planning step, this algorithm is identical to one-step tabular Q-learning.  An example implementation is below along with an example applying it to a maze environment.
 """
+
+# ╔═╡ 36614dac-ccd4-4fce-aac2-7e826c3bbffb
+md"""
+### Prioritized Sweeping
+
+Certain states are more important to a solution than others and will require more value updates.  The idea in prioritized sweeping is to prioritize updates according to a measure of their urgency, and perform them in order of priority.  A queue is maintained of every state-action pair whose estimated value would change nontrivially if updated, prioritized by the size of the change.  When the top pair in the queue is updated, the effect on each of its predecessor pairs is computed.  If the effect is greater than some small threshold, then the pair is inserted into the queue with the new priority.  In this way the effects of changes are efficiently propagated backward until quiescence.  A full implementation is shown below.
+"""
+
+# ╔═╡ fe13ad86-28b0-4a6e-a42a-2f5cda010c71
+function prioritized_sweeping_deterministic(mdp::TabularMDP{T, S, A, P, F}, γ::T; 
+	max_episodes = 1000, max_steps = 10000, max_planning_steps = 100, α = one(T)/10, qinit = zero(T), ϵ = one(T)/10, 
+	Qinit = initialize_state_action_value(mdp; init_value=qinit), 
+	save_history = false,
+	#each column contains the index of the state reached from the state represented by the column index while taking the action represented by the row index.  the values are initialized at 0 which represents a transition that has not occured
+	state_transition_map = zeros(Int64, length(mdp.actions), length(mdp.states)),
+	#each column contains the reward received from the state represented by the column index while taking the action represented by the row index.  the state_transition_map can be used to determine if any of these values have been updated from the zero initialization
+	reward_transition_map = zeros(T, length(mdp.actions), length(mdp.states)),
+	θ = eps(zero(T)),
+	init_step = 0,
+	isoptimal = l -> false) where {T<:Real, S, A, P, F}
+
+	π = zeros(T, length(mdp.actions))
+	Q = copy(Qinit)
+	Q[:, mdp.terminal_states] .= zero(T)
+	num_updates = 0
+
+	function update_action!(π, Q, i_s::Integer)
+		@inbounds @simd for i in eachindex(π)
+			π[i] = Q[i, i_s]
+		end
+		make_ϵ_greedy_policy!(π; ϵ = ϵ)
+		sample_action(π)
+	end
+
+	#each element is a dictionary whose keys are state indices and who's values are the set of actions that lead to the state who's index is represented by the vector index.
+	state_action_inverse_map = [Dict{Int64, Set{Int64}}() for _ in 1:length(mdp.states)]
+
+	function update_state_action_inverse_map!(inverse_map, i_s′, i_s, i_a)
+		if haskey(inverse_map[i_s′], i_s)
+			push!(inverse_map[i_s′][i_s], i_a)
+		else
+			inverse_map[i_s′][i_s] = Set(i_a)
+		end
+	end
+	
+	#keep track of rewards per step and steps per episode
+	rewards = Vector{T}()
+	steps = Vector{Int64}()
+	value_history = Vector{Matrix{T}}()
+
+	save_history && push!(value_history, Q)
+
+	#maintains a queue of state action pairs ranked by their priority with the largest value first
+	priority_queue = PriorityQueue{Tuple{Int64, Int64}, T}(Base.Order.Reverse)
+
+	calculate_priority(r, qmax, i_s, i_a) = abs(r + γ*qmax - Q[i_a, i_s])
+	calculate_qmax(Q, i_s) = maximum(Q[i, i_s] for i in eachindex(mdp.actions))
+	function updateQ!(Q, i_s, i_a, i_s′, r)
+		qmax = calculate_qmax(Q, i_s′)
+		Q[i_a, i_s] += α*(r + γ*qmax - Q[i_a, i_s])
+		num_updates += 1
+	end
+
+	function q_planning!(Q, queue)
+		step = 1
+		while (step <= max_planning_steps) && !isempty(queue)
+			(i_a, i_s) = first(keys(queue))
+			delete!(queue, (i_a, i_s))
+			i_s′ = state_transition_map[i_a, i_s]
+			r = reward_transition_map[i_a, i_s]
+			updateQ!(Q, i_s, i_a, i_s′, r)
+			#loop for all state action pairs that the model predicts will lead to s
+			qmax = calculate_qmax(Q, i_s)
+			for i_s̄ in keys(state_action_inverse_map[i_s])
+				for i_ā in state_action_inverse_map[i_s][i_s̄]
+					r̄ = reward_transition_map[i_ā, i_s̄]
+					p = calculate_priority(r̄, qmax, i_s̄, i_ā)
+					if p > θ
+						priority_queue[(i_ā, i_s̄)] = p
+					end
+				end
+			end
+			step += 1
+		end
+	end
+
+	step = 1
+	ep = 1
+	optimal_path = false
+	while (ep <= max_episodes) && (step <= max_steps) && !optimal_path
+		i_s = mdp.initialize_state_index()
+		l = 0
+		
+		while !mdp.terminal_states[i_s] && (step <= max_steps)
+			#take policy action based on Q
+			i_a = update_action!(π, Q, i_s)
+			(r, i_s′) = mdp.ptf(i_s, i_a)
+
+			#replace model value with observed transition
+			state_transition_map[i_a, i_s] = i_s′
+			reward_transition_map[i_a, i_s] = r
+
+			#update inverse map
+			update_state_action_inverse_map!(state_action_inverse_map, i_s′, i_s, i_a)
+
+			#calculate expected update from previous Q value
+			p = calculate_priority(r, calculate_qmax(Q, i_s′), i_s, i_a)
+			if p > θ
+				priority_queue[(i_a, i_s)] = p
+			end
+			
+			push!(rewards, r)
+			q_planning!(Q, priority_queue)
+			save_history && push!(value_history, Q)
+			step += 1
+			i_s = i_s′
+			l += 1
+		end
+		push!(steps, l)
+		optimal_path = isoptimal(l)
+		ep += 1
+	end
+	return Q, steps, rewards, state_transition_map, reward_transition_map, num_updates, value_history
+end
 
 # ╔═╡ a912feaa-b2b2-479e-befe-9e919e453e31
 # ╠═╡ skip_as_script = true
@@ -3434,7 +3890,7 @@ make_random_policy(mdp::StateMDP) = s -> rand(eachindex(mdp.actions))
 
 # ╔═╡ 2f7afb63-22de-49af-b907-4aeb75dc9f2a
 begin
-	function runepisode!((states, actions, rewards)::Tuple{Vector{Int64}, Vector{Int64}, Vector{T}}, mdp::TabularMDP{T, S, A, P, F}; i_s0::Integer = mdp.initialize_state_index(), π::Matrix{T} = make_random_policy(mdp), i_a0 = sample_action(π, i_s0), max_steps = Inf) where {T<:Real, S, A, P, F}
+	function runepisode!((states, actions, rewards)::Tuple{Vector{Int64}, Vector{Int64}, Vector{T}}, mdp::TabularMDP{T, S, A, P, F}; i_s0::Integer = mdp.initialize_state_index(), π::AbstractMatrix{T2} = make_random_policy(mdp), i_a0 = sample_action(π, i_s0), max_steps = Inf) where {T<:Real, T2<:Real, S, A, P, F}
 		@assert any(mdp.terminal_states) #ensure that some terminal state exists since episodes are only defined for problems with terminal states
 		i_s = i_s0
 		l = length(states)
@@ -3745,7 +4201,12 @@ const differential_policy_iteration_results2 = differential_policy_iteration_v(n
 
 # ╔═╡ d4953eed-f756-4711-959f-6118d8f412b5
 #=╠═╡
-md"""Number of Policy Iterations: $(@bind policy_iteration_count2 Slider(0:length(differential_policy_iteration_results2.policies) .- 1; show_value=true, default = length(differential_policy_iteration_results2.policies) - 1))"""
+md"""Number of Policy Iterations: $(@bind policy_iteration_count2 Slider(0:length(differential_policy_iteration_results2.policy_history) .- 1; show_value=true, default = length(differential_policy_iteration_results2.policy_history) - 1))"""
+  ╠═╡ =#
+
+# ╔═╡ 617c1610-d670-442f-9770-f7d4503fdf62
+#=╠═╡
+differential_policy_iteration_results2
   ╠═╡ =#
 
 # ╔═╡ 2760420c-9fa1-483f-8bd5-cdc8eb11305f
@@ -3789,6 +4250,28 @@ So even though the optimal discounted value policy has higher values at every st
 
 # ╔═╡ 91b82def-2f92-4084-a6e0-ce8913f220d4
 differential_policy_iteration_q(problem; kwargs...) = differential_policy_iteration(problem, initialize_state_action_value; kwargs...)
+
+# ╔═╡ 5b8edd52-1452-4c58-b7b8-b8e67aa87605
+function value_iteration_trajectory(mdp::TabularMDP{T, S, A, P, F}, args...; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), ϵ::T = one(T)/10, θ::T = eps(zero(T)), nmax::Integer = typemax(Int64), save_history = false, kwargs...) where {T<:Real, S, A, P<:TabularTransitionDistribution, F<:Function}
+	isempty(args) && any(mdp.terminal_states) && error("Attempting to use average reward criteria with episodic problem")
+	isone(first(args)) && !any(mdp.terminal_states) && error("For a continuing problem, cannot use γ = 1.  Omit it instead to treat this as an average reward problem.")
+	π = make_random_policy(mdp)
+	π_vec = zeros(T, length(mdp.actions))
+	sweep = make_uniform_sweep(v_est) |> collect
+	stop_trigger = [false]
+	value_iteration_trajectory!(v_est, π, π_vec, θ, ϵ, mdp.ptf, args..., 1, false, sweep, stop_trigger)
+	stop_trigger = [false]
+	sweep_ref = @spawn update_sweep_trajectory!(sweep, mdp, π, stop_trigger)
+	out_ref = @spawn value_iteration_trajectory!(v_est, π, π_vec, θ, ϵ, mdp.ptf, args..., nmax-1, save_history, sweep, stop_trigger; kwargs...)
+	out = fetch(out_ref)
+	n = fetch(sweep_ref)
+	return (;out..., trajectory_updates = n, final_sweep = sweep)
+end
+
+# ╔═╡ 284eca49-5d0c-40ba-a9b3-7d3422ca8daf
+#=╠═╡
+const value_iteration_grid_trajectory_example = value_iteration_trajectory(trajectory_gridworld_mdp, 1f0; ϵ = 0.01f0, nmax = 10000, save_history = true)
+  ╠═╡ =#
 
 # ╔═╡ a2436a63-3af7-4345-9ef0-339c6a8fcaa6
 #option to use expected_sarsa_value_update! instead of sarsa_value_update!, but this version does not have a separate target and behavior policy
@@ -3927,7 +4410,7 @@ end
 # ╔═╡ 929c353b-f67c-49ff-85d3-0a27cafc59cf
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const value_iteration_grid_example = value_iteration_v(new_gridworld, value_iteration_γ; θ = 1f-6, nmax = 1000)
+@btime value_iteration_grid_example = value_iteration_v(new_gridworld, value_iteration_γ; show_message = false, make_final_policy = make_greedy_bit_policy)
   ╠═╡ =#
 
 # ╔═╡ 4f645ebc-27f4-4b68-93d9-2e35232cedcf
@@ -3938,8 +4421,8 @@ const value_iteration_grid_example2 = value_iteration_v(deterministic_gridworld,
 
 # ╔═╡ 2fe59959-5d89-4ae7-839c-ecf82e2c71d8
 begin
-	value_iteration_q(problem, γ::T; init_value::T = zero(T), v_est::Matrix{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real} = value_iteration(problem, γ, v_est; kwargs...)
-	value_iteration_q(problem::TabularMDP{T, S, A, P, F}; init_value::T = zero(T), v_est::Matrix{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real, S, A, P, F} = value_iteration(problem, v_est; kwargs...)
+	value_iteration_q(problem, γ::T; init_value::T = zero(T), v_est::Matrix{T} = initialize_state_action_value(problem; init_value = init_value), kwargs...) where {T<:Real} = value_iteration(problem, γ, v_est; kwargs...)
+	value_iteration_q(problem::TabularMDP{T, S, A, P, F}; init_value::T = zero(T), v_est::Matrix{T} = initialize_state_action_value(problem; init_value = init_value), kwargs...) where {T<:Real, S, A, P, F} = value_iteration(problem, v_est; kwargs...)
 end
 
 # ╔═╡ 9bf8be28-a5b6-4e24-a514-910019be475c
@@ -5488,7 +5971,7 @@ show_grid_value(differential_gridworld, differential_policy_evaluation_v(differe
 # ╔═╡ 9b937c49-7216-47c9-a1ef-2ecfa6ff3b31
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
+function display_rook_policy(v::AbstractVector{T}; scale = 1.0) where T<:Real
 	@htl("""
 		<div style = "display: flex; align-items: center; justify-content: center; transform: scale($scale);">
 		<div class = "downarrow" style = "position: absolute; transform: rotate(180deg); opacity: $(v[1]);"></div>	
@@ -5499,6 +5982,9 @@ function display_rook_policy(v::Vector{T}; scale = 1.0) where T<:AbstractFloat
 	""")
 end
   ╠═╡ =#
+
+# ╔═╡ 56060ecf-3958-4a55-886b-cec8883dfc27
+display_rook_policy(v::AbstractVector{B}; scale = 1.0) where B<:Bool = display_rook_policy(v ./ sum(v))
 
 # ╔═╡ d5431c0e-ac46-4de1-8d3c-8c97b92306a8
 # ╠═╡ skip_as_script = true
@@ -5702,8 +6188,8 @@ show_grid_policy(deterministic_gridworld.states, deterministic_gridworld.initial
 #=╠═╡
 @htl("""
 <div style = "display: flex; justify-content: center; align-items: flex-start;">
-	<div>Policy after Iteration $policy_iteration_count$(show_grid_policy(new_gridworld.states, new_gridworld.initialize_state_index, new_gridworld.terminal_states, differential_policy_iteration_results2.policies[policy_iteration_count2+1], "policy_iteration_average_reward_gridworld"))</div>
-	<div>Corresponding Differential Value Function$(show_grid_value(new_gridworld, differential_policy_iteration_results2.value_functions[policy_iteration_count2+1], "policy_iteration_values", square_pixels = 40))</div>
+	<div>Policy after Iteration $policy_iteration_count$(show_grid_policy(new_gridworld.states, new_gridworld.initialize_state_index, new_gridworld.terminal_states, differential_policy_iteration_results2.policy_history[policy_iteration_count2+1], "policy_iteration_average_reward_gridworld"))</div>
+	<div>Corresponding Differential Value Function$(show_grid_value(new_gridworld, differential_policy_iteration_results2.value_history[policy_iteration_count2+1], "policy_iteration_values", square_pixels = 40))</div>
 	<div>$(show_grid_probabilities(new_gridworld, round.(differential_policy_iteration_results2.steady_state_distribution.steady_state_distribution; sigdigits = 3), "steady-state-distribution2"; square_pixels = 40))</div>
 </div>
 """)
@@ -5749,6 +6235,28 @@ show_grid_policy(deterministic_gridworld.states, deterministic_gridworld.initial
 	<div style = "margin: 10px;">Optimal value function found after $(value_iteration_grid_example.total_iterations) steps $(show_grid_value(new_gridworld, last(value_iteration_grid_example.value_history), "policy_iteration_values", square_pixels = 40))</div>
 	<div style = "margin: 10px;">Corresponding greedy policy
 	$(show_grid_policy(new_gridworld.states, new_gridworld.initialize_state_index, new_gridworld.terminal_states, value_iteration_grid_example.optimal_policy, "policy_iteration_deterministic_gridworld"))</div>
+</div>
+""")
+  ╠═╡ =#
+
+# ╔═╡ cb8a0a80-ac58-4b01-9855-2def71368e00
+#=╠═╡
+@htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div style = "margin: 10px;">Optimal value function found after $(value_iteration_prioritized_grid_example.total_updates) updates $(show_grid_value(new_gridworld, value_iteration_prioritized_grid_example.final_value, "policy_iteration_values", square_pixels = 40))</div>
+	<div style = "margin: 10px;">Corresponding greedy policy
+	$(show_grid_policy(new_gridworld.states, new_gridworld.initialize_state_index, new_gridworld.terminal_states, value_iteration_prioritized_grid_example.optimal_policy, "value_iteration_deterministic_gridworld"))</div>
+</div>
+""")
+  ╠═╡ =#
+
+# ╔═╡ a0fbb401-2212-42d4-856b-14f2cfd9dc84
+#=╠═╡
+@htl("""
+<div style = "display: flex; justify-content: center; align-items: flex-start;">
+	<div style = "margin: 10px;">Optimal value function found after $(value_iteration_grid_trajectory_example.total_iterations) steps $(show_grid_value(trajectory_gridworld_mdp, last(value_iteration_grid_trajectory_example.value_history), "policy_iteration_values", square_pixels = 40))</div>
+	<div style = "margin: 10px;">Corresponding greedy policy
+	$(show_grid_policy(trajectory_gridworld_mdp.states, trajectory_gridworld_mdp.initialize_state_index, trajectory_gridworld_mdp.terminal_states, value_iteration_grid_trajectory_example.optimal_policy, "policy_iteration_deterministic_gridworld"))</div>
 </div>
 """)
   ╠═╡ =#
@@ -6055,7 +6563,7 @@ Transducers = "~0.4.82"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.6"
+julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "c080370de5167442d60c6f98b32e0b22fecb52d7"
 
@@ -6853,6 +7361,9 @@ version = "17.4.0+2"
 # ╟─cf902114-94e3-4402-ae04-8f704dd6adad
 # ╟─a3e85772-9c67-454f-94d2-c2608b53c427
 # ╟─f52b6f5d-3832-41aa-8ccd-78e514e65c8b
+# ╠═4c299506-b7f6-477c-9c49-e9ea01ea9244
+# ╠═9d0be18f-6eb2-4a48-931b-75f8ca307b69
+# ╠═cbf6d7b0-fc72-416c-801a-a9e723ecd2d4
 # ╠═b7f5ed8b-32ac-483f-9178-e8cca531ccf5
 # ╠═f42ba03e-318e-495c-ac1e-1cda8f786334
 # ╠═f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
@@ -6882,6 +7393,7 @@ version = "17.4.0+2"
 # ╟─d1caf2e3-12ff-40b4-a688-d6f3ed783894
 # ╟─d4953eed-f756-4711-959f-6118d8f412b5
 # ╠═e526ea96-bf6f-448b-be2a-0a02246744d8
+# ╠═617c1610-d670-442f-9770-f7d4503fdf62
 # ╟─08a6434a-a56c-456b-bd29-033e1f94b9da
 # ╟─c2c2f31d-cd50-453e-90c1-6e9abeea1fa8
 # ╟─71dba35d-f5fb-49d0-8eb7-f2a69ae2e906
@@ -6928,6 +7440,16 @@ version = "17.4.0+2"
 # ╠═f23c0d63-7cec-44b0-bd82-36077588ed23
 # ╠═ecebce8b-0e2a-49d0-89f5-53bd0ffdd1a3
 # ╠═3c7b0f62-1dc2-4d5b-a468-67aaa9c5367d
+# ╠═34e5cd1b-9aa7-49d8-a070-deb4159c638d
+# ╠═02056419-b008-4254-bbc1-369ab150b772
+# ╠═a464175d-92c8-4f89-aebb-37e844bbaf2b
+# ╠═28d2441d-ccb9-46f1-92ce-64d4c099d60a
+# ╠═5b8edd52-1452-4c58-b7b8-b8e67aa87605
+# ╠═37ce519f-784e-4613-8e8f-044585f59bac
+# ╠═4c117c00-9275-45dc-9d9e-4a21aab9bc50
+# ╠═cd09438f-5827-4ad4-a3c2-890ee869bcd7
+# ╠═c77f6588-a42b-4ec2-b3ee-54e1f237428e
+# ╠═9c584940-24ac-461d-900e-7ccfa690839e
 # ╠═1e24a0aa-dbf9-422e-92c9-834f293a0c02
 # ╠═eec3017b-6d02-49e6-aedf-9a494b426ec5
 # ╠═2fe59959-5d89-4ae7-839c-ecf82e2c71d8
@@ -6935,6 +7457,11 @@ version = "17.4.0+2"
 # ╟─bf12d9c9-c79d-4398-9f15-27cbde1ed476
 # ╟─102d169a-8bd0-42f4-bfc9-3a32708afadc
 # ╠═929c353b-f67c-49ff-85d3-0a27cafc59cf
+# ╠═ec927347-14c7-46e2-8065-fa30532759d8
+# ╟─cb8a0a80-ac58-4b01-9855-2def71368e00
+# ╠═667e6f49-51dc-48cf-8296-d7ad905cd132
+# ╠═284eca49-5d0c-40ba-a9b3-7d3422ca8daf
+# ╟─a0fbb401-2212-42d4-856b-14f2cfd9dc84
 # ╟─a6a3a31f-1411-4013-8bf7-fbdceac9c6ba
 # ╟─1d555f77-c404-485a-9244-717c12c80d28
 # ╟─3df86061-63f7-4c1f-a141-e1848f6e83e4
@@ -7068,6 +7595,8 @@ version = "17.4.0+2"
 # ╠═bf0cdd1a-4393-4ce1-92b1-28816fb0e73f
 # ╟─78ecd319-1f5c-4ba0-b9c4-da0dfadb4b2c
 # ╟─47f7aea5-5bc8-4783-a947-6f3c70f1b92c
+# ╟─36614dac-ccd4-4fce-aac2-7e826c3bbffb
+# ╠═fe13ad86-28b0-4a6e-a42a-2f5cda010c71
 # ╟─a912feaa-b2b2-479e-befe-9e919e453e31
 # ╟─9633ce8d-c15a-43f6-9d94-2bee4897b78f
 # ╠═00fa5849-3ee4-432b-ba81-2bfd3db9c866
@@ -7143,6 +7672,7 @@ version = "17.4.0+2"
 # ╠═7ad8dc82-5c60-493a-b78f-93e37a3f3ab8
 # ╠═b70ec2b1-f8c2-4288-831a-041804d2ec43
 # ╠═9b937c49-7216-47c9-a1ef-2ecfa6ff3b31
+# ╠═56060ecf-3958-4a55-886b-cec8883dfc27
 # ╠═93cbc453-152e-401e-bf53-c95f1ae962c0
 # ╠═c11ab768-1da4-497b-afc1-fb64bc3fb457
 # ╠═cad8d079-b8d1-4266-8420-b1822a3ca6d0
