@@ -1888,9 +1888,12 @@ By default the NN gradient and forward pass assumes a dense vector or matrix for
 Here x contains the feature information and must work for something other than `Vector` or `Matrix` types
 """
 
+# ╔═╡ c0e5e282-4f4f-48d9-a52a-9dc960f60223
+Array{Float32, 1}
+
 # ╔═╡ 0334d2ff-268d-4485-b460-89f82c4a99e1
 begin
-	function BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::StateAggregationFeatureVector, c2::T, output::Vector{T}) where T<:Real
+	function BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::StateAggregationFeatureVector, c2::T, output::Array{T, N}) where {N, T<:Real}
 		j = x.group_index
 		if O == 'N'
 			@inbounds @simd for i in eachindex(output)
@@ -1905,7 +1908,7 @@ begin
 		end
 	end
 
-	function BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::BinaryFeatureVector, c2::T, output::Vector{T}) where T<:Real
+	function BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::BinaryFeatureVector, c2::T, output::Array{T, N}) where {N, T<:Real}
 		l = x.num_features
 		inds = x.active_features
 		if !isone(c2) 
@@ -2284,20 +2287,33 @@ begin
 	# Returns
 	- `LinearActionValueGradient`: The updated gradient storage (same as input `∇q̂`)
 	"""
-	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params) where {T<:Real}
+	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
 		∇v̂ .= x
 		return linear_value_function(x, value_params)
+	end
+
+	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params) where {T<:Real}
+		∇v̂ .= x
+	end
+
+	#with binary features we only need to store the active features
+	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params::Vector{T}) where T<:Real
+		update_binary_feature_vector!(∇v̂, binary_features)
+		return linear_value_function(binary_features, value_params)
 	end
 
 	#with binary features we only need to store the active features
 	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params)
 		update_binary_feature_vector!(∇v̂, binary_features)
-		return linear_value_function(binary_features, value_params)
 	end
 
-	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params)
+	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params::Vector{T}) where T<:Real
 		∇v̂.group_index = feature_vector.group_index
 		return linear_value_function(feature_vector, value_params)
+	end
+
+	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector)
+		∇v̂.group_index = feature_vector.group_index
 	end
 end
 
@@ -2846,9 +2862,8 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 		d_gradient = initialize_gpu_params(params)
 		d_x = FCANN.cuda_allocate(zeros(T, input_length))
 
-		function value_function(x::Vector{T}, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations, gpu_feature_vector = d_x) 			
-			FCANN.memcpy!(gpu_feature_vector, x)
-			fcann_value_function!(activations, gpu_feature_vector, params)
+		function value_function(d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations) 			
+			fcann_value_function!(activations, d_x, params)
 			
 			# return FCANN.host_allocate(last(activations))[1]
 
@@ -2857,14 +2872,23 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 			FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
 			dst.x
 		end
+		
+		function value_function(x::Vector{T}, params::FCANNParamsGPU; gpu_feature_vector::FCANN.CUDAArray = d_x, kwargs...) 			
+			FCANN.memcpy!(gpu_feature_vector, x)
+			value_function(gpu_feature_vector, params; kwargs...)
+		end
 
-		function update_value_gradient!(∇v̂::FCANNParamsGPU, x::Vector{T}, params::FCANNParamsGPU) 
-			FCANN.memcpy!(d_x, x)
+		function update_value_gradient!(∇v̂::FCANNParamsGPU, d_x::FCANN.CUDAArray, params::FCANNParamsGPU) 
 			update_fcann_value_gradient!(∇v̂, d_x, 1, params, hidden_layers, l2, d_tanh_grad_z, d_activations, d_deltas, dropout, activation_list)
 			use_μP && scale_fcann_params!(∇v̂, scales)
 			dst = Ref{Float32}(0f0)
 			FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(d_activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
 			return dst.x
+		end
+
+		function update_value_gradient!(∇v̂::FCANNParamsGPU, x::Vector{T}, params::FCANNParamsGPU) 
+			FCANN.memcpy!(d_x, x)
+			update_value_gradient!(∇v̂, d_x, params)
 		end
 
 		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params, feature_vector = d_x)
@@ -5796,6 +5820,7 @@ version = "17.4.0+2"
 # ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
 # ╟─82828e72-5d30-41b6-a1b6-f258c234b034
 # ╟─2bc32d3d-193e-4cab-b13b-f7ed304af0f6
+# ╠═c0e5e282-4f4f-48d9-a52a-9dc960f60223
 # ╠═0334d2ff-268d-4485-b460-89f82c4a99e1
 # ╠═8e8add6f-99ab-4aa7-b236-87915c6be9c2
 # ╠═66cadcfb-4fda-4509-80d6-aa22766a7e9c

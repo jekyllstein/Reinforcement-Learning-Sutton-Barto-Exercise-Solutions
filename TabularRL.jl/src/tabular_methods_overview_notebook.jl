@@ -351,7 +351,7 @@ begin
 
 Samples an action index from a probability distribution represented by a vector.
 """
-function sample_action(v::AbstractVector{T}) where T<:Real 
+function sample_action(v::AbstractArray{T, N}) where {N, T<:Real} 
 	i_a = 1
 	maxv = T(-Inf)
 	@inbounds @fastmath @simd for i in eachindex(v)
@@ -365,7 +365,7 @@ function sample_action(v::AbstractVector{T}) where T<:Real
 	# sample(eachindex(v), weights(v))
 end
 
-function sample_action(v::AbstractVector{B}) where B<:Bool 
+function sample_action(v::AbstractArray{B, N}) where {N, B<:Bool} 
 	i_a = 1
 	maxv = -Inf
 	@inbounds @fastmath @simd for i in eachindex(v)
@@ -1676,7 +1676,7 @@ end
 
 # ╔═╡ b7f5ed8b-32ac-483f-9178-e8cca531ccf5
 begin
-	function make_ϵ_greedy_policy!(v::AbstractVector{T}; ϵ = one(T)/10) where {T<:Real}
+	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}; ϵ = one(T)/10) where {N, T<:Real}
 		n = length(v)
 		maxv = maximum(v)
 		
