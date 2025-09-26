@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.17
+# v0.20.18
 
 using Markdown
 using InteractiveUtils
@@ -273,60 +273,6 @@ mutable struct LinearActionValueGradient{I <: Integer, V <: LinearFeatureVector}
 	action_index::I
 end
 
-# ╔═╡ 0226d8a3-bb22-4a32-9700-e234abf518a6
-#for a linear function the gradient is just the feature vector and I can reuse all of the gradient update functions from chapter 9 with the added information of storing the action index
-
-"""
-    update_linear_value_gradient!(∇q̂::LinearActionValueGradient, x, i_a, value_params) -> LinearActionValueGradient
-
-Updates action-value gradient storage with feature vector and action index.
-
-Extends the existing linear gradient system to handle action-value functions by delegating
-gradient computation to [`update_linear_value_gradient!`](@ref) and storing the action index.
-
-# Arguments
-- `∇q̂::LinearActionValueGradient`: Action-value gradient storage to update in-place
-- `x::LinearFeatureVector`: Feature vector representing ∇q̂(s,a)
-- `i_a::Integer`: Action index for this gradient
-- `value_params`: Value function parameters (unused, maintains API consistency)
-
-# Returns
-- `LinearActionValueGradient`: The updated gradient storage (same as input `∇q̂`)
-
-See [`update_linear_value_gradient!`](@ref) for complete documentation of the gradient system.
-"""
-function update_linear_value_gradient!(∇q̂::LinearActionValueGradient{I, V}, x::V, i_a::Integer, value_params) where {I <: Integer, V <: LinearFeatureVector}
-	update_linear_value_gradient!(∇q̂.action_gradient, x, value_params)
-	∇q̂.action_index = i_a
-	return ∇q̂
-end
-
-# ╔═╡ 1393f7a6-05c7-48a3-96a9-130eb6d45937
-#for the gradient update I need to use the action index to only update the columns of the parameter matrix that apply for linear approximation.  all of these implementations are for the case of linear approximation where I only store the gradient of the action values plus the action index and the linear approximation parameters are stored in a matrix
-begin
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::Vector{T}, i_a::Integer) where {T<:Real}
-		@inbounds @simd for i in eachindex(∇w)
-			w[i, i_a] += α * ∇w[i]
-		end
-		return w
-	end
-	
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::BinaryFeatureVector, i_a::Integer) where {T<:Real}
-		@inbounds @simd for i in 1:∇w.num_features
-			j = ∇w.active_features[i]
-			w[j, i_a] += α
-		end
-		return w
-	end
-
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::StateAggregationFeatureVector, i_a::Integer) where {T<:Real}
-		w[∇w.group_index, i_a] += α
-		return w
-	end
-
-	update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient) where T<:Real = update_params_with_gradient!(w, α, ∇w.action_gradient, ∇w.action_index)
-end
-
 # ╔═╡ 3273ed4a-6787-4635-8399-65ddf65b31ea
 begin
 	#for the parameter matrix, each column corresponds to a different action and is the same length as the feature vector.  Each function will return the maximum q value and its action index as well since that will be needed later for some functions
@@ -431,6 +377,66 @@ begin
 	end
 end
 
+# ╔═╡ 0226d8a3-bb22-4a32-9700-e234abf518a6
+#for a linear function the gradient is just the feature vector and I can reuse all of the gradient update functions from chapter 9 with the added information of storing the action index
+
+"""
+    update_linear_value_gradient!(∇q̂::LinearActionValueGradient, x, i_a, value_params) -> LinearActionValueGradient
+
+Updates action-value gradient storage with feature vector and action index.
+
+Extends the existing linear gradient system to handle action-value functions by delegating
+gradient computation to [`update_linear_value_gradient!`](@ref) and storing the action index.
+
+# Arguments
+- `∇q̂::LinearActionValueGradient`: Action-value gradient storage to update in-place
+- `x::LinearFeatureVector`: Feature vector representing ∇q̂(s,a)
+- `i_a::Integer`: Action index for this gradient
+- `value_params`: Value function parameters (unused, maintains API consistency)
+
+# Returns
+- `LinearActionValueGradient`: The updated gradient storage (same as input `∇q̂`)
+
+See [`update_linear_value_gradient!`](@ref) for complete documentation of the gradient system.
+"""
+function update_linear_value_gradient!(∇q̂::LinearActionValueGradient{I, V}, x::V, i_a::Integer, value_params) where {I <: Integer, V <: LinearFeatureVector}
+	update_linear_value_gradient!(∇q̂.action_gradient, x, value_params)
+	∇q̂.action_index = i_a
+	return ∇q̂
+end
+
+# ╔═╡ 08c74b7d-7aa6-4085-a09b-b6191f8d098e
+function update_linear_value_gradient!(∇q̂::LinearActionValueGradient{I, V}, action_values::Vector{T}, x::V, i_a::Integer, value_params) where {I <: Integer, V <: LinearFeatureVector, T<:Real}
+	update_linear_value_gradient!(∇q̂, x, i_a, value_params)
+	update_linear_action_values!(action_values, x, value_params)
+end
+
+# ╔═╡ 1393f7a6-05c7-48a3-96a9-130eb6d45937
+#for the gradient update I need to use the action index to only update the columns of the parameter matrix that apply for linear approximation.  all of these implementations are for the case of linear approximation where I only store the gradient of the action values plus the action index and the linear approximation parameters are stored in a matrix
+begin
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::Vector{T}, i_a::Integer) where {T<:Real}
+		@inbounds @simd for i in eachindex(∇w)
+			w[i, i_a] += α * ∇w[i]
+		end
+		return w
+	end
+	
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::BinaryFeatureVector, i_a::Integer) where {T<:Real}
+		@inbounds @simd for i in 1:∇w.num_features
+			j = ∇w.active_features[i]
+			w[j, i_a] += α
+		end
+		return w
+	end
+
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::StateAggregationFeatureVector, i_a::Integer) where {T<:Real}
+		w[∇w.group_index, i_a] += α
+		return w
+	end
+
+	update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient) where T<:Real = update_params_with_gradient!(w, α, ∇w.action_gradient, ∇w.action_index)
+end
+
 # ╔═╡ fc0b88f3-fbf9-450d-b770-b34357ffad49
 #in normal sarsa, we use the action value of the action actually taken, later on with methods like expected sarsa we would actually use the policy vector compute a weighted average of all action values
 """
@@ -507,19 +513,25 @@ end
 # ╔═╡ 2ef47fe1-e082-406b-b131-5e2ae1bcb08b
 begin
 	#for linear approximation just compute all of the state values with a matrix-vector multiplication
-	function update_state_values!(state_values::Vector{T}, feature_matrix::Matrix{T}, parameters::Vector{T}, activations) where T<:Real
+	function update_state_values!(state_values::Array{T, N}, feature_matrix::Matrix{T}, parameters::Vector{T}, activations) where {N, T<:Real}
 		BLAS.gemv!('T', one(T), feature_matrix, parameters, zero(T), state_values)
 		return state_values
 	end
 
 	#for non-linear approximation, use the forward pass function
-	function update_state_values!(state_values::Vector{T}, feature_matrix::Matrix{T}, parameters::FCANNParams{T}, activations) where T<:Real
+	function update_state_values!(state_values::Array{T, N}, feature_matrix::Matrix{T}, parameters::FCANNParams{T}, activations) where {N, T<:Real}
 		FCANN.forwardNOGRAD_base!(activations, parameters.weights..., feature_matrix, parameters.reslayers; input_orientation = 'T')
 		state_values .= activations[end]
 	end
 
 	#for non-linear approximation, use the forward pass function
-	function update_state_values!(state_values::Vector{T}, feature_matrix::Vector{V}, parameters::FCANNParams{T}, activations) where {V<:AbstractBinaryFeatures, T<:Real}
+	function update_state_values!(state_values::Array{T, N}, feature_matrix::FCANN.CUDAArray, parameters::FCANNParamsGPU, activations::FCANNActivationsGPU) where {N, T<:Real}
+		FCANN.forwardNOGRAD_base!(activations, parameters.weights..., feature_matrix, parameters.reslayers; input_orientation = 'T')
+		FCANN.memcpy!(state_values, activations[end])
+	end
+
+	#for non-linear approximation, use the forward pass function
+	function update_state_values!(state_values::Array{T, N}, feature_matrix::Vector{V}, parameters::FCANNParams{T}, activations) where {N, V<:AbstractBinaryFeatures, T<:Real}
 		FCANN.forwardNOGRAD_base!(activations, parameters.weights..., feature_matrix, parameters.reslayers)
 		state_values .= activations[end]
 	end
@@ -569,7 +581,7 @@ begin
 	- Handles terminal states by excluding them from value computation
 	- Compatible with any state-value function that accepts individual states
 	"""
-	function update_action_values!(action_values::Vector{T}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function}
+	function update_action_values!(action_values::Array{T, N}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1<:Function, F2<:Function, F3<:Function, N}
 		maxq = typemin(T)
 		i_a_max = 0
 		for i_a in eachindex(action_values)
@@ -594,7 +606,7 @@ begin
 		return maxq, i_a_max
 	end
 
-	function update_action_values!(action_values::Vector{T}, s, feature_vector::V, update_feature_vector!::Function, value_function::Function, parameters::Vector{T}, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, V<:Union{BinaryFeatureVector, StateAggregationFeatureVector}}
+	function update_action_values!(action_values::Array{T, N}, s, feature_vector::V, update_feature_vector!::Function, value_function::Function, parameters::Vector{T}, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, V<:Union{BinaryFeatureVector, StateAggregationFeatureVector}, N}
 		maxq = typemin(T)
 		i_a_max = 0
 		for i_a in eachindex(action_values)
@@ -610,7 +622,7 @@ begin
 		return maxq, i_a_max
 	end
 
-	function update_action_values!(action_values::Vector{T}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix, activations) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function}
+	function update_action_values!(action_values::Array{T, N}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix, activations) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
 		for i_a in eachindex(action_values)
 			r, s′ = mdp.ptf.step(s, i_a)
 			update_feature_vector!(feature_vector, s′)
@@ -618,6 +630,19 @@ begin
 			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
 		end
 		update_state_values!(action_values, feature_matrix, parameters, activations)
+		action_values .= reward_values .+ γ .* action_values
+		findmax(action_values)
+	end
+
+	function update_action_values!(action_values::Array{T, N}, s, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, parameters::FCANNParamsGPU, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix::Matrix{T}, gpu_matrix::FCANN.CUDAArray, activations) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
+		for i_a in eachindex(action_values)
+			r, s′ = mdp.ptf.step(s, i_a)
+			update_feature_vector!(feature_vector, s′)
+			update_feature_matrix!(feature_matrix, feature_vector, i_a)
+			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
+		end
+		FCANN.memcpy!(gpu_matrix, feature_matrix)
+		update_state_values!(action_values, gpu_matrix, parameters, activations)
 		action_values .= reward_values .+ γ .* action_values
 		findmax(action_values)
 	end
@@ -640,6 +665,15 @@ begin
 		feature_matrix = zeros(T, length(feature_vector), num_actions)
 		activations = FCANN.form_activations(parameters.weights[1], num_actions)
 		(reward_values, feature_matrix, activations)
+	end
+
+	function form_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where {T<:Real, S, A, P <: StateMDPTransitionDeterministic, F1, F2, F3}
+		num_actions = length(mdp.actions)
+		reward_values = zeros(T, num_actions)
+		feature_matrix = zeros(T, length(feature_vector), num_actions)
+		gpu_matrix = FCANN.cuda_allocate(feature_matrix)
+		activations = FCANN.form_activations(parameters.weights[1], num_actions)
+		(reward_values, feature_matrix, gpu_matrix, activations)
 	end
 
 	function form_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::V, parameters::FCANNParams) where {T<:Real, S, A, P <: StateMDPTransitionDeterministic, F1, F2, F3, V<:AbstractBinaryFeatures}
@@ -736,6 +770,18 @@ begin
 		return q̂, form_kwargs
 	end
 
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::Vector{T}, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W<:FCANNParamsGPU}
+		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} = copy(feature_vector), gpu_feature_vector::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), parameters::W = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+			update_feature_vector!(feature_vector, s)
+			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; activations = activations, gpu_feature_vector = gpu_feature_vector, kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+	
+		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = copy(feature_vector), gpu_feature_vector = FCANN.cuda_allocate(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+	
+		return q̂, form_kwargs
+	end
+
 	#form value function when training two sets of parameters with double sarsa
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
 		function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, action_value_kwargs...)
@@ -771,11 +817,29 @@ begin
 		return q̂, form_kwargs
 	end	
 
-	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V, W}
-		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), parameters::W = parameters, feature_vector::V = deepcopy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
-			maxq, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ, action_value_args...; kwargs...)
-			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::Vector{T}, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W <: FCANNParamsGPU}
+		function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} =copy(feature_vector), gpu_feature_vector = FCANN.cuda_allocate(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, activations = FCANN.form_activations(parameters1.weights[1]), action_value_kwargs...)
+			update_feature_vector!(feature_vector, s)
+			FCANN.memcpy!(gpu_feature_vector, feature_vector)
+			update_action_values!(action_values1, gpu_feature_vector, parameters1; gpu_feature_vector = gpu_feature_vector, activations = activations, action_value_kwargs...)
+			update_action_values!(action_values2, gpu_feature_vector, parameters2; gpu_feature_vector = gpu_feature_vector, activations = activations, action_value_kwargs...)
+			action_values1 .+= action_values2
+			action_values1 ./= 2
+			(maxq, i_a_max) = findmax(action_values1)
+				
+			(action_values = action_values1, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
+
+		form_kwargs() = (action_values1 = zeros(T, length(mdp.actions)), action_values2 = zeros(T, length(mdp.actions)), gpu_feature_vector = copy(feature_vector), feature_vector = make_cpu_array(feature_vector), parameters1 = parameters1, parameters2 = parameters2, activations = FCANN.form_activations(parameters1.weights[1]))
+
+		return q̂, form_kwargs
+	end
+
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V, W}
+		function q̂(s::S; action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), parameters::W = parameters, feature_vector::V = deepcopy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ, action_value_args...; kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max |> Tuple |> prod, maximizing_value = maxq)
+		end #since the action values here are a matrix, findmax will produce a cartesian index, this step transforms it back into an integer
 
 		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), parameters = parameters, feature_vector = deepcopy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters))
 		return q̂, form_kwargs
@@ -867,8 +931,8 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 	save_parameter_history && push!(parameter_history, deepcopy(parameters))
 	
 	while (ep <= max_episodes) && (step <= max_steps)
+		update_value_gradient!(∇q̂, action_values, feature_vector, i_a, parameters)
 		q̂ = action_values[i_a]
-		update_value_gradient!(∇q̂, feature_vector, i_a, parameters)
 		
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
@@ -901,9 +965,6 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 		decay *= (step > decay_step)*α_decay + (step <= decay_step)
 		
 		update_params_with_gradient!(parameters, α*decay*δ, ∇q̂)
-
-		#these action values will be used to compute the state-action value for the next state using the updated parameters
-		update_action_values!(action_values, feature_vector, parameters)
 		
 		save_parameter_history && push!(parameter_history, deepcopy(parameters))
 		s = s′
@@ -914,11 +975,6 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end;
-
-# ╔═╡ 01bccea4-73cc-4ce3-95f0-1dcc2c5f9c22
-md"""
-#### Non-linear Deterministic Setup
-"""
 
 # ╔═╡ b0761704-5447-4e64-8270-708d9dccef60
 """
@@ -983,8 +1039,8 @@ improvement. Effectively performs trajectory sampling while staying close to the
 - Supports learning rate decay and parameter history tracking
 """
 function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_decay = one(T), decay_step = typemax(Int64), save_parameter_history = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, PR}
-	action_values = zeros(T, length(mdp.actions))
-	policy = copy(action_values)
+	action_values = zeros(T, length(mdp.actions), 1)
+	policy = zeros(T, length(mdp.actions))
 
 	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 	
@@ -1001,8 +1057,7 @@ function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}
 
 	while (ep <= max_episodes) && (step <= max_steps)
 		update_feature_vector!(feature_vector, s)
-		v̂ = value_function(feature_vector, parameters)
-		update_value_gradient!(∇v̂, feature_vector, parameters)
+		v̂ = update_value_gradient!(∇v̂, feature_vector, parameters)
 		
 		#computes q and finds maximizing action value, this is effectively trajectory sampling in the case of approximation where we stay close to the optimal policy
 		target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ, action_value_args...; kwargs...)
@@ -1037,99 +1092,6 @@ function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, S, A, P, F1, F2, F3}
 	
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end;
-
-# ╔═╡ 54b92594-04b8-4a8a-82c2-773b4a24680d
-md"""
-### *Action-Value Implementation of Linear Approximation*
-
-If we update the techniques from Chapter 9 to accomodate action-value estimates, then all of the linear techniques explored there can be used for these control algorihtms.  Previously, we only considered state value estimates, but we can adapt all of those techniques to action values in the linear case quite easily.  The main difference is that the action index needs to be included as an argument to the parameter update function.
-"""
-
-# ╔═╡ 278a26ac-c48f-4e18-93bb-706a4634c8c0
-md"""
-Two options to represent parameters for use with action-values is to simply have a unique set of parameters for each action each of which matches the size of the state representation vector.  Using this technique means we do not need to encode the action space into the representation.  The parameters could be represented by a vector of vectors or a matrix in which each column is assigned to an action.  Below are the update rules for both of these cases.
-"""
-
-# ╔═╡ 5f8b0254-88f4-4d19-ade1-8e7c40941b43
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	function update_parameters!(parameters::Vector{Vector{T}}, state_representation::SparseVector{T, Int64}, i_a::Integer, α::T, δ::T) where T<:Real
-		x = α*δ
-		for i in eachindex(state_representation.nzind)
-			parameters[i_a][state_representation.nzind[i]] += x .* state_representation.nzval[i]
-		end
-	end
-
-	function update_parameters!(parameters::Matrix{T}, state_representation::SparseVector{T, Int64}, i_a::Integer, α::T, δ::T) where T<:Real
-		x = α*δ
-		for i in eachindex(state_representation.nzind)
-			parameters[state_representation.nzind[i], i_a] += x .* state_representation.nzval[i]
-		end
-	end
-
-	update_parameters!(parameters::Vector{Vector{T}}, state_representation::AbstractVector{T}, i_a::Integer, α::T, δ::T) where T<:Real = (parameters[i_a] .+= α .* δ .* state_representation)
-
-	function update_parameters!(parameters::Matrix{T}, state_representation::AbstractVector{T}, i_a::Integer, α::T, δ::T) where T<:Real 
-		@inbounds @simd for i in eachindex(state_representation)
-			parameters[i, i_a] += α .* δ .* state_representation[i]
-		end
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ c5c839f7-1806-463d-b63a-bd7e1384f203
-md"""
-The action value calculation also depends on how parameters are represented.  Either a dot product is used by extracting the appropriate parameter vector, or the parameter matrix needs to be iterated over the appropriate column
-"""
-
-# ╔═╡ f11787a1-57f8-4077-8d60-bc760ece7cc6
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	calculate_action_value(state_representation::AbstractVector{T}, i_a::Integer, parameters::Vector{Vector{T}}) where T<:Real = dot(state_representation, parameters[i_a])
-
-	function calculate_action_value(state_representation::AbstractVector{T}, i_a::Integer, parameters::Matrix{T}) where T<:Real 
-		q = zero(T)
-		@inbounds @simd for i in eachindex(state_representation)
-			q += state_representation[i]*parameters[i, i_a]
-		end
-		return q
-	end
-
-	function calculate_action_value(state_representation::SparseVector{T, Int64}, i_a::Integer, parameters::Matrix{T}) where T<:Real 
-		q = zero(T)
-		@inbounds @simd for i in state_representation.nzind
-			q += state_representation[i]*parameters[i, i_a]
-		end
-		return q
-	end
-end	
-  ╠═╡ =#
-
-# ╔═╡ 1478745a-634d-4f31-8a70-b74f0e536201
-md"""
-Part of the Sarsa algorithm requires us to identify the maximizing action.  These functions update a vector of action-values using the parameters and state representation.  By computing all of the action values at once, the maximum can be identified, and these functions compute all the action values more efficiently than using the above function for each action individually.
-"""
-
-# ╔═╡ c697e0b6-d3e4-4f5f-96e9-b9486c9d7efc
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	fill_action_values!(action_values::Vector{T}, state_representation::AbstractVector{T}, parameters::Matrix{T}) where T<:Real = mul!(action_values, parameters', state_representation)
-
-	function fill_action_values!(action_values::Vector{T}, state_representation::AbstractVector{T}, parameters::Vector{Vector{T}}) where T<:Real 
-		@inbounds for i in eachindex(action_values)
-			action_values[i] = dot(state_representation, parameters[i])
-		end
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ dc2cffeb-9adf-4956-afa3-ac82af377c59
-md"""
-Finally we can create the action-value function and parameter update for the generic linear case.  If a vector of action values is provided as the first argument to the value function, that vector will be updated with all of the action values for a given state.
-"""
 
 # ╔═╡ de3e4afe-f935-4b33-9218-08d403743c60
 begin
@@ -1332,12 +1294,59 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		findmax(action_values)
 	end
 	
-	function update_value_gradient!(∇v̂, x, i_a, params) 
-		update_fcann_value_gradient!(∇v̂, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list, scales)
-		use_μP && scale_fcann_params!(∇v̂, scales)
+	function update_value_gradient!(∇q̂::FCANNParams, x, i_a::Integer, params::FCANNParams) 
+		update_fcann_value_gradient!(∇q̂, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list)
+		use_μP && scale_fcann_params!(∇q̂, scales)
+		return ∇q̂
 	end
 
-	return (gradient = deepcopy(params), update_action_values! = update_action_values!, update_value_gradient! = update_value_gradient!, activations = activations)
+	function update_value_gradient!(∇q̂::FCANNParams, action_values::Vector{T}, x, i_a::Integer, params::FCANNParams) 
+		update_value_gradient!(∇q̂, x, i_a, params)
+		action_values .= activations[end]
+		findmax(action_values)
+	end
+
+	if in(:GPU, backendList)
+		d_activations = FCANN.device_allocate(activations)
+		d_tanh_grad_z = FCANN.device_allocate(tanh_grad_z)
+		d_deltas = FCANN.device_allocate(deltas)
+		d_params = initialize_gpu_params(params)
+		d_gradient = initialize_gpu_params(params)
+		d_x = FCANN.cuda_allocate(zeros(T, input_length))
+
+		function update_action_values!(action_values::Vector{T}, d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations) 			
+			fcann_value_function!(activations, d_x, params)
+			FCANN.memcpy!(action_values, activations[end])
+			findmax(action_values)
+		end
+
+		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; gpu_feature_vector::FCANN.CUDAArray = d_x, kwargs...) 			
+			FCANN.memcpy!(gpu_feature_vector, x)
+			update_action_values!(action_values, gpu_feature_vector, params; kwargs...)
+		end
+
+		function update_value_gradient!(∇q̂::FCANNParamsGPU, d_x::FCANN.CUDAArray, i_a::Integer, params::FCANNParamsGPU) 
+			update_fcann_value_gradient!(∇q̂, d_x, i_a, params, hidden_layers, l2, d_tanh_grad_z, d_activations, d_deltas, dropout, activation_list)
+			use_μP && scale_fcann_params!(∇q̂, scales)
+			return ∇q̂
+		end
+
+		function update_value_gradient!(∇q̂::FCANNParamsGPU, x::Vector{T}, i_a::Integer, params::FCANNParamsGPU)
+			FCANN.memcpy!(gpu_feature_vector, d_x)
+			update_value_gradient!(∇q̂, d_x, i_a, params)
+		end
+
+		function update_value_gradient!(∇q̂::FCANNParamsGPU, action_values::Vector{T}, x, i_a::Integer, params::FCANNParamsGPU)
+			update_value_gradient!(∇q̂, x, i_a, params)
+			FCANN.memcpy!(action_values, d_activations[end])
+		end
+
+		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params, feature_vector = d_x)
+	else
+		gpu_args = ()
+	end
+
+	return (gradient = deepcopy(params), update_action_values! = update_action_values!, update_value_gradient! = update_value_gradient!, activations = activations, gpu_args = gpu_args)
 end;
 
 # ╔═╡ 7e87f2ec-c96f-4897-bb61-c27913f6944f
@@ -1391,6 +1400,15 @@ function semi_gradient_sarsa_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, 
 	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	
 	semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
+end
+
+# ╔═╡ 08fc7168-d1ac-411a-b4be-6c7230a0c181
+function semi_gradient_sarsa_fcann_gpu(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
+	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	output = semi_gradient_sarsa!(setup.gpu_args.parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
+	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
+	(;output..., cpu_params = parameters)
 end
 
 # ╔═╡ 6d4b513d-2744-4f9c-8bee-e51fe9d0bade
@@ -1451,6 +1469,15 @@ function semi_gradient_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, ma
 	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	
 	semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+end
+
+# ╔═╡ 67f9fb99-3b89-4757-807e-2a5e166b9ed5
+function semi_gradient_dp_fcann_gpu(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
+	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	output = semi_gradient_dp!(setup.gpu_args.params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
+	(;output..., cpu_params = parameters)
 end
 
 # ╔═╡ a22e5d34-4b8d-479c-985c-d6abd41a6c80
@@ -1697,7 +1724,7 @@ md"""
 
 # ╔═╡ 57ea3538-33be-4673-b914-8191d35426a9
 #=╠═╡
-mountaincar_value_iteration = value_iteration_v(tabular_mountaincar_mdp, 1f0; save_history = false)
+mountaincar_value_iteration = value_iteration_v(tabular_mountaincar_mdp, 1f0; save_history = false, show_message = false, make_final_policy = TabularRL.make_greedy_bit_policy)
   ╠═╡ =#
 
 # ╔═╡ 57659c52-de1b-46e6-a863-8eeec0cee601
@@ -1729,7 +1756,7 @@ const mountaincar_policy_iteration = policy_iteration_v(tabular_mountaincar_mdp,
 # ╔═╡ 8a5d9e3d-e8ef-4cea-8cd8-6975f797d7bd
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function plot_mountaincar_action_values(tabular_mountaincar_mdp, value_function::Matrix{Float32}, π::Matrix{Float32}, mountaincar_positions, mountaincar_velocities)
+function plot_mountaincar_action_values(tabular_mountaincar_mdp, value_function::Matrix{Float32}, π::AbstractMatrix{T}, mountaincar_positions, mountaincar_velocities) where T<:Real
 	n = 100
 	num_positions = length(mountaincar_positions)
 	num_velocities = length(mountaincar_velocities)
@@ -1765,7 +1792,7 @@ end
 # ╔═╡ d8d5db17-d89c-47db-b258-6ad1635478b7
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function plot_mountaincar_action_values(tabular_mountaincar_mdp, value_function::Vector{Float32}, π::Matrix{Float32}, mountaincar_positions, mountaincar_velocities)
+function plot_mountaincar_action_values(tabular_mountaincar_mdp, value_function::Vector{Float32}, π::AbstractMatrix{T}, mountaincar_positions, mountaincar_velocities) where T<:Real
 	n = 100
 	num_positions = length(mountaincar_positions)
 	num_velocities = length(mountaincar_velocities)
@@ -1789,7 +1816,7 @@ end
 # ╔═╡ 1054cfa3-9f58-4a93-a318-c2d21cf23220
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function show_mountaincar_trajectory(tabular_mountaincar_mdp, π::Matrix{T}, max_steps::Integer, name) where T<:Real
+function show_mountaincar_trajectory(tabular_mountaincar_mdp, π::AbstractMatrix{T}, max_steps::Integer, name) where T<:Real
 	state_indices, actions, rewards, sterm, nsteps = runepisode(tabular_mountaincar_mdp; π = π, max_steps = max_steps)
 	states = [tabular_mountaincar_mdp.states[i_s] for i_s in state_indices]
 	positions = [s[1] for s in states]
@@ -1875,7 +1902,7 @@ for Mountain Car state space with position range [-1.2, 0.5] and velocity range 
    - Displacement vector (1, 3) for tiling offset
 2. Returns complete tile coding setup for immediate use
 """
-setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_feature_setup(MountainCarTask.mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), tile_size, num_tilings);
+setup_mountain_car_tiles(tile_size::NTuple{2, Float32}, num_tilings::Integer) = tile_coding_feature_setup(MountainCarTask.mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), tile_size, num_tilings)
 
 # ╔═╡ e5c0b558-4902-455f-a370-cddb9b291c15
 setup_mountain_car_tiles((1f0/12, 1f0/12), 8)
@@ -1925,7 +1952,7 @@ Since we are only learning the value function, the same tiling setup will have f
 
 # ╔═╡ b0cc6ff8-7296-461c-9db7-e52fa518e2e2
 #=╠═╡
-function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 20, num_tilings = 20, max_steps = typemax(Int64), mdp = mountain_car_dist_mdp, kwargs...)
+function mountaincar_dist_test(max_episodes::Integer, α::Float32, ϵ::Float32; num_tiles = 20, num_tilings = 10, max_steps = typemax(Int64), mdp = mountain_car_dist_mdp, kwargs...)
 	setup = setup_mountain_car_tiles((1f0/num_tiles, 1f0/num_tiles), num_tilings)
 	semi_gradient_dp_linear(mdp, 1f0, max_episodes, max_steps, setup.feature_vector, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
 end
@@ -1934,7 +1961,7 @@ end
 # ╔═╡ d0cf3806-05c6-4a50-94c8-55c9042d51b7
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const (q̂_dp_mountain_car, episode_rewards_dp, episode_steps_dp, param_history_dp, final_params_dp) = mountaincar_dist_test(1_000, 0.00004f0/32, 0.01f0; mdp = MountainCarTask.deterministic_mdp)
+const (q̂_dp_mountain_car, episode_rewards_dp, episode_steps_dp, param_history_dp, final_params_dp) = mountaincar_dist_test(5_000, 0.06f0/10, 0.01f0; mdp = MountainCarTask.deterministic_mdp)
   ╠═╡ =#
 
 # ╔═╡ 7d21c4cd-ab79-4f40-9b8b-f637b3efcab0
@@ -2015,7 +2042,7 @@ end
 # ╔═╡ 5fdbce61-ca25-45e0-b07d-94adf7138446
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const mountain_car_fcann_sarsa = mountaincar_fcann_sarsa_test(200_000, 4f-7, 0.05f0; num_layers = 3, layer_size = 8, compute_value = compute_sarsa_value, reslayers=1, usetiles=false)
+const mountain_car_fcann_sarsa = mountaincar_fcann_sarsa_test(100_000, 1f-4, 0.01f0; num_layers = 4, layer_size = 32, compute_value = compute_sarsa_value, reslayers=1, usetiles=false)
   ╠═╡ =#
 
 # ╔═╡ 7cef3dab-7091-4293-a2fb-edddb15a8af8
@@ -2029,20 +2056,22 @@ md"""
 """
 
 # ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
-function mountaincar_fcann_dp(max_steps::Integer, α::Float32, ϵ::Float32, layers::Vector{Int64}, mdp::StateMDP = mountaincar_dist_mdp; usetiles = false, kwargs...)
+function mountaincar_fcann_dp(max_steps::Integer, α::Float32, ϵ::Float32, layers::Vector{Int64}, mdp::StateMDP = mountaincar_dist_mdp; usetiles = false, use_gpu=false, kwargs...)
 	x, f! = if usetiles
 		setup = setup_mountain_car_tiles((1f0/10, 1f0/10), 10)
 		setup.feature_vector, setup.update_feature_vector!
 	else
 		zeros(Float32, 2), update_mountaincar_feature_vector!
 	end
-	semi_gradient_dp_fcann(mdp, 1f0, typemax(Int64), max_steps, x, f!, layers; α = α, ϵ = ϵ, kwargs...)
+
+	f = use_gpu ? semi_gradient_dp_fcann_gpu : semi_gradient_dp_fcann
+	f(mdp, 1f0, typemax(Int64), max_steps, x, f!, layers; α = α, ϵ = ϵ, kwargs...)
 end
 
 # ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const mountaincar_fcann_dp_results = mountaincar_fcann_dp(200_000, 1f-6, 0.05f0, [16, 16, 16], MountainCarTask.deterministic_mdp; reslayers = 1)
+const mountaincar_fcann_dp_results = mountaincar_fcann_dp(20_000, 4f-4, 0.01f0, fill(64, 4), MountainCarTask.deterministic_mdp; reslayers = 1)
   ╠═╡ =#
 
 # ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
@@ -2929,6 +2958,9 @@ function semi_gradient_differential_sarsa_fcann(mdp::StateMDP{T, S, A, P, F1, F2
 	semi_gradient_differential_sarsa!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 end
 
+# ╔═╡ 3d762879-3349-462d-a456-566c4cb50e33
+#add gpu version of these next
+
 # ╔═╡ 063e6f33-8b65-463c-a96f-5411f0ba0326
 md"""
 ### *Differential Semi-gradient Dynamic Programming Implementation*
@@ -3068,7 +3100,7 @@ function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3},
 		(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 	end
 
-	form_kwargs() = (action_values = zeros(T, length(mdp.actions)), x = deepcopy(feature_vector), parameters = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters))
+	form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters))
 	return q̂, form_kwargs
 end
 
@@ -4498,7 +4530,7 @@ Both methods use the same ε-greedy exploration strategy and Monte Carlo update 
 - Action-value method reduces computational overhead by avoiding Bellman backups
 - State-value method provides more flexible value function approximation
 """
-function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, ignore_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
+function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, use_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
 
 	step_history = Vector{Int64}()
 	error_history = Vector{T}()
@@ -4520,7 +4552,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 		@info "Warning: Episode 1 did not conclude in $nsteps steps"
 	end
 
-	if mdp.isterm(sterm) || ignore_unfinished_episodes
+	if mdp.isterm(sterm) || use_unfinished_episodes
 		err = gradient_monte_carlo_episode_update!(parameters, action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, states, actions, rewards, γ, α, calculate_error)
 		push!(error_history, err)
 		push!(step_history, nsteps)
@@ -4537,7 +4569,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 			@info "Warning: Episode $ep did not conclude in $nsteps steps"
 		end
 
-		if success || ignore_unfinished_episodes
+		if success || use_unfinished_episodes
 			err = gradient_monte_carlo_episode_update!(parameters,action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, view(states, 1:nsteps), view(actions, 1:nsteps), view(rewards, 1:nsteps), γ, α, calculate_error)
 			push!(step_history, nsteps)
 			push!(reward_history, sum(rewards[i] for i in 1:nsteps))
@@ -4553,7 +4585,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 end;
 
 # ╔═╡ d04bf8ac-9905-4e80-93db-c5c28c31359b
-function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, ignore_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
+function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T)/10, suppress_warning::Bool = false, use_unfinished_episodes::Bool = false, action_values::Vector{T} = zeros(T, length(mdp.actions)), calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
 
 	step_history = Vector{Int64}()
 	error_history = Vector{T}()
@@ -4576,7 +4608,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1,
 		@info "Warning: Episode 1 did not conclude in $nsteps steps"
 	end
 
-	if mdp.isterm(sterm) || ignore_unfinished_episodes
+	if mdp.isterm(sterm) || use_unfinished_episodes
 		err = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, estimate_value, update_value_gradient!, states, rewards, γ, α, calculate_error)
 		push!(error_history, err)
 		push!(step_history, nsteps)
@@ -4593,7 +4625,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, S, A, P, F1,
 			@info "Warning: Episode $ep did not conclude in $nsteps steps"
 		end
 
-		if success || ignore_unfinished_episodes
+		if success || use_unfinished_episodes
 			err = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, estimate_value, update_value_gradient!, view(states, 1:nsteps), view(rewards, 1:nsteps), γ, α, calculate_error)
 			push!(step_history, nsteps)
 			push!(reward_history, sum(rewards[i] for i in 1:nsteps))
@@ -4716,9 +4748,6 @@ gradient_monte_carlo_control_linear(mdp::StateMDP, γ::T, num_episodes::Integer,
 #when the transition distribution is available uses the state value function to learn optimal policy
 gradient_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function} = gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
-# ╔═╡ a80c9015-4ffd-4028-8cff-f692cbbe87c5
-
-
 # ╔═╡ cc285969-c33f-4d19-8e47-397b59e67299
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -4728,7 +4757,7 @@ const mountaincar_tile_setup = setup_mountain_car_tiles((1/10f0, 1/10f0), 12)
 # ╔═╡ 0714a1cf-9288-4f1e-ba72-d82608704d69
 # ╠═╡ skip_as_script = true
 #=╠═╡
-mc_test = gradient_monte_carlo_control_linear(mountain_car_mdp, 1f0, 1000, mountaincar_tile_setup.feature_vector, mountaincar_tile_setup.update_feature_vector!; α = 1f-8, ϵ = 0.1f0, max_steps = 10_000, suppress_warning = true, ignore_unfinished_episodes = true)
+const mc_test = gradient_monte_carlo_control_linear(mountain_car_mdp, 1f0, 1000, mountaincar_tile_setup.feature_vector, mountaincar_tile_setup.update_feature_vector!; α = 1f-8, ϵ = 0.1f0, max_steps = 10_000, suppress_warning = true, use_unfinished_episodes = true)
   ╠═╡ =#
 
 # ╔═╡ c85033e1-3ee6-42ad-9ef0-144ce6238ce4
@@ -4791,7 +4820,7 @@ plot_mountaincar_action_values(mc_test.value_function, 100, 100)
 
 # ╔═╡ e4e572b0-eea6-4cf3-85cd-bbe7f2c687e6
 #=╠═╡
-mc_test2 = gradient_monte_carlo_control_linear(MountainCarTask.deterministic_mdp, 1f0, 1000, mountaincar_tile_setup.feature_vector, mountaincar_tile_setup.update_feature_vector!; α = 1f-8, ϵ = 0.1f0, max_steps = 10_000, suppress_warning = true, ignore_unfinished_episodes = true)
+mc_test2 = gradient_monte_carlo_control_linear(MountainCarTask.deterministic_mdp, 1f0, 1000, mountaincar_tile_setup.feature_vector, mountaincar_tile_setup.update_feature_vector!; α = 1f-8, ϵ = 0.1f0, max_steps = 10_000, suppress_warning = true, use_unfinished_episodes = true)
   ╠═╡ =#
 
 # ╔═╡ 4282d334-5c18-4805-99b1-59930165de98
@@ -5020,7 +5049,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.6"
+julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "9f17b524ac3cc1081815177329e2c0fec9040541"
 
@@ -5707,10 +5736,11 @@ version = "17.4.0+2"
 # ╟─6351304f-50ac-4755-86e1-cd4680f2d803
 # ╟─e7bf61d7-c362-433d-9b83-6537d308c255
 # ╟─d88ebdb9-47bc-478c-b471-804a02ad2acf
-# ╟─9043a684-6f16-48d0-83d4-2e00f9b7dbc2
-# ╠═0226d8a3-bb22-4a32-9700-e234abf518a6
-# ╠═1393f7a6-05c7-48a3-96a9-130eb6d45937
+# ╠═9043a684-6f16-48d0-83d4-2e00f9b7dbc2
 # ╠═3273ed4a-6787-4635-8399-65ddf65b31ea
+# ╠═0226d8a3-bb22-4a32-9700-e234abf518a6
+# ╠═08c74b7d-7aa6-4085-a09b-b6191f8d098e
+# ╠═1393f7a6-05c7-48a3-96a9-130eb6d45937
 # ╠═94fa7f7d-c77c-4df5-a7b9-b3c931cb3bce
 # ╠═d82faf3b-c975-4b23-ad62-473bd943c4e2
 # ╟─fc0b88f3-fbf9-450d-b770-b34357ffad49
@@ -5722,16 +5752,7 @@ version = "17.4.0+2"
 # ╠═2ef47fe1-e082-406b-b131-5e2ae1bcb08b
 # ╠═a4c6a5c0-29c5-440c-bf86-20d0f881ee06
 # ╠═97e56e3f-1ef7-45a5-8261-c8fa103b9747
-# ╟─01bccea4-73cc-4ce3-95f0-1dcc2c5f9c22
 # ╠═b0761704-5447-4e64-8270-708d9dccef60
-# ╟─54b92594-04b8-4a8a-82c2-773b4a24680d
-# ╟─278a26ac-c48f-4e18-93bb-706a4634c8c0
-# ╠═5f8b0254-88f4-4d19-ade1-8e7c40941b43
-# ╟─c5c839f7-1806-463d-b63a-bd7e1384f203
-# ╠═f11787a1-57f8-4077-8d60-bc760ece7cc6
-# ╟─1478745a-634d-4f31-8a70-b74f0e536201
-# ╠═c697e0b6-d3e4-4f5f-96e9-b9486c9d7efc
-# ╟─dc2cffeb-9adf-4956-afa3-ac82af377c59
 # ╠═de3e4afe-f935-4b33-9218-08d403743c60
 # ╟─b697c5ba-4647-4998-a153-1e97dd91cb23
 # ╟─b8cd582e-26fc-4f21-85cc-950bac60bee0
@@ -5739,9 +5760,11 @@ version = "17.4.0+2"
 # ╟─8d096d0d-8fea-421a-aa33-82269d3fe7e2
 # ╠═be1ad356-de4b-469c-bb65-81d630f07674
 # ╠═7e87f2ec-c96f-4897-bb61-c27913f6944f
+# ╠═08fc7168-d1ac-411a-b4be-6c7230a0c181
 # ╠═8cdf042f-2214-48e0-afc2-c6a7d385ee4e
 # ╠═6d4b513d-2744-4f9c-8bee-e51fe9d0bade
 # ╠═4c94be37-dcd7-4b32-8e7f-3371ddaa254a
+# ╠═67f9fb99-3b89-4757-807e-2a5e166b9ed5
 # ╟─a22e5d34-4b8d-479c-985c-d6abd41a6c80
 # ╟─b990ba67-42c8-4ab9-943d-085392204fdd
 # ╠═f221fb13-4ef2-4ebe-b71b-fe6adbddb1e4
@@ -5785,7 +5808,7 @@ version = "17.4.0+2"
 # ╠═d8d5db17-d89c-47db-b258-6ad1635478b7
 # ╠═1054cfa3-9f58-4a93-a318-c2d21cf23220
 # ╟─1a5acfb0-3b35-41b1-98f8-ffce941c587f
-# ╠═742100ba-c38e-4840-8988-40990039b527
+# ╟─742100ba-c38e-4840-8988-40990039b527
 # ╠═e5c0b558-4902-455f-a370-cddb9b291c15
 # ╟─9ffad966-a568-437a-b9ab-522c08ba681c
 # ╠═7c5fb569-81f0-4b70-ae95-1fce0c51b6f4
@@ -5851,6 +5874,7 @@ version = "17.4.0+2"
 # ╠═a9fdb1fd-3f62-4e1c-9157-c4eee6215261
 # ╟─aceeb425-cd5f-4c4c-903e-d4359d2de88d
 # ╠═db778942-1bed-4c42-a2f0-a176a0364772
+# ╠═3d762879-3349-462d-a456-566c4cb50e33
 # ╟─063e6f33-8b65-463c-a96f-5411f0ba0326
 # ╠═91447aff-5598-4f02-acd5-6a90c563f4f6
 # ╠═4e955391-ac29-412e-8ed2-bad3b46961b0
@@ -5936,7 +5960,6 @@ version = "17.4.0+2"
 # ╟─31260d29-6131-4e44-b6e6-e78399501c54
 # ╠═b4085947-f4c7-4664-8d94-8090a67ea6c4
 # ╠═164c68ef-01b8-43be-bc75-919dd99a6e03
-# ╠═a80c9015-4ffd-4028-8cff-f692cbbe87c5
 # ╠═cc285969-c33f-4d19-8e47-397b59e67299
 # ╠═0714a1cf-9288-4f1e-ba72-d82608704d69
 # ╠═c85033e1-3ee6-42ad-9ef0-144ce6238ce4
