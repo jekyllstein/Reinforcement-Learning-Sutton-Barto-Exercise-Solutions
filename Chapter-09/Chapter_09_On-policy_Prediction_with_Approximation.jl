@@ -2052,6 +2052,14 @@ function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}) where T<
 	end
 end
 
+# ╔═╡ 322fa46d-125f-418b-90a2-6b8ddfc86b6d
+function setup_gpu_feature(feature_vector::Vector{T}, update_feature_vector!::Function) where T<:Real
+	function update_gpu_feature!(d_x::FCANN.CUDAArray, s; feature_vector = feature_vector)
+		update_feature_vector!(feature_vector, s)
+		FCANN.memcpy!(d_x, feature_vector)
+	end
+end
+
 # ╔═╡ 8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf
 #=╠═╡
 function benchmark_value_transfer()
@@ -3046,8 +3054,17 @@ function Base.copy(d_x::FCANN.CUDAArray)
 	FCANN.cuda_allocate(x)
 end
 
-# ╔═╡ a1283913-c816-4815-9cdb-fcb6cb70cdc8
-make_cpu_array(d_x::FCANN.CUDAArray) = Vector{d_x.element_type}(undef, d_x.size...)
+# ╔═╡ b70fac93-ba6e-4234-86de-c131011b09a1
+Base.copy(params::FCANNParams) = deepcopy(params)
+
+# ╔═╡ bd3a43b8-5646-4acf-9e29-f6c0ff89ca73
+function Base.copy(params::FCANNParamsGPU)
+	θs = FCANN.host_allocate(params.weights[1])
+	βs = FCANN.host_allocate(params.weights[2])
+	d_θs = FCANN.device_allocate(θs)
+	d_βs = FCANN.device_allocate(βs)
+	return (weights = (d_θs, d_βs), reslayers = params.reslayers)
+end
 
 # ╔═╡ 16eff6bc-ce43-4d97-aa76-73df2ff76b29
 function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where T<:Real
@@ -3060,6 +3077,21 @@ function form_state_value_function(value_function::Function, update_feature_vect
 	v̂(x::Vector{T}, parameters; kwargs...) = value_function(x, parameters; kwargs...)
 
 	form_kwargs() = (gpu_feature_vector = FCANN.cuda_allocate(feature_vector), feature_vector = copy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+	
+	return (v̂, form_kwargs)
+end
+
+# ╔═╡ 66608e5e-7e27-4ad6-9979-e9e9bd8307cb
+function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::FCANN.CUDAArray, parameters::FCANNParamsGPU)
+	function v̂(s; gpu_feature_vector::FCANN.CUDAArray = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), parameters::FCANNParamsGPU = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+		update_feature_vector!(gpu_feature_vector, s; feature_vector = feature_vector)
+		value_function(gpu_feature_vector, parameters; activations = activations, kwargs...)
+	end
+
+	#also return a method that acts on the feature vector itself which has already been updated
+	v̂(x::FCANN.CUDAArray, parameters; kwargs...) = value_function(x, parameters; kwargs...)
+
+	form_kwargs() = (gpu_feature_vector = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
 	
 	return (v̂, form_kwargs)
 end
@@ -3990,28 +4022,13 @@ julia> values = [Threads.@spawn result.value_function(s) for s in states]
 julia> fetch.(values)
 4-element Vector{Float32}
 """
-function gradient_monte_carlo_estimation_fcann(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
+function gradient_monte_carlo_estimation_fcann(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
-end
+	!use_gpu && return gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
-# ╔═╡ 322fa46d-125f-418b-90a2-6b8ddfc86b6d
-function setup_gpu_feature(feature_vector::Vector{T}, update_feature_vector!::Function) where T<:Real
-	gpu_feature = FCANN.cuda_allocate(feature_vector)
-	function update_gpu_feature!(d_x, s; feature_vector = feature_vector)
-		update_feature_vector!(feature_vector, s)
-		FCANN.memcpy!(d_x, feature_vector)
-	end
-	(feature_vector = gpu_feature, update_feature_vector! = update_gpu_feature!)
-end
-
-# ╔═╡ 78baf302-0ece-4682-bf65-b5fb0c0690d3
-function gradient_monte_carlo_estimation_fcann_gpu(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = gradient_monte_carlo_estimation!(setup.gpu_args.params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
-
 	(;output..., cpu_params = params)
 end
 
@@ -4071,21 +4088,18 @@ julia> # Evaluate policy value function
 julia> v_π = result.value_function((3, 4))  # Grid position (3,4)
 1.23f0
 """
-function gradient_monte_carlo_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
+function gradient_monte_carlo_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	!use_gpu && return gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	output = gradient_monte_carlo_policy_estimation!(setup.gpu_args.params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
+	(;output..., cpu_params = params)
 end
 
 # ╔═╡ 11441409-4b8c-457c-9c9e-e4f7f809f4ec
-function gradient_monte_carlo_policy_estimation_fcann_gpu(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	isempty(setup.gpu_args) && error("GPU backend is not available")
-	output = gradient_monte_carlo_policy_estimation!(setup.gpu_args.params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
-	
-	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
 
-	(;output..., cpu_params = params)
-end
 
 # ╔═╡ d81d8f7d-ed32-405d-b0c8-2ceff5845578
 """
@@ -4148,19 +4162,19 @@ julia> current_value = result.value_function(0.3f0)
 -1.87f0
 ```
 """
-function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
+function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
-end
+	!use_gpu && return semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
-# ╔═╡ b896c2c8-8b9f-4c9f-afbd-701f440a2bc2
-function semi_gradient_td0_estimation_fcann_gpu(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
-	output = semi_gradient_td0_estimation!(setup.gpu_args.params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = semi_gradient_td0_estimation!(setup.gpu_args.params, mrp, γ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
 	(;output..., cpu_params = params)
 end
+
+# ╔═╡ b896c2c8-8b9f-4c9f-afbd-701f440a2bc2
+
 
 # ╔═╡ 4a3a4635-a046-4eec-ab95-2dce74ac0fbe
 """
@@ -4225,24 +4239,19 @@ julia> v_π_state = result.value_function((2, 3))
 4.27f0
 ```
 """
-function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
+function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
 	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
-	(value_function, history, step_rewards, params) = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	!use_gpu && return semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
-	#this version of the value function can be run with multiple threads
-	v̂(args...; activations = deepcopy(setup.activations), kwargs...) = value_function(args...; activations = activations, kwargs...)
-
-	(value_function = v̂, episode_history = history, step_rewards = step_rewards, parameters = params, activations = setup.activations)
-end
-
-# ╔═╡ a4ca8fe2-4e38-445d-aa83-73185ae778e0
-function semi_gradient_td0_policy_estimation_fcann_gpu(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
-	output = semi_gradient_td0_policy_estimation!(setup.gpu_args.params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = semi_gradient_td0_policy_estimation!(setup.gpu_args.params, mdp, π, γ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
 	(;output..., cpu_params = params)
 end
+
+# ╔═╡ a4ca8fe2-4e38-445d-aa83-73185ae778e0
+
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 md"""
@@ -4274,13 +4283,6 @@ function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1,
 end
   ╠═╡ =#
 
-# ╔═╡ c7f4e213-395f-4703-b523-0d6a02e3fd65
-#=╠═╡
-function run_random_walk_fcann_monte_carlo_estimation_gpu(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
-	gradient_monte_carlo_estimation_fcann_gpu(mrp, γ, num_episodes, [0f0], update_random_walk_vector!, layers; calculate_error = calc_random_walk_ve, kwargs...)
-end
-  ╠═╡ =#
-
 # ╔═╡ f5661feb-6dcd-4409-b2f1-b756253ef2e0
 md"""
 Comparing these two versions, we see that once the hidden layer size hits 1024 the gpu version becomes faster.  Also at a hidden layer size of 512 and a layer count of 10, the GPU version is faster.  The times are about even with a layer size of 256 and 100 layers.
@@ -4293,12 +4295,12 @@ run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 2, fill
 
 # ╔═╡ 28c0d60a-c2ac-4501-8f90-729664831fea
 #=╠═╡
-run_random_walk_fcann_monte_carlo_estimation_gpu(random_walk_state_mrp, 1f0, 2, fill(512, 10))
+run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, 2, fill(512, 10), :vector; use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 93a1f51f-1d83-408e-a860-26e6280c65ee
 #=╠═╡
-function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}, input_type::Symbol; use_gpu::Bool = false, kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
+function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}, input_type::Symbol; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
 	x, f! = if input_type == :tiles
 		setup = tile_coding_feature_setup(random_walk_state_mrp, 1f0, Float32(num_states), .2f0, 10)
 		setup.feature_vector, setup.update_feature_vector!
@@ -4308,8 +4310,7 @@ function run_random_walk_fcann_td0_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ
 		[0f0], update_random_walk_vector!
 	end
 
-	f = !use_gpu ? semi_gradient_td0_estimation_fcann : semi_gradient_td0_estimation_fcann_gpu
-	f(mrp, γ, num_episodes, typemax(Int64), x, f!, layers; calculate_error = calc_random_walk_ve, kwargs...)
+	semi_gradient_td0_estimation_fcann(mrp, γ, num_episodes, typemax(Int64), x, f!, layers; calculate_error = calc_random_walk_ve, kwargs...)
 end
   ╠═╡ =#
 
@@ -4321,15 +4322,13 @@ run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, 2, fill(512, 10
 # ╔═╡ fb244ed5-2827-4b39-a5b1-ced0815b000a
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td, input_type; nsmooth = 100, use_gpu = false)
+function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α_mc, α_td, input_type, use_gpu; nsmooth = 100)
 	nn_layers = fill(layer_size, num_layers)
 
-	if !use_gpu || (input_type != :vector)
-		v̂_mc, mc_error, mc_params = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; α = α_mc)
-	else
-		v̂_mc, mc_error, mc_params = run_random_walk_fcann_monte_carlo_estimation_gpu(random_walk_state_mrp, 1f0, num_episodes, nn_layers; α = α_mc)
-	end
-	v̂_td, td_history, td_steps, td_params = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; use_gpu, α = α_td)
+	v̂_mc, mc_error, mc_params = run_random_walk_fcann_monte_carlo_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; α = α_mc, use_gpu = use_gpu)
+	
+	v̂_td, td_history, td_steps, td_params = run_random_walk_fcann_td0_estimation(random_walk_state_mrp, 1f0, num_episodes, nn_layers, input_type; use_gpu = use_gpu, α = α_td)
+	
 	td_error = td_history.errors
 	p1 = plot([scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(mc_error, nsmooth)), name = "Monte Carlo"), scatter(x = nsmooth:num_episodes, y = sqrt.(smooth_error(td_error, nsmooth)), name = "TD(0)")], Layout(xaxis_title = "Episode", yaxis_title = "Value Error Averaged <br> over Previous $nsmooth Episodes", showlegend = false))
 	p2 = plot([scatter(y = v̂_mc.(Float32.(1:num_states)), name = "Monte Carlo"), scatter(y = v̂_td.(Float32.(1:num_states)), name = "TD(0)"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(title = "Neural Network Approximation with $nn_layers Layers", yaxis_title = "Value", xaxis_title = "State"))
@@ -4359,7 +4358,7 @@ Notice again how TD learning is more stable at higher learning rates.  The neura
 
 	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 4f-3)))
 
-	Select Input:: $(Child(:input_type, Select([:vector, :tiles, :state_aggregation])))  Use GPU: $(CheckBox(default = false))
+	Select Input:: $(Child(:input_type, Select([:vector, :tiles, :state_aggregation])))  Use GPU: $(Child(:use_gpu, CheckBox(default = false)))
 	"""
 end |> confirm
   ╠═╡ =#
@@ -5832,17 +5831,18 @@ version = "17.4.0+2"
 # ╠═b2c56d0e-668e-43cd-a886-bb830a60b132
 # ╠═6fb5606d-75fe-4108-adff-a6a644f572a2
 # ╠═67db7264-2a5e-44be-98e7-e5d08d5e7273
+# ╠═322fa46d-125f-418b-90a2-6b8ddfc86b6d
 # ╠═8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf
 # ╠═0f7ce70e-fb15-44e1-8f1b-dd082ae5911f
 # ╠═9b5fbbdd-0b36-4893-b4bb-b05439f5a541
 # ╠═e05a8d56-6010-4e3a-b976-0290f42c95dd
 # ╠═00d522cd-a4e6-45a0-a90f-6875f1b0da1c
 # ╠═92706281-51f8-46d7-b218-ef2f1adf7fb2
-# ╠═a1283913-c816-4815-9cdb-fcb6cb70cdc8
+# ╠═b70fac93-ba6e-4234-86de-c131011b09a1
+# ╠═bd3a43b8-5646-4acf-9e29-f6c0ff89ca73
 # ╠═16eff6bc-ce43-4d97-aa76-73df2ff76b29
+# ╠═66608e5e-7e27-4ad6-9979-e9e9bd8307cb
 # ╠═74e42774-68e5-44b5-91c4-da87a20879e1
-# ╠═322fa46d-125f-418b-90a2-6b8ddfc86b6d
-# ╠═78baf302-0ece-4682-bf65-b5fb0c0690d3
 # ╠═b58cacd0-ca65-43f5-8678-7265ea2d46c8
 # ╠═11441409-4b8c-457c-9c9e-e4f7f809f4ec
 # ╠═d81d8f7d-ed32-405d-b0c8-2ceff5845578
@@ -5852,7 +5852,6 @@ version = "17.4.0+2"
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
 # ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
-# ╠═c7f4e213-395f-4703-b523-0d6a02e3fd65
 # ╠═f5661feb-6dcd-4409-b2f1-b756253ef2e0
 # ╠═00f30bd5-b904-4c95-89a3-ee39b877beae
 # ╠═28c0d60a-c2ac-4501-8f90-729664831fea
@@ -5861,7 +5860,7 @@ version = "17.4.0+2"
 # ╠═fb244ed5-2827-4b39-a5b1-ced0815b000a
 # ╟─b1c84d59-3598-46a1-bc1a-fd691d14ab09
 # ╟─420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
-# ╟─40d07f16-b9ca-4782-bdd2-de15ec6b21e5
+# ╠═40d07f16-b9ca-4782-bdd2-de15ec6b21e5
 # ╟─b22ef023-4e6a-4114-b3c2-bf91e16e9a43
 # ╟─32c054ee-a7ee-4705-87c3-fb1a4bd956ab
 # ╠═a8d7e5f7-8509-4aa1-b4c6-669339cb173c
