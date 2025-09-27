@@ -1888,9 +1888,6 @@ By default the NN gradient and forward pass assumes a dense vector or matrix for
 Here x contains the feature information and must work for something other than `Vector` or `Matrix` types
 """
 
-# ╔═╡ c0e5e282-4f4f-48d9-a52a-9dc960f60223
-Array{Float32, 1}
-
 # ╔═╡ 0334d2ff-268d-4485-b460-89f82c4a99e1
 begin
 	function BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::StateAggregationFeatureVector, c2::T, output::Array{T, N}) where {N, T<:Real}
@@ -2312,7 +2309,7 @@ begin
 		return linear_value_function(feature_vector, value_params)
 	end
 
-	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector)
+	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params)
 		∇v̂.group_index = feature_vector.group_index
 	end
 end
@@ -5820,7 +5817,6 @@ version = "17.4.0+2"
 # ╟─d7c1810a-8f20-4178-83ca-017d53e3e7e9
 # ╟─82828e72-5d30-41b6-a1b6-f258c234b034
 # ╟─2bc32d3d-193e-4cab-b13b-f7ed304af0f6
-# ╠═c0e5e282-4f4f-48d9-a52a-9dc960f60223
 # ╠═0334d2ff-268d-4485-b460-89f82c4a99e1
 # ╠═8e8add6f-99ab-4aa7-b236-87915c6be9c2
 # ╠═66cadcfb-4fda-4509-80d6-aa22766a7e9c
