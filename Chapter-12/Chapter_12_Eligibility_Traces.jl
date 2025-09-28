@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.17
+# v0.20.18
 
 using Markdown
 using InteractiveUtils
@@ -669,6 +669,14 @@ begin
 		end
 		return z
 	end
+	function decay_trace!(z::FCANNParamsGPU, c::T) where T<:Real
+		for i in eachindex(z.weights[1])
+			for j in 1:2
+				FCANN.cublasSscal(FCANN.cublas_handle, c, z.weights[j][i])
+			end
+		end
+		return z
+	end
 end
 
 # ╔═╡ 5542897d-eb37-4e96-ac33-d36fc8adb603
@@ -699,6 +707,16 @@ begin
 		end
 		return z
 	end
+
+	function update_trace!(z::FCANNParamsGPU, γ::Float32, λ::Float32, ∇v::FCANNParamsGPU)
+		for i in eachindex(z.weights[1])
+			for j in 1:2
+				FCANN.cublasSscal(FCANN.cublas_handle, γ*λ, z.weights[j][i])
+				FCANN.cublasSaxpy(FCANN.cublas_handle, 1f0, ∇v.weights[j][i], z.weights[j][i])
+			end
+		end
+		return z
+	end
 end
 
 # ╔═╡ 9ec58129-a14f-40a9-9c41-809500181bdd
@@ -712,12 +730,13 @@ begin
 			zero_trace!(z.weights[2][i])
 		end
 	end
+	zero_trace!(z::FCANNParamsGPU) = decay_trace!(z, 0f0)
 end
 
 # ╔═╡ 5610a0ba-60a8-4da6-8f68-50b1c5e82686
 begin
 	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = deepcopy(parameters), save_episode_steps::Bool = false, kwargs...) where {P, X, T<:Real}
+	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = copy(parameters), save_episode_steps::Bool = false, kwargs...) where {P, X, T<:Real}
 		#initialize records
 		step_rewards = Vector{T}()
 		episode_steps = Vector{Int64}()
@@ -735,8 +754,7 @@ begin
 		zero_trace!(z)
 		
 		while (ep <= max_episodes) && (step <= max_steps)
-			v̂ = estimate_value(state_representation, parameters)
-			update_value_gradient!(∇v̂, state_representation, parameters)
+			v̂ = update_value_gradient!(∇v̂, state_representation, parameters)
 			
 			#by default does: 
 			# z .= (γ*λ .* z) .+ ∇v
@@ -786,6 +804,54 @@ begin
 		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs)
 	end
 
+	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, λ::T, num_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄ = one(T)/100, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = copy(parameters), kwargs...) where {P, X, T<:Real}
+		#initialize records
+		reward_history = zeros(T, num_steps)
+		error_history = zeros(T, num_steps)
+		average_reward_history = zeros(T, num_steps)
+
+		#initialize variables
+		s = initialize_state()
+		update_state_representation!(state_representation, s)
+		zero_trace!(z)
+		r̄ = zero(T)
+		
+		for step in 1:num_steps
+			v̂ = update_value_gradient!(∇v̂, state_representation, parameters)
+			
+			#by default does: 
+			# z .= (λ .* z) .+ ∇v
+			decay_trace!(z, λ)
+			update_params_with_gradient!(z, one(T), ∇v̂)
+			
+			(r, s′) = transition(s)
+			reward_history[step] = r
+			average_reward_history[step] = r̄
+
+			mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+			
+			update_state_representation!(state_representation, s′)
+			v̂′ = estimate_value(state_representation, parameters)
+
+			target = r - r̄ + v̂′
+			δ = target - v̂
+
+			r̄ += α_r̄*δ
+
+			error_history[step] = calculate_error(target, v̂, s)
+
+			#by default does: 
+			# parameters .+= α*δ .* z
+			update_params_with_gradient!(parameters, α*δ, z)
+			s = s′
+			step += 1
+			epstep += 1
+		end
+
+		v̂, form_kwargs = form_state_value_function(estimate_value, update_state_representation!, state_representation, parameters)
+		(value_function = v̂, history = (errors = error_history, rewards = reward_history, average_rewards = average_reward_history), parameters = parameters, form_kwargs = form_kwargs)
+	end
+
 	#when evaluating an MRP, there is no policy and the transition is just from the environment
 	semi_gradient_TDλ!(parameters, mrp::StateMRP, args...; kwargs...) = semi_gradient_TDλ!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
 
@@ -813,8 +879,12 @@ md"""
 # ╔═╡ 24468748-009d-42a3-918d-4ba18b23c9ed
 begin
 	semi_gradient_TDλ_linear(mrp::StateMRP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mrp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+	semi_gradient_TDλ_linear(mrp::StateMRP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mrp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 	
 	semi_gradient_TDλ_linear(mdp::StateMDP, π::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mdp, π, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+	semi_gradient_TDλ_linear(mdp::StateMDP, π::Function, λ::T, num_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mdp, π, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 end
 
 # ╔═╡ be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
@@ -824,125 +894,32 @@ md"""
 
 # ╔═╡ 52098913-ea06-497d-afad-a9fef99fb428
 begin
-	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real
+	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
 		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-		semi_gradient_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+		
+		!use_gpu && return semi_gradient_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+		
+		isempty(setup.gpu_args) && error("GPU backend is not available")
+		
+		output = semi_gradient_TDλ!(setup.gpu_args.params, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+		(;output..., cpu_params = parameters)
+	end
+
+	function semi_gradient_TDλ_fcann(problem::Tuple, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
+		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+
+		!use_gpu && return semi_gradient_TDλ!(parameters, problem..., λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+		
+		isempty(setup.gpu_args) && error("GPU backend is not available")
+		output = semi_gradient_TDλ!(setup.gpu_args.params, problem..., λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+		FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
+		(;output..., cpu_params = parameters)
 	end
 
 	semi_gradient_TDλ_fcann(mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ_fcann((mdp, π), args...; kwargs...)
 	
 	semi_gradient_TDλ_fcann(mrp::StateMRP, args...; kwargs...) = semi_gradient_TDλ_fcann((mrp,), args...; kwargs...)
 end
-
-# ╔═╡ cfb775b2-ecd8-4518-854f-384bf35ba9af
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	import Base.copyto!
-	function copyto!(dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, src::Base.Broadcast.Broadcasted) where {T<:Real}
-		copyto!(dest[1], src[1])
-		copyto!(dest[2], src[2])
-		return dest
-	end
-
-	function copyto!(dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, src::Real) where {T<:Real}
-		copyto!(dest[1], src)
-		copyto!(dest[2], src)
-		return dest
-	end
-	function copyto!(dest::Vector{Array{T, N}}, src::Vector{Array{T, N}}) where {T<:Real, N}
-		for i in eachindex(dest)
-			copyto!(dest[i], src[i])
-		end
-		return dest
-	end
-	function copyto!(dest::Vector{Array{T, N}}, c::Real) where {T<:Real, N}
-		for i in eachindex(dest)
-			copyto!(dest[i], c)
-		end
-		return dest
-	end
-	
-end
-  ╠═╡ =#
-
-# ╔═╡ 3c1fdc9c-42ad-4eae-9103-e834a1056878
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	import Base.broadcast!
-	function broadcast!(f, dest::Vector{Array{T, N}}, x::Vector{Array{T, N}}, y::Vector{Array{T, N}}) where {T<:Real, N}
-		for i in eachindex(x)
-			broadcast!(f, dest[i], x[i], y[i])
-		end
-		return dest
-	end
-	
-	function broadcast!(f, dest::Vector{Array{T, N}}, x::Vector{Array{T, N}}, y::Real) where {T<:Real, N}
-		for i in eachindex(x)
-			broadcast!(f, dest[i], x[i], y)
-		end
-		return dest
-	end
-
-	broadcast!(f, dest::Vector{Array{T, N}}, y::Real, x::Vector{Array{T, N}}) where {T<:Real, N} = broadcast!(f, dest, x, y)
-
-	function broadcast!(f, dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, y::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}) where T<:Real
-		broadcast!(f, dest[1], x[1], y[1])
-		broadcast!(f, dest[2], x[2], y[2])
-		return dest
-	end
-
-	function broadcast!(f, dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, c::Real) where T<:Real
-		broadcast!(f, dest[1], x[1], c)
-		broadcast!(f, dest[2], x[2], c)
-		return dest
-	end
-
-	broadcast!(f, dest::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, c::Real, x::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}) where T<:Real = broadcast!(f, dest, x, c)
-end
-  ╠═╡ =#
-
-# ╔═╡ 43675f77-a930-424a-bf60-6362354317ed
-# ╠═╡ disabled = true
-#=╠═╡
-#for non-linear function approximation the state representation can be uncoupled from the number of parameters as long as the output size of the network is 1.  the FCANN package is used to calculate the gradient of the output but a number of memory arguments must be instantiated to run the function without allocating new memory each time.  The size of the network also must be specified in terms of hidden layers.
-function run_fcann_semi_gradient_TDλ(problem, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, input_size::Integer, hidden_layers::AbstractVector{I}, update_state_representation!::Function; res_layers = 1, dropout = zero(T), parameters::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}} = FCANN.initializeparams_saxe(input_size, hidden_layers, 1, res_layers; use_μP = true), l2 = zero(T), maxnorm = typemax(T), kwargs...) where {T<:Real, I<:Integer}
-	
-	#additional allocations needed to run NN gradient
-	activations = FCANN.form_prep_activations(hidden_layers, 1, parameters[1])
-	onesvec = [one(T)]
-	
-	#estimate the state value of a state represented by the vector x
-	function estimate_value!(activations, x, params::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}})
-		FCANN.forwardNOGRAD_base!(activations, params..., x, res_layers)
-		return activations[end][1]
-	end
-
-	estimate_value(x, params) = estimate_value!(activations[2], x, params)
-
-	#update the gradient of the state value output with respect to the parameters
-	function update_gradient!(∇v::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}}, x, params::Tuple{Vector{Matrix{T}}, Vector{Vector{T}}})
-		FCANN.nnCostFunction(params..., hidden_layers, x, 1, l2, ∇v..., activations..., onesvec, dropout; resLayers = res_layers)
-		!isinf(maxnorm) && FCANN.scaleParams!(∇v..., maxnorm)
-		return activations[2][end][1]
-	end
-
-	state_representation = zeros(T, 1, input_size)
-
-	error_history = semi_gradient_TDλ!(parameters, state_representation, problem..., γ, λ, max_episodes, max_steps, update_state_representation!, estimate_value, update_gradient!; kwargs...)
-
-	#once the learning is done we can estimate values with the final version of the parameters.
-	function v(s)
-		x = zeros(T, 1, input_size)
-		update_state_representation!(x, s)
-		new_activations = deepcopy(activations[2])
-		estimate_value!(new_activations, x, parameters)
-	end
-	
-	return (value_function = v, error_history = error_history)
-end
-  ╠═╡ =#
 
 # ╔═╡ f92b8423-b05f-4058-ac91-4b3c6d447820
 md"""
@@ -966,7 +943,7 @@ end
 
 # ╔═╡ 3ab94b9e-4f50-4162-8b27-f6a81595f42f
 #=╠═╡
-test_fcann_tdλ_random_walk(0.5f0, [10, 10]; res_layers = 1, max_episodes = 1_000, α = 0.01f0)
+test_fcann_tdλ_random_walk(0.5f0, fill(8, 2); res_layers = 1, max_episodes = 1_000, α = 0.01f0, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ e99caf5c-7c13-4edd-b55b-dce93cc850c6
@@ -1370,8 +1347,7 @@ begin
 		v_old = zero(T)
 	
 		while (ep <= max_episodes) && (step <= max_steps)
-			v̂ = linear_value_function(state_representation, parameters)
-			update_linear_value_gradient!(∇v̂, state_representation, parameters)
+			v̂ = update_linear_value_gradient!(∇v̂, state_representation, parameters)
 			(r, s′) = transition(s)
 			rtot += r
 			save_episode_steps && push!(step_rewards, r)
@@ -1552,9 +1528,6 @@ md"""
 ## 12.7 Sarsa(λ)
 """
 
-# ╔═╡ 5eacdb68-f4ac-4615-b9aa-bb0ad1a31ede
-#to do next update this with unified style from chatper 10
-
 # ╔═╡ 43ba01e3-27d0-481c-8f93-8cd9c30b2a1d
 begin
 	abstract type AbstractEligibilityTrace end
@@ -1567,6 +1540,7 @@ end
 begin
 	#accumulating traces just add the gradient to z
 	update_trace_with_gradient!(z::Union{Array{T, N}, FCANNParams{T}}, ∇, ::AccumulatingTrace) where {T<:Real, N} = update_params_with_gradient!(z, one(T), ∇)
+	update_trace_with_gradient!(z::FCANNParamsGPU, ∇, ::AccumulatingTrace) = update_params_with_gradient!(z, 1f0, ∇)
 
 	#the first step to a dutch trace is to apply the accumulating trace
 	update_trace_with_gradient!(z, ∇q̂, ::DutchTrace) = update_trace_with_gradient!(z, ∇q̂, AccumulatingTrace())
@@ -1603,6 +1577,7 @@ begin
 	update_trace_with_gradient!(z::Matrix{T}, ∇q̂::LinearActionValueGradient{I, V}, ::ReplacingTrace) where {T<:Real, I<:Integer, V<:Vector{T}} = error("Attempting to use replacing trace with non-binary features")
 
 	update_trace_with_gradient!(z::FCANNParams{T}, ∇::FCANNParams{T}, ::ReplacingTrace) where {T<:Real} = error("Attempting to use replacing trace with non-linear approximation")
+	update_trace_with_gradient!(z::FCANNParamsGPU, ∇::FCANNParamsGPU, ::ReplacingTrace) = error("Attempting to use replacing trace with non-linear approximation")
 end
 
 # ╔═╡ 01024201-7989-43f0-86f2-d3cd5ee219ae
@@ -1626,325 +1601,74 @@ begin
 	end
 end
 
-# ╔═╡ 3a03bd95-f43d-47b5-93d6-88a9ef61d2b4
-get_num_actions(mdp::TabularMDP) = length(mdp.actions)
-
-# ╔═╡ 21479229-c2ad-425f-98bb-77717ab40b02
-#given a state_action_value function, an exploration parameter ϵ, and a state index, produce a sampled action according to the ϵ-greedy policy
-# function select_action!(action_values::Vector{T}, state_action_values::Matrix{T}, ϵ::T, i_s::Integer) where T<:Real
-# 	for i_a in eachindex(action_values)
-# 		action_values[i_a] = state_action_values[i_a, i_s]
-# 	end
-# 	make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-# 	sample_action(action_values)
-# end
-
 # ╔═╡ 0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
 md"""
 ### *Vanilla Implementation*
 """
 
-# ╔═╡ c5edfcbf-8d31-4dc4-b9d0-1a5439540710
-# begin
-# 	function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; algo!::Function = sarsa_λ!, state_action_values::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), kwargs...) where {T<:Real, S, A, P, F}
-# 		history = algo!(state_action_values, mdp, γ, λ, max_episodes, max_steps; kwargs...)
-# 		greedy_policy_lookup = [argmax(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
-		
-# 		greedy_policy(s::S) = greedy_policy_lookup[mdp.state_index[s]]
-# 		greedy_state_values = [maximum(state_action_values[:, i_s]) for i_s in eachindex(mdp.states)]
-	
-# 		(state_action_values = state_action_values, state_values = greedy_state_values, greedy_policy_lookup = greedy_policy_lookup, greedy_policy_function = greedy_policy, history = history)
-# 	end
-# end
-
-# ╔═╡ cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
-# begin
-# 	#tabular problem where the parameters are just the state action values and each state action pair only has one active feature, since the tabular version is the simplest, consider adding expected sarsa and double expected sarsa versions here in a format that can accomodate q-learning even though it isn't guaranteed to be stable
-# 	function sarsa_λ!(state_action_values::Matrix{T}, mdp::TabularMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(state_action_values), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real}
-# 		#set the state action values of all terminal states to 0
-# 		for i_s in eachindex(mdp.states)
-# 			if mdp.terminal_states[i_s]
-# 				state_action_values[:, i_s] .= zero(T)
-# 			end
-# 		end
-
-# 		#initialize records
-# 		episode_step_history = Vector{T}()
-# 		step_rewards = Vector{T}()
-
-# 		#initialize episode
-# 		i_s = mdp.initialize_state_index()
-# 		i_a = select_action!(action_values, state_action_values, ϵ, i_s)
-# 		z .= zero(T)
-# 		ep = 1
-# 		step = 1
-		
-# 		while (ep <= max_episodes) && (step <= max_steps)
-# 			#take action and observe transition
-# 			(r, i_s′) = mdp.ptf(i_s, i_a)
-			
-# 			save_step_rewards && push!(step_rewards, r)
-			
-# 			δ = r - state_action_values[i_a, i_s]
-# 			z[i_a, i_s] = one(T) + use_accumulating_traces*!use_dutch_traces*z[i_a, i_s] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i_a, i_s]
-
-# 			if !mdp.terminal_states[i_s′]
-# 				i_a′ = select_action!(action_values, state_action_values, ϵ, i_s′)
-# 				δ += γ*state_action_values[i_a′, i_s′]
-# 			end
-
-# 			state_action_values .+= α*δ .* z
-
-# 			if mdp.terminal_states[i_s′]
-# 				i_s = mdp.initialize_state_index()
-# 				i_a = select_action!(action_values, state_action_values, ϵ, i_s)
-# 				#reset eligibility vector to 0 at the start of a new episode
-# 				z .= zero(T)
-# 				ep += 1
-# 				save_episode_steps && push!(episode_step_history, step)
-# 			else
-# 				i_s = i_s′
-# 				i_a = i_a′
-# 				z .*= γ*λ
-# 			end
-# 			step += 1
-# 		end
-		
-# 		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-# 	end
-
-# 	#non-tabular problem with binary features.  Each column represents the state feature values for the action of the column index
-# 	function sarsa_λ!(parameters::Matrix{T}, get_active_features::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real}
-# 		#initialize records
-# 		episode_step_history = Vector{T}()
-# 		step_rewards = Vector{T}()
-
-# 		function select_action!(action_values, parameters, ϵ, active_features)
-# 			for i_a in eachindex(action_values)
-# 				q = zero(T)
-# 				for i in active_features
-# 					q += parameters[i, i_a]
-# 				end
-# 				action_values[i_a] = q
-# 			end
-# 			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-# 			sample_action(action_values)
-# 		end
-			
-
-# 		#initialize episode
-# 		s = mdp.initialize_state()
-# 		active_features = get_active_features(s) 
-# 		i_a = select_action!(action_values, parameters, ϵ, active_features)
-# 		z .= zero(T)
-# 		ep = 1
-# 		step = 1
-		
-# 		while (ep <= max_episodes) && (step <= max_steps)
-# 			#take action and observe transition
-# 			(r, s′) = mdp.ptf(s, i_a)
-			
-# 			save_step_rewards && push!(step_rewards, r)
-
-# 			δ = r
-			
-# 			for i in active_features
-# 				δ -= parameters[i, i_a]
-# 				z[i, i_a] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i, i_a] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i, i_a]
-# 			end
-
-# 			if !mdp.isterm(s′)
-# 				active_features = get_active_features(s′)
-# 				i_a′ = select_action!(action_values, parameters, ϵ, active_features)
-# 				for i in active_features
-# 					δ += γ*parameters[i, i_a′]
-# 				end
-# 			end
-
-# 			parameters .+= α*δ .* z
-
-# 			if mdp.isterm(s′)
-# 				s = mdp.initialize_state()
-# 				active_features = get_active_features(s)
-# 				i_a = select_action!(action_values, parameters, ϵ, active_features)
-# 				#reset eligibility vector to 0 at the start of a new episode
-# 				z .= zero(T)
-# 				ep += 1
-# 				save_episode_steps && push!(episode_step_history, step)
-# 			else
-# 				s = s′
-# 				i_a = i_a′
-# 				z .*= γ*λ
-# 			end
-# 			step += 1
-# 		end
-		
-# 		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-# 	end
-
-# 	#non-tabular problem with general function approximation. 
-# 	function sarsa_λ!(parameters::Vector{P}, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, update_gradient!::Function, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, gradient::Vector{P} = deepcopy(parameters), z::Vector{P} = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_accumulating_traces::Bool = false, use_dutch_traces::Bool = false, epkwargs...) where {T<:Real, P}
-# 		#initialize records
-# 		episode_step_history = Vector{T}()
-# 		step_rewards = Vector{T}()
-
-# 		function select_action!(action_values, parameters, ϵ, x)
-# 			for i_a in eachindex(action_values)
-# 				action_values[i_a] = value_function(x, parameters[i_a])
-# 			end
-# 			make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-# 			sample_action(action_values)
-# 		end
-	
-# 		#initialize episode
-# 		s = mdp.initialize_state()
-# 		update_feature_vector!(feature_vector, s)
-# 		i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-# 		z .= zero(T)
-# 		ep = 1
-# 		step = 1
-		
-# 		while (ep <= max_episodes) && (step <= max_steps)
-# 			#take action and observe transition
-# 			(r, s′) = mdp.ptf(s, i_a)
-			
-# 			save_step_rewards && push!(step_rewards, r)
-# 			δ = r - value_function(feature_vector, parameters[i_a])
-
-# 			update_gradient!(gradient[i_a], feature_vector, parameters[i_a])
-			
-# 			if use_dutch
-# 				d = dot(z[i_a], feature_vector)
-# 			end
-			
-# 			z[i_a] .= gradient[i_a] .+ (!use_dutch_traces * use_accumulating_traces) .* z[i_a]
-# 			if use_dutch_traces * !use_accumulating_traces
-# 				z[i_a] .-= α*λ*γ*d .* feature_vector
-# 			end
-
-# 			if !mdp.isterm(s′)
-# 				update_feature_vector!(feature_vector, s′)
-# 				i_a′ = select_action!(action_values, parameters, ϵ, feature_vector)
-# 				δ += γ*value_function(feature_vector, parameters[i_a′])
-# 			end
-
-# 			for i_a in eachindex(mdp.actions)
-# 				parameters[i_a] .+= α*δ .* z[i_a]
-# 			end
-
-# 			if mdp.isterm(s′)
-# 				s = mdp.initialize_state()
-# 				update_feature_vector!(feature_vector, s)
-# 				i_a = select_action!(action_values, parameters, ϵ, feature_vector)
-# 				#reset eligibility vector to 0 at the start of a new episode
-# 				for i_a in eachindex(mdp.actions) z[i_a] .= zero(T) end
-# 				ep += 1
-# 				save_episode_steps && push!(episode_step_history, step)
-# 			else
-# 				s = s′
-# 				i_a = i_a′
-# 				for i_a in eachindex(mdp.actions) z[i_a] .*= γ*λ end
-# 			end
-# 			step += 1
-# 		end
-		
-# 		return (episode_steps = episode_step_history, step_rewards = step_rewards)
-# 	end
-# end
+# ╔═╡ 3a03bd95-f43d-47b5-93d6-88a9ef61d2b4
+get_num_actions(mdp::TabularMDP) = length(mdp.actions)
 
 # ╔═╡ 31926565-8c2f-42a9-bc73-4f3001a38bf4
 md"""
 ### *Dynamic Programming Implementation*
 """
 
-# ╔═╡ 8c95178c-8e75-4036-b0cb-bec936dcbd28
-begin
-	#dp λ with binary features
-	# function dp_λ!(parameters::Vector{T}, get_active_features::Function, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_episode_steps::Bool = false, save_step_rewards::Bool = false, use_dutch_traces::Bool = false, use_accumulating_traces::Bool = false, epkwargs...) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
-	# 	#initialize records
-	# 	episode_step_history = Vector{T}()
-	# 	step_rewards = Vector{T}()
+# ╔═╡ 9c8765f5-0101-47e3-8780-65c197c14d6b
+function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+	#initialize records
+	reward_history = zeros(T, num_steps)
+	average_reward_history = zeros(T, num_steps)
 
-	# 	function value_function(active_features)
-	# 		v = zero(T)
-	# 		for i in active_features
-	# 			v += parameters[i]
-	# 		end
-	# 		return v
-	# 	end
+	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 
-	# 	function calculate_action_value(s, i_a)
-	# 		(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-	# 		q = zero(T)
-	# 		for i in eachindex(rewards)
-	# 			s′ = states[i]
-	# 			q += probabilities[i]*(rewards[i] + γ*value_function(get_active_features(s′)))
-	# 		end
-	# 		return q
-	# 	end
-
-	# 	function select_action!(action_values, parameters, ϵ, active_features)
-	# 		for i_a in eachindex(action_values)
-	# 			action_values[i_a] = calculate_action_value(s, i_a)
-	# 		end
-	# 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
-	# 		sample_action(action_values)
-	# 	end
-			
-
-	# 	#initialize episode
-	# 	s = mdp.initialize_state()
-	# 	active_features = get_active_features(s) 
-	# 	i_a = select_action!(action_values, parameters, ϵ, active_features)
-	# 	z .= zero(T)
-	# 	ep = 1
-	# 	step = 1
+	#initialize variables
+	decay = one(T)
+	s = mdp.initialize_state()
+	zero_trace!(z)
+	
+	policy = copy(action_values)
+	r̄ = zero(T)
+	
+	for step in 1:num_steps
+		update_feature_vector!(feature_vector, s)
+		v̂ = update_value_gradient!(∇v̂, feature_vector, parameters)
 		
-	# 	while (ep <= max_episodes) && (step <= max_steps)
-	# 		#take action and observe transition
-	# 		(r, s′) = mdp.ptf(s, i_a)
-			
-	# 		save_step_rewards && push!(step_rewards, r)
+		update_trace_with_gradient!(z, ∇v̂, trace_type)
+		apply_dutch_trace!(z, -α*λ, feature_vector, value_function, ∇v̂, trace_type)
 
-	# 		δ = r
-			
-	# 		for i in active_features
-	# 			δ -= parameters[i]
-	# 			z[i] = one(T) + !use_dutch_traces*use_accumulating_traces*z[i] - use_dutch_traces*!use_accumulating_traces*α*γ*λ*z[i]
-	# 		end
-
-	# 		if !mdp.isterm(s′)
-	# 			active_features = get_active_features(s′)
-	# 			i_a′ = select_action!(action_values, parameters, ϵ, active_features)
-	# 			for i in active_features
-	# 				δ += γ*parameters[i]
-	# 			end
-	# 		end
-
-	# 		parameters .+= α*δ .* z
-
-	# 		if mdp.isterm(s′)
-	# 			s = mdp.initialize_state()
-	# 			active_features = get_active_features(s)
-	# 			i_a = select_action!(action_values, parameters, ϵ, active_features)
-	# 			#reset eligibility vector to 0 at the start of a new episode
-	# 			z .= zero(T)
-	# 			ep += 1
-	# 			save_episode_steps && push!(episode_step_history, step)
-	# 		else
-	# 			s = s′
-	# 			i_a = i_a′
-	# 			z .*= γ*λ
-	# 		end
-	# 		step += 1
-	# 	end
+		average_reward_history[step] = r̄
+		target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, r̄, action_value_args...; kwargs...)
+		δ = target - v̂
+		r̄ += α_r̄*δ
 		
-	# 	return (episode_steps = episode_step_history, step_rewards = step_rewards)
-	# end
+		decay *= (step > decay_step)*α_decay + (step <= decay_step)
+		update_params_with_gradient!(parameters, α*decay*δ, z)
+
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a = sample_action(policy)
+
+		#take action and observe transition
+		(r, s′) = mdp.ptf(s, i_a)
+		reward_history[step] = r
+		
+
+		if !isapprox(target, action_values[i_a])
+			#if the selected action is not the greedy action then zero out the trace since it is an off policy selection
+			zero_trace!(z)
+		else
+			decay_trace!(z, λ)
+		end
+
+		s = s′
+		step += 1
+	end
+	
+	q̂, form_kwargs = form_differential_value_function(mdp, r̄, update_feature_vector!, value_function, feature_vector, parameters)
+	
+	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end
-
-# ╔═╡ a7c8d853-9411-40df-83a3-46da00722697
-# Add dp_λ implementation for linear features, fcann, and generic
 
 # ╔═╡ 51274911-2eaa-4b18-b977-d0f735746bec
 md"""
@@ -2063,8 +1787,8 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 	
 	
 	while (ep <= max_episodes) && (step <= max_steps)
+		update_value_gradient!(∇q̂, action_values, feature_vector, i_a, parameters)
 		q̂ = action_values[i_a]
-		update_value_gradient!(∇q̂, feature_vector, i_a, parameters)
 
 		update_trace_with_gradient!(z, ∇q̂, trace_type)
 		apply_dutch_trace!(z, -α*γ*λ, feature_vector, i_a, update_action_values!, action_values, ∇q̂, trace_type)
@@ -2099,8 +1823,6 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 
 		update_params_with_gradient!(parameters, α*decay*δ, z)
 
-		update_action_values!(action_values, feature_vector, parameters)
-
 		save_parameter_history && push!(parameter_history, deepcopy(parameters))
 		s = s′
 		i_a = i_a′
@@ -2118,8 +1840,75 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end
 
+# ╔═╡ 3df4cd98-f754-4eca-8e16-e654576e283d
+function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_r̄::T = one(T)/10, z::P = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+	#initialize records
+	reward_history = zeros(T, num_steps)
+	average_reward_history = zeros(T, num_steps)
+	
+	#initialize variables
+	ep = 1
+	step = 1
+	decay = one(T)
+	s = mdp.initialize_state()
+	update_feature_vector!(feature_vector, s)
+	update_action_values!(action_values, feature_vector, parameters)
+	policy = copy(action_values)
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	i_a = sample_action(policy)
+	zero_trace!(z)
+	r̄ = zero(T)
+	
+	
+	for step in 1:num_steps
+		update_value_gradient!(∇q̂, action_values, feature_vector, i_a, parameters)
+		q̂ = action_values[i_a]
+		
+		update_trace_with_gradient!(z, ∇q̂, trace_type)
+		apply_dutch_trace!(z, -α*λ, feature_vector, i_a, update_action_values!, action_values, ∇q̂, trace_type)
+
+		#take action and observe transition
+		(r, s′) = mdp.ptf(s, i_a)
+		reward_history[step] = r
+		average_reward_history[step] = r̄
+
+		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+
+		update_feature_vector!(feature_vector, s′)
+		update_action_values!(action_values, feature_vector, parameters)
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a′ = sample_action(policy)
+
+		q̂′ = terminated ? zero(T) : compute_value(action_values, policy, i_a′)
+
+		target = r - r̄ + q̂′
+
+		δ = target - q̂
+		r̄ += α_r̄*δ
+
+		decay *= (step > decay_step)*α_decay + (step <= decay_step)
+
+		update_params_with_gradient!(parameters, α*decay*δ, z)
+
+		s = s′
+		i_a = i_a′
+		step += 1
+
+		decay_trace!(z, λ)
+		
+	end
+	
+	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
+	
+	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+end
+
 # ╔═╡ efa11915-d86b-4686-85f9-84d7539e27cf
 sarsa_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ fc9149ee-6d28-41b5-ab47-2c2a36e7a8d1
+sarsa_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ c7caa90d-26bf-4179-b869-3385cb75b943
 function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F}
@@ -2132,6 +1921,17 @@ function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::In
 	sarsa_λ_linear(StateMDP(mdp), γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...)
 end
 
+# ╔═╡ 58739629-eff4-416a-b133-85ab5ec563fc
+function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, λ::T, num_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F}
+	function update_feature_vector!(v, s::S)
+		i_s = mdp.state_index[s]
+		v.group_index = i_s
+		return v
+	end
+	
+	sarsa_λ_linear(StateMDP(mdp), λ, num_steps, feature_vector, update_feature_vector!; kwargs...)
+end
+
 # ╔═╡ 2c8beba6-4436-4603-88f2-20f847c5e916
 function test_sarsa_λ(; kwargs...)
 	mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
@@ -2142,14 +1942,33 @@ end
 test_sarsa_λ()
 
 # ╔═╡ 84870ff4-d7a5-4214-abcb-3d74b7a8fe7b
-function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
+function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
 	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	
-	sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
+	!use_gpu && return sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
+
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = sarsa_λ!(setup.gpu_args.params, mdp, γ, λ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
+	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
+	(;output..., cpu_params = parameters)
 end
 
+# ╔═╡ 747700de-0a87-4ac9-a9cd-0bc11721836e
+#=╠═╡
+function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
+	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	!use_gpu && return sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
+
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = sarsa_λ!(setup.gpu_args.params, mdp, λ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
+	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
+	(;output..., cpu_params = parameters)
+end
+  ╠═╡ =#
+
 # ╔═╡ 4cab7b59-f080-4bea-86dc-3c860a618c35
-function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
@@ -2166,13 +1985,11 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ
 	s = mdp.initialize_state()
 	zero_trace!(z)
 	
-	policy = copy(action_values)
-	
+	policy = zeros(T, length(mdp.actions))
 	
 	while (ep <= max_episodes) && (step <= max_steps)
 		update_feature_vector!(feature_vector, s)
-		v̂ = value_function(feature_vector, parameters)		
-		update_value_gradient!(∇v̂, feature_vector, parameters)
+		v̂ = update_value_gradient!(∇v̂, feature_vector, parameters)
 		
 		update_trace_with_gradient!(z, ∇v̂, trace_type)
 		apply_dutch_trace!(z, -α*γ*λ, feature_vector, value_function, ∇v̂, trace_type)
@@ -2218,6 +2035,9 @@ end
 # ╔═╡ 258be19f-0b01-4d5e-ae82-2ef07ba4cc9c
 dp_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
 
+# ╔═╡ c3fb9a00-3aa0-43e5-98c8-306441166cc4
+dp_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
 # ╔═╡ da6944b0-1d1b-4b92-a765-5e28c133cff5
 function test_dp_λ(; kwargs...)
 	mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
@@ -2228,12 +2048,33 @@ function test_dp_λ(; kwargs...)
 end
 
 # ╔═╡ 08c7beae-9dee-468e-b276-aa56a8f24f1f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 test_dp_λ()
+  ╠═╡ =#
 
 # ╔═╡ 5f623b73-4d7d-4c69-acaf-9a668c352bf9
-function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
+function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
 	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+	!use_gpu && return dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	output = dp_λ!(setup.gpu_args.params, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
+
+	(;output..., cpu_params = parameters)
+end
+
+# ╔═╡ c5ae58b0-6f89-476a-8a72-9bb1cfd1a6be
+function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
+	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	!use_gpu && return dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
+
+	isempty(setup.gpu_args) && error("GPU backend is not available")
+	output = dp_λ!(setup.gpu_args.params, mdp, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
+
+	(;output..., cpu_params = parameters)
 end
 
 # ╔═╡ 65ca967c-2425-4c85-92e9-3f957e7ede2f
@@ -2439,8 +2280,8 @@ end
 
 # ╔═╡ ded7c8e0-f44c-44c9-afad-070d325c180b
 #true online dp λ for linear features
-function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), save_parameter_history::Bool = false, kwargs...) where {T<:Real}
-	policy = copy(action_values)
+function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), save_parameter_history::Bool = false, kwargs...) where {T<:Real}
+	policy = zeros(T, length(mdp.actions))
 	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 	
 	#initialize records
@@ -2504,14 +2345,69 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 		s = s′
 		v_old = v′
 		
-		update_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, γ, action_value_args...)
-		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
-		i_a = sample_action(policy)
 		step += 1
 	end
 	
 	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, linear_value_function, feature_vector, parameters)
+
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+end
+
+# ╔═╡ b1ae33a5-272f-43de-b9e2-eaa0423c34b8
+#true online dp λ for linear features
+function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), kwargs...) where {T<:Real}
+	policy = zeros(T, length(mdp.actions))
+	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
+	
+	#initialize records
+	reward_history = zeros(T, num_steps)
+	average_reward_history = zeros(T, num_steps)
+	
+	#initialize episode
+	s = mdp.initialize_state()
+	target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, r̄, action_value_args...)
+	policy .= action_values
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	i_a = sample_action(policy)
+	z .= zero(T)
+	v_old = zero(T)
+
+	
+	for step in 1:num_steps
+		update_feature_vector!(feature_vector, s)
+		v = linear_value_function(feature_vector, parameters)
+		#represents the portion of the eligibility trace update that depends on the current feature vector
+		dt =  one(T) - α*λ*linear_value_function(feature_vector, z)
+		z .*= λ
+		update_params_with_gradient!(z, dt, feature_vector)
+		update_params_with_gradient!(parameters, -α*(v - v_old), feature_vector)
+		average_reward_history[step] = r̄
+		target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, r̄, action_value_args...)
+		policy .= action_values
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		i_a = sample_action(policy)
+		
+		δ = target - v
+
+		r̄ += α_r̄*δ
+		
+		#take action and observe transition
+		(r, s′) = mdp.ptf(s, i_a)
+		reward_history[step] = r
+
+		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+
+		
+		update_feature_vector!(feature_vector, s′)
+		v′ = linear_value_function(feature_vector, parameters)
+
+		parameters .+= α*(δ + v - v_old) .* z
+			
+		s = s′
+		v_old = v′
+	end
+	
+	q̂, form_kwargs = form_differential_value_function(mdp, r̄, update_feature_vector!, linear_value_function, feature_vector, parameters)
 
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end
@@ -2548,7 +2444,10 @@ function run_mountaincar_λ_linear_trial(α, λ, algo; kwargs...)
 end
 
 # ╔═╡ 4bd74da4-382b-47af-bfca-78b3318e2df7
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_semi_gradient_linear_parameter_study = setup_parameter_study(run_mountaincar_λ_linear_trial, (:α, :λ, :algo), (num_steps = 50_000, num_tiles = 10, num_tilings = 10, compute_value = compute_sarsa_value, ϵ = 0.01f0, trace_type = AccumulatingTrace()))
+  ╠═╡ =#
 
 # ╔═╡ 0324b4e2-2544-4bd6-b310-8a330b5a92c5
 #=╠═╡
@@ -2705,7 +2604,10 @@ end
   ╠═╡ =#
 
 # ╔═╡ 315db1e4-c730-46bc-8f5b-03cdfe5467f9
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_tilecoding_λ_best = run_mountaincar_λ_linear(0.002f0, 0.99f0, true_online_dp_λ; num_steps = 50_000, num_tiles = 14, num_tilings = 10, ϵ = 0.01f0)
+  ╠═╡ =#
 
 # ╔═╡ 20836990-b332-478a-b99b-6f4ef4659392
 md"""
@@ -3334,11 +3236,14 @@ Given a maximum horizontal force we can apply to the vehicle, there is always so
 """
 
 # ╔═╡ fbfdf045-e627-442e-8ecf-81e9c8007679
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function test_cartpole_throttle(θ_init, throttle)
 	mdp = create_cartpole_mdp(h = 4f-2, init_θ = () -> θ_init, f = throttle)
 	π(s) = 3 #maximum throttle forward
 	output = runepisode(mdp; π = π, max_steps = 25_000)
 end
+  ╠═╡ =#
 
 # ╔═╡ c03d9058-25f0-49a1-9283-9d7d7492afd2
 #=╠═╡
@@ -3441,6 +3346,10 @@ md"""
 ##### Linear Parameter Study
 """
 
+# ╔═╡ 36f54330-4d8a-4f5e-ac64-aab02468ead0
+#add interactive elements to parameter studies to select the number of tiles, type of trace etc... and layer size for the fcann studies
+#add function to set up a function for λ param studies where it generates results over a list of learning rate and λ values.  This can also be done for the non-λ algos that would only have the learning rate
+
 # ╔═╡ fbef62e4-404b-4859-9a9f-92b248395d7c
 #=╠═╡
 @bind run_cartpole_tilecoding_param_studies CounterButton("Run Parameter Studies (could take several minutes)")
@@ -3458,7 +3367,10 @@ end
   ╠═╡ =#
 
 # ╔═╡ 0ee1882f-f9b2-4292-8b92-adc2eb2edb0e
-const cartpole_tilecoding_λ_best = run_cartpole_tilecoding(5f-5, 0.2f0; algo = true_online_dp_λ, num_tiles = (4, 4, 4, 4), num_tilings = 8, num_steps = 1_000_000)
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const cartpole_tilecoding_λ_best = run_cartpole_tilecoding(5f-5, 0.2f0; algo = true_online_dp_λ, num_tiles = (10, 4, 4, 4), num_tilings = 8, num_steps = 100_000)
+  ╠═╡ =#
 
 # ╔═╡ bee67ec3-98b8-41b9-895c-7d2db4cebfab
 #=╠═╡
@@ -3526,7 +3438,10 @@ function run_mountaincar_λ_fcann_trial(α, λ, algo; kwargs...)
 end
 
 # ╔═╡ 48923864-c40c-45ca-907e-2c0c03587f2c
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const mountaincar_semi_gradient_fcann_parameter_study = setup_parameter_study(run_mountaincar_λ_fcann_trial, (:α, :λ, :algo), (num_steps = 50_000, layers = [16, 16], reslayers = 1, compute_value = compute_sarsa_value, ϵ = 0.01f0, trace_type = AccumulatingTrace()))
+  ╠═╡ =#
 
 # ╔═╡ 7af6f5ed-178d-4b90-9226-02be6b13ed5a
 #=╠═╡
@@ -3547,13 +3462,10 @@ end
   ╠═╡ =#
 
 # ╔═╡ d85e292e-5b13-4b51-9cb9-7c5161ba70a6
-const mountaincar_fcann_λ_best = run_mountaincar_λ_fcann(2f-7, 0.99f0, dp_λ_fcann; num_steps = 500_000, layers = fill(32, 4), reslayers = 1)
-
-# ╔═╡ 3a67fbf8-a762-4910-934d-ea12cbe226a0
-function run_mountaincar_sarsa_λ(layers::Vector{Int64}, num_steps, α, λ; kwargs...)
-	setup = normalized_feature_setup(MountainCarTask.mdp, identity, (-1.2f0, -0.07f0), (0.5f0, 0.07f0); range = 1.725f0)
-	output = sarsa_λ_fcann(MountainCarTask.mdp, 1f0, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, kwargs...)
-end
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const mountaincar_fcann_λ_best = run_mountaincar_λ_fcann(8f-6, 0.99f0, dp_λ_fcann; num_steps = 100_000, layers = fill(32, 4), reslayers = 1, use_gpu=false)
+  ╠═╡ =#
 
 # ╔═╡ 6ee6d7d0-9381-4413-a361-e836ac5240de
 function setup_cartpole_problem_fcann(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max = deg2rad(70f0), ẋ_max = 50f0, θ̇_max = 10f0, kwargs...)
@@ -3565,10 +3477,12 @@ function setup_cartpole_problem_fcann(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max
 end
 
 # ╔═╡ 834055ef-0bdc-4b4b-9c3f-ce7f43864ef7
+#=╠═╡
 function run_cartpole_fcann(α, λ; algo::Function = sarsa_λ_fcann, γ = 0.9f0, num_steps = 10_000, ϵ = 0.01f0, layers = [4, 4], kwargs...)
 	mdp, setup = setup_cartpole_problem_fcann()
 	algo(mdp, γ, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ 4b13b020-0dd2-45ff-adb5-d67cdd3a77f6
 #=╠═╡
@@ -3607,7 +3521,7 @@ end |> confirm
 # ╔═╡ 565ac829-0b95-449f-b787-233a8d6b935a
 #=╠═╡
 if run_cartpole_fcann_param_studies > 0
-	display_cartpole_λ_parameter_study(Base.LogRange(1f-3, 5f-1, 6), [0f0, 0.2f0, 0.5f0, 0.9f0], cartpole_fcann_λ_param_study; layers = fill(16, 10), num_steps = 100_000, algo = dp_λ_fcann, ymax = 1000)
+	display_cartpole_λ_parameter_study(Base.LogRange(1f-3, 5f-1, 6), [0f0, 0.2f0, 0.5f0, 0.9f0], cartpole_fcann_λ_param_study; layers = fill(fcann_study_layers[1], fcann_study_layers[2]), num_steps = 100_000, algo = dp_λ_fcann, ymax = 1000)
 else
 	md"""
 	Waiting to run parameter study
@@ -3616,7 +3530,9 @@ end
   ╠═╡ =#
 
 # ╔═╡ d0e96989-c165-48d6-ba4b-4eab05fcb638
-const cartpole_fcann_λ_best = run_cartpole_fcann(5f-2, 0.0f0; algo = dp_λ_fcann, layers = fill(16, 10), num_steps = 1_000_000)
+#=╠═╡
+const cartpole_fcann_λ_best = run_cartpole_fcann(.14f0, 0.0f0; algo = dp_λ_fcann, layers = fill(4, 4), num_steps = 100_000)
+  ╠═╡ =#
 
 # ╔═╡ 993f8193-7488-415d-85d5-9a7a83f6bf71
 #=╠═╡
@@ -3725,7 +3641,7 @@ const gridworld_true_online_sarsaλ_study = setup_parameter_study(gridworld_true
 # ╔═╡ a36d205c-9a77-4b24-8e57-7bfceee9f4af
 #=╠═╡
 function display_gridworld_sarsaλ_parameter_study(steps::Integer, nruns::Integer; λ_list = [0f0, 0.5f0, 0.6f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
-	value_iteration_output = value_iteration_v(gridworld_mdp, 1f0)
+	value_iteration_output = value_iteration_v(gridworld_mdp, 1f0; show_message = false)
 	best_steps = abs(value_iteration_output.final_value[gridworld_mdp.initialize_state_index()])
 	traces = [begin 
 		output = [gridworld_sarsaλ_study.update_results!(λ, α; steps = steps, num_trials = nruns, kwargs...) for α in α_list]
@@ -3748,7 +3664,7 @@ display_gridworld_sarsaλ_parameter_study(10_000, 50; ϵ = 0.01f0, computer_valu
 # ╔═╡ 1277b3b2-8733-4c26-a9aa-39b07769bca4
 #=╠═╡
 function display_gridworld_true_online_sarsaλ_parameter_study(steps::Integer, nruns::Integer; λ_list = [0f0, 0.5f0, 0.6f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
-	value_iteration_output = value_iteration_v(gridworld_mdp, 1f0)
+	value_iteration_output = value_iteration_v(gridworld_mdp, 1f0; show_message = false)
 	best_steps = abs(value_iteration_output.final_value[gridworld_mdp.initialize_state_index()])
 	traces = [begin 
 		output = [gridworld_true_online_sarsaλ_study.update_results!(λ, α; steps = steps, num_trials = nruns, kwargs...) for α in α_list]
@@ -4216,8 +4132,8 @@ plot_path(mdp::TabularMDP; title = "Random policy <br> path example", kwargs...)
 
 # ╔═╡ 1441e34f-e8c5-46b5-b04c-31ea7f9f605a
 #=╠═╡
-function show_gridworld_exact_solution(mdp)
-	output = value_iteration_v(mdp, 1f0)
+function show_gridworld_exact_solution(mdp; kwargs...)
+	output = value_iteration_v(mdp, 1f0; kwargs...)
 	@htl("""
 	<div style = "display: flex">
 	<div>
@@ -4236,7 +4152,7 @@ end
 
 # ╔═╡ d08aaab5-4065-41ef-867d-ea689c87a4f6
 #=╠═╡
-show_gridworld_exact_solution(gridworld_mdp)
+show_gridworld_exact_solution(gridworld_mdp; show_message = false)
   ╠═╡ =#
 
 # ╔═╡ bb71215f-fa97-4eca-a950-be4cb037bb00
@@ -4340,7 +4256,9 @@ end
 function display_mountaincar_results(output::NamedTuple; nsmooth = 100, npoints = 1000, ϵ = 0.05f0)
 	p1 = show_mountaincar_trajectory(s -> rand() < ϵ ? rand(1:3) : output.value_function(s).maximizing_action, 1000, "")
 
-	p2 = plot_mountaincar_action_values(output.value_function, 200, 200)
+	kwargs = output.form_kwargs()
+	v̂(s) = output.value_function(s; kwargs...)
+	p2 = plot_mountaincar_action_values(v̂, 200, 200)
 
 	rewards = output.episode_rewards
 	if isempty(rewards)
@@ -4445,7 +4363,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.6"
+julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "52f0e08d74c26001471ce64a62da0627b2421990"
 
@@ -5214,12 +5132,9 @@ version = "17.4.0+2"
 # ╠═24468748-009d-42a3-918d-4ba18b23c9ed
 # ╟─be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
 # ╠═52098913-ea06-497d-afad-a9fef99fb428
-# ╠═cfb775b2-ecd8-4518-854f-384bf35ba9af
-# ╠═3c1fdc9c-42ad-4eae-9103-e834a1056878
-# ╠═43675f77-a930-424a-bf60-6362354317ed
 # ╟─f92b8423-b05f-4058-ac91-4b3c6d447820
 # ╠═3839f146-107c-45e9-bb94-b707982f4ce1
-# ╟─3ab94b9e-4f50-4162-8b27-f6a81595f42f
+# ╠═3ab94b9e-4f50-4162-8b27-f6a81595f42f
 # ╟─e99caf5c-7c13-4edd-b55b-dce93cc850c6
 # ╠═900760f0-b253-4db7-8c4f-4ca34777198d
 # ╟─373a89e3-0b8d-49a0-982e-8bb300538429
@@ -5252,29 +5167,30 @@ version = "17.4.0+2"
 # ╟─f7cc35c5-c1ed-440d-8723-8c1b8b966b8f
 # ╟─b36896b1-6802-48e1-8cd3-f08bf3b99e3e
 # ╟─0086dc4a-e0ba-43f0-a721-296cd50e1a76
-# ╠═5eacdb68-f4ac-4615-b9aa-bb0ad1a31ede
 # ╠═43ba01e3-27d0-481c-8f93-8cd9c30b2a1d
 # ╠═58ea2a87-3a8c-4fa3-877e-b1aa4b0ba36f
 # ╠═01024201-7989-43f0-86f2-d3cd5ee219ae
+# ╟─0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
 # ╠═b320dc0e-95dc-44d5-8ee4-455c4a858835
+# ╠═3df4cd98-f754-4eca-8e16-e654576e283d
 # ╠═efa11915-d86b-4686-85f9-84d7539e27cf
+# ╠═fc9149ee-6d28-41b5-ab47-2c2a36e7a8d1
 # ╠═84870ff4-d7a5-4214-abcb-3d74b7a8fe7b
+# ╠═747700de-0a87-4ac9-a9cd-0bc11721836e
 # ╠═3a03bd95-f43d-47b5-93d6-88a9ef61d2b4
 # ╠═c7caa90d-26bf-4179-b869-3385cb75b943
-# ╠═21479229-c2ad-425f-98bb-77717ab40b02
-# ╟─0525812d-7a86-4c5b-b5a8-36b4cfbd51fe
-# ╠═c5edfcbf-8d31-4dc4-b9d0-1a5439540710
+# ╠═58739629-eff4-416a-b133-85ab5ec563fc
 # ╠═2c8beba6-4436-4603-88f2-20f847c5e916
 # ╠═84d71a29-7e38-4877-bfb8-57d4af2ec0d0
-# ╠═cf4fb06d-98e5-47f0-9e9a-0f89d83ccf1f
 # ╟─31926565-8c2f-42a9-bc73-4f3001a38bf4
 # ╠═4cab7b59-f080-4bea-86dc-3c860a618c35
+# ╠═9c8765f5-0101-47e3-8780-65c197c14d6b
 # ╠═258be19f-0b01-4d5e-ae82-2ef07ba4cc9c
+# ╠═c3fb9a00-3aa0-43e5-98c8-306441166cc4
 # ╠═5f623b73-4d7d-4c69-acaf-9a668c352bf9
+# ╠═c5ae58b0-6f89-476a-8a72-9bb1cfd1a6be
 # ╠═da6944b0-1d1b-4b92-a765-5e28c133cff5
 # ╠═08c7beae-9dee-468e-b276-aa56a8f24f1f
-# ╠═8c95178c-8e75-4036-b0cb-bec936dcbd28
-# ╠═a7c8d853-9411-40df-83a3-46da00722697
 # ╟─51274911-2eaa-4b18-b977-d0f735746bec
 # ╟─afa6843b-9852-42c0-9ecd-06c408262334
 # ╟─4b1d86d8-e6b9-4d09-b2a1-8c297414094c
@@ -5308,6 +5224,7 @@ version = "17.4.0+2"
 # ╠═771cca22-d61d-498a-98be-90fa59e09571
 # ╠═b9467ce7-ace9-4034-a306-050bf1e53573
 # ╠═ded7c8e0-f44c-44c9-afad-070d325c180b
+# ╠═b1ae33a5-272f-43de-b9e2-eaa0423c34b8
 # ╠═a2a6c291-3ea7-45d4-9608-40e25f1cfe7c
 # ╟─8b6b5084-3972-4bd4-9ca2-423f1c627788
 # ╟─5bc128ec-2934-4aa5-a922-9017f647e1b3
@@ -5347,7 +5264,6 @@ version = "17.4.0+2"
 # ╟─10c75d09-3966-4511-83f8-e8365a2a82da
 # ╟─3d6df2fa-35e5-4a02-b53f-30936f404b3f
 # ╟─bf3584aa-2a17-43ef-95aa-035aa9505dd2
-# ╠═3a67fbf8-a762-4910-934d-ea12cbe226a0
 # ╠═d85e292e-5b13-4b51-9cb9-7c5161ba70a6
 # ╠═c3cd5a5f-6445-4df3-b492-0d22e641f37c
 # ╟─fbe8691b-6d71-4cba-90e4-5de63421f634
@@ -5412,6 +5328,7 @@ version = "17.4.0+2"
 # ╠═76b7abfb-e95a-4cf8-9ac1-8354882845cc
 # ╠═752297a5-6b66-4d96-931c-82352f9f0a35
 # ╟─bf5c80bf-687f-4ade-afe5-6927c1733f64
+# ╠═36f54330-4d8a-4f5e-ac64-aab02468ead0
 # ╟─fbef62e4-404b-4859-9a9f-92b248395d7c
 # ╟─de341cf8-822d-43ca-ba10-cc350afe8509
 # ╠═0ee1882f-f9b2-4292-8b92-adc2eb2edb0e
@@ -5426,7 +5343,7 @@ version = "17.4.0+2"
 # ╟─8bdb4ac6-164f-4b3b-9f07-3bb5545bd132
 # ╟─c9a83977-bb0a-4f58-940a-1647b2864aec
 # ╟─9601eb2d-de36-436f-91c0-906dcd2921f8
-# ╟─565ac829-0b95-449f-b787-233a8d6b935a
+# ╠═565ac829-0b95-449f-b787-233a8d6b935a
 # ╠═d0e96989-c165-48d6-ba4b-4eab05fcb638
 # ╟─993f8193-7488-415d-85d5-9a7a83f6bf71
 # ╟─0358288e-be4e-46c2-ac4c-16ace6f50187

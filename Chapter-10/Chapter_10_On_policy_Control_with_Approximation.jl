@@ -464,7 +464,7 @@ compute_sarsa_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) w
 
 # ╔═╡ f9057d17-00fe-4cc9-83a1-fef34c116b25
 md"""
-#### Vanilla Implementation
+#### *Vanilla Implementation*
 """
 
 # ╔═╡ 05e2fff5-4871-4468-a00e-9c1b7ba0ffc6
@@ -861,7 +861,7 @@ begin
 			(action_values = action_values, maximizing_action = i_a_max |> Tuple |> prod, maximizing_value = maxq)
 		end #since the action values here are a matrix, findmax will produce a cartesian index, this step transforms it back into an integer
 
-		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), parameters = parameters, feature_vector = deepcopy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters))
+		form_kwargs() = (action_values = zeros(T, length(mdp.actions), 1), parameters = parameters, feature_vector = deepcopy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters))
 		return q̂, form_kwargs
 	end
 end
@@ -1148,6 +1148,11 @@ begin
 	initialize_linear_parameters(x, y, init_value) = initialize_linear_parameters(length(x), get_num_actions(y), init_value)
 end
 
+# ╔═╡ 8513264e-6a14-41ab-8cfd-a335682a06aa
+md"""
+#### *Linear Approximation*
+"""
+
 # ╔═╡ b697c5ba-4647-4998-a153-1e97dd91cb23
 """
     semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
@@ -1250,7 +1255,7 @@ semi_gradient_dp_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::
 
 # ╔═╡ 8d096d0d-8fea-421a-aa33-82269d3fe7e2
 md"""
-### *Action-Value Implementation of Non-Linear Approximation*
+#### *Non-linear Approximation*
 """
 
 # ╔═╡ be1ad356-de4b-469c-bb65-81d630f07674
@@ -3130,7 +3135,7 @@ function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3},
 		(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 	end
 
-	form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters))
+	form_kwargs() = (action_values = zeros(T, length(mdp.actions), 1), feature_vector = deepcopy(feature_vector), parameters = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters))
 	return q̂, form_kwargs
 end
 
@@ -5828,6 +5833,7 @@ version = "17.4.0+2"
 # ╠═97e56e3f-1ef7-45a5-8261-c8fa103b9747
 # ╠═b0761704-5447-4e64-8270-708d9dccef60
 # ╠═de3e4afe-f935-4b33-9218-08d403743c60
+# ╟─8513264e-6a14-41ab-8cfd-a335682a06aa
 # ╟─b697c5ba-4647-4998-a153-1e97dd91cb23
 # ╟─b8cd582e-26fc-4f21-85cc-950bac60bee0
 # ╟─526689e2-85ea-47d5-9791-5aa730f8b1ab

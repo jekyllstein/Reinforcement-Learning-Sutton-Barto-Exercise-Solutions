@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.17
+# v0.20.18
 
 using Markdown
 using InteractiveUtils
@@ -134,8 +134,7 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 	
 	while (ep <= max_episodes) && (step <= max_steps)
 		update_feature_vector!(feature_vector, s)
-		v̂ = value_function(feature_vector, parameters)
-		update_value_gradient!(∇v̂, feature_vector, parameters)
+		v̂ = update_value_gradient!(∇v̂, feature_vector, parameters)
 		
 		#computes all of the action values for a particular MDP and an existing value estimation
 		update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ)
@@ -2875,6 +2874,7 @@ HTML("""
 </style>
 """)
 
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -2898,18 +2898,18 @@ LaTeXStrings = "~1.4.0"
 PlutoDevMacros = "~0.9.1"
 PlutoPlotly = "~0.6.4"
 PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.69"
+PlutoUI = "~0.7.71"
 StatsBase = "~0.34.6"
-Transducers = "~0.4.84"
+Transducers = "~0.4.85"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.6"
+julia_version = "1.11.7"
 manifest_format = "2.0"
-project_hash = "60ac74c018d235b8bd1f9ae3db765e202c2a5061"
+project_hash = "7161af9da702ca4c46679f6fc04c3dc3e1699eb4"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -3004,15 +3004,15 @@ version = "1.6.0"
 
 [[deps.CodeTracking]]
 deps = ["InteractiveUtils", "UUIDs"]
-git-tree-sha1 = "5ac098a7c8660e217ffac31dc2af0964a8c3182a"
+git-tree-sha1 = "980f01d6d3283b3dbdfd7ed89405f96b7256ad57"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
-version = "2.0.0"
+version = "2.0.1"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
-git-tree-sha1 = "a656525c8b46aa6a1c76891552ed5381bb32ae7b"
+git-tree-sha1 = "b0fd3f56fa442f81e0a47815c92245acfaaa4e34"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
-version = "3.30.0"
+version = "3.31.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
@@ -3084,9 +3084,9 @@ version = "1.16.0"
 
 [[deps.DataStructures]]
 deps = ["OrderedCollections"]
-git-tree-sha1 = "76b3b7c3925d943edf158ddb7f693ba54eb297a5"
+git-tree-sha1 = "6c72198e6a101cccdd4c9731d3985e904ba26037"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.19.0"
+version = "0.19.1"
 
 [[deps.DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
@@ -3223,9 +3223,9 @@ version = "0.21.4"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "e09121f4c523d8d8d9226acbed9cb66df515fcf2"
+git-tree-sha1 = "d8337622fe53c05d16f031df24daf0270e53bc64"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.10.4"
+version = "0.10.5"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
@@ -3413,9 +3413,9 @@ version = "0.4.0"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "2d7662f95eafd3b6c346acdbfc11a762a2256375"
+git-tree-sha1 = "8329a3a4f75e178c11c1ce2342778bcbbbfa7e3c"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.69"
+version = "0.7.71"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
@@ -3425,9 +3425,9 @@ version = "1.2.1"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "9306f6085165d270f7e3db02af26a400d580f5c6"
+git-tree-sha1 = "0f27480397253da18fe2c12a4ba4eb9eb208bf3d"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.4.3"
+version = "1.5.0"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -3476,9 +3476,9 @@ version = "0.7.0"
 
 [[deps.ScopedValues]]
 deps = ["HashArrayMappedTries", "Logging"]
-git-tree-sha1 = "7f44eef6b1d284465fafc66baf4d9bdcc239a15b"
+git-tree-sha1 = "c3b2323466378a2ba15bea4b2f73b081e022f473"
 uuid = "7e506255-f358-4e82-b7e4-beb19740aa63"
-version = "1.4.0"
+version = "1.5.0"
 
 [[deps.Scratch]]
 deps = ["Dates"]
@@ -3587,10 +3587,10 @@ uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 version = "1.11.0"
 
 [[deps.Transducers]]
-deps = ["Accessors", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "ConstructionBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "SplittablesBase", "Tables"]
-git-tree-sha1 = "7deeab4ff96b85c5f72c824cae53a1398da3d1cb"
+deps = ["Accessors", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "ConstructionBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "SplittablesBase", "Tables"]
+git-tree-sha1 = "4aa1fdf6c1da74661f6f5d3edfd96648321dade9"
 uuid = "28d57a85-8fef-5791-bfe6-a80928e7c999"
-version = "0.4.84"
+version = "0.4.85"
 
     [deps.Transducers.extensions]
     TransducersAdaptExt = "Adapt"
@@ -3609,9 +3609,9 @@ version = "0.4.84"
     Referenceables = "42d2dcc6-99eb-4e98-b66c-637b7d73030e"
 
 [[deps.Tricks]]
-git-tree-sha1 = "0fc001395447da85495b7fef1dfae9789fdd6e31"
+git-tree-sha1 = "372b90fe551c019541fafc6ff034199dc19c8436"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
-version = "0.1.11"
+version = "0.1.12"
 
 [[deps.URIs]]
 git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
