@@ -462,6 +462,11 @@ Expected SARSA would compute weighted averages using the policy probabilities.
 """
 compute_sarsa_value(action_values::Vector{T}, policy::Vector{T}, i_a::Integer) where T<:Real = action_values[i_a]
 
+# ╔═╡ f9057d17-00fe-4cc9-83a1-fef34c116b25
+md"""
+#### Vanilla Implementation
+"""
+
 # ╔═╡ 05e2fff5-4871-4468-a00e-9c1b7ba0ffc6
 md"""
 ### Semi-gradient Dynamic Programming
@@ -780,6 +785,19 @@ begin
 		end
 	
 		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = copy(feature_vector), gpu_feature_vector = FCANN.cuda_allocate(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+	
+		return q̂, form_kwargs
+	end
+
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::FCANN.CUDAArray, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W<:FCANNParamsGPU}
+		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} = zeros(feature_vector.element_type, feature_vector.size[1]),  gpu_feature_vector::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), parameters::W = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+			update_feature_vector!(gpu_feature_vector, s; feature_vector = feature_vector)
+			maxq, i_a_max = update_action_values!(action_values, gpu_feature_vector, parameters; activations = activations, kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+
+		v = zeros(feature_vector.element_type, feature_vector.size[1])
+		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), gpu_feature_vector = FCANN.cuda_allocate(v), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
 	
 		return q̂, form_kwargs
 	end
@@ -1398,17 +1416,13 @@ to [`semi_gradient_sarsa!`](@ref) with appropriate neural network functions and 
 3. Delegates to [`semi_gradient_sarsa!`](@ref) with neural network functions
 4. Returns wrapped value function with activation storage management
 """
-function semi_gradient_sarsa_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
+function semi_gradient_sarsa_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
 	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	
-	semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
-end
+	!use_gpu && return semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
-# ╔═╡ 08fc7168-d1ac-411a-b4be-6c7230a0c181
-function semi_gradient_sarsa_fcann_gpu(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where T<:Real 
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
-	output = semi_gradient_sarsa!(setup.gpu_args.parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = semi_gradient_sarsa!(setup.gpu_args.params, mdp, γ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
 	(;output..., cpu_params = parameters)
 end
@@ -1467,15 +1481,10 @@ Uses single-output network for state value function approximation.
 3. Delegates to [`semi_gradient_dp!`](@ref) with neural network functions
 4. Returns wrapped value function with activation storage management
 """
-function semi_gradient_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
+function semi_gradient_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
 	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	
-	semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
-end
+	!use_gpu && return semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
-# ╔═╡ 67f9fb99-3b89-4757-807e-2a5e166b9ed5
-function semi_gradient_dp_fcann_gpu(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = semi_gradient_dp!(setup.gpu_args.params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
@@ -2044,7 +2053,7 @@ end
 # ╔═╡ 5fdbce61-ca25-45e0-b07d-94adf7138446
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const mountain_car_fcann_sarsa = mountaincar_fcann_sarsa_test(100_000, 2f-6, 0.01f0; num_layers = 4, layer_size = 64, compute_value = compute_sarsa_value, reslayers=1, usetiles=false)
+const mountain_car_fcann_sarsa = mountaincar_fcann_sarsa_test(100_000, 1f-6, 0.01f0; num_layers = 4, layer_size = 64, compute_value = compute_sarsa_value, reslayers=1, use_gpu=false, usetiles=false)
   ╠═╡ =#
 
 # ╔═╡ 7cef3dab-7091-4293-a2fb-edddb15a8af8
@@ -2058,22 +2067,20 @@ md"""
 """
 
 # ╔═╡ 0f958535-6b18-46de-a1ba-81f64c217ee0
-function mountaincar_fcann_dp(max_steps::Integer, α::Float32, ϵ::Float32, layers::Vector{Int64}, mdp::StateMDP = mountaincar_dist_mdp; usetiles = false, use_gpu=false, kwargs...)
+function mountaincar_fcann_dp(max_steps::Integer, α::Float32, ϵ::Float32, layers::Vector{Int64}, mdp::StateMDP = mountaincar_dist_mdp; usetiles = false, kwargs...)
 	x, f! = if usetiles
 		setup = setup_mountain_car_tiles((1f0/10, 1f0/10), 10)
 		setup.feature_vector, setup.update_feature_vector!
 	else
 		zeros(Float32, 2), update_mountaincar_feature_vector!
 	end
-
-	f = use_gpu ? semi_gradient_dp_fcann_gpu : semi_gradient_dp_fcann
-	f(mdp, 1f0, 100, max_steps, x, f!, layers; α = α, ϵ = ϵ, kwargs...)
+	semi_gradient_dp_fcann(mdp, 1f0, 100, max_steps, x, f!, layers; α = α, ϵ = ϵ, kwargs...)
 end
 
 # ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const mountaincar_fcann_dp_results = mountaincar_fcann_dp(50_000, 1f-4, 0.01f0, fill(128, 4), MountainCarTask.deterministic_mdp; reslayers = 1)
+const mountaincar_fcann_dp_results = mountaincar_fcann_dp(100_000, 1f-4, 0.01f0, fill(64, 4), MountainCarTask.deterministic_mdp; reslayers = 1)
   ╠═╡ =#
 
 # ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
@@ -2373,9 +2380,6 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 		
 		update_params_with_gradient!(parameters, α*decay*δ, ∇q̂)
 
-		
-		
-
 		#these action values will be used to compute the state-action value for the next state using the updated parameters
 		update_action_values!(action_values1, feature_vector, parameters1)
 		update_action_values!(action_values2, feature_vector, parameters2)
@@ -2384,7 +2388,6 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 		policy .= action_values1 .+ action_values2
 		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 		i_a = sample_action(policy)
-		
 		
 		save_parameter_history && push!(parameter_history1, deepcopy(parameters1))
 		save_parameter_history && push!(parameter_history2, deepcopy(parameters2))
@@ -2857,6 +2860,11 @@ function semi_gradient_differential_sarsa!(parameters::PR, mdp::StateMDP{T, S, A
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, average_step_reward = average_step_reward, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs) 
 end;
 
+# ╔═╡ efee131c-318a-40d6-be83-ce24edbbe11c
+md"""
+#### *Linear Approximation*
+"""
+
 # ╔═╡ aceeb425-cd5f-4c4c-903e-d4359d2de88d
 """
     semi_gradient_differential_sarsa_linear(mdp, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
@@ -2899,6 +2907,11 @@ Designed for continuing tasks with average reward criterion.
 4. Returns results from core differential SARSA algorithm
 """
 semi_gradient_differential_sarsa_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3} = semi_gradient_differential_sarsa!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ 9b629126-0b8f-4592-8727-cbe710bd4a24
+md"""
+#### *Non-linear Approximation*
+"""
 
 # ╔═╡ db778942-1bed-4c42-a2f0-a176a0364772
 """
@@ -2952,17 +2965,13 @@ Designed for continuing tasks with average reward criterion.
 3. Delegates to [`semi_gradient_differential_sarsa!`](@ref) with neural network functions
 4. Returns wrapped value function with activation storage management
 """
-function semi_gradient_differential_sarsa_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(length(feature_vector), hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function semi_gradient_differential_sarsa_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(length(feature_vector), hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	
-	semi_gradient_differential_sarsa!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
-end
+	!use_gpu && return semi_gradient_differential_sarsa!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
-# ╔═╡ d6793145-31d0-4269-8027-6de2da23d64f
-function semi_gradient_differential_sarsa_fcann_gpu(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(length(feature_vector), hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
-	output = semi_gradient_differential_sarsa!(setup.gpu_args.params, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = semi_gradient_differential_sarsa!(setup.gpu_args.params, mdp, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
 	(;output..., cpu_params = parameters)
 end
@@ -3250,6 +3259,11 @@ function semi_gradient_differential_dp!(parameters::PR, mdp::StateMDP{T, S, A, P
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, average_step_reward = average_step_reward, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
 end;
 
+# ╔═╡ 9b56eac4-10be-42c3-b3a9-a0c4852b7cce
+md"""
+#### *Linear Approximation*
+"""
+
 # ╔═╡ 7c22d050-bd56-4b84-8a01-e575475db099
 """
     semi_gradient_differential_dp_linear(mdp, max_episodes, max_steps, feature_vector, update_feature_vector!; kwargs...) -> NamedTuple
@@ -3292,6 +3306,11 @@ Uses state value function approximation for continuing tasks.
 4. Returns results from core differential DP algorithm
 """
 semi_gradient_differential_dp_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(0f0), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} = semi_gradient_differential_dp!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+
+# ╔═╡ 571fad6e-ca32-4661-bc48-62f3f49d124b
+md"""
+#### *Non-linear Approximation*
+"""
 
 # ╔═╡ e04b9ac4-7e7f-4f6a-b068-d62b319a23fa
 """
@@ -3345,19 +3364,15 @@ Uses single-output network for state value function approximation in continuing 
 3. Delegates to [`semi_gradient_differential_dp!`](@ref) with neural network functions
 4. Returns wrapped value function with activation storage management
 """
-function semi_gradient_differential_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(length(feature_vector), hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function semi_gradient_differential_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(length(feature_vector), hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
 	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	semi_gradient_differential_dp!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
-end	
+	!use_gpu && return semi_gradient_differential_dp!(parameters, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
-# ╔═╡ 07d64c34-3460-49cd-adda-6bef2030c56b
-function semi_gradient_differential_dp_fcann_gpu(mdp::StateMDP{T, S, A, P, F1, F2, F3}, max_episodes::Integer, max_steps::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = semi_gradient_differential_dp!(setup.gpu_args.params, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
 	(;output..., cpu_params = parameters)
-end
+end	
 
 # ╔═╡ 1a7ba296-52ca-4069-85fa-792d08d77b0e
 md"""
@@ -3488,7 +3503,7 @@ md"""
 # ╔═╡ d3ba78fa-f032-4bb9-9359-ef3bcff2252d
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function mountaincar_fcann_differential_test(max_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_layers = 3, layer_size = 2, use_gpu = false, kwargs...)
+function mountaincar_fcann_differential_test(max_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_layers = 3, layer_size = 2, kwargs...)
 	feature_vector = zeros(Float32, 2)
 	function update_feature_vector!(v::Vector{Float32}, s::NTuple{2, Float32})
 		x1 = 3.45f0*(((s[1] - 1.2f0) / 1.7f0) - 0.5f0)
@@ -3497,14 +3512,13 @@ function mountaincar_fcann_differential_test(max_steps::Integer, α::Float32, β
 		v[2] = x2
 	end
 	layers = fill(layer_size, num_layers)
-	f = use_gpu ? semi_gradient_differential_sarsa_fcann_gpu : semi_gradient_differential_sarsa_fcann
 	semi_gradient_differential_sarsa_fcann(mountain_car_differential_mdps.mdp, 100, max_steps, feature_vector, update_feature_vector!, layers; α = α, β = β, ϵ = ϵ, kwargs...)
 end
   ╠═╡ =#
 
 # ╔═╡ ae5c5377-8b44-4c82-a63c-d2cb8a0d6667
 #=╠═╡
-(q̂_mountain_car2_fcann, episode_rewards2_fcann, episode_steps2_fcann, average_step_reward_fcann) = mountaincar_fcann_differential_test(1_000_000, 1f-4, 1f-2, 0.01f0; num_layers = 2, layer_size = 16, reslayers = 1, compute_value = compute_q_learning_value)
+(q̂_mountain_car2_fcann, episode_rewards2_fcann, episode_steps2_fcann, average_step_reward_fcann) = mountaincar_fcann_differential_test(100_000, 1f-5, 1f-3, 0.01f0; num_layers = 4, layer_size = 64, reslayers = 1, compute_value = compute_q_learning_value, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ 2306039b-7b4d-4013-be1b-1402231ef8e8
@@ -3568,7 +3582,7 @@ md"""
 # ╔═╡ 3b66c97b-ebad-4d13-987c-ac0172b349d1
 # ╠═╡ skip_as_script = true
 #=╠═╡
-function mountaincar_differential_dp_nonlinear_test(num_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_layers = 3, layer_size = 8, use_gpu::Bool = false, kwargs...)
+function mountaincar_differential_dp_nonlinear_test(num_steps::Integer, α::Float32, β::Float32, ϵ::Float32; num_layers = 3, layer_size = 8, kwargs...)
 	feature_vector = zeros(Float32, 2)
 	function update_feature_vector!(v::Vector{Float32}, s::NTuple{2, Float32})
 		x1 = 3.45f0*(((s[1] - 1.2f0) / 1.7f0) - 0.5f0)
@@ -3577,14 +3591,13 @@ function mountaincar_differential_dp_nonlinear_test(num_steps::Integer, α::Floa
 		v[2] = x2
 	end
 	layers = fill(layer_size, num_layers)
-	f = use_gpu ? semi_gradient_differential_dp_fcann_gpu : semi_gradient_differential_dp_fcann
-	f(mountain_car_differential_mdps.deterministic_mdp, 100, num_steps, feature_vector, update_feature_vector!, layers; α = α, β = β, ϵ = ϵ, kwargs...)
+	semi_gradient_differential_dp_fcann(mountain_car_differential_mdps.deterministic_mdp, 100, num_steps, feature_vector, update_feature_vector!, layers; α = α, β = β, ϵ = ϵ, kwargs...)
 end
   ╠═╡ =#
 
 # ╔═╡ 86f7dcde-b27e-4096-bec8-c5d17fd553d2
 #=╠═╡
-const differential_nonlinear_dp_mountaincar = mountaincar_differential_dp_nonlinear_test(100_000, 1f-6, 1f-2, 0.01f0; layer_size = 64, num_layers = 2, use_gpu = false)
+const differential_nonlinear_dp_mountaincar = mountaincar_differential_dp_nonlinear_test(100_000, 1f-5, 4f-2, 0.01f0; layer_size = 16, num_layers = 4, use_gpu = false)
   ╠═╡ =#
 
 # ╔═╡ ad692a51-e93b-4480-8a6c-2ad86dc6766b
@@ -4165,7 +4178,7 @@ As the discount rate approaches 1, this solution should converge to the average 
 # ╔═╡ 350e057e-154f-4d0b-91fb-ffde9cc9059f
 #=╠═╡
 function figure_10_5_tabular_discounted(γ::Float32)
-	access_control_output = value_iteration_v(tabular_access_control_task, γ)
+	access_control_output = value_iteration_v(tabular_access_control_task, γ; show_message = false)
 	policy_output = zeros(Float32, 4, 10)
 	priorities = [8, 4, 2, 1]
 	actions = [true, false]
@@ -4828,7 +4841,7 @@ plot(scatter(y = -smooth_error(mountaincar_fcann_results2.episode_rewards, 10)),
 
 # ╔═╡ 425fe768-c7bb-4d3e-87e6-47fa052ba612
 #=╠═╡
-plot(smooth_error(average_step_reward_fcann, 1000)[round.(Int64, (LinRange(1, length(average_step_reward_fcann) - 1000, 1000)))])
+plot(smooth_error(average_step_reward_fcann, 10)[round.(Int64, (LinRange(1, length(average_step_reward_fcann) - 10, 1000)))])
   ╠═╡ =#
 
 # ╔═╡ b76551e0-c027-4682-b5ae-bba7ea2b987a
@@ -4982,14 +4995,10 @@ julia> output.value_function(mountain_car_mdp.initialize_state())
 (action_values = [0.12f0, -0.08f0, 0.15f0], maximizing_action = 3, maximizing_value = 0.15f0)
 ```
 """
-function gradient_monte_carlo_control_fcann(mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), kwargs...) where T<:Real
+function gradient_monte_carlo_control_fcann(mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
 	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
-end
+	!use_gpu && return gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
-# ╔═╡ 304d6bbe-8c68-4fae-b2f9-e451e28839c4
-function gradient_monte_carlo_control_fcann_gpu(mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), kwargs...) where T<:Real
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = gradient_monte_carlo_control!(setup.gpu_args.params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
@@ -4998,15 +5007,10 @@ end
 
 # ╔═╡ a9d1381b-566a-4422-81fc-38efde1d2608
 #when the transition distribution is available uses the state value function to learn optimal policy
-function gradient_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
+function gradient_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
 	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
-	gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
-end
+	!use_gpu && return gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
-# ╔═╡ 641cfaa2-f8ad-41cb-8faf-2476c5e9d671
-#when the transition distribution is available uses the state value function to learn optimal policy
-function gradient_monte_carlo_control_fcann_gpu(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector::Vector{T}, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = gradient_monte_carlo_control!(setup.gpu_args.params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
@@ -5015,7 +5019,7 @@ end
 
 # ╔═╡ d81e0a66-626f-467f-9748-2f5d407a8815
 #=╠═╡
-const mc_fcann_sarsa = gradient_monte_carlo_control_fcann(mountain_car_mdp, 1f0, 100, zeros(Float32, 2), update_mountaincar_feature_vector!, fill(32, 4); reslayers = 1, α = 1f-8, ϵ = 0.01f0, max_steps = 10_000, suppress_warning = true, use_unfinished_episodes = true)
+const mc_fcann_sarsa = gradient_monte_carlo_control_fcann(mountain_car_mdp, 1f0, 10, zeros(Float32, 2), update_mountaincar_feature_vector!, fill(32, 4); reslayers = 1, α = 5f-9, ϵ = 0.01f0, max_steps = 10_000, suppress_warning = true, use_unfinished_episodes = true)
   ╠═╡ =#
 
 # ╔═╡ 702927e2-23c0-48a8-85aa-f406710e3ac8
@@ -5034,7 +5038,7 @@ plot_mountaincar_action_values(mc_fcann_sarsa.value_function, 100, 100)
   ╠═╡ =#
 
 # ╔═╡ 9b3035f6-fe59-4748-a1cd-3c2ce61c6608
-const mc_test3 = gradient_monte_carlo_control_fcann_gpu(MountainCarTask.deterministic_mdp, 1f0, 10, zeros(Float32, 2), update_mountaincar_feature_vector!, fill(64, 4); α = 4f-8, ϵ = 0.01f0, max_steps = 10_000, suppress_warning = true, use_unfinished_episodes = true)
+const mc_test3 = gradient_monte_carlo_control_fcann(MountainCarTask.deterministic_mdp, 1f0, 10, zeros(Float32, 2), update_mountaincar_feature_vector!, fill(64, 4); α = 4f-8, ϵ = 0.01f0, max_steps = 10_000, suppress_warning = true, use_unfinished_episodes = true)
 
 # ╔═╡ 52ab5b04-8500-4310-8723-0fba097358da
 #=╠═╡
@@ -5813,6 +5817,7 @@ version = "17.4.0+2"
 # ╠═94fa7f7d-c77c-4df5-a7b9-b3c931cb3bce
 # ╠═d82faf3b-c975-4b23-ad62-473bd943c4e2
 # ╟─fc0b88f3-fbf9-450d-b770-b34357ffad49
+# ╟─f9057d17-00fe-4cc9-83a1-fef34c116b25
 # ╠═991492f4-7dfc-43aa-ab6c-a6b1f3e38225
 # ╠═8b7e1031-9864-439c-86eb-11aa08f53b90
 # ╟─05e2fff5-4871-4468-a00e-9c1b7ba0ffc6
@@ -5829,11 +5834,9 @@ version = "17.4.0+2"
 # ╟─8d096d0d-8fea-421a-aa33-82269d3fe7e2
 # ╠═be1ad356-de4b-469c-bb65-81d630f07674
 # ╠═7e87f2ec-c96f-4897-bb61-c27913f6944f
-# ╠═08fc7168-d1ac-411a-b4be-6c7230a0c181
 # ╠═8cdf042f-2214-48e0-afc2-c6a7d385ee4e
 # ╠═6d4b513d-2744-4f9c-8bee-e51fe9d0bade
 # ╠═4c94be37-dcd7-4b32-8e7f-3371ddaa254a
-# ╠═67f9fb99-3b89-4757-807e-2a5e166b9ed5
 # ╟─a22e5d34-4b8d-479c-985c-d6abd41a6c80
 # ╟─b990ba67-42c8-4ab9-943d-085392204fdd
 # ╠═f221fb13-4ef2-4ebe-b71b-fe6adbddb1e4
@@ -5941,16 +5944,18 @@ version = "17.4.0+2"
 # ╠═e6bf5b6e-75cd-49b3-bf36-7ed6dee11aaf
 # ╟─69a06405-57cd-42e5-96b1-5cc77d74aa03
 # ╠═a9fdb1fd-3f62-4e1c-9157-c4eee6215261
+# ╟─efee131c-318a-40d6-be83-ce24edbbe11c
 # ╟─aceeb425-cd5f-4c4c-903e-d4359d2de88d
+# ╟─9b629126-0b8f-4592-8727-cbe710bd4a24
 # ╠═db778942-1bed-4c42-a2f0-a176a0364772
-# ╠═d6793145-31d0-4269-8027-6de2da23d64f
 # ╟─063e6f33-8b65-463c-a96f-5411f0ba0326
 # ╠═91447aff-5598-4f02-acd5-6a90c563f4f6
 # ╠═4e955391-ac29-412e-8ed2-bad3b46961b0
 # ╠═12fa7b75-d13f-4a16-8562-1142002f3f3f
+# ╟─9b56eac4-10be-42c3-b3a9-a0c4852b7cce
 # ╠═7c22d050-bd56-4b84-8a01-e575475db099
+# ╟─571fad6e-ca32-4661-bc48-62f3f49d124b
 # ╠═e04b9ac4-7e7f-4f6a-b068-d62b319a23fa
-# ╠═07d64c34-3460-49cd-adda-6bef2030c56b
 # ╟─1a7ba296-52ca-4069-85fa-792d08d77b0e
 # ╠═eb28458f-b222-4f8e-9a5b-8203d3997f7b
 # ╠═d66cd124-7111-401a-a3e8-1059b31c6db7
@@ -6008,7 +6013,7 @@ version = "17.4.0+2"
 # ╠═54700e88-2c70-4b3e-bc93-6960dc70efcb
 # ╠═28f9d40a-4f4f-4bbf-ac36-4964afed7ab4
 # ╟─32b3c5b4-cdb8-43be-a398-6e158254c4a7
-# ╟─5a73ef20-dfdb-4d75-8790-805d6da27462
+# ╠═5a73ef20-dfdb-4d75-8790-805d6da27462
 # ╟─3985641e-2f07-4029-8047-51579904cd53
 # ╠═350e057e-154f-4d0b-91fb-ffde9cc9059f
 # ╟─f009970f-bf6c-46dd-a534-a960582ce51b
@@ -6042,11 +6047,9 @@ version = "17.4.0+2"
 # ╟─ca4928fb-0fcb-4835-95ff-a65abf5102b8
 # ╟─8ae2f369-8c73-4116-a6d8-1a1e4aae35e0
 # ╠═c75dc51c-cbff-48b1-b0fd-108828929b51
-# ╠═304d6bbe-8c68-4fae-b2f9-e451e28839c4
 # ╠═a9d1381b-566a-4422-81fc-38efde1d2608
-# ╠═641cfaa2-f8ad-41cb-8faf-2476c5e9d671
 # ╠═d81e0a66-626f-467f-9748-2f5d407a8815
-# ╠═702927e2-23c0-48a8-85aa-f406710e3ac8
+# ╟─702927e2-23c0-48a8-85aa-f406710e3ac8
 # ╠═ce3de885-8c9d-4ae1-b43b-c011e140af58
 # ╠═11ad4137-2145-452f-b01e-6fffb3a69cdd
 # ╠═9b3035f6-fe59-4748-a1cd-3c2ce61c6608
