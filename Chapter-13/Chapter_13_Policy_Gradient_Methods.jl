@@ -1141,24 +1141,6 @@ md"""
 ### *One-step Actor-Critic Implementation*
 """
 
-# ╔═╡ e7e49ff8-32df-48a4-afb2-462859592e92
-# function form_state_and_policy_function_outputs(update_feature_vector!::Function, update_action_preferences!::Function, value_function::Function, feature_vector, action_preferences::Vector, policy_params, value_params)
-# 	π! = form_state_policy_function(update_feature_vector!, update_action_preferences!)
-# 	π(s; x = deepcopy(feature_vector), action_preferences = copy(action_preferences)) = π!(x, action_preferences, s, policy_params)
-# 	π_sample(s; kwargs...) = sample_action(π(s; kwargs...))
-
-# 	v! = form_state_value_function(update_feature_vector!, value_function)
-# 	estimate_state_value(s; x = deepcopy(feature_vector)) = v!(x, s, value_params)
-
-# 	function policy_and_value(s; x = deepcopy(feature_vector), action_preferences = copy(action_preferences))
-# 		π!(x, action_preferences, s, policy_params)
-# 		v̂ = value_function(x, value_params)
-# 		return (action_probabilities = action_preferences, state_value_estimate = v̂)
-# 	end
-
-# 	(policy_function = π, policy_sample_action = π_sample, estimate_state_value = estimate_state_value, policy_and_value = policy_and_value)
-# end
-
 # ╔═╡ 1386ffdb-940d-4f1b-a872-4e38647b5335
 md"""
 #### Test One-step Actor-Critic
@@ -1188,40 +1170,6 @@ function display_actor_critic_episodic_trace_parameter_study(study::NamedTuple, 
 	for α_w in α_w_list]
 
 	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Episode in the First <br> $num_episodes Episodes Averaged Over $num_trials Runs", xaxis_type = "log", title = "λ_θ = $λ_θ, λ_w = $λ_w", yaxis_range = [ymin, ymax]))
-end
-  ╠═╡ =#
-
-# ╔═╡ 1f041cb3-618c-4380-a1ec-d7bbe4a80f62
-#=╠═╡
-function actor_critic_binary_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3},  get_active_features::Function, num_features::Integer, λ_θ::T, λ_w::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_episodes::Integer; nruns::Integer = 100, max_steps::Integer = 10_000, seed = rand(UInt64), init_policy_params::Matrix{T} = zeros(T, num_features, length(mdp.actions)), init_value_params::Vector{T} = zeros(T, num_features), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	Random.seed!(seed)
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_binary_features(mdp, λ_θ, λ_w, get_active_features, num_features, max_episodes, max_steps; α_θ = α_θ, α_w = α_w, policy_params = copy(init_policy_params), value_params = copy(init_value_params), kwargs...) |> x -> isempty(x.episode_rewards) ? -T(Inf) : mean(x.episode_rewards)) |> foldxt(+) |> x -> x / nruns
-	end
-
-	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
-	end
-	for α_w in α_w_list]
-
-	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Episode in the First <br> $max_episodes Episodes Averaged Over $nruns Runs", xaxis_type = "log", title = "Binary Feature Encoding with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
-end
-  ╠═╡ =#
-
-# ╔═╡ 11ea640c-3981-404d-87c6-4d3d0708a2b8
-#=╠═╡
-function actor_critic_linear_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3},  update_feature_vector!::Function, num_features::Integer, λ_θ::T, λ_w::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_episodes::Integer; nruns = 100, max_steps::Integer = 10_000, seed = rand(UInt64), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	Random.seed!(seed)
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_linear_features(mdp, λ_θ, λ_w, update_feature_vector!, num_features, max_episodes, max_steps; α_θ = α_θ, α_w = α_w, kwargs...) |> x -> isempty(x.episode_rewards) ? -T(Inf) : sum(x.episode_rewards) / length(x.episode_rewards)) |> foldxt(+) |> x -> x / nruns
-	end
-
-	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
-	end
-	for α_w in α_w_list]
-
-	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Episode in the First <br> $max_episodes Episodes Averaged Over $nruns Runs", xaxis_type = "log2", title = "Linear Feature Encoding with $num_features Features, λ_θ = $λ_θ, λ_w = $λ_w"))
 end
   ╠═╡ =#
 
@@ -2733,8 +2681,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 	
 	while (ep <= max_episodes) && (step <= max_steps)
 		
-		update_value_gradient!(∇v̂, feature_vector, value_params)
-		v̂ = value_function(feature_vector, value_params)
+		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
 		update_policy_dist!(policy, feature_vector, policy_params, policy_args...)
 		i_a = sample_action(policy)
 		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
@@ -2822,10 +2769,18 @@ corridor_parameter_studies(2f0 .^ (-10:-6), 2f0 .^ (-35:5:-15); num_trials = 100
   ╠═╡ =#
 
 # ╔═╡ 09bfbf48-6d1d-4adc-a576-6be0ab047c01
-function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
+function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
 	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
-	∇lnπ = NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP)
-	one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
+	!use_gpu && return one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
+
+	isempty(value_setup.gpu_args) && error("GPU backend is not available")
+	d_policy_params = initialize_gpu_params(policy_params)
+	d_value_params = initialize_fcann_value_params(d_policy_params, use_μP)
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = one_step_actor_critic!(d_policy_params, d_value_params, mdp, γ, max_episodes, max_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP); kwargs...)
+	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
+	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
+	(;output..., cpu_policy_params = policy_params, cpu_value_params = value_params)
 end
 
 # ╔═╡ 0fbf45c8-3e3c-47c1-b763-3b06bcdc60e0
@@ -2834,9 +2789,14 @@ end
 one_step_actor_critic_fcann(corridor_mdp, 1f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!, [2]; α_θ = 2f0^-7, α_w = 2f0^-13).policy_and_value(1)
   ╠═╡ =#
 
+# ╔═╡ 42ff6c93-9eb0-455b-8b8a-98df5c328a0d
+#=╠═╡
+one_step_actor_critic_fcann(corridor_mdp, 1f0, typemax(Int64), 100, [1f0], Returns(nothing), [2]; α_θ = 2f0^-7, α_w = 2f0^-13, use_gpu=true).policy_and_value(1)
+  ╠═╡ =#
+
 # ╔═╡ 266d2234-26c8-43f1-9e75-49440a230ed6
 #version of reinforce for general function approximation
-function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, policy::Vector{T} = zeros(T, length(mdp.actions)), z_θ::P1 = deepcopy(policy_params), z_w::P2 = deepcopy(value_params), trace_type::AbstractEligibilityTrace = AccumulatingTrace(), eligibility_vector_kwargs...) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
+function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::P2, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, policy::Vector{T} = zeros(T, length(mdp.actions)), z_θ::P1 = copy(policy_params), z_w::P2 = copy(value_params), trace_type::AbstractEligibilityTrace = AccumulatingTrace(), eligibility_vector_kwargs...) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
 
@@ -2853,9 +2813,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 	update_feature_vector!(feature_vector, s)
 	
 	while (ep <= max_episodes) && (step <= max_steps)
-		
-		update_value_gradient!(∇v̂, feature_vector, value_params)
-		v̂ = value_function(feature_vector, value_params)
+		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
 
 		decay_trace!(z_w, λ_w*γ)
 		decay_trace!(z_θ, λ_θ*γ)
@@ -3689,14 +3647,27 @@ end
 actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
-function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
-	∇lnπ = NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP)
-	actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
+	!use_gpu && return actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
+
+	isempty(value_setup.gpu_args) && error("GPU backend is not available")
+	d_policy_params = initialize_gpu_params(policy_params)
+	d_value_params = initialize_fcann_value_params(d_policy_params, use_μP)
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	output = actor_critic_with_eligibility_traces!(d_policy_params, d_value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP); kwargs...)
+	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
+	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
+	(;output..., cpu_policy_params = policy_params, cpu_value_params = value_params)
 end
 
 # ╔═╡ 4bc22ad6-75f7-4dc9-8bfe-9f5a99eb67ef
 actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+
+# ╔═╡ 3bccf6fc-6e5e-4f62-ad40-1ff0a3740728
+#=╠═╡
+actor_critic_with_eligibility_traces_linear(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, policy_params = [0f0 3.7f0]).policy_and_value(1)
+  ╠═╡ =#
 
 # ╔═╡ 0a31fc6a-a1fe-442a-ba7d-94a97385d65b
 #=╠═╡
@@ -3727,11 +3698,6 @@ best_act_corridor.policy_and_value(1)
 # ╔═╡ 015d8718-f0f1-4671-9bf0-e68add09cb6f
 #=╠═╡
 get_corridor_episode_stats(best_act_corridor.policy_sample_action; make_policy_kwargs = best_act_corridor.form_policy_kwargs, ntrials = 100_000)
-  ╠═╡ =#
-
-# ╔═╡ 3bccf6fc-6e5e-4f62-ad40-1ff0a3740728
-#=╠═╡
-actor_critic_with_eligibility_traces_linear(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, policy_params = [0f0 3.7f0]).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 72273f27-d0b9-4645-a609-cb65cc9332ee
@@ -3798,21 +3764,14 @@ function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1
 	actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
 end
 
-# ╔═╡ f8614042-7c94-4d47-a1b6-4e96676b4e8b
+# ╔═╡ 230a8e3c-fbe2-4948-9d82-e08d7a0fad69
 #=╠═╡
-function actor_critic_fcann_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3},  update_feature_vector!::Function, num_features::Integer, hidden_layers::Vector{Int64}, λ_θ::T, λ_w::T, α_θ_list::AbstractVector{T}, α_w_list::AbstractVector{T}, max_episodes::Integer; nruns = 100, max_steps::Integer = 10_000, seed = rand(UInt64), kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	Random.seed!(seed)
-	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_features, hidden_layers, update_feature_vector!, max_episodes, max_steps; α_θ = α_θ, α_w = α_w, kwargs...) |> x -> isempty(x.episode_rewards) ? missing : mean(x.episode_rewards)) |> Filter(!ismissing) |> tcollect |> x -> isempty(x) ? missing : mean(x)
-	end
+actor_critic_with_eligibility_traces_fcann(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!, [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10).policy_and_value(1)
+  ╠═╡ =#
 
-	traces = [begin
-		scatter(x = α_θ_list, y = average_runs.(α_θ_list, α_w), name = "α_w = $α_w")
-	end
-	for α_w in α_w_list]
-
-	plot(traces, Layout(xaxis_title = "α_θ", yaxis_title = "Average Reward Per Episode in the First <br> $max_episodes Episodes Averaged Over $nruns Runs", xaxis_type = "log", title = "$num_features Inputs, $hidden_layers Hidden Non Linear, λ_θ = $λ_θ, λ_w = $λ_w"))
-end
+# ╔═╡ 82c793d8-9dee-40db-9b92-70667dcd8dc1
+#=╠═╡
+actor_critic_with_eligibility_traces_fcann(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 1000, [1f0], Returns(nothing), [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, use_gpu=true).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ f52fc4a9-f6dd-422d-aeae-6c327d1a7b62
@@ -4561,11 +4520,6 @@ end
 # ╔═╡ d9d11d69-bc16-400a-8f46-f9a8ecb8516a
 actor_critic_binary_episodic_parameter_study(mdp::StateMDP{T, S, A, P, F1, F2, F3}, get_active_features::Function, num_features::Integer, params::@NamedTuple{λ_θ::T, λ_w::T, α_θ_min::Int64, α_w_min::Int64}, num_θ::Integer, num_w::Integer, num_episodes::Integer; kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = actor_critic_binary_episodic_parameter_study(mdp, get_active_features, num_features, params.λ_θ, params.λ_w, 2f0 .^(params.α_θ_min:params.α_θ_min+num_θ-1), 2f0 .^(params.α_w_min:params.α_w_min+num_w-1), num_episodes; kwargs...)
 
-# ╔═╡ bc8a399b-8864-4473-89d2-e3b0a03d15b5
-#=╠═╡
-corridor_parameter_study(args...; kwargs...) = actor_critic_binary_episodic_parameter_study(corridor_mdp, get_corridor_features, 1, args...; init_policy_params = [0f0 3.7f0], kwargs...)
-  ╠═╡ =#
-
 # ╔═╡ 192cc1cf-9ea1-492d-baa7-f2e197abecd4
 #=╠═╡
 @bind run_mountaincar_binary_episodic_param_study CounterButton("Run Parameter Study")
@@ -4955,23 +4909,6 @@ end
 # ╔═╡ 9cf3dc5f-8a25-479f-93db-06e34f0d37a0
 #=╠═╡
 plot_state_distributions(dist_plot_p)
-  ╠═╡ =#
-
-# ╔═╡ cc80848a-6834-4272-9152-e17b45448814
-#=╠═╡
-function wind_speeds(directions)
-	PlutoUI.combine() do Child
-		@htl("""
-		<h6>Wind speeds</h6>
-		<ul>
-		$([
-			@htl("<li>$(name): $(Child(name, Slider(1:100)))</li>")
-			for name in directions
-		])
-		</ul>
-		""")
-	end
-end
   ╠═╡ =#
 
 # ╔═╡ a8b40b8f-051a-4e6f-a079-ece4f32873de
@@ -6461,7 +6398,6 @@ version = "17.4.0+2"
 # ╠═738ada7f-edc7-4ed3-a15e-e92113468738
 # ╟─ce33f710-fd9d-4dfa-acda-40204e54d518
 # ╟─f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
-# ╠═e7e49ff8-32df-48a4-afb2-462859592e92
 # ╠═4d4ae57b-afc3-44f9-b6fc-892f59f82921
 # ╠═57e5e12a-b722-4ea3-ab3b-e5711029e640
 # ╠═09bfbf48-6d1d-4adc-a576-6be0ab047c01
@@ -6469,6 +6405,7 @@ version = "17.4.0+2"
 # ╠═7d63b960-3998-4f7b-8cbb-ccd49db9aeac
 # ╠═9db9ff71-bee9-4bea-a45b-748f8517fed1
 # ╠═0fbf45c8-3e3c-47c1-b763-3b06bcdc60e0
+# ╠═42ff6c93-9eb0-455b-8b8a-98df5c328a0d
 # ╠═c0c5d43a-8f4c-4202-9c53-138abb516674
 # ╠═646bc853-b7fc-49fa-a201-ff98e8f952d4
 # ╠═5583ae6d-f6fa-47ba-aab4-cb6a4f32cb6c
@@ -6478,14 +6415,11 @@ version = "17.4.0+2"
 # ╠═05bfd818-bf4e-4bda-baa9-5ba647867097
 # ╠═97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
 # ╟─4fea7232-f286-4a8b-93f8-a0702818ab31
-# ╠═0a31fc6a-a1fe-442a-ba7d-94a97385d65b
 # ╠═3bccf6fc-6e5e-4f62-ad40-1ff0a3740728
+# ╠═230a8e3c-fbe2-4948-9d82-e08d7a0fad69
+# ╠═82c793d8-9dee-40db-9b92-70667dcd8dc1
+# ╠═0a31fc6a-a1fe-442a-ba7d-94a97385d65b
 # ╠═4da0c2cd-377f-43ae-8bfb-32f597347f85
-# ╠═1f041cb3-618c-4380-a1ec-d7bbe4a80f62
-# ╠═11ea640c-3981-404d-87c6-4d3d0708a2b8
-# ╠═f8614042-7c94-4d47-a1b6-4e96676b4e8b
-# ╠═bc8a399b-8864-4473-89d2-e3b0a03d15b5
-# ╠═cc80848a-6834-4272-9152-e17b45448814
 # ╠═a8b40b8f-051a-4e6f-a079-ece4f32873de
 # ╟─36d514fa-b27a-4c6b-8399-9d108377b9b5
 # ╠═c52c4cec-0ea8-4af3-831a-d284f0e086ee
@@ -6495,9 +6429,9 @@ version = "17.4.0+2"
 # ╠═a573891e-ece6-4931-841e-5940d6a3e657
 # ╠═015d8718-f0f1-4671-9bf0-e68add09cb6f
 # ╟─511a847f-234c-465e-8f4a-688e79d9b975
-# ╠═0284f0d7-b8a9-4ae6-add0-ac1078571d9b
+# ╟─0284f0d7-b8a9-4ae6-add0-ac1078571d9b
 # ╟─b4875f2b-5487-429f-80a3-d1032bbccfc1
-# ╠═4915b1ed-ad53-4ece-9b00-bc136d47d8dc
+# ╟─4915b1ed-ad53-4ece-9b00-bc136d47d8dc
 # ╟─5b15f5c9-80bf-47f0-898a-f8dead5b927c
 # ╠═a1e6da3b-810b-4ada-8782-d79b2e1f6cbf
 # ╠═ca23d085-cdfa-4b1f-a255-2a8c93ccefe6
@@ -6547,10 +6481,10 @@ version = "17.4.0+2"
 # ╠═0574f5a0-72e7-4aa2-80ac-f4ce4f0fe7c2
 # ╟─966ef17c-23be-49dc-bc37-4cb52b34c049
 # ╠═f52fc4a9-f6dd-422d-aeae-6c327d1a7b62
-# ╠═2c5d221a-2469-49e1-9249-dfdc2457f2fa
+# ╟─2c5d221a-2469-49e1-9249-dfdc2457f2fa
 # ╟─5ffc271f-c73f-494a-9727-8d7516af2191
-# ╠═42d4600a-bf3c-45ac-b7f5-d23917713ff5
-# ╠═50ae94c4-70f3-4215-82bd-eb2227c2badf
+# ╟─42d4600a-bf3c-45ac-b7f5-d23917713ff5
+# ╟─50ae94c4-70f3-4215-82bd-eb2227c2badf
 # ╠═eae6493e-81b6-4d99-a9c6-6e75d3b3dc27
 # ╠═1c5eb5bd-71a0-4f80-9d01-70654514aac2
 # ╠═41c04ac1-df62-4771-ac68-2f882c2a8ad0
@@ -6582,7 +6516,7 @@ version = "17.4.0+2"
 # ╠═46fea69b-599e-46ab-8455-d2da865d9a8e
 # ╠═d57375a5-b9e0-4742-b5f7-6a7da891604a
 # ╟─d3c1379f-acd6-4e15-be7e-a5dbe46a4f62
-# ╠═fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
+# ╟─fed4dc4c-0d1c-4ee3-9d0e-8ef2a7db7486
 # ╠═04f42c09-8ab5-4233-b196-51c4aa2dcedb
 # ╠═cb3c96a5-861d-4be9-b2f2-4ef1394099f4
 # ╠═1220d142-b402-45cf-9faf-55bd54ff947c
@@ -6590,7 +6524,7 @@ version = "17.4.0+2"
 # ╟─0c7481e9-f42a-4307-9326-2e109a160978
 # ╟─e7b76cbe-12d8-4d58-b653-b672f7f2e061
 # ╟─4e3b62a1-2d59-4a9d-9f09-b66e4d725889
-# ╠═45a28c1f-84e1-463d-862e-2e4a0c320fe2
+# ╟─45a28c1f-84e1-463d-862e-2e4a0c320fe2
 # ╠═7e605d62-a26f-4fe9-af72-a5c9c0a4063d
 # ╠═ebe7bdce-abd7-4f2b-afb8-d95b7de29268
 # ╠═fdd0f834-ff1f-4bb8-82a2-b7e4ea9a8878
