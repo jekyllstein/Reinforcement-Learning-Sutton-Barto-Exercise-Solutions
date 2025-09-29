@@ -765,9 +765,6 @@ begin
 	end
 end
 
-# ╔═╡ c466f78e-e464-4602-93c4-40362e4c0df2
-gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, args...; kwargs...) = gradient_monte_carlo_estimation!(parameters, create_episode_functions(mrp)..., args...; kwargs...)
-
 # ╔═╡ a77f9819-04b2-4785-8eb0-c7e9dba6cecc
 Base.length(::AbstractBinaryFeatures{I, N}) where {I<:Integer, N} = N
 
@@ -1968,6 +1965,8 @@ function cuda_memcpy_test(n::Integer)
 	r3 = @benchmark $f3()
 	r4 = @benchmark $f4()
 
+	FCANN.clear_gpu_data([d_v])
+
 	return (r1, r2, r3, r4)
 end
   ╠═╡ =#
@@ -2058,6 +2057,9 @@ function setup_gpu_feature(feature_vector::Vector{T}, update_feature_vector!::Fu
 		update_feature_vector!(feature_vector, s)
 		FCANN.memcpy!(d_x, feature_vector)
 	end
+
+	#add version that updates the non-gpu vector for future compatibility
+	update_gpu_feature!(x::Vector{T}, s; kwargs...) = update_feature_vector!(x, s)
 end
 
 # ╔═╡ 8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf
@@ -2076,6 +2078,8 @@ function benchmark_value_transfer()
 	b1 = @benchmark $f1()
 	b2 = @benchmark $f2()
 
+	FCANN.clear_gpu_data([d_x])
+
 	(b1, b2)
 end
   ╠═╡ =#
@@ -2085,6 +2089,13 @@ function initialize_gpu_params(params::FCANNParams)
 	d_θ = FCANN.device_allocate(params.weights[1])
 	d_β = FCANN.device_allocate(params.weights[2])
 	return (weights = (d_θ, d_β), reslayers = params.reslayers)
+end
+
+# ╔═╡ 26fe889f-ccbb-413f-bf22-b02ba237fd41
+function initialize_cpu_params(params::FCANNParamsGPU)
+	θ = FCANN.host_allocate(params.weights[1])
+	β = FCANN.host_allocate(params.weights[2])
+	return (weights = (θ, β), reslayers = params.reslayers)
 end
 
 # ╔═╡ e05a8d56-6010-4e3a-b976-0290f42c95dd
@@ -2896,7 +2907,18 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 			update_value_gradient!(∇v̂, d_x, params)
 		end
 
-		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params, feature_vector = d_x)
+		function cleanup_vars()
+			FCANN.clear_gpu_data(d_gradient.weights[1])
+			FCANN.clear_gpu_data(d_gradient.weights[2])
+			FCANN.clear_gpu_data(d_deltas)
+			FCANN.clear_gpu_data(d_tanh_grad_z)
+			FCANN.clear_gpu_data([d_x])
+			FCANN.clear_gpu_data(d_activations)
+			FCANN.clear_gpu_data(d_params.weights[1])
+			FCANN.clear_gpu_data(d_params.weights[2])
+		end
+
+		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params, feature_vector = d_x, cleanup_vars = cleanup_vars)
 	else
 		gpu_args = ()
 	end
@@ -2944,6 +2966,11 @@ function compare_cpu_gpu(input_size, hidden_layers, output_size, num_input)
 		# return cpu_activations[end]
 	end
 	gpu_benchmark = @benchmark $run_gpu()
+
+	FCANN.clear_gpu_data(d_θ)
+	FCANN.clear_gpu_data(d_β)
+	FCANN.clear_gpu_data(d_activations)
+	FCANN.clear_gpu_data([d_x])
 
 	(cpu = cpu_benchmark, gpu = gpu_benchmark, run_gpu = run_gpu)
 end
@@ -3067,36 +3094,47 @@ function Base.copy(params::FCANNParamsGPU)
 end
 
 # ╔═╡ 16eff6bc-ce43-4d97-aa76-73df2ff76b29
-function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where T<:Real
-	function v̂(s; gpu_feature_vector::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), feature_vector = feature_vector, parameters::FCANNParamsGPU = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
-		update_feature_vector!(feature_vector, s)
-		value_function(feature_vector, parameters; activations = activations, gpu_feature_vector = gpu_feature_vector, kwargs...)
-	end
-
-	#also return a method that acts on the feature vector itself which has already been updated
-	v̂(x::Vector{T}, parameters; kwargs...) = value_function(x, parameters; kwargs...)
-
-	form_kwargs() = (gpu_feature_vector = FCANN.cuda_allocate(feature_vector), feature_vector = copy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+begin
+	# function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where T<:Real
+	# 	function v̂(s; gpu_feature_vector::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), feature_vector = feature_vector, parameters::FCANNParamsGPU = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+	# 		update_feature_vector!(feature_vector, s)
+	# 		value_function(feature_vector, parameters; activations = activations, gpu_feature_vector = gpu_feature_vector, kwargs...)
+	# 	end
 	
-	return (v̂, form_kwargs)
-end
-
-# ╔═╡ 66608e5e-7e27-4ad6-9979-e9e9bd8307cb
-function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::FCANN.CUDAArray, parameters::FCANNParamsGPU)
-	function v̂(s; gpu_feature_vector::FCANN.CUDAArray = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), parameters::FCANNParamsGPU = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
-		update_feature_vector!(gpu_feature_vector, s; feature_vector = feature_vector)
-		value_function(gpu_feature_vector, parameters; activations = activations, kwargs...)
-	end
-
-	#also return a method that acts on the feature vector itself which has already been updated
-	v̂(x::FCANN.CUDAArray, parameters; kwargs...) = value_function(x, parameters; kwargs...)
-
-	form_kwargs() = (gpu_feature_vector = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+	# 	#also return a method that acts on the feature vector itself which has already been updated
+	# 	v̂(x::Vector{T}, parameters; kwargs...) = value_function(x, parameters; kwargs...)
 	
-	return (v̂, form_kwargs)
+	# 	form_kwargs() = (gpu_feature_vector = FCANN.cuda_allocate(feature_vector), feature_vector = copy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+		
+	# 	return (v̂, form_kwargs)
+	# end
+	
+	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where T<:Real
+		cpu_params = initialize_cpu_params(parameters)
+		function v̂(s; feature_vector::Vector{T} = copy(feature_vector), parameters::FCANNParams{T} = cpu_params, kwargs...)
+			update_feature_vector!(feature_vector, s)
+			v̂(feature_vector, parameters; kwargs...)
+		end
+	
+		#also return a method that acts on the feature vector itself which has already been updated
+		function v̂(x::Vector{T}, parameters::FCANNParams{T}; activations = FCANN.form_activations(parameters.weights[1]), kwargs...) 
+			fcann_value_function!(activations, feature_vector, parameters)
+			first(last(activations))
+		end
+	
+		form_kwargs() = (feature_vector = copy(feature_vector), parameters = cpu_params, activations = FCANN.form_activations(cpu_params.weights[1]))
+		
+		return (v̂, form_kwargs)
+	end
+	
+	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::FCANN.CUDAArray, parameters::FCANNParamsGPU)
+		cpu_feature = FCANN.host_allocate(feature_vector)
+		form_state_value_function(value_function, update_feature_vector!, cpu_feature, parameters)
+	end
 end
 
 # ╔═╡ 7542ff9c-c6a1-4d41-8863-05388fea8ce2
+begin
 """
     gradient_monte_carlo_estimation!(parameters, generate_episode, update_episode!, γ, num_episodes,
                                     feature_vector, update_feature_vector!, value_function, ∇v̂,
@@ -3180,7 +3218,10 @@ function gradient_monte_carlo_estimation!(parameters, generate_episode::Function
 	end
 	v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
 	return (value_function = v̂, error_history = error_history, parameters = parameters, form_kwargs = form_kwargs)
-end;
+end
+
+gradient_monte_carlo_estimation!(parameters, mrp::StateMRP, args...; kwargs...) = gradient_monte_carlo_estimation!(parameters, create_episode_functions(mrp)..., args...; kwargs...)
+end
 
 # ╔═╡ 9296a8a1-7edd-4ac4-8fa4-842317d693bc
 """
@@ -4029,7 +4070,8 @@ function gradient_monte_carlo_estimation_fcann(mrp::StateMRP, γ::T, num_episode
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = gradient_monte_carlo_estimation!(setup.gpu_args.params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = params)
+	setup.gpu_args.cleanup_vars()
+	(;output..., parameters = params)
 end
 
 # ╔═╡ b58cacd0-ca65-43f5-8678-7265ea2d46c8
@@ -4095,11 +4137,9 @@ function gradient_monte_carlo_policy_estimation_fcann(mdp::StateMDP, π::Functio
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = gradient_monte_carlo_policy_estimation!(setup.gpu_args.params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = params)
+	setup.gpu_args.cleanup_vars()
+	(;output..., parameters = params)
 end
-
-# ╔═╡ 11441409-4b8c-457c-9c9e-e4f7f809f4ec
-
 
 # ╔═╡ d81d8f7d-ed32-405d-b0c8-2ceff5845578
 """
@@ -4170,11 +4210,9 @@ function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	output = semi_gradient_td0_estimation!(setup.gpu_args.params, mrp, γ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = params)
+	setup.gpu_args.cleanup_vars()
+	(;output..., parameters = params)
 end
-
-# ╔═╡ b896c2c8-8b9f-4c9f-afbd-701f440a2bc2
-
 
 # ╔═╡ 4a3a4635-a046-4eec-ab95-2dce74ac0fbe
 """
@@ -4247,11 +4285,9 @@ function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, 
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	output = semi_gradient_td0_policy_estimation!(setup.gpu_args.params, mdp, π, γ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = params)
+	setup.gpu_args.cleanup_vars()
+	(;output..., parameters = params)
 end
-
-# ╔═╡ a4ca8fe2-4e38-445d-aa83-73185ae778e0
-
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 md"""
@@ -5702,7 +5738,6 @@ version = "17.4.0+2"
 # ╠═be546bdb-77a9-48c4-9a98-1205d73fc8c6
 # ╠═7542ff9c-c6a1-4d41-8863-05388fea8ce2
 # ╠═ba58242a-306a-4631-92b4-34bc9e354fae
-# ╠═c466f78e-e464-4602-93c4-40362e4c0df2
 # ╠═9296a8a1-7edd-4ac4-8fa4-842317d693bc
 # ╠═a77f9819-04b2-4785-8eb0-c7e9dba6cecc
 # ╠═412f6295-3eec-4966-98e3-2774bf62ed4f
@@ -5834,6 +5869,7 @@ version = "17.4.0+2"
 # ╠═322fa46d-125f-418b-90a2-6b8ddfc86b6d
 # ╠═8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf
 # ╠═0f7ce70e-fb15-44e1-8f1b-dd082ae5911f
+# ╠═26fe889f-ccbb-413f-bf22-b02ba237fd41
 # ╠═9b5fbbdd-0b36-4893-b4bb-b05439f5a541
 # ╠═e05a8d56-6010-4e3a-b976-0290f42c95dd
 # ╠═00d522cd-a4e6-45a0-a90f-6875f1b0da1c
@@ -5841,14 +5877,10 @@ version = "17.4.0+2"
 # ╠═b70fac93-ba6e-4234-86de-c131011b09a1
 # ╠═bd3a43b8-5646-4acf-9e29-f6c0ff89ca73
 # ╠═16eff6bc-ce43-4d97-aa76-73df2ff76b29
-# ╠═66608e5e-7e27-4ad6-9979-e9e9bd8307cb
 # ╠═74e42774-68e5-44b5-91c4-da87a20879e1
 # ╠═b58cacd0-ca65-43f5-8678-7265ea2d46c8
-# ╠═11441409-4b8c-457c-9c9e-e4f7f809f4ec
 # ╠═d81d8f7d-ed32-405d-b0c8-2ceff5845578
-# ╠═b896c2c8-8b9f-4c9f-afbd-701f440a2bc2
 # ╠═4a3a4635-a046-4eec-ab95-2dce74ac0fbe
-# ╠═a4ca8fe2-4e38-445d-aa83-73185ae778e0
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
 # ╠═cfc5964b-3a23-48d9-b320-861fd4a43364

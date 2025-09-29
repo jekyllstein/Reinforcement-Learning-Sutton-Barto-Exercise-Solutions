@@ -743,6 +743,15 @@ struct NonLinearGPUEligibilityVector{T <: Real} <: AbstractEligibilityVector{T}
 	end
 end	
 
+# ╔═╡ b41901f9-cf11-48c6-8907-82d33ddf9e4a
+function cleanup_gpu_eligibility_vector(v::NonLinearGPUEligibilityVector)
+	FCANN.clear_gpu_data(v.gradient.weights[1])
+	FCANN.clear_gpu_data(v.gradient.weights[2])
+	FCANN.clear_gpu_data(v.tanh_grad_z)
+	FCANN.clear_gpu_data(v.activations)
+	FCANN.clear_gpu_data(v.deltas)
+end
+
 # ╔═╡ ad9cbe48-98c8-477f-a2ce-49c1778aa385
 begin
 	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V<:StateAggregationFeatureVector}
@@ -943,27 +952,9 @@ begin
 	end
 
 	function form_state_value_function(feature_vector::FCANN.CUDAArray, update_feature_vector!::Function, parameters::FCANNParamsGPU)
-		function v̂(s; gpu_feature_vector::FCANN.CUDAArray = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]),  value_parameters::FCANNParamsGPU = parameters, value_activations = FCANN.form_activations(value_parameters.weights[1]), kwargs...)
-			update_feature_vector!(feature_vector, s; feature_vector = feature_vector)
-			fcann_value_function!(value_activations, feature_vector, value_parameters)
-			#this method is slightly faster for getting a single value, at least it doesn't allocate any memory
-			dst = Ref{Float32}(0f0)
-			FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(value_activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
-			dst.x
-		end
-	
-		#also return a method that acts on the feature vector itself which has already been updated
-		function v̂(d_x::FCANN.CUDAArray, value_parameters::FCANNParamsGPU; value_activations = FCANN.form_activations(value_parameters.weights[1]), kwargs...) 
-			fcann_value_function!(value_activations, d_x, value_parameters)
-			#this method is slightly faster for getting a single value, at least it doesn't allocate any memory
-			dst = Ref{Float32}(0f0)
-			FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(value_activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
-			dst.x
-		end
-
-		form_kwargs() = (gpu_feature_vector = FCANN.cuda_allocate(feature_vector), feature_vector = copy(feature_vector), value_parameters = parameters, value_activations = FCANN.form_activations(parameters.weights[1]))
-		
-		return (v̂, form_kwargs)
+		cpu_params = initialize_cpu_params(parameters)
+		cpu_feature = FCANN.host_allocate(feature_vector)
+		form_state_value_function(cpu_feature, update_feature_vector!, cpu_params)
 	end
 end
 
@@ -1002,35 +993,10 @@ begin
 	end
 
 	function form_policy_and_value_function(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, feature_vector::FCANN.CUDAArray, update_feature_vector!::Function, policy_parameters::FCANNParamsGPU, value_parameters::FCANNParamsGPU) where {T<:Real, S, A, PTF, F1, F2, F3}
-		function π!(policy::Vector{T}, x::FCANN.CUDAArray, params::FCANNParamsGPU, args...)
-			update_policy_dist!(policy, x, params, args...)
-			return policy
-		end
-	
-		v̂, form_value_kwargs = form_state_value_function(feature_vector, update_feature_vector!, value_parameters)
-	
-		form_policy_kwargs() = (gpu_feature_vector = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), policy = zeros(T, length(mdp.actions)), policy_args = form_policy_args(policy_parameters))
-	
-		function π(s::S; gpu_feature_vector::FCANN.CUDAArray = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::FCANNParamsGPU = policy_parameters, policy_args = form_policy_args(policy_parameters)) 
-			update_feature_vector!(gpu_feature_vector, s; feature_vector = feature_vector)
-			π!(policy, feature_vector, policy_parameters, policy_args...)
-		end
-	
-		function π_sample(s::S; kwargs...) 
-			policy = π(s; kwargs...)
-			sample_action(policy)
-		end
-	
-		function policy_and_value(s::S; gpu_feature_vector::FCANN.CUDAArray = copy(feature_vector), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::FCANNParamsGPU = policy_parameters, value_parameters::FCANNParamsGPU = value_parameters, policy_args = form_policy_args(policy_parameters), kwargs...)
-			update_feature_vector!(gpu_feature_vector, s; feature_vector = feature_vector)
-			update_policy_dist!(policy, gpu_feature_vector, policy_parameters, policy_args...)
-			v = v̂(gpu_feature_vector, value_parameters; kwargs...)
-			return (value = v, policy_dist = policy)
-		end
-	
-		form_policy_and_value_kwargs() = (;form_value_kwargs()..., form_policy_kwargs()...)
-	
-		return (policy_function = π, form_policy_kwargs = form_policy_kwargs, value_function = v̂, form_value_kwargs = form_value_kwargs, policy_sample_action = π_sample, policy_and_value = policy_and_value, form_policy_and_value_kwargs = form_policy_and_value_kwargs)
+		cpu_policy_params = initialize_cpu_params(policy_parameters)
+		cpu_value_params = initialize_cpu_params(value_parameters)
+		cpu_feature = FCANN.host_allocate(feature_vector)
+		form_policy_and_value_function(mdp, cpu_feature, update_feature_vector!, cpu_policy_params, cpu_value_params)
 	end
 end
 
@@ -1664,26 +1630,6 @@ const mountaincar_continuing_params = initialize_fcann_params(2, fill(32, 4), 1,
 const mountaincar_continuing_tile_test = actor_critic_with_eligibility_traces_binary_features(mountaincar_continuing_mdp, 0.1f0, 0.98f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, 200_000, α_θ = 0.5f0, α_w = 0.0025f0, α_r̄ = 0.005f0; save_step_rewards=true)
   ╠═╡ =#
 
-# ╔═╡ 98222fcd-b456-477c-90dd-844df36877e5
-#=╠═╡
-plot_continuing_step_rewards(mountaincar_continuing_tile_test.step_rewards)
-  ╠═╡ =#
-
-# ╔═╡ 0ce66c9d-6d1c-4c2d-8178-5bcdfa247cd6
-#=╠═╡
-const mountaincar_continuing_test_episode = runepisode(MountainCarTask.mdp, π = mountaincar_continuing_tile_test.policy_sample_action, max_steps = 1_000)
-  ╠═╡ =#
-
-# ╔═╡ e89bdc84-dbb5-4c73-a39c-6392e5f79704
-#=╠═╡
-plot_mountaincar_values(mountaincar_continuing_tile_test.estimate_state_value, mountaincar_continuing_tile_test.policy_sample_action)
-  ╠═╡ =#
-
-# ╔═╡ da3cb392-78f2-48b2-b0dc-5f016664798c
-#=╠═╡
-show_mountaincar_trajectory(mountaincar_continuing_tile_test.policy_sample_action, 1000)
-  ╠═╡ =#
-
 # ╔═╡ c926b6df-c40b-4c4c-8a95-ce9e41feb100
 # ╠═╡ disabled = true
 #=╠═╡
@@ -1706,6 +1652,14 @@ actor_critic_fcann_parameter_study(mountaincar_continuing_mdp, mountaincar_fcann
 #=╠═╡
 const mountaincar_continuing_fcann_test = actor_critic_with_eligibility_traces_fcann(mountaincar_continuing_mdp, 0.85f0, 0.95f0, mountaincar_fcann_setup.num_features, [32, 32, 32], mountaincar_fcann_setup.update_feature_vector!, 1_000_000, α_θ = 0.002f0, α_w = 0.002f0, α_r̄ = 0.01f0; save_step_rewards=true)
   ╠═╡ =#
+
+# ╔═╡ 8a40e3bf-56de-424e-8db1-40b9f524103b
+md"""
+##### Mountaincar Tilecoding
+"""
+
+# ╔═╡ 5d7d6250-a644-4846-885c-7e03034e343d
+"allow saving of these results with the option to show them with a dropdown menu.  Also allow saving of linear params and training repeatedly off them with na update function"
 
 # ╔═╡ 735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 md"""
@@ -2679,10 +2633,13 @@ function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::
 	d_policy_params = initialize_gpu_params(policy_params)
 	d_value_params = initialize_fcann_value_params(d_policy_params, use_μP)
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
-	output = one_step_actor_critic!(d_policy_params, d_value_params, mdp, γ, max_episodes, max_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP); kwargs...)
+	∇lnπ = NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP)
+	output = one_step_actor_critic!(d_policy_params, d_value_params, mdp, γ, max_episodes, max_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
 	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
 	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
-	(;output..., cpu_policy_params = policy_params, cpu_value_params = value_params)
+	cleanup_gpu_eligibility_vector(∇lnπ)
+	value_setup.gpu_args.cleanup_vars()
+	(;output..., policy_parameters = policy_params, value_parameters = value_params)
 end
 
 # ╔═╡ 0fbf45c8-3e3c-47c1-b763-3b06bcdc60e0
@@ -2765,7 +2722,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 
 	policy_and_value_components = form_policy_and_value_function(mdp, feature_vector, update_feature_vector!, policy_params, value_params)
 
-	return (;episode_steps = episode_steps, episode_rewards = episode_rewards, policy_parameters = policy_params, value_parameters = value_params, policy_and_value_components...)
+	return (;episode_steps = episode_steps, episode_rewards = episode_rewards, policy_parameters = policy_params, value_parameters = value_params, traces = (z_θ, z_w), policy_and_value_components...)
 end
 
 # ╔═╡ eb330654-68d2-4ccd-80af-be079ee94008
@@ -2818,7 +2775,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 
 	policy_and_value_components = form_policy_and_value_function(mdp, feature_vector, update_feature_vector!, policy_params, value_params)
 
-	return (;reward_history = reward_history, average_reward_history = average_reward_history, policy_parameters = policy_params, value_parameters = value_params, policy_and_value_components...)
+	return (;reward_history = reward_history, average_reward_history = average_reward_history, policy_parameters = policy_params, value_parameters = value_params, traces = (z_θ, z_w), policy_and_value_components...)
 end
 
 # ╔═╡ 740a3f41-9302-481d-b373-762c0dea8eff
@@ -2998,9 +2955,12 @@ function reinforce_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	gpu_params = initialize_gpu_params(policy_params)
 	d_x = FCANN.cuda_allocate(feature_vector)
-	output = reinforce_with_baseline_monte_carlo_control!(gpu_params, nothing, mdp, γ, num_episodes, d_x, gpu_feature_update!, Returns(zero(T)), copy(d_x), Returns(nothing), NonLinearGPUEligibilityVector(d_x, gpu_params; use_μP = use_μP); kwargs...)
+	∇lnπ = NonLinearGPUEligibilityVector(d_x, gpu_params; use_μP = use_μP)
+	output = reinforce_with_baseline_monte_carlo_control!(gpu_params, nothing, mdp, γ, num_episodes, d_x, gpu_feature_update!, Returns(zero(T)), copy(d_x), Returns(nothing), ∇lnπ; kwargs...)
 	FCANN.GPU2Host(policy_params.weights, gpu_params.weights)
-	(;output..., cpu_policy_params = policy_params)
+	cleanup_gpu_eligibility_vector(∇lnπ)
+	FCANN.clear_gpu_data([d_x])
+	(;output..., policy_parameters = policy_params)
 end
 
 # ╔═╡ 07ad517a-c2ac-4377-99fb-adb13d0f1d0c
@@ -3129,10 +3089,15 @@ function reinforce_with_baseline_monte_carlo_control_fcann(mdp::StateMDP{T, S, A
 	d_policy_params = initialize_gpu_params(policy_params)
 	d_value_params = initialize_fcann_value_params(d_policy_params, use_μP)
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
-	output = reinforce_with_baseline_monte_carlo_control!(d_policy_params, d_value_params, mdp, γ, num_episodes, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP); kwargs...)
+	∇lnπ = NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP)
+	output = reinforce_with_baseline_monte_carlo_control!(d_policy_params, d_value_params, mdp, γ, num_episodes, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
 	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
 	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
-	(;output..., cpu_policy_params = policy_params, cpu_value_params = value_params)
+	cleanup_gpu_eligibility_vector(∇lnπ)
+	value_setup.gpu_args.cleanup_vars()
+	FCANN.clear_gpu_data(d_value_params.weights[1])
+	FCANN.clear_gpu_data(d_value_params.weights[2])
+	(;output..., policy_parameters = policy_params, value_parameters = value_params)
 end
 
 # ╔═╡ aa69e4ea-91e0-496a-a7be-529e67f4dbec
@@ -3556,10 +3521,19 @@ function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1
 	d_policy_params = initialize_gpu_params(policy_params)
 	d_value_params = initialize_fcann_value_params(d_policy_params, use_μP)
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
-	output = actor_critic_with_eligibility_traces!(d_policy_params, d_value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP); kwargs...)
+	∇lnπ = NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP)
+	output = actor_critic_with_eligibility_traces!(d_policy_params, d_value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
 	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
 	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
-	(;output..., cpu_policy_params = policy_params, cpu_value_params = value_params)
+	cleanup_gpu_eligibility_vector(∇lnπ)
+	value_setup.gpu_args.cleanup_vars()
+	FCANN.clear_gpu_data(d_value_params.weights[1])
+	FCANN.clear_gpu_data(d_value_params.weights[2])
+	FCANN.clear_gpu_data(output.traces[1].weights[1])
+	FCANN.clear_gpu_data(output.traces[1].weights[2])
+	FCANN.clear_gpu_data(output.traces[2].weights[1])
+	FCANN.clear_gpu_data(output.traces[2].weights[2])
+	(;output..., policy_parameters = policy_params, value_parameters = value_params)
 end
 
 # ╔═╡ 4bc22ad6-75f7-4dc9-8bfe-9f5a99eb67ef
@@ -3672,10 +3646,19 @@ function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1
 	d_policy_params = initialize_gpu_params(policy_params)
 	d_value_params = initialize_fcann_value_params(d_policy_params, use_μP)
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
-	output = actor_critic_with_eligibility_traces!(d_policy_params, d_value_params, mdp, λ_θ, λ_w, num_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP); kwargs...)
+	∇lnπ = NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP)
+	output = actor_critic_with_eligibility_traces!(d_policy_params, d_value_params, mdp, λ_θ, λ_w, num_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
 	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
 	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
-	(;output..., cpu_policy_params = policy_params, cpu_value_params = value_params)
+	cleanup_gpu_eligibility_vector(∇lnπ)
+	value_setup.gpu_args.cleanup_vars()
+	FCANN.clear_gpu_data(d_value_params.weights[1])
+	FCANN.clear_gpu_data(d_value_params.weights[2])
+	FCANN.clear_gpu_data(output.traces[1].weights[1])
+	FCANN.clear_gpu_data(output.traces[1].weights[2])
+	FCANN.clear_gpu_data(output.traces[2].weights[1])
+	FCANN.clear_gpu_data(output.traces[2].weights[2])
+	(;output..., policy_parameters = policy_params, value_parameters = value_params)
 end
 
 # ╔═╡ 230a8e3c-fbe2-4948-9d82-e08d7a0fad69
@@ -4384,7 +4367,7 @@ end
 
 # ╔═╡ 7e605d62-a26f-4fe9-af72-a5c9c0a4063d
 #=╠═╡
-const mountaincar_continuing_fcann_test = mountaincar_continuing_actor_critic_fcann(1f-3, 4f-3, 0.001f0, 0.01f0, 0.95f0; num_steps = 100_000_000, hidden_layers = fill(64, 4), reslayers = 1)
+const mountaincar_continuing_fcann_test = mountaincar_continuing_actor_critic_fcann(1f-3, 4f-3, 0.001f0, 0.01f0, 0.95f0; num_steps = 1_000, hidden_layers = fill(64, 4), reslayers = 1)
   ╠═╡ =#
 
 # ╔═╡ 5b0424d6-095f-44aa-8b84-354a2fce08c1
@@ -4413,6 +4396,45 @@ end
 # ╔═╡ 13473dba-a2d9-49ff-b842-64eaa75bca94
 #=╠═╡
 const mountaincar_continuing_dp_fcann_test = mountaincar_continuing_dp_λ_fcann(1f-2, 0.05f0, 0.99f0; num_steps = 1_000_000, hidden_layers = fill(32, 4), reslayers = 1, ϵ = 0.1f0, parameters = mountaincar_continuing_params)
+  ╠═╡ =#
+
+# ╔═╡ a998cb9a-5e8a-4e7e-afbf-84a9045ac8f9
+#=╠═╡
+setup_mountaincar_tiles(num_tiles::NTuple{2, Int64}, num_tilings::Integer) = tile_coding_feature_setup(mountaincar_continuing_mdp, mountaincar_min_vals, mountaincar_max_vals, num_tiles, num_tilings)
+  ╠═╡ =#
+
+# ╔═╡ 3411bc34-caa0-4a2a-bec8-3871fdcb0a46
+#=╠═╡
+begin
+	function mountaincar_continuing_actor_critic_tile(α_θ, α_w, α_r̄, λ_θ, λ_w; num_steps = 10_000, num_tiles::NTuple{2, Int64} = (10, 10), num_tilings::Integer = 10, kwargs...)
+		setup = setup_mountaincar_tiles(num_tiles, num_tilings)
+		actor_critic_with_eligibility_traces_linear(mountaincar_continuing_mdp, λ_θ, λ_w, num_steps, setup.feature_vector, setup.update_feature_vector!; α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, kwargs...)
+	end
+
+	const mountaincar_continuing_actor_critic_tile_parameter_study = setup_parameter_study(create_continuing_trial(mountaincar_continuing_actor_critic_tile), (:α_θ, :α_w, :α_r̄, :λ_θ, :λ_w), (num_steps = 10_000, num_tiles = (10, 10), num_tilings = 10))
+
+	function mountaincar_continuing_dp_λ_tile(α, α_r̄, λ; num_steps = 10_000, num_tiles::NTuple{2, Int64} = (10, 10), num_tilings::Integer = 10, kwargs...)
+		setup = setup_mountaincar_tiles(num_tiles, num_tilings)
+		dp_λ_tile(mountaincar_continuing_mdp, λ, num_steps, setup.feature_vector, setup.update_feature_vector!, hidden_layers; α = α, α_r̄ = α_r̄, kwargs...)
+	end
+
+	const mountaincar_continuing_dp_λ_tile_parameter_study = setup_parameter_study(create_continuing_trial(mountaincar_continuing_dp_λ_fcann), (:α, :α_r̄, :λ), (num_steps = 10_000, num_tiles = (10, 10), num_tilings = 10))
+end
+  ╠═╡ =#
+
+# ╔═╡ 37e6ee3d-62a3-4006-bc0a-2b6df64c45f4
+#=╠═╡
+const mountaincar_continuing_tile_test = mountaincar_continuing_actor_critic_tile(1f-2, 1f-2, 0.001f0, 0.5f0, 0.95f0; num_steps = 100_000, num_tiles = (5, 5))
+  ╠═╡ =#
+
+# ╔═╡ 98222fcd-b456-477c-90dd-844df36877e5
+#=╠═╡
+plot_continuing_step_rewards(mountaincar_continuing_tile_test.step_rewards)
+  ╠═╡ =#
+
+# ╔═╡ 0ce66c9d-6d1c-4c2d-8178-5bcdfa247cd6
+#=╠═╡
+const mountaincar_continuing_test_episode = runepisode(MountainCarTask.mdp, π = mountaincar_continuing_tile_test.policy_sample_action, max_steps = 1_000)
   ╠═╡ =#
 
 # ╔═╡ 023f67b8-8f38-470a-9766-ac60a75678aa
@@ -4757,6 +4779,11 @@ plot_rewards(mountaincar_continuing_fcann_test.average_reward_history, 10, 1_000
 plot_rewards(mountaincar_continuing_dp_fcann_test.average_reward_history, 10, 1000)
   ╠═╡ =#
 
+# ╔═╡ 87f01426-1b77-48b9-ae6c-7f07837b86ed
+#=╠═╡
+plot_rewards(mountaincar_continuing_tile_test.average_reward_history, 10, 1_000)
+  ╠═╡ =#
+
 # ╔═╡ 7fe342a1-131f-422a-8f22-975ee49eb22f
 #=╠═╡
 function plot_mountaincar_action_values(q̂_mountain_car, n1, n2)
@@ -5079,9 +5106,19 @@ end
 plot_mountaincar_values(mountaincar_continuing_fcann_test.value_function, mountaincar_continuing_fcann_test.policy_sample_action; n1 = 300, n2 = 300)
   ╠═╡ =#
 
+# ╔═╡ e89bdc84-dbb5-4c73-a39c-6392e5f79704
+#=╠═╡
+plot_mountaincar_values(mountaincar_continuing_tile_test.estimate_state_value, mountaincar_continuing_tile_test.policy_sample_action)
+  ╠═╡ =#
+
 # ╔═╡ c0876a48-ea18-494d-8bfc-e2bceb73b417
 #=╠═╡
 plot_mountaincar_values(mountaincar_continuing_fcann_test.estimate_state_value, mountaincar_continuing_fcann_test.policy_sample_action)
+  ╠═╡ =#
+
+# ╔═╡ 07cd73be-0899-4bdd-ab65-0d898285a16e
+#=╠═╡
+plot_mountaincar_values(mountaincar_continuing_tile_test.value_function, mountaincar_continuing_tile_test.policy_sample_action; n1 = 300, n2 = 300)
   ╠═╡ =#
 
 # ╔═╡ 205edc46-a298-4194-9fe0-d735e462a27f
@@ -5110,6 +5147,11 @@ end
 # ╔═╡ 1320f801-6a06-44d3-943c-fa34fe6ed9fb
 #=╠═╡
 plot_mountaincar_policy(mountaincar_continuing_fcann_test.policy_function)
+  ╠═╡ =#
+
+# ╔═╡ b792737a-6407-4fa2-af6f-1a3f90cbd520
+#=╠═╡
+plot_mountaincar_policy(mountaincar_continuing_tile_test.policy_function)
   ╠═╡ =#
 
 # ╔═╡ bbc8864a-1545-433f-bc7c-0ddf6e907138
@@ -5197,6 +5239,16 @@ end
 # ╔═╡ 5bda649c-903f-4e76-9c6e-62a147e19bf5
 #=╠═╡
 show_mountaincar_trajectory(mountaincar_continuing_fcann_test.policy_sample_action, 1000)
+  ╠═╡ =#
+
+# ╔═╡ da3cb392-78f2-48b2-b0dc-5f016664798c
+#=╠═╡
+show_mountaincar_trajectory(mountaincar_continuing_tile_test.policy_sample_action, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 1435193d-ba8f-4128-a512-ce0a34fd2fa4
+#=╠═╡
+show_mountaincar_trajectory(mountaincar_continuing_tile_test.policy_sample_action, 1000)
   ╠═╡ =#
 
 # ╔═╡ ddbca73f-c692-46f2-95f3-a7dd849d33f7
@@ -6275,6 +6327,7 @@ version = "17.4.0+2"
 # ╠═41dc149d-c6f3-4b0d-a856-06f3aaae3049
 # ╠═7ece4dbb-30bc-47fa-8380-479701091533
 # ╠═378021a0-176f-425d-ae60-4a94fef9b4b5
+# ╠═b41901f9-cf11-48c6-8907-82d33ddf9e4a
 # ╠═ad9cbe48-98c8-477f-a2ce-49c1778aa385
 # ╠═f7232174-8e39-46c4-9374-a39c3c05c3b9
 # ╠═7237504a-f5de-4ab7-9fc4-d86055593037
@@ -6468,6 +6521,15 @@ version = "17.4.0+2"
 # ╠═d5ab6d24-dd4e-4410-a50e-fe3584b21cf9
 # ╠═10ee7709-0816-48d2-abe0-9be3dd04700f
 # ╠═c0876a48-ea18-494d-8bfc-e2bceb73b417
+# ╟─8a40e3bf-56de-424e-8db1-40b9f524103b
+# ╠═a998cb9a-5e8a-4e7e-afbf-84a9045ac8f9
+# ╠═3411bc34-caa0-4a2a-bec8-3871fdcb0a46
+# ╠═5d7d6250-a644-4846-885c-7e03034e343d
+# ╠═37e6ee3d-62a3-4006-bc0a-2b6df64c45f4
+# ╠═87f01426-1b77-48b9-ae6c-7f07837b86ed
+# ╠═07cd73be-0899-4bdd-ab65-0d898285a16e
+# ╠═1435193d-ba8f-4128-a512-ce0a34fd2fa4
+# ╠═b792737a-6407-4fa2-af6f-1a3f90cbd520
 # ╟─735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 # ╟─60c21e9c-e42d-4f0b-a910-3b318440fbc8
 # ╟─09dd1440-5d09-421f-addc-b1ede43ff517

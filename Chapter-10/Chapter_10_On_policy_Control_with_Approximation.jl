@@ -778,28 +778,21 @@ begin
 	end
 
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::Vector{T}, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W<:FCANNParamsGPU}
-		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} = copy(feature_vector), gpu_feature_vector::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), parameters::W = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+		cpu_params = initialize_cpu_params(parameters)
+		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} = copy(feature_vector), parameters::FCANNParams{T} = cpu_params, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
 			update_feature_vector!(feature_vector, s)
-			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; activations = activations, gpu_feature_vector = gpu_feature_vector, kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; activations = activations, kwargs...)
 			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
 	
-		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = copy(feature_vector), gpu_feature_vector = FCANN.cuda_allocate(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = copy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
 	
 		return q̂, form_kwargs
 	end
 
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::FCANN.CUDAArray, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W<:FCANNParamsGPU}
-		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} = zeros(feature_vector.element_type, feature_vector.size[1]),  gpu_feature_vector::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), parameters::W = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
-			update_feature_vector!(gpu_feature_vector, s; feature_vector = feature_vector)
-			maxq, i_a_max = update_action_values!(action_values, gpu_feature_vector, parameters; activations = activations, kwargs...)
-			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
-		end
-
-		v = zeros(feature_vector.element_type, feature_vector.size[1])
-		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = zeros(feature_vector.element_type, feature_vector.size[1]), gpu_feature_vector = FCANN.cuda_allocate(v), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
-	
-		return q̂, form_kwargs
+		cpu_feature = FCANN.host_allocate(feature_vector)
+		form_value_function(mdp, update_feature_vector!, update_action_values!, cpu_feature, parameters)
 	end
 
 	#form value function when training two sets of parameters with double sarsa
@@ -838,21 +831,9 @@ begin
 	end	
 
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::Vector{T}, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W <: FCANNParamsGPU}
-		function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} =copy(feature_vector), gpu_feature_vector = FCANN.cuda_allocate(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, activations = FCANN.form_activations(parameters1.weights[1]), action_value_kwargs...)
-			update_feature_vector!(feature_vector, s)
-			FCANN.memcpy!(gpu_feature_vector, feature_vector)
-			update_action_values!(action_values1, gpu_feature_vector, parameters1; gpu_feature_vector = gpu_feature_vector, activations = activations, action_value_kwargs...)
-			update_action_values!(action_values2, gpu_feature_vector, parameters2; gpu_feature_vector = gpu_feature_vector, activations = activations, action_value_kwargs...)
-			action_values1 .+= action_values2
-			action_values1 ./= 2
-			(maxq, i_a_max) = findmax(action_values1)
-				
-			(action_values = action_values1, maximizing_action = i_a_max, maximizing_value = maxq)
-		end
-
-		form_kwargs() = (action_values1 = zeros(T, length(mdp.actions)), action_values2 = zeros(T, length(mdp.actions)), gpu_feature_vector = copy(feature_vector), feature_vector = make_cpu_array(feature_vector), parameters1 = parameters1, parameters2 = parameters2, activations = FCANN.form_activations(parameters1.weights[1]))
-
-		return q̂, form_kwargs
+		cpu_params1 = initialize_cpu_params(parameters1)
+		cpu_params2 = initialize_cpu_params(parameters2)
+		form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, cpu_params1, cpu_params2)
 	end
 
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V, W}
@@ -863,6 +844,16 @@ begin
 
 		form_kwargs() = (action_values = zeros(T, length(mdp.actions), 1), parameters = parameters, feature_vector = deepcopy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters))
 		return q̂, form_kwargs
+	end
+
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
+		cpu_params = initialize_cpu_params(parameters)
+		form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, cpu_params)
+	end
+
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::FCANN.CUDAArray, parameters::FCANNParamsGPU) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
+		cpu_feature = FCANN.cuda_allocate(feature_vector)
+		form_value_function(mdp, γ, update_feature_vector!, value_function, cpu_feature, parameters)
 	end
 end
 
@@ -1366,7 +1357,18 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 			FCANN.memcpy!(action_values, d_activations[end])
 		end
 
-		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params, feature_vector = d_x)
+		function cleanup_vars()
+			FCANN.clear_gpu_data(d_gradient.weights[1])
+			FCANN.clear_gpu_data(d_gradient.weights[2])
+			FCANN.clear_gpu_data(d_params.weights[1])
+			FCANN.clear_gpu_data(d_params.weights[2])
+			FCANN.clear_gpu_data(d_deltas)
+			FCANN.clear_gpu_data(d_tanh_grad_z)
+			FCANN.clear_gpu_data([d_x])
+			FCANN.clear_gpu_data(d_activations)
+		end
+
+		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params, feature_vector = d_x, cleanup_vars = cleanup_vars)
 	else
 		gpu_args = ()
 	end
@@ -1429,7 +1431,8 @@ function semi_gradient_sarsa_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, 
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	output = semi_gradient_sarsa!(setup.gpu_args.params, mdp, γ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	(;output..., final_parameters = parameters)
 end
 
 # ╔═╡ 6d4b513d-2744-4f9c-8bee-e51fe9d0bade
@@ -1493,7 +1496,8 @@ function semi_gradient_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, ma
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = semi_gradient_dp!(setup.gpu_args.params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	(;output..., final_parameters = parameters)
 end
 
 # ╔═╡ a22e5d34-4b8d-479c-985c-d6abd41a6c80
@@ -2978,7 +2982,8 @@ function semi_gradient_differential_sarsa_fcann(mdp::StateMDP{T, S, A, P, F1, F2
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	output = semi_gradient_differential_sarsa!(setup.gpu_args.params, mdp, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	(;output..., final_parameters = parameters)
 end
 
 # ╔═╡ 063e6f33-8b65-463c-a96f-5411f0ba0326
@@ -3092,51 +3097,63 @@ end
 end
 
 # ╔═╡ 4e955391-ac29-412e-8ed2-bad3b46961b0
-"""
-    form_differential_value_function(mdp, R̄, update_feature_vector!, value_function, feature_vector, parameters) -> Function
-
-Create action-value function for differential dynamic programming.
-
-Forms a closure that computes differential action values using the trained state value function
-and current average reward estimate. Returns both action values and greedy action information.
-
-# Type Parameters
-- `T <: Real`: Numeric type for computations
-- `S`: State type  
-- `A`: Action type
-- `P <: StateMDPTransitionDistribution`: Transition distribution type
-- `F1, F2, F3 <: Function`: MDP function types
-- `V`: Feature vector type
-- `W`: Parameter type
-
-# Arguments
-- `mdp::`[`StateMDP`](@ref): MDP with transition distributions
-- `R̄::T`: Average reward estimate from training
-- `update_feature_vector!::Function`: Feature extraction function
-- `value_function::Function`: Trained state value function
-- `feature_vector::V`: Template feature vector
-- `parameters::W`: Trained parameters
-
-# Returns
-- `Function`: Action-value function q̂(s) returning NamedTuple with action_values, maximizing_action, maximizing_value
-
-# See Also
-[`update_differential_action_values!`](@ref), [`form_state_value_function`](@ref), [`semi_gradient_differential_dp!`](@ref)
-
-# Algorithm Details
-1. Creates state value function closure using [`form_state_value_function`](@ref)
-2. Returns action-value function that uses [`update_differential_action_values!`](@ref)
-3. Manages feature vector and parameter storage for efficient evaluation
-4. Provides both action values and greedy policy information
-"""
-function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V, W}
-	function q̂(s::S; action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), feature_vector::V = deepcopy(feature_vector), parameters::W = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
-		maxq, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, R̄, action_value_args...; kwargs...)
-		(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+begin
+	"""
+	    form_differential_value_function(mdp, R̄, update_feature_vector!, value_function, feature_vector, parameters) -> Function
+	
+	Create action-value function for differential dynamic programming.
+	
+	Forms a closure that computes differential action values using the trained state value function
+	and current average reward estimate. Returns both action values and greedy action information.
+	
+	# Type Parameters
+	- `T <: Real`: Numeric type for computations
+	- `S`: State type  
+	- `A`: Action type
+	- `P <: StateMDPTransitionDistribution`: Transition distribution type
+	- `F1, F2, F3 <: Function`: MDP function types
+	- `V`: Feature vector type
+	- `W`: Parameter type
+	
+	# Arguments
+	- `mdp::`[`StateMDP`](@ref): MDP with transition distributions
+	- `R̄::T`: Average reward estimate from training
+	- `update_feature_vector!::Function`: Feature extraction function
+	- `value_function::Function`: Trained state value function
+	- `feature_vector::V`: Template feature vector
+	- `parameters::W`: Trained parameters
+	
+	# Returns
+	- `Function`: Action-value function q̂(s) returning NamedTuple with action_values, maximizing_action, maximizing_value
+	
+	# See Also
+	[`update_differential_action_values!`](@ref), [`form_state_value_function`](@ref), [`semi_gradient_differential_dp!`](@ref)
+	
+	# Algorithm Details
+	1. Creates state value function closure using [`form_state_value_function`](@ref)
+	2. Returns action-value function that uses [`update_differential_action_values!`](@ref)
+	3. Manages feature vector and parameter storage for efficient evaluation
+	4. Provides both action values and greedy policy information
+	"""
+	function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V, W}
+		function q̂(s::S; action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), feature_vector::V = deepcopy(feature_vector), parameters::W = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
+			maxq, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, R̄, action_value_args...; kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+	
+		form_kwargs() = (action_values = zeros(T, length(mdp.actions), 1), feature_vector = deepcopy(feature_vector), parameters = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters))
+		return q̂, form_kwargs
 	end
 
-	form_kwargs() = (action_values = zeros(T, length(mdp.actions), 1), feature_vector = deepcopy(feature_vector), parameters = parameters, action_value_args = form_action_value_args(mdp, feature_vector, parameters))
-	return q̂, form_kwargs
+	function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V <: Vector{T}, W <: FCANNParamsGPU}
+		cpu_params = initialize_cpu_params(parameters)
+		form_differential_value_function(mdp, R̄, update_feature_vector!, value_function, feature_vector, cpu_params)
+	end
+
+	function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V <: FCANN.CUDAArray, W <: FCANNParamsGPU}
+		cpu_feature = FCANN.host_allocate(feature_vector)
+		form_differential_value_function(mdp, R̄, update_feature_vector!, value_function, cpu_feature, parameters)
+	end
 end
 
 # ╔═╡ 12fa7b75-d13f-4a16-8562-1142002f3f3f
@@ -3376,7 +3393,8 @@ function semi_gradient_differential_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = semi_gradient_differential_dp!(setup.gpu_args.params, mdp, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	(;output..., final_parameters = parameters)
 end	
 
 # ╔═╡ 1a7ba296-52ca-4069-85fa-792d08d77b0e
@@ -5007,7 +5025,8 @@ function gradient_monte_carlo_control_fcann(mdp::StateMDP, γ::T, num_episodes::
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = gradient_monte_carlo_control!(setup.gpu_args.params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	(;output..., parameters = parameters)
 end
 
 # ╔═╡ a9d1381b-566a-4422-81fc-38efde1d2608
@@ -5019,7 +5038,8 @@ function gradient_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = gradient_monte_carlo_control!(setup.gpu_args.params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	(;output..., parameters = parameters)
 end
 
 # ╔═╡ d81e0a66-626f-467f-9748-2f5d407a8815

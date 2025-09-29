@@ -801,7 +801,7 @@ begin
 		end
 
 		v̂, form_kwargs = form_state_value_function(estimate_value, update_state_representation!, state_representation, parameters)
-		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs)
+		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs, trace = z)
 	end
 
 	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, λ::T, num_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄ = one(T)/100, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = copy(parameters), kwargs...) where {P, X, T<:Real}
@@ -849,7 +849,7 @@ begin
 		end
 
 		v̂, form_kwargs = form_state_value_function(estimate_value, update_state_representation!, state_representation, parameters)
-		(value_function = v̂, history = (errors = error_history, rewards = reward_history, average_rewards = average_reward_history), parameters = parameters, form_kwargs = form_kwargs)
+		(value_function = v̂, history = (errors = error_history, rewards = reward_history, average_rewards = average_reward_history), parameters = parameters, form_kwargs = form_kwargs, trace = z)
 	end
 
 	#when evaluating an MRP, there is no policy and the transition is just from the environment
@@ -902,7 +902,10 @@ begin
 		isempty(setup.gpu_args) && error("GPU backend is not available")
 		
 		output = semi_gradient_TDλ!(setup.gpu_args.params, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
-		(;output..., cpu_params = parameters)
+		setup.gpu_args.cleanup_vars()
+		FCANN.clear_gpu_data(output.trace.weights[1])
+		FCANN.clear_gpu_data(output.trace.weights[2])
+		(;output..., parameters = parameters)
 	end
 
 	function semi_gradient_TDλ_fcann(problem::Tuple, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
@@ -913,7 +916,10 @@ begin
 		isempty(setup.gpu_args) && error("GPU backend is not available")
 		output = semi_gradient_TDλ!(setup.gpu_args.params, problem..., λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 		FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-		(;output..., cpu_params = parameters)
+		setup.gpu_args.cleanup_vars()
+		FCANN.clear_gpu_data(output.trace.weights[1])
+		FCANN.clear_gpu_data(output.trace.weights[2])
+		(;output..., parameters = parameters)
 	end
 
 	semi_gradient_TDλ_fcann(mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ_fcann((mdp, π), args...; kwargs...)
@@ -1615,7 +1621,7 @@ md"""
 """
 
 # ╔═╡ 9c8765f5-0101-47e3-8780-65c197c14d6b
-function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
 	#initialize records
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
@@ -1667,7 +1673,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, nu
 	
 	q̂, form_kwargs = form_differential_value_function(mdp, r̄, update_feature_vector!, value_function, feature_vector, parameters)
 	
-	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ 51274911-2eaa-4b18-b977-d0f735746bec
@@ -1765,7 +1771,7 @@ function form_value_function(mdp::TabularMDP, parameters::Matrix{T}) where T<:Re
 end
 
 # ╔═╡ b320dc0e-95dc-44d5-8ee4-455c4a858835
-function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
@@ -1837,11 +1843,11 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 	
 	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ 3df4cd98-f754-4eca-8e16-e654576e283d
-function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_r̄::T = one(T)/10, z::P = deepcopy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_r̄::T = one(T)/10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
 	#initialize records
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
@@ -1901,7 +1907,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feat
 	
 	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	
-	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ efa11915-d86b-4686-85f9-84d7539e27cf
@@ -1950,7 +1956,10 @@ function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	output = sarsa_λ!(setup.gpu_args.params, mdp, γ, λ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	FCANN.clear_gpu_data(output.trace.weights[1])
+	FCANN.clear_gpu_data(output.trace.weights[2])
+	(;output..., final_parameters = parameters)
 end
 
 # ╔═╡ 747700de-0a87-4ac9-a9cd-0bc11721836e
@@ -1963,12 +1972,15 @@ function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	output = sarsa_λ!(setup.gpu_args.params, mdp, λ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	FCANN.clear_gpu_data(output.trace.weights[1])
+	FCANN.clear_gpu_data(output.trace.weights[2])
+	(;output..., final_parameters = parameters)
 end
   ╠═╡ =#
 
 # ╔═╡ 4cab7b59-f080-4bea-86dc-3c860a618c35
-function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = deepcopy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
@@ -2029,7 +2041,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ
 	
 	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
 	
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ 258be19f-0b01-4d5e-ae82-2ef07ba4cc9c
@@ -2061,8 +2073,10 @@ function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_ep
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = dp_λ!(setup.gpu_args.params, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	FCANN.clear_gpu_data(output.trace.weights[1])
+	FCANN.clear_gpu_data(output.trace.weights[2])
+	(;output..., final_parameters = parameters)
 end
 
 # ╔═╡ c5ae58b0-6f89-476a-8a72-9bb1cfd1a6be
@@ -2073,8 +2087,10 @@ function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ::T, num_steps::In
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	output = dp_λ!(setup.gpu_args.params, mdp, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
-
-	(;output..., cpu_params = parameters)
+	setup.gpu_args.cleanup_vars()
+	FCANN.clear_gpu_data(output.trace.weights[1])
+	FCANN.clear_gpu_data(output.trace.weights[2])
+	(;output..., final_parameters = parameters)
 end
 
 # ╔═╡ 65ca967c-2425-4c85-92e9-3f957e7ede2f
