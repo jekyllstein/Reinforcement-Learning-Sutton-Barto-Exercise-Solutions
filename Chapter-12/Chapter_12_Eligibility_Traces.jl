@@ -2087,7 +2087,7 @@ function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ::T, num_steps::In
 	!use_gpu && return dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
-	output = dp_λ!(setup.gpu_args.params, mdp, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+	output = dp_λ!(setup.gpu_args.params, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
 	setup.gpu_args.cleanup_vars()
 	FCANN.clear_gpu_data(output.trace.weights[1])
