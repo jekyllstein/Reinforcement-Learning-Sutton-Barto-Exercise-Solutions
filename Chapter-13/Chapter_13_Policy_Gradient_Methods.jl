@@ -4367,7 +4367,7 @@ end
 
 # ╔═╡ 7e605d62-a26f-4fe9-af72-a5c9c0a4063d
 #=╠═╡
-const mountaincar_continuing_fcann_test = mountaincar_continuing_actor_critic_fcann(1f-3, 4f-3, 0.001f0, 0.01f0, 0.95f0; num_steps = 1_000, hidden_layers = fill(64, 4), reslayers = 1)
+const mountaincar_continuing_fcann_test = mountaincar_continuing_actor_critic_fcann(6f-3, 2f-2, 0.005f0, 0.05f0, 0.95f0; num_steps = 4_000_000, hidden_layers = fill(16, 4), reslayers = 1)
   ╠═╡ =#
 
 # ╔═╡ 5b0424d6-095f-44aa-8b84-354a2fce08c1
@@ -4424,7 +4424,7 @@ end
 
 # ╔═╡ 37e6ee3d-62a3-4006-bc0a-2b6df64c45f4
 #=╠═╡
-const mountaincar_continuing_tile_test = mountaincar_continuing_actor_critic_tile(1f-2, 1f-2, 0.001f0, 0.5f0, 0.95f0; num_steps = 100_000, num_tiles = (5, 5))
+const mountaincar_continuing_tile_test = mountaincar_continuing_actor_critic_tile(1f-2, 1f-2, 0.001f0, 0.5f0, 0.95f0; num_steps = 1_000_000, num_tiles = (16, 16))
   ╠═╡ =#
 
 # ╔═╡ 98222fcd-b456-477c-90dd-844df36877e5
@@ -6683,7 +6683,7 @@ version = "17.4.0+2"
 # ╟─a0ca7a5e-0089-4a45-9278-c0f27cd096a0
 # ╟─5207308e-f636-4d47-b135-036a6e7b8ecd
 # ╠═ff3009eb-23f9-44fe-8e56-85dbc7b463d0
-# ╟─b7f77935-bcab-4ef1-8e1b-a7d059784ff3
+# ╠═b7f77935-bcab-4ef1-8e1b-a7d059784ff3
 # ╟─6c5e9bb2-4c38-4613-9652-dec99e97b512
 # ╟─f8215517-b18f-4a03-9421-8edab4ca8089
 # ╠═d2729657-d0bf-4d39-8ec7-f242a1ad48d6

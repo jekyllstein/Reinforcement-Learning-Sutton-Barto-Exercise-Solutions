@@ -519,7 +519,7 @@ end
 begin
 	#for linear approximation just compute all of the state values with a matrix-vector multiplication
 	function update_state_values!(state_values::Array{T, N}, feature_matrix::Matrix{T}, parameters::Vector{T}, activations) where {N, T<:Real}
-		BLAS.gemv!('T', one(T), feature_matrix, parameters, zero(T), state_values)
+		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, parameters, zero(T), state_values)
 		return state_values
 	end
 

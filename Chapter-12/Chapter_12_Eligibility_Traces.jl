@@ -902,6 +902,7 @@ begin
 		isempty(setup.gpu_args) && error("GPU backend is not available")
 		
 		output = semi_gradient_TDλ!(setup.gpu_args.params, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gpu_args.gradient, setup.update_gradient!; kwargs...)
+		FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
 		setup.gpu_args.cleanup_vars()
 		FCANN.clear_gpu_data(output.trace.weights[1])
 		FCANN.clear_gpu_data(output.trace.weights[2])
@@ -1657,6 +1658,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, nu
 
 		#take action and observe transition
 		(r, s′) = mdp.ptf(s, i_a)
+		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 		reward_history[step] = r
 		
 
@@ -1886,7 +1888,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feat
 		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 		i_a′ = sample_action(policy)
 
-		q̂′ = terminated ? zero(T) : compute_value(action_values, policy, i_a′)
+		q̂′ = compute_value(action_values, policy, i_a′)
 
 		target = r - r̄ + q̂′
 
