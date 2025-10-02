@@ -2578,8 +2578,60 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 	return (;episode_steps = episode_steps, episode_rewards = episode_rewards, policy_parameters = policy_params, value_parameters = value_params, policy_and_value_components...)
 end
 
+# ╔═╡ 5647a7a7-e58e-48b7-bad9-bb68706f354e
+#version of reinforce for general function approximation
+function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄::T = one(T)/100, policy = zeros(T, length(mdp.actions)), eligibility_vector_kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
+	reward_history = zeros(T, num_steps)
+	average_reward_history = zeros(T, num_steps)
+
+	#initialize variables
+	r̄ = zero(T)
+	s = mdp.initialize_state()
+	update_feature_vector!(feature_vector, s)
+
+	# @info "initial value params: $value_params"
+
+	policy_args = form_policy_args(policy_params)
+	
+	for step in 1:num_steps
+		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args...)
+		i_a = sample_action(policy)
+		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
+	
+		(r, s′) = mdp.ptf(s, i_a)
+
+		reward_history[step] = r
+		average_reward_history[step] = r̄
+		
+		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+
+		update_feature_vector!(feature_vector, s′)
+		v̂′ = value_function(feature_vector, value_params)
+		s = s′
+				
+		δ = r - r̄ + v̂′ - v̂
+		r̄ += α_r̄*δ
+
+		# @info "About to update value params with gradient $∇v̂ and constant $(α_w * δ)"
+		
+		update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
+		# @info "About to update policy params with eligibility vector $∇lnπ and constant $(α_θ*c*δ)"
+		update_params_with_gradient!(policy_params, α_θ*c*δ, ∇lnπ)
+		# @info "policy params after $step updates: $policy_params"
+		# @info "value params after $step updates: $value_params"
+	end
+
+	policy_and_value_components = form_policy_and_value_function(mdp, feature_vector, update_feature_vector!, policy_params, value_params)
+
+	return (;reward_history = reward_history, average_reward_history = average_reward_history, policy_parameters = policy_params, value_parameters = value_params, policy_and_value_components...)
+end
+
 # ╔═╡ 57e5e12a-b722-4ea3-ab3b-e5711029e640
 one_step_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+
+# ╔═╡ 78221df2-4029-43a6-a16e-70b4d6890d23
+one_step_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 7d63b960-3998-4f7b-8cbb-ccd49db9aeac
 #=╠═╡
@@ -2635,6 +2687,24 @@ function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	∇lnπ = NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP)
 	output = one_step_actor_critic!(d_policy_params, d_value_params, mdp, γ, max_episodes, max_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
+	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
+	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
+	cleanup_gpu_eligibility_vector(∇lnπ)
+	value_setup.gpu_args.cleanup_vars()
+	(;output..., policy_parameters = policy_params, value_parameters = value_params)
+end
+
+# ╔═╡ 855fa5bc-9eab-4e26-85b4-48ba302d2c05
+function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
+	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
+	!use_gpu && return one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
+
+	isempty(value_setup.gpu_args) && error("GPU backend is not available")
+	d_policy_params = initialize_gpu_params(policy_params)
+	d_value_params = initialize_fcann_value_params(d_policy_params, use_μP)
+	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
+	∇lnπ = NonLinearGPUEligibilityVector(value_setup.gpu_args.feature_vector, d_policy_params; use_μP = use_μP)
+	output = one_step_actor_critic!(d_policy_params, d_value_params, mdp, num_steps, value_setup.gpu_args.feature_vector, gpu_feature_update!, value_setup.value_function, value_setup.gpu_args.gradient, value_setup.update_gradient!, ∇lnπ; kwargs...)
 	FCANN.GPU2Host(policy_params.weights, d_policy_params.weights)
 	FCANN.GPU2Host(value_params.weights, d_value_params.weights)
 	cleanup_gpu_eligibility_vector(∇lnπ)
@@ -6376,8 +6446,11 @@ version = "17.4.0+2"
 # ╟─ce33f710-fd9d-4dfa-acda-40204e54d518
 # ╟─f4b6f10b-4cd0-4be6-98ec-4d4ffb696392
 # ╠═4d4ae57b-afc3-44f9-b6fc-892f59f82921
+# ╠═5647a7a7-e58e-48b7-bad9-bb68706f354e
 # ╠═57e5e12a-b722-4ea3-ab3b-e5711029e640
+# ╠═78221df2-4029-43a6-a16e-70b4d6890d23
 # ╠═09bfbf48-6d1d-4adc-a576-6be0ab047c01
+# ╠═855fa5bc-9eab-4e26-85b4-48ba302d2c05
 # ╟─1386ffdb-940d-4f1b-a872-4e38647b5335
 # ╠═7d63b960-3998-4f7b-8cbb-ccd49db9aeac
 # ╠═9db9ff71-bee9-4bea-a45b-748f8517fed1
