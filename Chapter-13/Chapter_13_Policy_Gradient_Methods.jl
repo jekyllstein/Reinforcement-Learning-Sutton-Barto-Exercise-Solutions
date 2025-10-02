@@ -2617,7 +2617,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 		
 		update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
 		# @info "About to update policy params with eligibility vector $∇lnπ and constant $(α_θ*c*δ)"
-		update_params_with_gradient!(policy_params, α_θ*c*δ, ∇lnπ)
+		update_params_with_gradient!(policy_params, α_θ*δ, ∇lnπ)
 		# @info "policy params after $step updates: $policy_params"
 		# @info "value params after $step updates: $value_params"
 	end
