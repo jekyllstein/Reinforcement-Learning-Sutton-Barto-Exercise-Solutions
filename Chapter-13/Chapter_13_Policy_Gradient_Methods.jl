@@ -942,7 +942,7 @@ begin
 	
 		#also return a method that acts on the feature vector itself which has already been updated
 		function v̂(x::V, value_parameters; value_activations = FCANN.form_activations(value_parameters.weights[1]), kwargs...) 
-			fcann_value_function!(value_activations, feature_vector, value_parameters)
+			fcann_value_function!(value_activations, x, value_parameters)
 			return first(last(value_activations))
 		end
 
