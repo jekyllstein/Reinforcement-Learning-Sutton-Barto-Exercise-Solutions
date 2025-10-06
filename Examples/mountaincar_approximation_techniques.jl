@@ -661,6 +661,9 @@ begin
 end
   ╠═╡ =#
 
+# ╔═╡ 0ea1cfb0-09cc-4848-9d0d-558085c63cc6
+#add non-linear results and parameter study for mountaincar.  Also show test to see point where using GPU acceleration is worth it.
+
 # ╔═╡ 1b9078af-d7d1-4322-897e-89452ff8a4de
 md"""
 ## Policy Gradient Methods
@@ -778,7 +781,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 452efa64-3595-4388-aa9b-98ce5a0fc404
-const simple_ac_best = mountaincar_ac_simple.train_ep(0.5f0, 0.03125f0, 0.95f0, 0.99f0; num_steps = 100_000)
+const simple_ac_best = mountaincar_ac_simple.train_ep(0.25f0, 0.03125f0, 0.95f0, 0.99f0; num_steps = 100_000)
 
 # ╔═╡ 77314512-e87a-4d39-a2c4-2bb6027aa658
 md"""
@@ -801,11 +804,48 @@ begin
 end
   ╠═╡ =#
 
-# ╔═╡ c3323f50-c9e1-4cb4-ad35-c63b1980bf6a
-log2(0.0078)
-
 # ╔═╡ 6a547a22-1bf4-4b42-9d62-f1e14a35da47
-const tile_ac_best = mountaincar_ac_tilecoding.train_ep(0.078125f0, 0.000976562f0, 0.2f0, 0.99f0; num_steps = 100_000, num_tiles = 10, num_tilings = 20)
+const tile_ac_best = mountaincar_ac_tilecoding.train_ep(0.01f0, 0.0004f0, 0.2f0, 0.99f0; num_steps = 1_000_000, num_tiles = 8, num_tilings = 4)
+
+# ╔═╡ 715ab50e-b136-41ca-b7d6-e169ef457a00
+md"""
+#### Tilecoding Solution Study
+"""
+
+# ╔═╡ 75428084-5ff2-4996-8fce-81b09e83f287
+function train_tile_grid(α_θ, α_w, λ_θ, λ_w; num_steps = 200_000, tile_min = 1, tile_max = 4, tilings_min = 0, tilings_max = 4, kwargs...)
+	f(num_tiles, num_tilings) = mountaincar_ac_tilecoding.train_ep(α_θ, α_w, λ_θ, λ_w; num_steps = num_steps, num_tiles = num_tiles, num_tilings = num_tilings, kwargs...)
+	
+	tiles = 2 .^ (tile_min:tile_max)
+	tilings = 2 .^ (tilings_min:tilings_max)
+	args = [(n1, n2) for n1 in tiles for n2 in tilings ]
+	grid = args |> Map(t -> t => f(t...)) |> tcollect |> Dict
+	(grid = grid, tiles = tiles, tilings = tilings, args = args)
+end
+
+# ╔═╡ d66f814a-a4fd-41c3-8aec-f99969355e98
+const tile_grid = train_tile_grid(0.01f0, 0.0004f0, 0.2f0, 0.99f0; tilings_max = 5, tile_max = 5)
+
+# ╔═╡ 614b6821-07e4-45bc-9b1b-1eabbc4293b3
+#create a 2x2 mosaic of results which shows the best converged result for different combinations of tiles and tilings increasing by powers of 2, also include the average steps to completion which is the performance metric
+#maybe add training step where it keeps training until the results fail to improve
+
+# ╔═╡ 32a3159a-0f5c-49e7-af9c-1d24addbcee0
+md"""
+##### Tilecoding Policy Grid
+"""
+
+# ╔═╡ b5207681-0976-4ca3-808c-442010dd67aa
+#=╠═╡
+md"""
+Show policy distribution for action: $(@bind tile_grid_display_action Select(1:3, default = 3))
+"""
+  ╠═╡ =#
+
+# ╔═╡ ffda6edf-42e1-4748-bae1-abcba9d85be3
+md"""
+##### Tilecoding Value Grid
+"""
 
 # ╔═╡ 998c9e14-8e8e-4a9c-b03a-9b5bfd38055f
 md"""
@@ -868,7 +908,10 @@ end
   ╠═╡ =#
 
 # ╔═╡ bcdc3f51-166d-4800-a379-510c23815088
-const fcann_ac_best = mountaincar_ac_fcann.train_cont(0.03f0, 0.05f0, 0.1f0, 0.99f0; num_steps = 5_000_000, layer_size = 16, num_layers = 4, α_r̄ = 0.005f0)
+const fcann_ac_best = mountaincar_ac_fcann.train_cont(0.06f0, 0.004f0, 0.1f0, 0.99f0; num_steps = 10_000_000, layer_size = 64, num_layers = 8, α_r̄ = 0.005f0)
+
+# ╔═╡ 2f8b993e-70fc-4c43-a927-593f1b1c747c
+#create a 2x2 mosaic of results which shows the best converged result for different combinations of layer sizes and depth increasing by powers of 2, also include the average steps to completion which is the performance metric
 
 # ╔═╡ 4f16565e-09bb-11f0-3729-7ffc5462cdc8
 md"""
@@ -925,6 +968,122 @@ function plot_mountaincar_values(v̂_mountain_car, π; n1 = 100, n2 = 100)
 	</div>
 	""")
 end
+  ╠═╡ =#
+
+# ╔═╡ b76a1c2b-f5df-41c1-8dae-4be15ae274a5
+function mountaincar_policy_action_dist(policy_function::Function, i_a::Integer; n1 = 100, n2 = 100)
+	xvals = LinRange(-1.2f0, 0.5f0, n1)
+	vvals = LinRange(-0.07f0, 0.07f0, n2)
+	action_dist = zeros(Float32, n1, n2)
+	for (i, x) in enumerate(xvals)
+		for (j, v) in enumerate(vvals)
+			π = policy_function((x, v))
+			action_dist[j, i] = π[i_a]
+		end
+	end
+	return action_dist
+end
+
+# ╔═╡ 1c12179c-13c5-4f64-a1fe-cbe2d9d219bb
+#=╠═╡
+function plot_tile_grid(grid_output::NamedTuple, i_a::Integer; kwargs...)
+	(grid, tiles, tilings, args) = grid_output
+	plots = [begin
+		grid_matrix = mountaincar_policy_action_dist(grid[k].policy_function, i_a; kwargs...)
+		yaxis_text = if k[2] == 1
+			"$(k[1]) tiles"
+		else
+			""
+		end
+
+		title_text = if k[1] == 2
+			"$(k[2]) tilings"
+		else
+			""
+		end
+
+		step_avg = grid[k].episode_rewards[max(1, end-1000):end] |> v -> round(-mean(v); sigdigits = 4)
+
+		xaxis_text = "$step_avg steps"
+		p = plot(heatmap(z = grid_matrix, showscale = false, colorscale = "rb"), Layout(title = title_text, yaxis_title = yaxis_text, paper_bgcolor = "rgb(30, 30, 30", font_color = "white", xaxis_title = xaxis_text, xaxis_tickvals = [], yaxis_tickvals = [], margin_l = 0, margin_r = 0, margin_b = 0, margin_t = 30))
+		
+		@htl("""
+			 <div style = "width: $(inv(length(tilings))*100)%; aspect-ratio: 1 / 1; background-color: rgbt(0, 0, 0, 0);">
+			 $p
+			 </div>
+			""")
+	end
+	for k in args]
+
+	@htl("""
+		 <div style = "display: flex; flex-wrap: wrap; ">
+		 $plots
+		 </div>
+		 """)
+end
+  ╠═╡ =#
+
+# ╔═╡ 66394600-ab20-4cc8-9319-1bcbfc5191dc
+function mountaincar_value_grid(value_function::Function; n1 = 100, n2 = 100)
+	xvals = LinRange(-1.2f0, 0.5f0, n1)
+	vvals = LinRange(-0.07f0, 0.07f0, n2)
+	value_grid = zeros(Float32, n1, n2)
+	for (i, x) in enumerate(xvals)
+		for (j, v) in enumerate(vvals)
+			v = value_function((x, v))
+			value_grid[j, i] = v
+		end
+	end
+	return value_grid
+end
+
+# ╔═╡ 47b8c456-c809-4fdb-9f05-9c461bc8e167
+#=╠═╡
+function plot_tile_grid(grid_output::NamedTuple; kwargs...)
+	(grid, tiles, tilings, args) = grid_output
+	plots = [begin
+		grid_matrix = mountaincar_value_grid(grid[k].value_function; kwargs...)
+		yaxis_text = if k[2] == 1
+			"$(k[1]) tiles"
+		else
+			""
+		end
+
+		title_text = if k[1] == 2
+			"$(k[2]) tilings"
+		else
+			""
+		end
+
+		step_avg = grid[k].episode_rewards[max(1, end-1000):end] |> v -> round(-mean(v); sigdigits = 4)
+
+		xaxis_text = "$step_avg steps"
+		p = plot(heatmap(z = grid_matrix, showscale = false, colorscale = "rb"), Layout(title = title_text, yaxis_title = yaxis_text, paper_bgcolor = "rgb(30, 30, 30", font_color = "white", xaxis_title = xaxis_text, xaxis_tickvals = [], yaxis_tickvals = [], margin_l = 0, margin_r = 0, margin_b = 0, margin_t = 30))
+		
+		@htl("""
+			 <div style = "width: $(inv(length(tilings))*100)%; aspect-ratio: 1 / 1; background-color: rgbt(0, 0, 0, 0);">
+			 $p
+			 </div>
+			""")
+	end
+	for k in args]
+
+	@htl("""
+		 <div style = "display: flex; flex-wrap: wrap; ">
+		 $plots
+		 </div>
+		 """)
+end
+  ╠═╡ =#
+
+# ╔═╡ ca378efe-514d-4ba0-9414-7614ba84eaa5
+#=╠═╡
+plot_tile_grid(tile_grid, tile_grid_display_action)
+  ╠═╡ =#
+
+# ╔═╡ c8d689cd-a9c7-4cfa-b0ea-1a9ffd71010e
+#=╠═╡
+plot_tile_grid(tile_grid)
   ╠═╡ =#
 
 # ╔═╡ 72f9972e-9f83-4bf7-b459-764c309552b4
@@ -1058,13 +1217,13 @@ end
 #=╠═╡
 function smooth_error(error_history, n)
 	l = length(error_history)
-	[mean(error_history[i-n:i]) for i in n+1:l]
+	n+1:l |> Map(i -> mean(view(error_history, i-n:i))) |> tcollect
 end
   ╠═╡ =#
 
 # ╔═╡ a14ebbce-3590-4759-81b3-253a13e73fc6
 #=╠═╡
-function display_mountaincar_ac_results(output::NamedTuple; nsmooth = 100, npoints = 1000, max_steps = 2000)
+function display_mountaincar_ac_results(output::NamedTuple; nsmooth = 100, npoints = 1000, max_steps = 2000, n1 = 100, n2 = 100)
 	policy_kwargs = output.form_policy_kwargs()
 	π_sample(s) = output.policy_sample_action(s; policy_kwargs...)
 	p1 = show_mountaincar_trajectory(π_sample, max_steps)
@@ -1072,7 +1231,7 @@ function display_mountaincar_ac_results(output::NamedTuple; nsmooth = 100, npoin
 	value_kwargs = output.form_value_kwargs()
 	v̂(s) = output.value_function(s; value_kwargs...)
 	π_dist(s) = output.policy_function(s; policy_kwargs...)
-	p2 = plot_mountaincar_policy_values(π_dist, v̂)
+	p2 = plot_mountaincar_policy_values(π_dist, v̂; n1 = n1, n2 = n2)
 
 	try 
 		rewards = output.episode_rewards
@@ -1089,7 +1248,7 @@ function display_mountaincar_ac_results(output::NamedTuple; nsmooth = 100, npoin
 		rewards = smooth_error(rewards, nsmooth)
 		l = length(rewards)
 		sample_inds = round.(Int64, LinRange(1, l, npoints))
-		p3 = plot(rewards[sample_inds])
+		p3 = plot(view(rewards, sample_inds))
 	end
  
 	@htl("""
@@ -1114,7 +1273,7 @@ display_mountaincar_ac_results(tile_ac_best)
 
 # ╔═╡ fa567160-3b37-4220-907d-da648769cee0
 #=╠═╡
-display_mountaincar_ac_results(fcann_ac_best; max_steps = 300)
+display_mountaincar_ac_results(fcann_ac_best; max_steps = 300, n1 = 300, n2 = 300)
   ╠═╡ =#
 
 # ╔═╡ 283fef98-fc27-42c6-b8c7-579f29dd2881
@@ -2236,6 +2395,7 @@ version = "17.4.0+2"
 # ╠═50c1669f-fe46-4729-b867-f8bb2784de47
 # ╟─dd310782-7f49-463f-800c-db8f206b49a5
 # ╠═c4c1569f-5a33-4ea2-a41b-aef32c9b9cce
+# ╠═0ea1cfb0-09cc-4848-9d0d-558085c63cc6
 # ╟─1b9078af-d7d1-4322-897e-89452ff8a4de
 # ╟─3cd7f197-a86d-4210-b932-6bb1c8e5b9ec
 # ╠═3163a090-ca95-4df4-9a0e-33505ee6de0e
@@ -2255,14 +2415,24 @@ version = "17.4.0+2"
 # ╟─2cd6da7f-1a12-40c6-9d91-2646673f559a
 # ╠═6fea8dfb-9c00-4864-8a17-96d2bbb5bb59
 # ╠═da88bca7-644b-401a-8fb6-d5b96d609755
-# ╟─25aa07bb-6c2b-4195-bbb2-01b031a1b91e
+# ╠═25aa07bb-6c2b-4195-bbb2-01b031a1b91e
 # ╠═452efa64-3595-4388-aa9b-98ce5a0fc404
 # ╟─77314512-e87a-4d39-a2c4-2bb6027aa658
 # ╠═7723dc4f-43a6-4ece-80d5-88107f2fbf46
 # ╠═3c9ed6e9-b15e-4520-97ea-bdaa724a6e98
-# ╠═c3323f50-c9e1-4cb4-ad35-c63b1980bf6a
 # ╠═6a547a22-1bf4-4b42-9d62-f1e14a35da47
-# ╟─ddd8a237-0d77-4ef2-ac8f-b9d76c2448a6
+# ╠═ddd8a237-0d77-4ef2-ac8f-b9d76c2448a6
+# ╟─715ab50e-b136-41ca-b7d6-e169ef457a00
+# ╠═75428084-5ff2-4996-8fce-81b09e83f287
+# ╠═1c12179c-13c5-4f64-a1fe-cbe2d9d219bb
+# ╠═47b8c456-c809-4fdb-9f05-9c461bc8e167
+# ╠═d66f814a-a4fd-41c3-8aec-f99969355e98
+# ╠═614b6821-07e4-45bc-9b1b-1eabbc4293b3
+# ╟─32a3159a-0f5c-49e7-af9c-1d24addbcee0
+# ╟─b5207681-0976-4ca3-808c-442010dd67aa
+# ╟─ca378efe-514d-4ba0-9414-7614ba84eaa5
+# ╟─ffda6edf-42e1-4748-bae1-abcba9d85be3
+# ╟─c8d689cd-a9c7-4cfa-b0ea-1a9ffd71010e
 # ╟─998c9e14-8e8e-4a9c-b03a-9b5bfd38055f
 # ╠═8432affe-4371-4528-bb79-87d6b6374871
 # ╠═7d00197a-e50e-4c9c-819e-f909287bc6bc
@@ -2274,6 +2444,7 @@ version = "17.4.0+2"
 # ╠═dfa43b77-7cd7-4ae9-80c0-b473a08c7ed4
 # ╠═10a482b1-fb19-4d5d-95ea-55b4900887b5
 # ╠═bcdc3f51-166d-4800-a379-510c23815088
+# ╠═2f8b993e-70fc-4c43-a927-593f1b1c747c
 # ╠═fa567160-3b37-4220-907d-da648769cee0
 # ╟─4f16565e-09bb-11f0-3729-7ffc5462cdc8
 # ╠═f173569d-182f-4873-97ed-1b9cad2b4309
@@ -2284,6 +2455,8 @@ version = "17.4.0+2"
 # ╠═1b84943c-c8f5-4ad4-b95a-66dc818fa609
 # ╟─afb3f1df-8aa7-4e57-bf03-9d901c9c2946
 # ╠═6130d10b-b23c-4e15-97b3-ec7a1134e732
+# ╠═b76a1c2b-f5df-41c1-8dae-4be15ae274a5
+# ╠═66394600-ab20-4cc8-9319-1bcbfc5191dc
 # ╠═72f9972e-9f83-4bf7-b459-764c309552b4
 # ╠═acf47599-4813-412d-8dfe-a6d4967f710c
 # ╠═3ab40052-d656-4e14-a6fd-3c5b09664cf4
