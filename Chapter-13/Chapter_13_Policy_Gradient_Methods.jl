@@ -1177,25 +1177,30 @@ md"""
 
 # ╔═╡ 4915b1ed-ad53-4ece-9b00-bc136d47d8dc
 md"""
-It is implicit in all expressions below that $\pi$ is a function of $\boldsymbol{\theta}$ and that the gradients are with respect to $\boldsymbol{\theta}$.  The performance measure for the continuing case is $J(\boldsymbol{\theta}) = r(\boldsymbol{\theta})$ (13.15) and all value functions use the definition of the differential return.  We begin by expressing the gradient of the state value function in terms of the state-action value function, the policy, the average return and gradients thereof:
+It is implicit in all expressions below that ``\pi`` is a function of $\boldsymbol{\theta}$ and that the gradients are with respect to $\boldsymbol{\theta}$.  The performance measure for the continuing case is ``J(\boldsymbol{\theta}) = r(\boldsymbol{\theta})`` (13.15) and all value functions use the definition of the differential return.  We begin by expressing the gradient of the state value function in terms of the state-action value function, the policy, the average return and gradients thereof:
 
-$\begin{flalign}
+```math
+\begin{flalign}
 \nabla v_\pi(s) &= \nabla \left [ \sum_a \pi(a \vert s) q_\pi (s, a) \right ], \: \forall s \in \mathcal{S} \\
 &= \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \nabla q_\pi(s, a) \right ] \tag{product rule} \\
 &=\sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \nabla \sum_{s^\prime, r} p(s^\prime, r, \vert s, a)\left (r - r(\boldsymbol{\theta}) + v_\pi(s^\prime) \right ) \right ] \tag{differential return definitions} \\
 &=\sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) [ -\nabla r(\boldsymbol{\theta}) + \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) ] \right ] \tag{distributing gradient}\\
-\end{flalign}$
+\end{flalign}
+```
 
-The purpose of this expression is to isolate the term which is the gradient of the average return since this is the performance metric gradient we originally sought.  Note that if we separate the terms inside the sum, the one with the gradient of $r$ is $\sum_a \pi(a\vert s) [- \nabla r(\boldsymbol{\theta})] = -\nabla r(\boldsymbol{\theta}) \sum_a \pi(a \vert s)$.  But the policy function is a probability distribution so its sum over actions is just 1.  Therefore, this term simplifies to just $-\nabla r(\boldsymbol{\theta})$ which we can simply move to the other side of the expression swapping its place with the state value function: 
+The purpose of this expression is to isolate the term which is the gradient of the average return since this is the performance metric gradient we originally sought.  Note that if we separate the terms inside the sum, the one with the gradient of ``r`` is ``\sum_a \pi(a\vert s) [- \nabla r(\boldsymbol{\theta})] = -\nabla r(\boldsymbol{\theta}) \sum_a \pi(a \vert s)``.  But the policy function is a probability distribution so its sum over actions is just 1.  Therefore, this term simplifies to just ``-\nabla r(\boldsymbol{\theta})`` which we can simply move to the other side of the expression swapping its place with the state value function: 
 
-$\begin{flalign}
+```math
+\begin{flalign}
 \nabla v_\pi(s)&=-\nabla r(\boldsymbol{\theta}) + \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) \right ] \\
 \nabla r(\boldsymbol{\theta}) &=-\nabla v_\pi(s) + \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) \right ] 
-\end{flalign}$
+\end{flalign}
+```
 
-Now the left hand side is $\nabla J(\boldsymbol{\theta})$ and does not depend on $s$.  As such, the right hand side as a whole must be independent of $s$ as well so we are free to take a weighted sum of it over some probability distribution on $s$ since all the terms sum to 1.  That is, if $f$ is independent of $s$, then $f = \sum_s \mu(s) f = f \sum_s \mu(s) = f \times 1 = f$:
+Now the left hand side is ``\nabla J(\boldsymbol{\theta})`` and does not depend on $s$.  As such, the right hand side as a whole must be independent of ``s`` as well so we are free to take a weighted sum of it over some probability distribution on ``s`` since all the terms sum to 1.  That is, if ``f`` is independent of ``s``, then ``f = \sum_s \mu(s) f = f \sum_s \mu(s) = f \times 1 = f``:
 
-$\begin{flalign}
+```math
+\begin{flalign}
 \nabla J(\boldsymbol{\theta}) &= \sum_s \mu(s) \left ( \sum_a \left [ \nabla \pi(a \vert s) q_\pi(s, a) + \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) \right ] - \nabla v_\pi(s) \right ) \\  
 &= \sum_s \mu(s) \sum_a \nabla \pi(a \vert s) q_\pi(s, a) + \sum_s \mu(s) \sum_a \pi(a \vert s) \sum_{s^\prime} p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) - \sum_s \mu(s) \nabla v_\pi(s) \tag{separating sum terms}\\  
 &= \sum_s \mu(s) \sum_a \nabla \pi(a \vert s) q_\pi(s, a) + \sum_{s^\prime} \sum_s \mu(s) \sum_a \pi(a \vert s)  p(s^\prime \vert s, a) \nabla v_\pi(s^\prime) - \sum_s \mu(s) \nabla v_\pi(s) \tag{swapping sum order in second term}\\  
@@ -1206,9 +1211,10 @@ $\begin{flalign}
 &= \mathbb{E}_\pi \left [\frac{\nabla \pi(A_t \vert S_t)}{\pi(A_t \vert S_t)} q_\pi(S_t, A_t) \right ] \tag{expected value definition}\\
 &= \mathbb{E}_\pi \left [\frac{\nabla \pi(A_t \vert S_t)}{\pi(A_t \vert S_t)} G_t \right ] \tag{differential return definition}\\
 &= \mathbb{E}_\pi \left [G_t \nabla \ln \pi(A_t \vert S_t) \right ] \tag{chain rule}\\
-\end{flalign}$
+\end{flalign}
+```
 
-The expression inside the expected value can be sampled on every time step and the gradient is only in terms of the policy function which we have selected as something differentiable with respect to the parameters.  Since this method will only be used for continuing problems, we cannot rely on Monte Carlo sampling for the differential return.  Instead, our only option is to use a bootstrap value estimate in combination with a running estimate of the average reward and the immediate sample reward: $R - \overline{R} + \hat v^\prime$ where $\hat v^\prime$ is the differential value function estimate at the transition state and $\overline{R}$ is an estimate of the average reward.  We can apply the existing actor-critic algorithms to these continuing problems as long as we track that additional information and use an additional step size parameter to update the average reward estimate.  This step size parameter replaces the discount rate.  See a full implementation below:
+The expression inside the expected value can be sampled on every time step and the gradient is only in terms of the policy function which we have selected as something differentiable with respect to the parameters.  Since this method will only be used for continuing problems, we cannot rely on Monte Carlo sampling for the differential return.  Instead, our only option is to use a bootstrap value estimate in combination with a running estimate of the average reward and the immediate sample reward: ``R - \overline{R} + \hat v^\prime`` where ``\hat v^\prime`` is the differential value function estimate at the transition state and ``\overline{R}`` is an estimate of the average reward.  We can apply the existing actor-critic algorithms to these continuing problems as long as we track that additional information and use an additional step size parameter to update the average reward estimate.  This step size parameter replaces the discount rate.  See a full implementation below:
 """
 
 # ╔═╡ 5b15f5c9-80bf-47f0-898a-f8dead5b927c

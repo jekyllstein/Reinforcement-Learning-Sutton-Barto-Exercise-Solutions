@@ -1965,7 +1965,6 @@ function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_
 end
 
 # ╔═╡ 747700de-0a87-4ac9-a9cd-0bc11721836e
-#=╠═╡
 function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
 	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
 	!use_gpu && return sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
@@ -1973,13 +1972,12 @@ function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
 	output = sarsa_λ!(setup.gpu_args.params, mdp, λ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
-	FCANN.GPU2Host(params.weights, setup.gpu_args.params.weights)
+	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
 	setup.gpu_args.cleanup_vars()
 	FCANN.clear_gpu_data(output.trace.weights[1])
 	FCANN.clear_gpu_data(output.trace.weights[2])
 	(;output..., final_parameters = parameters)
 end
-  ╠═╡ =#
 
 # ╔═╡ 4cab7b59-f080-4bea-86dc-3c860a618c35
 function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
@@ -3495,12 +3493,10 @@ function setup_cartpole_problem_fcann(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max
 end
 
 # ╔═╡ 834055ef-0bdc-4b4b-9c3f-ce7f43864ef7
-#=╠═╡
 function run_cartpole_fcann(α, λ; algo::Function = sarsa_λ_fcann, γ = 0.9f0, num_steps = 10_000, ϵ = 0.01f0, layers = [4, 4], kwargs...)
 	mdp, setup = setup_cartpole_problem_fcann()
 	algo(mdp, γ, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
 end
-  ╠═╡ =#
 
 # ╔═╡ 4b13b020-0dd2-45ff-adb5-d67cdd3a77f6
 #=╠═╡
@@ -3548,9 +3544,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ d0e96989-c165-48d6-ba4b-4eab05fcb638
-#=╠═╡
 const cartpole_fcann_λ_best = run_cartpole_fcann(.14f0, 0.0f0; algo = dp_λ_fcann, layers = fill(4, 4), num_steps = 100_000)
-  ╠═╡ =#
 
 # ╔═╡ 993f8193-7488-415d-85d5-9a7a83f6bf71
 #=╠═╡
