@@ -3095,6 +3095,15 @@ function Base.copy(params::FCANNParamsGPU)
 	return (weights = (d_θs, d_βs), reslayers = params.reslayers)
 end
 
+# ╔═╡ 05d958e4-2f2e-46e0-a030-7ecd137fb4f0
+function Base.copy!(dst::FCANNParams{T}, src::FCANNParams{T}) where T<:Real
+	for i in eachindex(src.weights[1])
+		for j in 1:2
+			dst.weights[j][i] .= src.weights[j][i]
+		end
+	end
+end
+
 # ╔═╡ 16eff6bc-ce43-4d97-aa76-73df2ff76b29
 begin
 	# function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where T<:Real
@@ -5878,6 +5887,7 @@ version = "17.4.0+2"
 # ╠═92706281-51f8-46d7-b218-ef2f1adf7fb2
 # ╠═b70fac93-ba6e-4234-86de-c131011b09a1
 # ╠═bd3a43b8-5646-4acf-9e29-f6c0ff89ca73
+# ╠═05d958e4-2f2e-46e0-a030-7ecd137fb4f0
 # ╠═16eff6bc-ce43-4d97-aa76-73df2ff76b29
 # ╠═74e42774-68e5-44b5-91c4-da87a20879e1
 # ╠═b58cacd0-ca65-43f5-8678-7265ea2d46c8
