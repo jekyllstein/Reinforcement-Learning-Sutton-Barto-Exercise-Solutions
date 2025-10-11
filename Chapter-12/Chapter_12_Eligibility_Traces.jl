@@ -1971,7 +1971,7 @@ function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
-	output = sarsa_λ!(setup.gpu_args.params, mdp, λ, max_episodes, max_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
+	output = sarsa_λ!(setup.gpu_args.params, mdp, λ, num_steps, setup.gpu_args.feature_vector, gpu_feature_update!, setup.update_action_values!, setup.gpu_args.gradient, setup.update_value_gradient!; kwargs...)
 	FCANN.GPU2Host(parameters.weights, setup.gpu_args.params.weights)
 	setup.gpu_args.cleanup_vars()
 	FCANN.clear_gpu_data(output.trace.weights[1])
