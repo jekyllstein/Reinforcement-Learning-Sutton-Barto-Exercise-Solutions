@@ -2684,7 +2684,7 @@ corridor_parameter_studies(2f0 .^ (-10:-6), 2f0 .^ (-35:5:-15); num_trials = 100
 
 # ╔═╡ 09bfbf48-6d1d-4adc-a576-6be0ab047c01
 function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
+	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -2702,7 +2702,7 @@ end
 
 # ╔═╡ 855fa5bc-9eab-4e26-85b4-48ba302d2c05
 function one_step_actor_critic_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
+	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -3158,7 +3158,7 @@ get_corridor_episode_stats(best_mc_corridor.policy_sample_action; make_policy_kw
 
 # ╔═╡ 697b2310-9d96-4f7f-be62-c3bd6bf736f3
 function reinforce_with_baseline_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
+	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -3590,7 +3590,7 @@ actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, 
 
 # ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
 function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
+	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -3715,7 +3715,7 @@ const cartpole_continuing_tile_test = cartpole_continuing_actor_critic_tiles(1f0
 
 # ╔═╡ 8fbd4122-abf6-4484-9e86-49d2bb8a1af8
 function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list)
+	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")

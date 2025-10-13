@@ -895,7 +895,7 @@ md"""
 # ╔═╡ 52098913-ea06-497d-afad-a9fef99fb428
 begin
 	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 		
 		!use_gpu && return semi_gradient_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 		
@@ -910,7 +910,7 @@ begin
 	end
 
 	function semi_gradient_TDλ_fcann(problem::Tuple, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 
 		!use_gpu && return semi_gradient_TDλ!(parameters, problem..., λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 		
@@ -1951,7 +1951,7 @@ test_sarsa_λ()
 
 # ╔═╡ 84870ff4-d7a5-4214-abcb-3d74b7a8fe7b
 function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -1966,7 +1966,7 @@ end
 
 # ╔═╡ 747700de-0a87-4ac9-a9cd-0bc11721836e
 function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -2067,7 +2067,7 @@ test_dp_λ()
 
 # ╔═╡ 5f623b73-4d7d-4c69-acaf-9a668c352bf9
 function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -2081,7 +2081,7 @@ end
 
 # ╔═╡ c5ae58b0-6f89-476a-8a72-9bb1cfd1a6be
 function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")

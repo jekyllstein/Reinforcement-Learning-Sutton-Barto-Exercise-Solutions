@@ -1288,7 +1288,7 @@ Handles μP scaling, activation management, and gradient computation setup for m
 3. Configures μP scaling factors if enabled
 4. Returns specialized functions for action-value computation and gradient updates
 """
-function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, use_μP::Bool, activation_list) where {T<:Real}
+function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
 	input_length, hidden_layers, num_hidden = get_network_dimensions(params)
 	
 	#form activations for network
@@ -1322,7 +1322,7 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		findmax(action_values)
 	end
 
-	if in(:GPU, backendList)
+	if use_gpu && in(:GPU, backendList)
 		d_activations = FCANN.device_allocate(activations)
 		d_tanh_grad_z = FCANN.device_allocate(tanh_grad_z)
 		d_deltas = FCANN.device_allocate(deltas)
@@ -1424,7 +1424,7 @@ to [`semi_gradient_sarsa!`](@ref) with appropriate neural network functions and 
 4. Returns wrapped value function with activation storage management
 """
 function semi_gradient_sarsa_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return semi_gradient_sarsa!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -1490,7 +1490,7 @@ Uses single-output network for state value function approximation.
 4. Returns wrapped value function with activation storage management
 """
 function semi_gradient_dp_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return semi_gradient_dp!(parameters, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -5019,7 +5019,7 @@ julia> output.value_function(mountain_car_mdp.initialize_state())
 ```
 """
 function gradient_monte_carlo_control_fcann(mdp::StateMDP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -5032,7 +5032,7 @@ end
 # ╔═╡ a9d1381b-566a-4422-81fc-38efde1d2608
 #when the transition distribution is available uses the state value function to learn optimal policy
 function gradient_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list)
+	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return gradient_monte_carlo_control!(parameters, mdp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")

@@ -263,7 +263,7 @@ html"""
 <style>
 	main {
 		margin: 0 auto;
-		max-width: min(1400px, 90%);
+		max-width: min(1600px, 90%);
 		padding-left: max(10px, 10%);
 		padding-right: max(10px, 5%);
 		font-size: max(10px, min(24px, 2vw));
