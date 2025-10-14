@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.18
+# v0.20.19
 
 using Markdown
 using InteractiveUtils
@@ -14,7 +14,11 @@ using DataFrames
 using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threads, Random, Distributions, Statistics, StatsBase, StaticArrays
 
 # ╔═╡ acfabeef-f268-4c7f-a07c-4c05d1333305
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) using NonTabularRL
+begin
+	PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) using NonTabularRL
+
+	switch_device(3)
+end
 
 # ╔═╡ c77a29da-a2a4-4956-9795-56ce63337495
 # ╠═╡ skip_as_script = true
@@ -233,9 +237,25 @@ We will consider the simple linear feature vector of the normalized state values
 
 # ╔═╡ 470495da-76b7-43d0-91a1-6f08a378e95c
 begin
-	run_mountaincar_λ_linear(mdp::StateMDP, γ::T, α::T, λ::T, feature_vector, update_feature_vector!::Function; algo = sarsa_λ_linear, num_steps = 50_000, kwargs...) where T<:Real = algo(mdp, γ, λ, typemax(Int64), num_steps, feature_vector, update_feature_vector!; α = α, kwargs...)
+	function run_mountaincar_λ_linear(mdp::StateMDP, γ::T, α::T, λ::T, feature_vector, update_feature_vector!::Function; use_dp = false, num_steps = 50_000, kwargs...) where T<:Real 
+		if iszero(λ)
+			algo = use_dp ? semi_gradient_dp_linear : semi_gradient_sarsa_linear
+			algo(mdp, γ, typemax(Int64), num_steps, feature_vector, update_feature_vector!; α = α, kwargs...)
+		else
+			algo = use_dp ? dp_λ_linear : sarsa_λ_linear
+			algo(mdp, γ, λ, typemax(Int64), num_steps, feature_vector, update_feature_vector!; α = α, kwargs...)
+		end
+	end
 	
-	run_mountaincar_λ_linear(mdp::StateMDP, α::T, λ::T, feature_vector, update_feature_vector!::Function; algo = sarsa_λ_linear, num_steps = 50_000, kwargs...) where T<:Real = algo(mdp, λ, num_steps, feature_vector, update_feature_vector!; α = α, kwargs...)
+	function run_mountaincar_λ_linear(mdp::StateMDP, α::T, λ::T, feature_vector, update_feature_vector!::Function; use_dp = false, num_steps = 50_000, kwargs...) where T<:Real 
+		# if iszero(λ)
+		# 	algo = use_dp ? semi_gradient_differential_dp_linear : semi_gradient_differential_sarsa_linear
+		# 	algo(mdp, typemax(Int64), num_steps, feature_vector, update_feature_vector!; α = α, kwargs...)
+		# else
+			algo = use_dp ? dp_λ_linear : sarsa_λ_linear
+			algo(mdp, λ, num_steps, feature_vector, update_feature_vector!; α = α, kwargs...)
+		# end
+	end
 end
 
 # ╔═╡ 2ffa9945-f1cd-46ba-9755-942a2b2ea6fe
@@ -273,7 +293,7 @@ begin
 	simple_ep_trial(α, λ; kwargs...) = mountaincar_simple.train_ep(α, λ; kwargs...).episode_rewards |> mean
 	simple_cont_trial(α, λ; kwargs...) = mountaincar_simple.train_cont(α, λ; kwargs...).reward_history |> mean
 
-	simple_ep_study = setup_parameter_study(simple_ep_trial, (:α, :λ), (algo = sarsa_λ_linear, num_steps = 100_000, ϵ = 0.01f0))
+	simple_ep_study = setup_parameter_study(simple_ep_trial, (:α, :λ), (use_dp = false, num_steps = 100_000, ϵ = 0.01f0))
 	if isfile("simple_ep_study.bin")
 		let 
 			d = deserialize("simple_ep_study.bin")
@@ -282,7 +302,7 @@ begin
 			end
 		end
 	end
-	simple_cont_study = setup_parameter_study(simple_cont_trial, (:α, :λ), (algo = sarsa_λ_linear, num_steps = 100_000, α_r̄ = 0.01f0, ϵ = 0.01f0))
+	simple_cont_study = setup_parameter_study(simple_cont_trial, (:α, :λ), (use_dp = false, num_steps = 100_000, α_r̄ = 0.01f0, ϵ = 0.01f0))
 	if isfile("simple_cont_study.bin")
 		let
 			d = deserialize("simple_cont_study.bin")
@@ -320,9 +340,9 @@ end
 
 # ╔═╡ fa5ad7ab-0a57-43ff-a6e1-a9bd73ed8566
 #=╠═╡
-function plot_simple_ep_algo_results(study; algo = sarsa_λ_linear, num_steps = 100_000, num_trials = Base.Threads.nthreads())
+function plot_simple_ep_algo_results(study; use_dp = false, num_steps = 100_000, num_trials = Base.Threads.nthreads())
 	function valid_key(k)
-		k.algo == algo &&
+		k.use_dp == use_dp &&
 		k.num_steps == num_steps &&
 		k.num_trials == num_trials
 	end
@@ -349,9 +369,9 @@ end
 
 # ╔═╡ 6eb8894e-5101-49a7-a760-6c2289a62cd2
 #=╠═╡
-function plot_simple_cont_algo_results(study; algo = sarsa_λ_linear, num_steps = 100_000, α_r̄ = 0.01f0, num_trials = Base.Threads.nthreads())
+function plot_simple_cont_algo_results(study; use_dp = false, num_steps = 100_000, α_r̄ = 0.01f0, num_trials = Base.Threads.nthreads())
 	function valid_key(k)
-		k.algo == algo &&
+		k.use_dp == use_dp &&
 		k.num_steps == num_steps &&
 		k.num_trials == num_trials &&
 		k.α_r̄ == α_r̄
@@ -403,8 +423,8 @@ md"""
 # ╔═╡ a7503137-cbec-41b5-b644-f950665ec934
 #=╠═╡
 begin 
-	run_simple_ep_study(2f0 .^ (-5:2), vcat(0f0:0.1f0:0.9f0, 0.99f0); algo = dp_λ_linear)
-	plot_simple_ep_algo_results(simple_ep_study; algo = dp_λ_linear)
+	run_simple_ep_study(2f0 .^ (-5:2), vcat(0f0:0.1f0:0.9f0, 0.99f0); use_dp = true)
+	plot_simple_ep_algo_results(simple_ep_study; use_dp = true)
 end
   ╠═╡ =#
 
@@ -444,8 +464,8 @@ md"""
 # ╔═╡ f8766c91-825d-41a9-9fcf-276c1ef6c708
 #=╠═╡
 begin 
-	run_simple_cont_study(2f0 .^ (-1:2), [0.9f0, 0.95f0, 0.99f0]; algo = dp_λ_linear)
-	plot_simple_cont_algo_results(simple_cont_study; algo = dp_λ_linear)
+	run_simple_cont_study(2f0 .^ (-1:2), [0.9f0, 0.95f0, 0.99f0]; use_dp = true)
+	plot_simple_cont_algo_results(simple_cont_study; use_dp = true)
 end
   ╠═╡ =#
 
@@ -460,8 +480,8 @@ begin
 	tilecoding_ep_trial(α, λ; kwargs...) = mountaincar_tilecoding.train_ep(α, λ; kwargs...).episode_rewards |> mean
 	tilecoding_cont_trial(α, λ; kwargs...) = mountaincar_tilecoding.train_cont(α, λ; kwargs...).reward_history |> mean
 
-	tilecoding_ep_study = setup_parameter_study(tilecoding_ep_trial, (:α, :λ), (algo = sarsa_λ_linear, num_steps = 100_000, num_tiles = 5, num_tilings = 5, ϵ = 0.01f0))
-	tilecoding_cont_study = setup_parameter_study(tilecoding_cont_trial, (:α, :λ), (algo = sarsa_λ_linear, num_steps = 100_000, α_r̄ = 0.01f0, num_tiles = 5, num_tilings = 5, ϵ = 0.01f0))
+	tilecoding_ep_study = setup_parameter_study(tilecoding_ep_trial, (:α, :λ), (use_dp = false, num_steps = 100_000, num_tiles = 5, num_tilings = 5, ϵ = 0.01f0))
+	tilecoding_cont_study = setup_parameter_study(tilecoding_cont_trial, (:α, :λ), (use_dp = false, num_steps = 100_000, α_r̄ = 0.01f0, num_tiles = 5, num_tilings = 5, ϵ = 0.01f0))
 
 	if isfile("tilecoding_ep_study.bin")
 		let 
@@ -501,9 +521,9 @@ end
 
 # ╔═╡ c5981ebc-48d2-4a0d-9e3e-042e4e9fbc27
 #=╠═╡
-function plot_tilecoding_ep_algo_results(study; algo = sarsa_λ_linear, num_steps = 100_000, num_trials = Base.Threads.nthreads(), num_tiles = 5, num_tilings = 5)
+function plot_tilecoding_ep_algo_results(study; use_dp = false, num_steps = 100_000, num_trials = Base.Threads.nthreads(), num_tiles = 5, num_tilings = 5)
 	function valid_key(k)
-		k.algo == algo &&
+		k.use_dp == use_dp &&
 		k.num_steps == num_steps &&
 		k.num_trials == num_trials &&
 		k.num_tiles == num_tiles &&
@@ -532,9 +552,9 @@ end
 
 # ╔═╡ 53e58944-bb49-49e1-8d91-d9b485dfe140
 #=╠═╡
-function plot_tilecoding_cont_algo_results(study; algo = sarsa_λ_linear, num_steps = 100_000, α_r̄ = 0.01f0, num_trials = Base.Threads.nthreads(), num_tiles = 5, num_tilings = 5)
+function plot_tilecoding_cont_algo_results(study; use_dp = false, num_steps = 100_000, α_r̄ = 0.01f0, num_trials = Base.Threads.nthreads(), num_tiles = 5, num_tilings = 5)
 	function valid_key(k)
-		k.algo == algo &&
+		k.use_dp == use_dp &&
 		k.num_steps == num_steps &&
 		k.num_trials == num_trials &&
 		k.α_r̄ == α_r̄ &&
@@ -571,8 +591,8 @@ md"""
 #=╠═╡
 @bind sarsa_ep_tiles PlutoUI.combine() do Child
 	md"""
-	Num Tiles: $(Child(:num_tiles, NumberField(1:20, default = 5)))
-	Num Tilings: $(Child(:num_tilings, NumberField(1:20, default = 5)))
+	Num Tiles: $(Child(:num_tiles, NumberField(1:32, default = 8)))
+	Num Tilings: $(Child(:num_tilings, NumberField(1:32, default = 8)))
 	"""
 end |> confirm
   ╠═╡ =#
@@ -594,8 +614,8 @@ md"""
 #=╠═╡
 @bind dp_ep_tiles PlutoUI.combine() do Child
 	md"""
-	Num Tiles: $(Child(:num_tiles, NumberField(1:20, default = 5)))
-	Num Tilings: $(Child(:num_tilings, NumberField(1:20, default = 5)))
+	Num Tiles: $(Child(:num_tiles, NumberField(1:32, default = 16)))
+	Num Tilings: $(Child(:num_tilings, NumberField(1:32, default = 8)))
 	"""
 end |> confirm
   ╠═╡ =#
@@ -603,8 +623,8 @@ end |> confirm
 # ╔═╡ 0d735858-c628-4a41-91b4-e86fe6854ea7
 #=╠═╡
 begin
-	run_tilecoding_ep_study(2f0 .^ (-14:-6), [0.5f0, 0.9f0, 0.95f0, 0.99f0]; algo = dp_λ_linear, dp_ep_tiles...)
-	plot_tilecoding_ep_algo_results(tilecoding_ep_study; algo = dp_λ_linear, dp_ep_tiles...)
+	run_tilecoding_ep_study(2f0 .^ (-14:-6), [0.5f0, 0.9f0, 0.95f0, 0.99f0]; use_dp = true, dp_ep_tiles...)
+	plot_tilecoding_ep_algo_results(tilecoding_ep_study; use_dp = true, dp_ep_tiles...)
 end
   ╠═╡ =#
 
@@ -614,7 +634,7 @@ md"""
 """
 
 # ╔═╡ be8e6e0d-04d0-4a1c-9d76-1ca6fb688fcb
-tilecoding_ep_best = mountaincar_tilecoding.train_ep(1f-4, 0.99f0; num_steps = 1_000_000, algo = dp_λ_linear, num_tiles = 16, num_tilings = 32, ϵ = 0.01f0)
+tilecoding_ep_best = mountaincar_tilecoding.train_ep(1f-4, 0.99f0; num_steps = 1_000_000, use_dp = true, num_tiles = 16, num_tilings = 32, ϵ = 0.01f0)
 
 # ╔═╡ de86e2da-908e-44a9-998b-761c93297b66
 md"""
@@ -630,8 +650,8 @@ md"""
 #=╠═╡
 @bind sarsa_cont_tiles PlutoUI.combine() do Child
 	md"""
-	Num Tiles: $(Child(:num_tiles, NumberField(1:20, default = 5)))
-	Num Tilings: $(Child(:num_tilings, NumberField(1:20, default = 5)))
+	Num Tiles: $(Child(:num_tiles, NumberField(1:32, default = 8)))
+	Num Tilings: $(Child(:num_tilings, NumberField(1:32, default = 4)))
 	"""
 end |> confirm
   ╠═╡ =#
@@ -639,7 +659,7 @@ end |> confirm
 # ╔═╡ 4c7efa25-a062-42bc-9685-5212fd00f398
 #=╠═╡
 begin
-	run_tilecoding_cont_study(2f0 .^ (-10:-8), [0.5f0, 0.9f0, 0.99f0]; sarsa_cont_tiles...)
+	run_tilecoding_cont_study(2f0 .^ (-10:-6), [0.5f0, 0.8f0, 0.7f0, 0.9f0, 0.99f0]; sarsa_cont_tiles...)
 	plot_tilecoding_cont_algo_results(tilecoding_cont_study; sarsa_cont_tiles...)
 end
   ╠═╡ =#
@@ -653,8 +673,8 @@ md"""
 #=╠═╡
 @bind dp_cont_tiles PlutoUI.combine() do Child
 	md"""
-	Num Tiles: $(Child(:num_tiles, NumberField(1:20, default = 5)))
-	Num Tilings: $(Child(:num_tilings, NumberField(1:20, default = 5)))
+	Num Tiles: $(Child(:num_tiles, NumberField(1:32, default = 8)))
+	Num Tilings: $(Child(:num_tilings, NumberField(1:32, default = 4)))
 	"""
 end |> confirm
   ╠═╡ =#
@@ -662,13 +682,13 @@ end |> confirm
 # ╔═╡ feef74be-642e-4f4b-8bbf-7cff678ced8b
 #=╠═╡
 begin
-	run_tilecoding_cont_study(2f0 .^ (-14:-8), [0f0, 0.2f0, 0.5f0, 0.6f0, 0.9f0]; algo = dp_λ_linear, dp_cont_tiles...)
-	plot_tilecoding_cont_algo_results(tilecoding_cont_study; algo = dp_λ_linear, dp_cont_tiles...)
+	run_tilecoding_cont_study(2f0 .^ (-14:-8), [0f0, 0.2f0, 0.5f0, 0.6f0, 0.9f0]; use_dp = true, dp_cont_tiles...)
+	plot_tilecoding_cont_algo_results(tilecoding_cont_study; use_dp = true, dp_cont_tiles...)
 end
   ╠═╡ =#
 
 # ╔═╡ 50c1669f-fe46-4729-b867-f8bb2784de47
-const tilecoding_cont_best = mountaincar_tilecoding.train_cont(1f-4, 0.5f0; α_r̄ = 0.01f0, num_steps = 100_000, algo = dp_λ_linear, num_tiles = 8, num_tilings = 16)
+const tilecoding_cont_best = mountaincar_tilecoding.train_cont(1f-4, 0.5f0; α_r̄ = 0.01f0, num_steps = 100_000, use_dp = true, num_tiles = 8, num_tilings = 16)
 
 # ╔═╡ fdfd5f7c-504b-492a-aca3-4690ed17f56f
 md"""
@@ -687,7 +707,7 @@ function train_tile_value_grid(α, λ; num_steps = 200_000, tile_min = 1, tile_m
 end
 
 # ╔═╡ 1af31a32-399f-4568-8748-42224fafd6ed
-const tile_value_grid = train_tile_value_grid(1f-4, 0.99f0; tilings_max = 5, tile_max = 5, algo = dp_λ_linear, num_steps = 1_000_000, ϵ = 0.01f0)
+const tile_value_grid = train_tile_value_grid(1f-4, 0.99f0; tilings_max = 5, tile_max = 5, use_dp = true, num_steps = 1_000_000, ϵ = 0.01f0)
 
 # ╔═╡ dd310782-7f49-463f-800c-db8f206b49a5
 md"""
@@ -727,27 +747,39 @@ end
 
 # ╔═╡ 38d91348-c574-46a3-829a-2f14766a717d
 begin
-	function run_mountaincar_λ_fcann(mdp::StateMDP, γ::T, α::T, λ::T, hidden_layers::Vector{Int64}; algo = sarsa_λ_fcann, reslayers = 0, num_steps = 50_000, newparams::Bool = true, kwargs...) where T<:Real 
-		key = (algo = algo, hidden_layers = hidden_layers, reslayers = reslayers)
+	function run_mountaincar_λ_fcann(mdp::StateMDP, γ::T, α::T, λ::T, hidden_layers::Vector{Int64}; use_dp = false, reslayers = 0, num_steps = 50_000, newparams::Bool = true, kwargs...) where T<:Real 
+		key = (use_dp = use_dp, hidden_layers = hidden_layers, reslayers = reslayers)
 		params = if !newparams && haskey(mountaincar_fcann_value_episodic_results, key)
 			mountaincar_fcann_value_episodic_results[key].final_parameters
 		else
-			output_size = algo == sarsa_λ_fcann ? 3 : 1
+			output_size = use_dp ? 1 : 3
 			initialize_fcann_params(2, hidden_layers, output_size, reslayers, true)
 		end
-		output = algo(mdp, γ, λ, typemax(Int64), num_steps, copy(mountaincar_simple_feature_setup.feature_vector), mountaincar_simple_feature_setup.update_feature_vector!, hidden_layers; α = α, reslayers = reslayers, parameters = params, kwargs...)
+		if iszero(λ)
+			algo = use_dp ? semi_gradient_dp_fcann : semi_gradient_sarsa_fcann
+			output = algo(mdp, γ, typemax(Int64), num_steps, copy(mountaincar_simple_feature_setup.feature_vector), mountaincar_simple_feature_setup.update_feature_vector!, hidden_layers; α = α, reslayers = reslayers, parameters = params, kwargs...)
+		else
+			algo = use_dp ? dp_λ_fcann : sarsa_λ_fcann
+			output = algo(mdp, γ, λ, typemax(Int64), num_steps, copy(mountaincar_simple_feature_setup.feature_vector), mountaincar_simple_feature_setup.update_feature_vector!, hidden_layers; α = α, reslayers = reslayers, parameters = params, kwargs...)
+		end
 		mountaincar_fcann_value_episodic_results[key] = output
 	end
 	
-	function run_mountaincar_λ_fcann(mdp::StateMDP, α::T, λ::T, hidden_layers::Vector{Int64}; algo = sarsa_λ_fcann, reslayers = 0, num_steps = 50_000, newparams::Bool = true, kwargs...) where T<:Real 
-		key = (algo = algo, hidden_layers = hidden_layers, reslayers = reslayers)
+	function run_mountaincar_λ_fcann(mdp::StateMDP, α::T, λ::T, hidden_layers::Vector{Int64}; use_dp = false, reslayers = 0, num_steps = 50_000, newparams::Bool = true, kwargs...) where T<:Real 
+		key = (use_dp = use_dp, hidden_layers = hidden_layers, reslayers = reslayers)
 		params = if !newparams && haskey(mountaincar_fcann_value_continuing_results, key)
 			mountaincar_fcann_value_continuing_results[key].final_parameters
 		else
-			output_size = algo == sarsa_λ_fcann ? 3 : 1
+			output_size = use_dp ? 1 : 3
 			initialize_fcann_params(2, hidden_layers, output_size, reslayers, true)
 		end
-		output = algo(mdp, λ, num_steps, copy(mountaincar_simple_feature_setup.feature_vector), mountaincar_simple_feature_setup.update_feature_vector!, hidden_layers; α = α, reslayers = reslayers, parameters = params, kwargs...)
+		# if iszero(λ)
+		# 	algo = use_dp ? semi_gradient_differential_dp_fcann : semi_gradient_differential_sarsa_fcann
+		# 	output = algo(mdp, num_steps, copy(mountaincar_simple_feature_setup.feature_vector), mountaincar_simple_feature_setup.update_feature_vector!, hidden_layers; α = α, reslayers = reslayers, parameters = params, kwargs...)
+		# else
+			algo = use_dp ? dp_λ_fcann : sarsa_λ_fcann
+			output = algo(mdp, λ, num_steps, copy(mountaincar_simple_feature_setup.feature_vector), mountaincar_simple_feature_setup.update_feature_vector!, hidden_layers; α = α, reslayers = reslayers, parameters = params, kwargs...)
+		# end
 		mountaincar_fcann_value_continuing_results[key] = output
 	end
 end
@@ -861,8 +893,8 @@ begin
 	fcann_ep_trial(α, λ; kwargs...) = mountaincar_fcann.train_ep(α, λ; kwargs...).episode_rewards |> mean
 	fcann_cont_trial(α, λ; kwargs...) = mountaincar_fcann.train_cont(α, λ; kwargs...).reward_history |> mean
 
-	const fcann_ep_study = setup_parameter_study(fcann_ep_trial, (:α, :λ), (algo = sarsa_λ_fcann, num_steps = 100_000, layer_size = 8, num_layers = 2, reslayers = 1, ϵ = 0.01f0))
-	const fcann_cont_study = setup_parameter_study(fcann_cont_trial, (:α, :λ), (algo = sarsa_λ_fcann, num_steps = 100_000, α_r̄ = 0.01f0, layer_size = 8, num_layers = 2, reslayers = 1, ϵ = 0.01f0))
+	const fcann_ep_study = setup_parameter_study(fcann_ep_trial, (:α, :λ), (use_dp = false, num_steps = 100_000, layer_size = 8, num_layers = 2, reslayers = 1, ϵ = 0.01f0))
+	const fcann_cont_study = setup_parameter_study(fcann_cont_trial, (:α, :λ), (use_dp = false, num_steps = 100_000, α_r̄ = 0.01f0, layer_size = 8, num_layers = 2, reslayers = 1, ϵ = 0.01f0))
 
 	if isfile("fcann_ep_study.bin")
 		let 
@@ -902,9 +934,9 @@ end
 
 # ╔═╡ 2b45a044-3b15-4e67-b63b-2b06094e66c3
 #=╠═╡
-function plot_fcann_ep_algo_results(study; algo = sarsa_λ_fcann, num_steps = 100_000, num_trials = Base.Threads.nthreads(), layer_size = 8, num_layers = 2)
+function plot_fcann_ep_algo_results(study; use_dp = false, num_steps = 100_000, num_trials = Base.Threads.nthreads(), layer_size = 8, num_layers = 2)
 	function valid_key(k)
-		k.algo == algo &&
+		k.use_dp == use_dp &&
 		k.num_steps == num_steps &&
 		k.num_trials == num_trials &&
 		k.layer_size == layer_size &&
@@ -933,9 +965,9 @@ end
 
 # ╔═╡ 7d0678f1-f5ef-43f8-981c-f0f5f5e63293
 #=╠═╡
-function plot_fcann_cont_algo_results(study; algo = sarsa_λ_fcann, num_steps = 100_000, α_r̄ = 0.01f0, num_trials = Base.Threads.nthreads(), layer_size = 8, num_layers = 2, ymin = nothing, ymax = nothing)
+function plot_fcann_cont_algo_results(study; use_dp = false, num_steps = 100_000, α_r̄ = 0.01f0, num_trials = Base.Threads.nthreads(), layer_size = 8, num_layers = 2, ymin = nothing, ymax = nothing)
 	function valid_key(k)
-		k.algo == algo &&
+		k.use_dp == use_dp &&
 		k.num_steps == num_steps &&
 		k.num_trials == num_trials &&
 		k.α_r̄ == α_r̄ &&
@@ -974,9 +1006,9 @@ md"""
 	md"""
 	##### Episodic Training
 	
-	Layer Size: $(Child(:layer_size, NumberField(2:64, default = 8)))
-	Num Layers: $(Child(:num_layers, NumberField(2:32, default = 2)))
-	Algorithm: $(Child(:algo, Select([sarsa_λ_fcann => "SARSA", dp_λ_fcann => "DP"])))
+	Layer Size: $(Child(:layer_size, NumberField(2:64, default = 16)))
+	Num Layers: $(Child(:num_layers, NumberField(2:32, default = 4)))
+	Use DP: $(Child(:use_dp, CheckBox()))
 	Num Steps: $(Child(:num_steps, NumberField(10_000:10_000_000, default = 100_000)))
 	"""
 end |> confirm
@@ -985,7 +1017,7 @@ end |> confirm
 # ╔═╡ 2a722083-270f-4c56-bd86-b336fd4a2883
 #=╠═╡
 begin
-	run_fcann_ep_study(2f0 .^ (-16:-10), [0.0f0, 0.1f0, 0.2f0]; sarsa_ep_layers...)
+	run_fcann_ep_study(2f0 .^ (-18:-10), [0.0f0, 0.1f0, 0.2f0, 0.5f0, 0.6f0]; sarsa_ep_layers...)
 	plot_fcann_ep_algo_results(fcann_ep_study; sarsa_ep_layers...)
 end
   ╠═╡ =#
@@ -996,10 +1028,10 @@ end
 	md"""
 	##### Continuing Training
 	
-	Layer Size: $(Child(:layer_size, NumberField(2:64, default = 8)))
-	Num Layers: $(Child(:num_layers, NumberField(2:32, default = 2)))
-	``\alpha_{\bar{r}}`` : $(Child(:α_r̄, NumberField(0.0001f0:0.0001f0:0.1f0, default = 0.01f0)))
-	Algorithm: $(Child(:algo, Select([sarsa_λ_fcann => "SARSA", dp_λ_fcann => "DP"])))
+	Layer Size: $(Child(:layer_size, NumberField(2:64, default = 16)))
+	Num Layers: $(Child(:num_layers, NumberField(2:32, default = 4)))
+	``\alpha_{\bar{r}}`` : $(Child(:α_r̄, NumberField(0.001f0:0.001f0:0.1f0, default = 0.001f0)))
+	Use DP: $(Child(:use_dp, CheckBox()))
 	Num Steps: $(Child(:num_steps, NumberField(10_000:10_000_000, default = 100_000)))
 	"""
 end |> confirm
@@ -1008,7 +1040,7 @@ end |> confirm
 # ╔═╡ 16bb7a14-0d99-4878-8f0d-075b342a524a
 #=╠═╡
 begin
-	run_fcann_cont_study(2f0 .^ (-8:-5), [0.8f0, 0.9f0, 0.95f0, 0.99f0]; sarsa_cont_layers...)
+	run_fcann_cont_study(2f0 .^ (-8:-1), [0.9f0, 0.95f0, 0.99f0]; sarsa_cont_layers...)
 	plot_fcann_cont_algo_results(fcann_cont_study; sarsa_cont_layers..., ymin = 0, ymax = 1000)
 end
   ╠═╡ =#
@@ -1020,7 +1052,7 @@ md"""
 
 # ╔═╡ 74150cad-3e4f-4e4d-b819-bb15769fe6d0
 #=╠═╡
-const fcann_value_best = mountaincar_fcann.train_cont_rate_decay(0.02f0, 0.99f0; num_steps = 1_000_000, layer_size = 64, num_layers = 8, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann)
+const fcann_value_best = mountaincar_fcann.train_cont_rate_decay(0.02f0, 0.99f0; num_steps = 1_000_000, layer_size = 64, num_layers = 8, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, use_dp = true)
   ╠═╡ =#
 
 # ╔═╡ effaa34e-24f4-48b6-9169-274e92aacdc9
@@ -1035,62 +1067,62 @@ md"""
 
 # ╔═╡ 2a48428d-fd0b-4d8f-899f-93377de393e3
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 10_000, layer_size = 64, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false)
+@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 10_000, layer_size = 64, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, newparams = false)
   ╠═╡ =#
 
 # ╔═╡ 24a2050e-750c-4e77-85e9-c7d1859f5b3f
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 512, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false)
+@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 512, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, newparams = false)
   ╠═╡ =#
 
 # ╔═╡ ac1a4222-46e0-4242-bd7e-f1aa1ae15341
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 64, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=true)
+@plutoprofview mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 64, num_layers = 2, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ c73139ce-1090-4522-b4bb-de3b553dd468
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 4096, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=true)
+@plutoprofview mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 4096, num_layers = 2, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 1dc43eb9-74f6-4b40-8976-604f728777f0
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=true)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 47bc9026-130e-4cbb-ad7c-ed02047ac036
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=false)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ 5e4e5fd1-dcea-4a9d-8698-880c4a110840
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=true)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 5789ab7c-5062-4ad7-bb9f-34a50e4cf0fe
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=false)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ 2c3f066c-744c-4861-abf8-4cab5b99d9ff
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=true)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 8dd794be-9145-4cf7-9df0-40d75b541783
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=false)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ 721026dc-ac4a-4fdd-8c63-56c05244272e
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 256, num_layers = 128, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=true)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 256, num_layers = 128, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 7ff78994-872a-46e4-85ce-363a9cbf4071
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 256, num_layers = 128, reslayers = 1, ϵ = 0.01f0, algo = sarsa_λ_fcann, newparams = false, use_gpu=false)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 256, num_layers = 128, reslayers = 1, ϵ = 0.01f0, newparams = false, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ 3d9404cc-9491-4d48-a56b-88174e91507a
@@ -1100,57 +1132,57 @@ md"""
 
 # ╔═╡ 07116240-fe0c-499f-87cf-02d8d316f546
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 10_000, layer_size = 64, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false)
+@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 10_000, layer_size = 64, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false)
   ╠═╡ =#
 
 # ╔═╡ 41ead506-92a0-4620-ab15-22678898e169
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 512, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false)
+@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 512, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false)
   ╠═╡ =#
 
 # ╔═╡ 81337bb1-d7d5-46a3-8b2f-ac0626326f24
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 64, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=true)
+@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 64, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ e7b02c90-b394-413b-918c-6076edb334e1
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 512, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=true)
+@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 512, num_layers = 2, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 2584ce25-545c-4190-aa8f-2a0adb94cd5a
 #=╠═╡
-@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 2048, num_layers = 4, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=true)
+@plutoprofview mountaincar_fcann.train_cont(0.0f0, 0.99f0; num_steps = 1_000, layer_size = 2048, num_layers = 4, α_r̄ = 0.001f0, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 9249a644-b6e9-4386-8d85-d9ce11d80519
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=true)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ b31e6203-c3ad-465b-98e7-5606bd468401
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=false)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 2048, num_layers = 2, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ e123d347-2ed0-4db2-910c-73d11850c7f9
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=true)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ ddd08669-d1eb-427c-a76f-8027bf5e9875
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=false)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 1024, num_layers = 2, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ 22a27fde-8f2a-4301-afa6-4e08388f04e4
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=true)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=true)
   ╠═╡ =#
 
 # ╔═╡ 7b1f5872-f0de-4b41-ab6b-aa2f8b1598c2
 #=╠═╡
-@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, algo = dp_λ_fcann, newparams = false, use_gpu=false)
+@btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=false)
   ╠═╡ =#
 
 # ╔═╡ d499ef12-7320-47d2-a010-c07dab49ff91
@@ -1159,7 +1191,11 @@ md"""
 # ╔═╡ 27322c95-f130-4669-b9da-8195cdafa460
 #=╠═╡
 function train_fcann_value_grid(α, λ; num_steps = 1_000_000, n_min = 2, n_max = 6, layers_min = 1, layers_max = 3, reslayers = 1, kwargs...)
-	f(layer_size, num_layers) = mountaincar_fcann.train_cont_rate_decay(α, λ; num_steps = num_steps, layer_size = layer_size, num_layers = num_layers, reslayers = reslayers, ϵ = 0f0, kwargs...)
+	function f(layer_size, num_layers) 
+		mountaincar_fcann.train_cont(α, λ; num_steps = num_steps, layer_size = layer_size, num_layers = num_layers, reslayers = reslayers, ϵ = 0.8f0, kwargs..., newparams = true)
+		mountaincar_fcann.train_cont_rate_decay(α, λ; num_steps = num_steps, layer_size = layer_size, num_layers = num_layers, reslayers = reslayers, ϵ = 0.8f0, kwargs...)
+		mountaincar_fcann.train_cont_rate_decay(α, λ; num_steps = num_steps, layer_size = layer_size, num_layers = num_layers, reslayers = reslayers, ϵ = 0.01f0, kwargs...)
+	end
 	
 	n = 2 .^ (n_min:n_max)
 	layers = 2 .^ (layers_min:layers_max)
@@ -1178,7 +1214,7 @@ const fcann_sarsa_value_grid = train_fcann_value_grid(0.04f0, 0.9f0)
 # ╔═╡ 8eb01d9b-836b-42c3-850a-e20a5875d2e1
 # ╠═╡ show_logs = false
 #=╠═╡
-const fcann_dp_value_grid = train_fcann_value_grid(0.04f0, 0.9f0; algo = dp_λ_fcann)
+const fcann_dp_value_grid = train_fcann_value_grid(0.04f0, 0.9f0; use_dp = true)
   ╠═╡ =#
 
 # ╔═╡ 1b9078af-d7d1-4322-897e-89452ff8a4de
@@ -1340,7 +1376,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 452efa64-3595-4388-aa9b-98ce5a0fc404
-const simple_ac_best = mountaincar_ac_simple.train_ep(0.25f0, 0.25f0, 0.2f0, 0.9f0; num_steps = 100_000)
+const simple_ac_best = mountaincar_ac_simple.train_ep(0.25f0, 0.25f0, 0.2f0, 0.9f0; num_steps = 1_000_000)
 
 # ╔═╡ 77314512-e87a-4d39-a2c4-2bb6027aa658
 md"""
@@ -1355,7 +1391,7 @@ md"""
 # ╔═╡ 7723dc4f-43a6-4ece-80d5-88107f2fbf46
 #=╠═╡
 begin 
-	run_ac_study(tilecoding_ep_ac_study, 2f0 .^ (-8:-6), 2f0 .^ (-11:-9), [0f0, 0.1f0, 0.2f0], [0.99f0]; num_tilings = 10, num_tiles = 10)
+	run_ac_study(tilecoding_ep_ac_study, 2f0 .^ (-11:-6), 2f0 .^ (-11:-6), [0f0, 0.1f0, 0.2f0, 0.9f0, 0.99f0], [0.8f0, 0.9f0, 0.99f0]; num_tilings = 8, num_tiles = 8, num_steps = 1_000_000)
 	DataFrame((;a[1]..., value = -a[2]) for a in tilecoding_ep_ac_study.results) |> df -> filter(a -> !isnan(a.value), df) |> df -> sort(df, :value)
 end
   ╠═╡ =#
@@ -1374,7 +1410,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 6a547a22-1bf4-4b42-9d62-f1e14a35da47
-const tile_ac_best = mountaincar_ac_tilecoding.train_ep(0.01f0, 0.0004f0, 0.2f0, 0.99f0; num_steps = 1_000_000, num_tiles = 8, num_tilings = 4)
+const tile_ac_best = mountaincar_ac_tilecoding.train_ep(0.004f0, 0.008f0, 0.9f0, 0.99f0; num_steps = 1_000_000, num_tiles = 16, num_tilings = 8)
 
 # ╔═╡ 715ab50e-b136-41ca-b7d6-e169ef457a00
 md"""
@@ -1382,8 +1418,8 @@ md"""
 """
 
 # ╔═╡ 75428084-5ff2-4996-8fce-81b09e83f287
-function train_tile_grid(α_θ, α_w, λ_θ, λ_w; num_steps = 200_000, tile_min = 1, tile_max = 4, tilings_min = 0, tilings_max = 4, kwargs...)
-	f(num_tiles, num_tilings) = mountaincar_ac_tilecoding.train_ep(α_θ, α_w, λ_θ, λ_w; num_steps = num_steps, num_tiles = num_tiles, num_tilings = num_tilings, kwargs...)
+function train_tile_grid(α_θ, α_w, λ_θ, λ_w; num_steps = 1_000_000, tile_min = 1, tile_max = 4, tilings_min = 0, tilings_max = 4, kwargs...)
+	f(num_tiles, num_tilings) = mountaincar_ac_tilecoding.train_ep(α_θ * min(1f0, 8f0 / num_tilings), α_w * min(1f0, 8f0 / num_tilings), λ_θ, λ_w; num_steps = num_steps, num_tiles = num_tiles, num_tilings = num_tilings, kwargs...)
 	
 	tiles = 2 .^ (tile_min:tile_max)
 	tilings = 2 .^ (tilings_min:tilings_max)
@@ -1393,7 +1429,7 @@ function train_tile_grid(α_θ, α_w, λ_θ, λ_w; num_steps = 200_000, tile_min
 end
 
 # ╔═╡ d66f814a-a4fd-41c3-8aec-f99969355e98
-const tile_grid = train_tile_grid(0.01f0, 0.0004f0, 0.2f0, 0.99f0; tilings_max = 5, tile_max = 5)
+const tile_grid = train_tile_grid(0.002f0, 0.006f0, 0.9f0, 0.99f0; tilings_max = 5, tile_max = 5, num_steps = 1_000_000)
 
 # ╔═╡ 32a3159a-0f5c-49e7-af9c-1d24addbcee0
 md"""
@@ -1511,7 +1547,10 @@ md"""
 """
 
 # ╔═╡ 4e03ab81-a0bc-42a1-8753-fc6f866019d6
-const fcann_ac_test = mountaincar_ac_fcann.train_cont(0.01f0, 0.015f0, 0.99f0, 0.9f0; num_steps = 10_000_000, layer_size = 16, num_layers = 8, α_r̄ = 0.005f0, reslayers=1)
+const fcann_ac_test = mountaincar_ac_fcann.train_cont(0.008f0, 0.01f0, 0.99f0, 0.9f0; num_steps = 10_000_000, layer_size = 32, num_layers = 8, α_r̄ = 0.005f0, reslayers=1)
+
+# ╔═╡ af9b4662-1553-4a9e-b916-375cdbe4176a
+#visualization of policy during hte training process to see how it evolves.
 
 # ╔═╡ 28656452-ba55-4d46-be56-1c11c1928c23
 md"""
@@ -1523,8 +1562,25 @@ md"""
 @plutoprofview mountaincar_ac_fcann.train_cont(0.01f0, 0.015f0, 0.99f0, 0.9f0; num_steps = 10_000, layer_size = 64, num_layers = 2, α_r̄ = 0.005f0, reslayers = 1)
   ╠═╡ =#
 
+# ╔═╡ df47a841-db47-4002-bc37-75778e7211d7
+#=╠═╡
+@plutoprofview mountaincar_ac_fcann.train_cont(0.01f0, 0.015f0, 0.99f0, 0.9f0; num_steps = 1_000, layer_size = 512, num_layers = 4, α_r̄ = 0.005f0, reslayers = 1)
+  ╠═╡ =#
+
+# ╔═╡ 5738326e-6817-424c-96ba-c9dffe02e590
+#=╠═╡
+@plutoprofview mountaincar_ac_fcann.train_cont(0.01f0, 0.015f0, 0.99f0, 0.9f0; num_steps = 1_000, layer_size = 512, num_layers = 4, α_r̄ = 0.005f0, reslayers = 1, use_gpu = true)
+  ╠═╡ =#
+
 # ╔═╡ 2a35f221-4c6a-4b79-b300-e87e8fc770cd
-#add performance profiling for actor critic methods
+#=╠═╡
+@plutoprofview mountaincar_ac_fcann.train_cont(0.01f0, 0.015f0, 0.99f0, 0.9f0; num_steps = 1_000, layer_size = 1024, num_layers = 2, α_r̄ = 0.005f0, reslayers = 1)
+  ╠═╡ =#
+
+# ╔═╡ 63ed4500-a199-4a31-ace1-cec54f152380
+#=╠═╡
+@plutoprofview mountaincar_ac_fcann.train_cont(0.01f0, 0.015f0, 0.99f0, 0.9f0; num_steps = 1_000, layer_size = 1024, num_layers = 2, α_r̄ = 0.005f0, reslayers = 1, use_gpu = true)
+  ╠═╡ =#
 
 # ╔═╡ 33848c9b-fe3c-4767-abfc-c40a7a68cb56
 md"""
@@ -1544,9 +1600,6 @@ end
 
 # ╔═╡ ec352be3-b742-423d-8454-f8a7c44b3543
 const fcann_grid = train_fcann_grid(0.01f0, 0.015f0, 0.99f0, 0.9f0; n_min = 2, n_max = 6, layers_min = 1, layers_max = 3, num_steps = 10_000_000, α_r̄ = 0.005f0, reslayers = 1)
-
-# ╔═╡ 7d274059-d340-435a-a7dc-f88f03b50813
-const fcann_grid2 = train_fcann_grid(0.01f0, 0.015f0, 0.99f0, 0.9f0; n_min = 3, n_max = 6, layers_min = 4, layers_max = 5, num_steps = 10_000_000, α_r̄ = 0.005f0, reslayers = 1)
 
 # ╔═╡ 4f16565e-09bb-11f0-3729-7ffc5462cdc8
 md"""
@@ -2264,7 +2317,7 @@ mountaincar_simple.train_ep(.5f0, 0.9f0; num_steps = 100_000, algo = dp_λ_linea
 
 # ╔═╡ fa23401b-ef86-418c-ad53-132bdb384b05
 #=╠═╡
-mountaincar_simple.train_cont(2f0, 0.9f0; num_steps = 100_000, algo = dp_λ_linear) |> display_mountaincar_results
+mountaincar_simple.train_cont(2f0, 0.9f0; num_steps = 100_000, use_dp = true) |> display_mountaincar_results
   ╠═╡ =#
 
 # ╔═╡ 98f0d534-9d86-4eef-9afb-78914e02d4f8
@@ -3324,7 +3377,7 @@ version = "17.4.0+2"
 # ╠═53e58944-bb49-49e1-8d91-d9b485dfe140
 # ╟─013db3d5-34e9-4447-8f4b-59c6f908e6e8
 # ╟─dda86adb-96fb-4d46-8b5d-4f9713066dd0
-# ╠═d80daf76-0f55-491b-a760-048b43ae3d74
+# ╟─d80daf76-0f55-491b-a760-048b43ae3d74
 # ╟─616cd58d-bd13-4ee8-a08d-2ff0ba2ebad2
 # ╟─db84dc50-7a04-4475-8ea7-412307654b0d
 # ╟─0d735858-c628-4a41-91b4-e86fe6854ea7
@@ -3334,10 +3387,10 @@ version = "17.4.0+2"
 # ╟─de86e2da-908e-44a9-998b-761c93297b66
 # ╟─bbfe7723-c811-4389-bc8e-9a9e145ac872
 # ╟─ccbeb628-6e90-4b00-abce-40aa4549c23a
-# ╟─4c7efa25-a062-42bc-9685-5212fd00f398
+# ╠═4c7efa25-a062-42bc-9685-5212fd00f398
 # ╟─d4867d9f-5fd3-44d6-8d46-e383e99124dd
 # ╟─8b941289-939f-4565-91dc-29756a19d0ea
-# ╟─feef74be-642e-4f4b-8bbf-7cff678ced8b
+# ╠═feef74be-642e-4f4b-8bbf-7cff678ced8b
 # ╠═10e2c439-f214-4470-8eb5-64d87d55289f
 # ╠═50c1669f-fe46-4729-b867-f8bb2784de47
 # ╟─fdfd5f7c-504b-492a-aca3-4690ed17f56f
@@ -3345,7 +3398,7 @@ version = "17.4.0+2"
 # ╠═67da98d7-c525-47bf-bee3-61efaa3231b4
 # ╠═a8c60935-3497-4019-9fa4-8323e1642f02
 # ╠═1af31a32-399f-4568-8748-42224fafd6ed
-# ╠═7b988e80-02a3-4584-867b-38315cd30a97
+# ╟─7b988e80-02a3-4584-867b-38315cd30a97
 # ╟─00fefa0f-c6c3-4887-a0aa-7cfdff438812
 # ╟─dd310782-7f49-463f-800c-db8f206b49a5
 # ╟─04e267e7-a994-4b8f-b25f-dc845a93d909
@@ -3424,7 +3477,7 @@ version = "17.4.0+2"
 # ╠═452efa64-3595-4388-aa9b-98ce5a0fc404
 # ╟─77314512-e87a-4d39-a2c4-2bb6027aa658
 # ╟─8fcd2433-619c-4202-a71c-826007f50749
-# ╟─7723dc4f-43a6-4ece-80d5-88107f2fbf46
+# ╠═7723dc4f-43a6-4ece-80d5-88107f2fbf46
 # ╟─6d251521-e502-4f96-bc65-a172cea7f224
 # ╟─3c9ed6e9-b15e-4520-97ea-bdaa724a6e98
 # ╠═6a547a22-1bf4-4b42-9d62-f1e14a35da47
@@ -3450,17 +3503,20 @@ version = "17.4.0+2"
 # ╟─10a482b1-fb19-4d5d-95ea-55b4900887b5
 # ╟─b032b2b1-5e07-44c4-9bfb-3fb84528c123
 # ╠═4e03ab81-a0bc-42a1-8753-fc6f866019d6
+# ╠═af9b4662-1553-4a9e-b916-375cdbe4176a
 # ╠═92288560-f4e9-4e6a-b182-cecc07b0b457
 # ╟─28656452-ba55-4d46-be56-1c11c1928c23
 # ╠═4d8416e0-67d4-436b-98bd-58d917aa84b3
+# ╠═df47a841-db47-4002-bc37-75778e7211d7
+# ╠═5738326e-6817-424c-96ba-c9dffe02e590
 # ╠═2a35f221-4c6a-4b79-b300-e87e8fc770cd
+# ╠═63ed4500-a199-4a31-ace1-cec54f152380
 # ╟─33848c9b-fe3c-4767-abfc-c40a7a68cb56
 # ╠═84445f5a-cd73-4098-b3a4-861abf42061d
 # ╠═90c7aeca-aafc-4b48-b6e2-82ccd249fd24
 # ╠═62b5acb7-3ec7-442d-afe5-5d76c62b5582
 # ╠═ec352be3-b742-423d-8454-f8a7c44b3543
 # ╟─d9fdbf41-5be5-411b-9e72-8c0cdee88761
-# ╠═7d274059-d340-435a-a7dc-f88f03b50813
 # ╟─4f16565e-09bb-11f0-3729-7ffc5462cdc8
 # ╠═f173569d-182f-4873-97ed-1b9cad2b4309
 # ╠═9a4d0c70-ca15-4201-8a2e-56af95a60290
