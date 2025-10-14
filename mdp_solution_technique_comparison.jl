@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.18
+# v0.20.19
 
 using Markdown
 using InteractiveUtils
@@ -212,6 +212,25 @@ $J(\boldsymbol{\theta}) = r(\pi) \implies \nabla J(\boldsymbol{\theta}) = \mathb
 - Suitable for episodic or continuing tasks (parameter updates happen after each step)
 - Requires value function approximation $\hat v(s, \mathbf{w})$ which must also be trained with semi-gradient methods above
 - Uses $R_t + \gamma \hat v(S_{t}, \mathbf{w})$ to sample $q_\pi(s, a)$
+"""
+
+# ╔═╡ c11cb109-547a-462b-8e13-9aed74accf36
+md"""
+### Comparison
+"""
+
+# ╔═╡ 2df524e6-7a6e-4dd4-bded-601b9c249779
+md"""
+|Element|Policy Gradient | Value Function Approximation|
+|---|---|---|
+|Feature Vector Mapping: ``\mathbf{x}(s)``| Required | Required |
+|Target Value: ``\mathbb{E}_\pi[G_t \vert S_t, (A_t)]``|Required|Required|
+|Value Function: ``\hat v(\mathbf{x}(s), \mathbf{w})`` or ``\hat q(\mathbf{x}(s), a, \mathbf{w})``| ``\hat v`` Optional| Either ``\hat q`` or ``\hat v`` Required|
+|Policy Function: ``\hat \pi(a \vert \mathbf{x}(s))``| Explicit ``\pi(a \vert \mathbf{x}(s), \boldsymbol{\theta})``| Derived from ``\hat q`` or ``\hat v`` and deterministic|
+|Gradient wrt Parameters| ``\nabla \pi(a \vert \mathbf{x}(s), \boldsymbol{\theta})`` (``\nabla \hat v`` optional)| ``\nabla \hat v(\mathbf{x}(s), \mathbf{w})`` or ``\nabla \hat q(\mathbf{x}(s), \mathbf{w})``|
+|Theoretical Principle|Policy Gradient Theorem to find ``\max_{\boldsymbol{\theta}} J(\boldsymbol{\theta})`` |Use greedy policy wrt ``\hat v`` and hope policy improvement applies|
+|Performance Notes|Accounts for limitations of ``\pi(a \vert \mathbb{x}(s), \boldsymbol{\theta})``|Limitations of ``\hat v / \hat q`` may sabotage policy improvement|
+|Exploration Notes|Naturally stochastic policy can explore|Requires explicit use of ``\epsilon`` greedy action selection|
 """
 
 # ╔═╡ ee9f5938-6ee1-4061-8e37-31c14bfbf8e2
@@ -577,6 +596,8 @@ version = "17.4.0+2"
 # ╟─293c909f-34e9-43b2-a2b3-5d37b6f3f5aa
 # ╟─4af12e7a-1e21-4d3d-a42d-1ff4b940df3e
 # ╟─3a1b6e8c-89ad-4384-a27e-10791aa50d52
+# ╟─c11cb109-547a-462b-8e13-9aed74accf36
+# ╟─2df524e6-7a6e-4dd4-bded-601b9c249779
 # ╟─ee9f5938-6ee1-4061-8e37-31c14bfbf8e2
 # ╟─34f45e2f-4cf7-4356-b139-aaf2b628d762
 # ╟─e203f464-80c8-4ab5-8a01-e6c9a5c7c530
