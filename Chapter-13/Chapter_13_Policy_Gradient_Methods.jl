@@ -1630,18 +1630,6 @@ end |> confirm
 const mountaincar_continuing_params = initialize_fcann_params(2, fill(32, 4), 1, 1, true)
   ╠═╡ =#
 
-# ╔═╡ b02ba928-5b9f-4695-b980-07988c788bb9
-# ╠═╡ disabled = true
-#=╠═╡
-const mountaincar_continuing_tile_test = actor_critic_with_eligibility_traces_binary_features(mountaincar_continuing_mdp, 0.1f0, 0.98f0, mountaincar_tilecoding_setup.get_active_features, mountaincar_tilecoding_setup.num_features, 200_000, α_θ = 0.5f0, α_w = 0.0025f0, α_r̄ = 0.005f0; save_step_rewards=true)
-  ╠═╡ =#
-
-# ╔═╡ c926b6df-c40b-4c4c-8a95-ce9e41feb100
-# ╠═╡ disabled = true
-#=╠═╡
-actor_critic_fcann_parameter_study(mountaincar_continuing_mdp, mountaincar_fcann_feature_setup.update_feature_vector!, mountaincar_fcann_feature_setup.num_features, [4, 4], 0.0f0:0.05f0:0.95f0, 0.0f0:0.05f0:0.95f0, [0.01f0, 0.005f0], 2f0 .^ (-20:-1), 2f0 .^ (-20:-1), 1_000, 1_000_000; seed = 45) |> df -> sort(df, :output; rev=true)
-  ╠═╡ =#
-
 # ╔═╡ f487f2dd-ad09-48ac-ae34-bf50cfa6ac7d
 # ╠═╡ disabled = true
 #=╠═╡
@@ -1653,19 +1641,21 @@ actor_critic_fcann_parameter_study(mountaincar_continuing_mdp, mountaincar_fcann
 @bind mountaincar_continuing_fcann_params create_actor_critic_continuing_params_UI(; λ_θ = 0.85f0, λ_w = 0.95f0)
   ╠═╡ =#
 
-# ╔═╡ d5ab6d24-dd4e-4410-a50e-fe3584b21cf9
-# ╠═╡ disabled = true
+# ╔═╡ cb70d400-3e9c-441c-b17c-e727e8c928f3
 #=╠═╡
-const mountaincar_continuing_fcann_test = actor_critic_with_eligibility_traces_fcann(mountaincar_continuing_mdp, 0.85f0, 0.95f0, mountaincar_fcann_setup.num_features, [32, 32, 32], mountaincar_fcann_setup.update_feature_vector!, 1_000_000, α_θ = 0.002f0, α_w = 0.002f0, α_r̄ = 0.01f0; save_step_rewards=true)
+if start_mountaincar_continuing_fcann_param_study > 0
+	mountaincar_fcann_continuing_parameter_study(32, 3, mountaincar_continuing_fcann_params, 5, 3, 1_000_000; seed = 45)
+else
+	md"""
+	Waiting to run parameter study
+	"""
+end
   ╠═╡ =#
 
 # ╔═╡ 8a40e3bf-56de-424e-8db1-40b9f524103b
 md"""
 ##### Mountaincar Tilecoding
 """
-
-# ╔═╡ 5d7d6250-a644-4846-885c-7e03034e343d
-"allow saving of these results with the option to show them with a dropdown menu.  Also allow saving of linear params and training repeatedly off them with na update function"
 
 # ╔═╡ 735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 md"""
@@ -4183,22 +4173,6 @@ end
 const mountaincar_fcann_feature_setup = fcann_feature_vector_setup((-1.2f0, -0.07f0), (0.5f0, 0.07f0))
   ╠═╡ =#
 
-# ╔═╡ c251a630-7114-4188-9323-8d8feb5c32e0
-#=╠═╡
-mountaincar_fcann_continuing_parameter_study(layer_size::Integer, num_layers::Integer, args...; kwargs...) = actor_critic_fcann_parameter_study(mountaincar_continuing_mdp, mountaincar_fcann_feature_setup.update_feature_vector!, mountaincar_fcann_feature_setup.num_features, fill(layer_size, num_layers), args...; kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ cb70d400-3e9c-441c-b17c-e727e8c928f3
-#=╠═╡
-if start_mountaincar_continuing_fcann_param_study > 0
-	mountaincar_fcann_continuing_parameter_study(32, 3, mountaincar_continuing_fcann_params, 5, 3, 1_000_000; seed = 45)
-else
-	md"""
-	Waiting to run parameter study
-	"""
-end
-  ╠═╡ =#
-
 # ╔═╡ 61650a97-b353-4a85-b50b-93fee296ac7b
 # ╠═╡ disabled = true
 #=╠═╡
@@ -4451,11 +4425,6 @@ const mountaincar_continuing_fcann_test = mountaincar_continuing_actor_critic_fc
 mountaincar_continuing_fcann_test.policy_and_value(mountaincar_continuing_mdp.initialize_state())
   ╠═╡ =#
 
-# ╔═╡ 10ee7709-0816-48d2-abe0-9be3dd04700f
-#=╠═╡
-plot_continuing_step_rewards(mountaincar_continuing_fcann_test.step_rewards)
-  ╠═╡ =#
-
 # ╔═╡ 1220d142-b402-45cf-9faf-55bd54ff947c
 #=╠═╡
 begin
@@ -4501,16 +4470,6 @@ end
 # ╔═╡ 37e6ee3d-62a3-4006-bc0a-2b6df64c45f4
 #=╠═╡
 const mountaincar_continuing_tile_test = mountaincar_continuing_actor_critic_tile(1f-2, 1f-2, 0.001f0, 0.5f0, 0.95f0; num_steps = 1_000_000, num_tiles = (16, 16))
-  ╠═╡ =#
-
-# ╔═╡ 98222fcd-b456-477c-90dd-844df36877e5
-#=╠═╡
-plot_continuing_step_rewards(mountaincar_continuing_tile_test.step_rewards)
-  ╠═╡ =#
-
-# ╔═╡ 0ce66c9d-6d1c-4c2d-8178-5bcdfa247cd6
-#=╠═╡
-const mountaincar_continuing_test_episode = runepisode(MountainCarTask.mdp, π = mountaincar_continuing_tile_test.policy_sample_action, max_steps = 1_000)
   ╠═╡ =#
 
 # ╔═╡ 023f67b8-8f38-470a-9766-ac60a75678aa
@@ -5182,16 +5141,6 @@ end
 plot_mountaincar_values(mountaincar_continuing_fcann_test.value_function, mountaincar_continuing_fcann_test.policy_sample_action; n1 = 300, n2 = 300)
   ╠═╡ =#
 
-# ╔═╡ e89bdc84-dbb5-4c73-a39c-6392e5f79704
-#=╠═╡
-plot_mountaincar_values(mountaincar_continuing_tile_test.estimate_state_value, mountaincar_continuing_tile_test.policy_sample_action)
-  ╠═╡ =#
-
-# ╔═╡ c0876a48-ea18-494d-8bfc-e2bceb73b417
-#=╠═╡
-plot_mountaincar_values(mountaincar_continuing_fcann_test.estimate_state_value, mountaincar_continuing_fcann_test.policy_sample_action)
-  ╠═╡ =#
-
 # ╔═╡ 07cd73be-0899-4bdd-ab65-0d898285a16e
 #=╠═╡
 plot_mountaincar_values(mountaincar_continuing_tile_test.value_function, mountaincar_continuing_tile_test.policy_sample_action; n1 = 300, n2 = 300)
@@ -5315,11 +5264,6 @@ end
 # ╔═╡ 5bda649c-903f-4e76-9c6e-62a147e19bf5
 #=╠═╡
 show_mountaincar_trajectory(mountaincar_continuing_fcann_test.policy_sample_action, 1000)
-  ╠═╡ =#
-
-# ╔═╡ da3cb392-78f2-48b2-b0dc-5f016664798c
-#=╠═╡
-show_mountaincar_trajectory(mountaincar_continuing_tile_test.policy_sample_action, 1000)
   ╠═╡ =#
 
 # ╔═╡ 1435193d-ba8f-4128-a512-ce0a34fd2fa4
@@ -6586,29 +6530,18 @@ version = "17.4.0+2"
 # ╠═13473dba-a2d9-49ff-b842-64eaa75bca94
 # ╠═5b43de39-4203-40ba-8ea6-6ea644f18c75
 # ╠═b87437c6-41be-4a8c-8bb4-72895dd4a76a
-# ╠═b02ba928-5b9f-4695-b980-07988c788bb9
-# ╠═98222fcd-b456-477c-90dd-844df36877e5
-# ╠═0ce66c9d-6d1c-4c2d-8178-5bcdfa247cd6
-# ╠═e89bdc84-dbb5-4c73-a39c-6392e5f79704
-# ╠═da3cb392-78f2-48b2-b0dc-5f016664798c
 # ╠═f0962801-0dfa-421f-8ffc-e64068e49913
-# ╠═c251a630-7114-4188-9323-8d8feb5c32e0
-# ╠═c926b6df-c40b-4c4c-8a95-ce9e41feb100
 # ╟─f487f2dd-ad09-48ac-ae34-bf50cfa6ac7d
 # ╠═5d35e515-e2d3-443e-becf-eb28c25db346
-# ╟─cb70d400-3e9c-441c-b17c-e727e8c928f3
-# ╠═d5ab6d24-dd4e-4410-a50e-fe3584b21cf9
-# ╠═10ee7709-0816-48d2-abe0-9be3dd04700f
-# ╠═c0876a48-ea18-494d-8bfc-e2bceb73b417
+# ╠═cb70d400-3e9c-441c-b17c-e727e8c928f3
 # ╟─8a40e3bf-56de-424e-8db1-40b9f524103b
 # ╠═a998cb9a-5e8a-4e7e-afbf-84a9045ac8f9
 # ╠═3411bc34-caa0-4a2a-bec8-3871fdcb0a46
-# ╠═5d7d6250-a644-4846-885c-7e03034e343d
 # ╠═37e6ee3d-62a3-4006-bc0a-2b6df64c45f4
-# ╠═87f01426-1b77-48b9-ae6c-7f07837b86ed
-# ╠═07cd73be-0899-4bdd-ab65-0d898285a16e
-# ╠═1435193d-ba8f-4128-a512-ce0a34fd2fa4
-# ╠═b792737a-6407-4fa2-af6f-1a3f90cbd520
+# ╟─87f01426-1b77-48b9-ae6c-7f07837b86ed
+# ╟─07cd73be-0899-4bdd-ab65-0d898285a16e
+# ╟─1435193d-ba8f-4128-a512-ce0a34fd2fa4
+# ╟─b792737a-6407-4fa2-af6f-1a3f90cbd520
 # ╟─735b548a-88f5-4a30-ab8f-dfb3d6401b2b
 # ╟─60c21e9c-e42d-4f0b-a910-3b318440fbc8
 # ╟─09dd1440-5d09-421f-addc-b1ede43ff517

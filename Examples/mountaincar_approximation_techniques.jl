@@ -1185,9 +1185,6 @@ md"""
 @btime mountaincar_fcann.train_ep(0.0f0, 0.99f0; num_steps = 100, layer_size = 512, num_layers = 8, reslayers = 1, ϵ = 0.01f0, use_dp = true, newparams = false, use_gpu=false)
   ╠═╡ =#
 
-# ╔═╡ d499ef12-7320-47d2-a010-c07dab49ff91
-#make a graph of gpu and cpu execuation time for layer size and num layers
-
 # ╔═╡ 27322c95-f130-4669-b9da-8195cdafa460
 #=╠═╡
 function train_fcann_value_grid(α, λ; num_steps = 1_000_000, n_min = 2, n_max = 6, layers_min = 1, layers_max = 3, reslayers = 1, kwargs...)
@@ -3446,14 +3443,13 @@ version = "17.4.0+2"
 # ╠═ddd08669-d1eb-427c-a76f-8027bf5e9875
 # ╠═22a27fde-8f2a-4301-afa6-4e08388f04e4
 # ╠═7b1f5872-f0de-4b41-ab6b-aa2f8b1598c2
-# ╠═d499ef12-7320-47d2-a010-c07dab49ff91
 # ╠═27322c95-f130-4669-b9da-8195cdafa460
 # ╠═c8368d88-8284-4054-83c1-2efab8d86678
 # ╠═23fd97ba-5b99-4d53-b564-e6cc1f0140e3
 # ╠═8ca72314-7ea9-4864-8698-594f57e69f31
 # ╟─8d20c827-11e8-44ae-9ed3-e4f2899be007
 # ╠═8eb01d9b-836b-42c3-850a-e20a5875d2e1
-# ╠═e807f411-38c3-4f35-99a3-68b09ae1b3a7
+# ╟─e807f411-38c3-4f35-99a3-68b09ae1b3a7
 # ╟─1b9078af-d7d1-4322-897e-89452ff8a4de
 # ╟─3cd7f197-a86d-4210-b932-6bb1c8e5b9ec
 # ╠═3163a090-ca95-4df4-9a0e-33505ee6de0e
