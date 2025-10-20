@@ -15,7 +15,7 @@ using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threa
 #=╠═╡
 begin
 	using PlutoUI, PlutoPlotly, LaTeXStrings, PlutoProfile, HypertextLiteral, ProgressLogging, BenchmarkTools
-	TableOfContents()
+	TableOfContents(;depth = 4)
 end
   ╠═╡ =#
 
@@ -55,7 +55,7 @@ function make_episodic_trial(algo::Function, minvalue::T) where T<:Real
 		output = algo(args...; kwargs...)
 		rewards = output.episode_rewards
 		isempty(rewards) && return minvalue
-		return mean(rewards)
+		return Statistics.mean(rewards)
 	end
 	return trial
 end
@@ -65,7 +65,7 @@ function make_continuing_trial(algo::Function)
 	function trial(args...; kwargs...)
 		output = algo(args...; kwargs...)
 		rewards = output.reward_history
-		mean(rewards)
+		Statistics.mean(rewards)
 	end
 	return trial
 end
@@ -77,100 +77,204 @@ md"""
 When we construct a parameter study for value function methods, usually we care about the learning rate and the training time.  The other parameters can have default settings.
 """
 
+# ╔═╡ 42537afd-7655-45a2-b18b-0759982b124c
+md"""
+#### Episodic Studies
+"""
+
 # ╔═╡ e932d0fd-5832-41eb-a2a3-13a89a1e8751
-function setup_episodic_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	function sarsa_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), kwargs...)
+function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	function sarsa_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
-			semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			sarsa_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			sarsa_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
-	sarsa_linear_study = setup_parameter_study(make_episodic_trial(sarsa_train_linear, typemin(T)), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10))
+	sarsa_linear_study = setup_parameter_study(make_episodic_trial(sarsa_train_linear, typemin(T)), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
 
-	function sarsa_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), kwargs...)
+	function sarsa_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_sarsa_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			semi_gradient_sarsa_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			sarsa_λ_fcann(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			sarsa_λ_fcann(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	
-	sarsa_nonlinear_study = setup_parameter_study(make_episodic_trial(sarsa_train_nonlinear, typemin(T)), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10))
+	sarsa_nonlinear_study = setup_parameter_study(make_episodic_trial(sarsa_train_nonlinear, typemin(T)), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
 
-	(sarsa_linear_study = sarsa_linear_study, sarsa_nonlinear_study = sarsa_nonlinear_study)
+	function monte_carlo_linear(γ::T, α::T, num_episodoes::Integer; kwargs...) 
+		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+		rewards = output.reward_history
+		isempty(rewards) && return typemin(T)
+		Statistics.mean(rewards)
+	end
+
+	monte_carlo_linear_study = setup_parameter_study(monte_carlo_linear, (:γ, :α, :num_episodes), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, max_steps = typemax(Int64), use_unfinished_episodes = true))
+
+	function monte_carlo_nonlinear(γ::T, α::T, num_episodoes::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...) 
+		hidden_layers = fill(layer_size, num_layers)
+		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; reslayers = reslayers, α = α, kwargs...)
+		rewards = output.reward_history
+		isempty(rewards) && return typemin(T)
+		Statistics.mean(rewards)
+	end
+
+	monte_carlo_nonlinear_study = setup_parameter_study(monte_carlo_nonlinear, (:γ, :α, :num_episodes, :layer_size, :num_layers, :reslayers), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, max_steps = typemax(Int64), use_unfinished_episodes = true))
+
+	(sarsa_linear_study = sarsa_linear_study, sarsa_nonlinear_study = sarsa_nonlinear_study, monte_carlo_linear_study = monte_carlo_linear_study, monte_carlo_nonlinear_study = monte_carlo_nonlinear_study)
 end
 
 # ╔═╡ 742c8135-9aac-49f3-ac9a-8430aa4c2b41
-function setup_episodic_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
-	sarsa_studies = setup_episodic_parameter_studies(mdp, feature_vector, update_feature_vector!)
+function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+	sarsa_studies = setup_episodic_value_parameter_studies(mdp, feature_vector, update_feature_vector!)
 	!use_dp && return sarsa_studies
 	
-	function dp_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), kwargs...)
+	function dp_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
-			semi_gradient_dp_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			semi_gradient_dp_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			dp_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			dp_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
-	dp_linear_study = setup_parameter_study(make_episodic_trial(dp_train_linear, typemin(T)), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), ϵ = 0.1f0))
+	dp_linear_study = setup_parameter_study(make_episodic_trial(dp_train_linear, typemin(T)), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
 
-	function dp_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), kwargs...)
+	function dp_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_dp_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			semi_gradient_dp_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			dp_λ_fcann(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			dp_λ_fcann(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	
-	dp_nonlinear_study = setup_parameter_study(make_episodic_trial(dp_train_nonlinear, typemin(T)), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), ϵ = 0.1f0))
+	dp_nonlinear_study = setup_parameter_study(make_episodic_trial(dp_train_nonlinear, typemin(T)), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), ϵ = one(T)/10, trace_type = AccumulatingTrace()))
 	
 	(;sarsa_studies..., dp_linear_study = dp_linear_study, dp_nonlinear_study = dp_nonlinear_study)
 end
 
-# ╔═╡ 1e88e11d-67da-4dbd-8092-6e636bebf91f
+# ╔═╡ e4b0a6f5-8e6d-4b97-8d70-4fc301473be0
+md"""
+#### Episodic Tests
+"""
+
+# ╔═╡ 5ffaab88-af31-4b70-87c0-b047354c65ba
 # ╠═╡ skip_as_script = true
 #=╠═╡
-setup_episodic_parameter_studies(MountainCarTask.deterministic_mdp, zeros(Float32, 2), identity, true)
+const episodic_mdp = MountainCarTask.deterministic_mdp
   ╠═╡ =#
 
+# ╔═╡ 69a45749-bed3-4527-afb4-c869c5ca4dd6
+#=╠═╡
+const episodic_setup = normalized_feature_setup(episodic_mdp, identity, MountainCarTask.min_vals, MountainCarTask.max_vals)
+  ╠═╡ =#
+
+# ╔═╡ 1e88e11d-67da-4dbd-8092-6e636bebf91f
+#=╠═╡
+episodic_value_studies = setup_episodic_value_parameter_studies(episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!, true)
+  ╠═╡ =#
+
+# ╔═╡ 7c3d01db-4aca-4f95-91e5-ec7b3b2b6eb6
+#=╠═╡
+episodic_value_studies.sarsa_linear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 2f44bb34-816a-42a0-b1d2-74493b9994a4
+#=╠═╡
+episodic_value_studies.sarsa_linear_study.update_results!(1f0, 1f-2, 0f0, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 6d07d39f-80e5-4a06-8ba9-7d71fea29d69
+#=╠═╡
+episodic_value_studies.sarsa_linear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000; compute_value = compute_q_learning_value)
+  ╠═╡ =#
+
+# ╔═╡ 2800e5b9-5e3e-4d34-b71b-34edebe06a3f
+#=╠═╡
+episodic_value_studies.sarsa_linear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000; compute_value = compute_expected_sarsa_value)
+  ╠═╡ =#
+
+# ╔═╡ 41da78e2-a8a9-4cb7-8c05-68b78991ab0b
+#=╠═╡
+episodic_value_studies.dp_linear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ c7e12dd0-de44-4179-9002-fcc4dcee6fbc
+#=╠═╡
+episodic_value_studies.dp_linear_study.update_results!(1f0, 1f-2, 0.0f0, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ a72d3703-8578-454a-b293-69bd103cd186
+#=╠═╡
+episodic_value_studies.sarsa_nonlinear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ d4ea0c96-4c23-485e-964b-fd52efc399b5
+#=╠═╡
+episodic_value_studies.sarsa_nonlinear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000, 16, 4, 1; compute_value = compute_q_learning_value)
+  ╠═╡ =#
+
+# ╔═╡ 09a1958b-2990-47c9-8ce7-134d7bcde5ce
+#=╠═╡
+episodic_value_studies.sarsa_nonlinear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000, 16, 4, 1; compute_value = compute_expected_sarsa_value)
+  ╠═╡ =#
+
+# ╔═╡ c812e9c9-b6ab-4788-a5a7-d391d270f387
+#=╠═╡
+episodic_value_studies.sarsa_nonlinear_study.update_results!(1f0, 1f-2, 0.0f0, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 21344e9a-e0fa-4356-8947-b5310e6aa4e1
+#=╠═╡
+episodic_value_studies.dp_nonlinear_study.update_results!(1f0, 1f-2, 0.5f0, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 30425ebb-2fe5-4624-a3c9-f5f332beca4d
+#=╠═╡
+episodic_value_studies.dp_nonlinear_study.update_results!(1f0, 1f-2, 0.0f0, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 75b4c6da-80b7-4a34-bb15-f63ada17d5b4
+md"""
+#### Continuing Studies
+"""
+
 # ╔═╡ 5f9b180e-9201-45d5-92dd-5c0eb9de01e7
-function setup_continuing_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	function sarsa_train_linear(α::T, λ::T, num_steps::Integer; kwargs...)
+function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	function sarsa_train_linear(α::T, λ::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
-			semi_gradient_differential_sarsa_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			semi_gradient_differential_sarsa_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			sarsa_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			sarsa_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
-	sarsa_linear_study = setup_parameter_study(make_continuing_trial(sarsa_train_linear), (:α, :λ, :num_steps), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, α_r̄ = one(T) / 100))
+	sarsa_linear_study = setup_parameter_study(make_continuing_trial(sarsa_train_linear), (:α, :λ, :num_steps), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, α_r̄ = one(T) / 100, trace_type = AccumulatingTrace(),))
 
-	function sarsa_train_nonlinear(α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...)
+	function sarsa_train_nonlinear(α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_differential_sarsa_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			semi_gradient_differential_sarsa_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			sarsa_λ_fcann(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			sarsa_λ_fcann(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	
-	sarsa_nonlinear_study = setup_parameter_study(make_continuing_trial(sarsa_train_nonlinear), (:α, :λ, :num_steps, :layer_size, :num_layers, :reslayers), (compute_value = compute_sarsa_value, ϵ = 0.1f0, α_r̄ = one(T) / 100))
+	sarsa_nonlinear_study = setup_parameter_study(make_continuing_trial(sarsa_train_nonlinear), (:α, :λ, :num_steps, :layer_size, :num_layers, :reslayers), (compute_value = compute_sarsa_value, ϵ = 0.1f0, α_r̄ = one(T) / 100, trace_type = AccumulatingTrace()))
 
 	(sarsa_linear_study = sarsa_linear_study, sarsa_nonlinear_study = sarsa_nonlinear_study)
 end
 
 # ╔═╡ f578ab23-12cb-4f38-b76f-fef4189d31cc
-function setup_continuing_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
-	sarsa_studies = setup_continuing_parameter_studies(mdp, feature_vector, update_feature_vector!)
+function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+	sarsa_studies = setup_continuing_value_parameter_studies(mdp, feature_vector, update_feature_vector!)
 	!use_dp && return sarsa_studies
 	
 	function dp_train_linear(α::T, λ::T, num_steps::Integer; kwargs...)
 		if iszero(λ)
-			semi_gradient_differential_dp_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			semi_gradient_differential_dp_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			dp_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; kwargs...)
+			dp_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		end
 	end
 	dp_linear_study = setup_parameter_study(make_continuing_trial(dp_train_linear), (:α, :λ, :num_steps), (ϵ = 0.1f0, α_r̄ = one(T) / 100))
@@ -178,9 +282,9 @@ function setup_continuing_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3
 	function dp_train_nonlinear(γ::T, α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_differential_dp_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			semi_gradient_differential_dp_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			dp_λ_fcann(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, kwargs...)
+			dp_λ_fcann(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		end
 	end
 	
@@ -189,15 +293,252 @@ function setup_continuing_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3
 	(;sarsa_studies..., dp_linear_study = dp_linear_study, dp_nonlinear_study = dp_nonlinear_study)
 end
 
+# ╔═╡ 54807cf1-6efe-4625-a966-db6a57246c95
+md"""
+#### Continuing Tests
+"""
+
+# ╔═╡ 5967f3f3-48cb-40ee-b886-2a86d1a3b666
+# ╠═╡ skip_as_script = true
+#=╠═╡
+const continuing_mdp, continuing_setup = create_access_control_task(10, [1f0, 2f0, 4f0, 8f0])
+  ╠═╡ =#
+
+# ╔═╡ 5626bdac-537b-4ff1-85dc-471881a6e496
+#=╠═╡
+continuing_value_studies = setup_continuing_value_parameter_studies(continuing_mdp, continuing_setup...)
+  ╠═╡ =#
+
+# ╔═╡ 9ee432ea-888e-4df0-902b-58741d3f8e57
+#=╠═╡
+continuing_value_studies.sarsa_linear_study.update_results!(1f-2, 0.5f0, 1_000)
+  ╠═╡ =#
+
+# ╔═╡ a185fcda-eeab-4fac-97b0-d479b4cce4fd
+#=╠═╡
+continuing_value_studies.sarsa_linear_study.update_results!(1f-2, 0.5f0, 1_000; compute_value = compute_q_learning_value)
+  ╠═╡ =#
+
+# ╔═╡ 739db9d4-4b4a-46b7-b1f4-6176dfd467e3
+#=╠═╡
+continuing_value_studies.sarsa_linear_study.update_results!(1f-2, 0.5f0, 1_000; compute_value = compute_expected_sarsa_value)
+  ╠═╡ =#
+
+# ╔═╡ 86cbffeb-cf4a-4d81-9b4e-2c3cbbdbaac5
+#=╠═╡
+continuing_value_studies.sarsa_linear_study.update_results!(1f-2, 0.0f0, 1_000)
+  ╠═╡ =#
+
+# ╔═╡ f9e6eed9-4fd4-47f7-b99a-05691fa901b3
+#=╠═╡
+continuing_value_studies.sarsa_nonlinear_study.update_results!(1f-2, 0.5f0, 1_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 9b02733b-f769-4616-8baa-c5518812aa43
+#=╠═╡
+continuing_value_studies.sarsa_nonlinear_study.update_results!(1f-2, 0.5f0, 1_000, 16, 4, 1; compute_value = compute_q_learning_value)
+  ╠═╡ =#
+
+# ╔═╡ cb475da0-614f-48e6-bc28-7898d4450ff1
+#=╠═╡
+continuing_value_studies.sarsa_nonlinear_study.update_results!(1f-2, 0.5f0, 1_000, 16, 4, 1; compute_value = compute_expected_sarsa_value)
+  ╠═╡ =#
+
+# ╔═╡ d07826fd-02a1-4cb4-991d-534e01c2a27f
+#=╠═╡
+continuing_value_studies.sarsa_nonlinear_study.update_results!(1f-2, 0.0f0, 1_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 72353588-a6d5-4d18-870c-cfeacbaac669
+md"""
+### Policy Gradient Methods
+
+When we construct a parameter study for policy gradient methods, usually we care about the two learning rates (if applicable) and the training time.  The other parameters can have default settings.
+"""
+
+# ╔═╡ 4e2f55f2-4639-4017-a060-03a7487eebb8
+md"""
+#### Episodic Studies
+"""
+
+# ╔═╡ d2387c9d-aa6e-4eda-904a-101e5fdd3cae
+function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	function ac_train_linear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
+		if all(iszero, (λ_θ, λ_w))
+			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+		else
+			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
+		end
+	end
+	ac_linear_study = setup_parameter_study(make_episodic_trial(ac_train_linear, typemin(T)), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
+
+	function ac_train_nonlinear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
+		hidden_layers = fill(layer_size, num_layers)
+		if all(iszero, (λ_θ, λ_w))
+			one_step_actor_critic_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
+		else
+			actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
+		end
+	end
+	ac_nonlinear_study = setup_parameter_study(make_episodic_trial(ac_train_nonlinear, typemin(T)), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
+
+	function reinforce_linear(γ::T, α_θ::T, α_w::T, num_episodes::Integer; kwargs...) 
+		if iszero(α_w)
+			reinforce_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, kwargs...)
+		else
+			reinforce_with_baseline_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+		end
+	end
+
+	reinforce_linear_study = setup_parameter_study(make_episodic_trial(reinforce_linear, typemin(T)), (:γ, :α_θ, :α_w, :num_episodes), (max_steps = typemax(Int64), use_unfinished_episodes = true))
+
+	function reinforce_nonlinear(γ::T, α_θ::T, α_w::T, num_episodes::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...) 
+		hidden_layers = fill(layer_size, num_layers)
+		if iszero(α_w)
+			reinforce_monte_carlo_control_fcann(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, reslayers = reslayers, kwargs...)
+		else
+			reinforce_with_baseline_monte_carlo_control_fcann(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
+		end
+	end
+
+	reinforce_nonlinear_study = setup_parameter_study(make_episodic_trial(reinforce_nonlinear, typemin(T)), (:γ, :α_θ, :α_w, :num_episodes, :layer_size, :num_layers, :reslayers), (max_steps = typemax(Int64), use_unfinished_episodes = true))
+
+	(ac_linear_study = ac_linear_study, ac_nonlinear_study = ac_nonlinear_study, reinforce_linear_study = reinforce_linear_study, reinforce_nonlinear_study = reinforce_nonlinear_study)
+end
+
+# ╔═╡ d87259e7-be0d-4a55-9902-b74567e16750
+md"""
+#### Episodic Tests
+"""
+
+# ╔═╡ b430a02b-d4a2-4167-b4b3-28cd604f1f08
+#=╠═╡
+episodic_policy_studies = setup_episodic_policy_parameter_studies(episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ abb0b7f7-db96-4804-852a-52b5e25049ea
+#=╠═╡
+episodic_policy_studies.ac_linear_study.update_results!(1f0, 1f-2, 1f-2, 0.5f0, 0.5f0, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 2a51bca3-0425-450b-83d4-86408197c3e8
+#=╠═╡
+episodic_policy_studies.ac_linear_study.update_results!(1f0, 1f-2, 1f-2, 0.0f0, 0.0f0, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 77a8c332-ec8c-4770-af12-c25b56e3e87f
+#=╠═╡
+episodic_policy_studies.reinforce_linear_study.update_results!(1f0, 1f-2, 1f-2, 100; max_steps = 10_000)
+  ╠═╡ =#
+
+# ╔═╡ 9bd00356-36b4-4424-b298-d78255b2642d
+#=╠═╡
+episodic_policy_studies.reinforce_linear_study.update_results!(1f0, 1f-2, 0f0, 100; max_steps = 10_000)
+  ╠═╡ =#
+
+# ╔═╡ ee241d93-653e-4254-a4e5-a03f98e2dd9e
+#=╠═╡
+episodic_policy_studies.ac_nonlinear_study.update_results!(1f0, 1f-2, 1f-2, 0.5f0, 0.5f0, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 0613b3e4-62d2-46bd-8d42-d782bece25ca
+#=╠═╡
+episodic_policy_studies.ac_nonlinear_study.update_results!(1f0, 1f-2, 1f-2, 0.0f0, 0.0f0, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 1f4ae3a7-1877-46e7-b0e5-06df88086153
+#=╠═╡
+episodic_policy_studies.reinforce_nonlinear_study.update_results!(1f0, 1f-2, 1f-2, 100, 16, 4, 1; max_steps = 10_000)
+  ╠═╡ =#
+
+# ╔═╡ d3fbd37e-ea13-4b8f-abe8-dfb5efa19415
+md"""
+#### Continuing Studies
+"""
+
+# ╔═╡ 2405bd06-0061-4856-a977-0302d911c760
+function setup_continuing_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	function ac_train_linear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
+		if all(iszero, (λ_θ, λ_w))
+			one_step_actor_critic_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+		else
+			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
+		end
+	end
+	ac_linear_study = setup_parameter_study(make_continuing_trial(ac_train_linear), (:α_θ, :α_w, :λ_θ, :λ_w, :num_steps), (α_r̄ = one(T)/100, trace_type = AccumulatingTrace()))
+
+	function ac_train_nonlinear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; trace_type = AccumulatingTrace(), kwargs...)
+		hidden_layers = fill(layer_size, num_layers)
+		if all(iszero, (λ_θ, λ_w))
+			one_step_actor_critic_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
+		else
+			actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
+		end
+	end
+	ac_nonlinear_study = setup_parameter_study(make_continuing_trial(ac_train_nonlinear), (:α_θ, :α_w, :λ_θ, :λ_w, :num_steps, :layer_size, :num_layers, :reslayers), (α_r̄ = one(T)/100, trace_type = AccumulatingTrace()))
+
+	(ac_linear_study = ac_linear_study, ac_nonlinear_study = ac_nonlinear_study)
+end
+
+# ╔═╡ afdcbf2d-cd4b-42f6-9b33-7cb5c9700c61
+md"""
+#### Continuing Tests
+"""
+
+# ╔═╡ 6ddbe04d-1bbc-4350-aac6-860212f870dc
+#=╠═╡
+continuing_policy_studies = setup_continuing_policy_parameter_studies(continuing_mdp, continuing_setup.feature_vector, continuing_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 67f858f5-af3e-446c-bc29-07f0ecc08bce
+#=╠═╡
+continuing_policy_studies.ac_linear_study.update_results!(1f-2, 1f-2, 0.5f0, 0.5f0, 10_000)
+  ╠═╡ =#
+
+# ╔═╡ e2fcc077-9dbe-49fd-b1e0-d5cb43b20671
+#=╠═╡
+continuing_policy_studies.ac_linear_study.update_results!(1f-2, 1f-2, 0.0f0, 0.0f0, 10_000)
+  ╠═╡ =#
+
+# ╔═╡ 352a4649-f395-4cf3-9266-94bf393d8a7a
+#=╠═╡
+continuing_policy_studies.ac_nonlinear_study.update_results!(1f-2, 1f-2, 0.5f0, 0.5f0, 10_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ d00cdab9-e0b2-41a9-9cd1-080d844f8a57
+#=╠═╡
+continuing_policy_studies.ac_nonlinear_study.update_results!(1f-2, 1f-2, 0.0f0, 0.0f0, 10_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 4c51ea7d-0ba3-45be-bb15-31103953e2b1
+md"""
+## Exhaustive Training
+
+The basic algorithms run for a fixed number of steps or episodes, but often we want to train until some convergence criteria has been reached and adjust hyperparameters to achieve better results over time.  Doing so requires caching function parameters, saving results, and resuming training from a checkpoint.  The first step to acheiving all these goals is to train repeatedly with a given set of hyper parameters until results fail to improve and save those learned parameters for later use.
+"""
+
+# ╔═╡ bbced5a1-fe8b-402b-9dc5-6b37ebe07767
+md"""
+### Episodic Training
+"""
+
+# ╔═╡ aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
+
+
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
 md"""
 # Dependencies
 """
 
 # ╔═╡ 5575d394-0178-4935-b3aa-949c3ec38b45
+# ╠═╡ skip_as_script = true
+#=╠═╡
 import HypertextLiteral.@htl
+  ╠═╡ =#
 
 # ╔═╡ 73e5b3d9-a675-4a1e-83fd-6c6e69ef0e9d
+# ╠═╡ skip_as_script = true
+#=╠═╡
 html"""
 	<style>
 		main {
@@ -209,6 +550,7 @@ html"""
 		}
 	</style>
 	"""
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1186,11 +1528,62 @@ version = "17.4.0+2"
 # ╠═8cf192df-e554-41b6-b9d0-71a142766021
 # ╠═c20fad45-4033-4c60-b7db-3d8c9148026f
 # ╟─f43d6616-d28e-4799-a677-b00b5811b2c1
+# ╟─42537afd-7655-45a2-b18b-0759982b124c
 # ╠═e932d0fd-5832-41eb-a2a3-13a89a1e8751
 # ╠═742c8135-9aac-49f3-ac9a-8430aa4c2b41
+# ╟─e4b0a6f5-8e6d-4b97-8d70-4fc301473be0
+# ╠═5ffaab88-af31-4b70-87c0-b047354c65ba
+# ╠═69a45749-bed3-4527-afb4-c869c5ca4dd6
 # ╠═1e88e11d-67da-4dbd-8092-6e636bebf91f
+# ╠═7c3d01db-4aca-4f95-91e5-ec7b3b2b6eb6
+# ╠═2f44bb34-816a-42a0-b1d2-74493b9994a4
+# ╠═6d07d39f-80e5-4a06-8ba9-7d71fea29d69
+# ╠═2800e5b9-5e3e-4d34-b71b-34edebe06a3f
+# ╠═41da78e2-a8a9-4cb7-8c05-68b78991ab0b
+# ╠═c7e12dd0-de44-4179-9002-fcc4dcee6fbc
+# ╠═a72d3703-8578-454a-b293-69bd103cd186
+# ╠═d4ea0c96-4c23-485e-964b-fd52efc399b5
+# ╠═09a1958b-2990-47c9-8ce7-134d7bcde5ce
+# ╠═c812e9c9-b6ab-4788-a5a7-d391d270f387
+# ╠═21344e9a-e0fa-4356-8947-b5310e6aa4e1
+# ╠═30425ebb-2fe5-4624-a3c9-f5f332beca4d
+# ╟─75b4c6da-80b7-4a34-bb15-f63ada17d5b4
 # ╠═5f9b180e-9201-45d5-92dd-5c0eb9de01e7
 # ╠═f578ab23-12cb-4f38-b76f-fef4189d31cc
+# ╟─54807cf1-6efe-4625-a966-db6a57246c95
+# ╠═5967f3f3-48cb-40ee-b886-2a86d1a3b666
+# ╠═5626bdac-537b-4ff1-85dc-471881a6e496
+# ╠═9ee432ea-888e-4df0-902b-58741d3f8e57
+# ╠═a185fcda-eeab-4fac-97b0-d479b4cce4fd
+# ╠═739db9d4-4b4a-46b7-b1f4-6176dfd467e3
+# ╠═86cbffeb-cf4a-4d81-9b4e-2c3cbbdbaac5
+# ╠═f9e6eed9-4fd4-47f7-b99a-05691fa901b3
+# ╠═9b02733b-f769-4616-8baa-c5518812aa43
+# ╠═cb475da0-614f-48e6-bc28-7898d4450ff1
+# ╠═d07826fd-02a1-4cb4-991d-534e01c2a27f
+# ╟─72353588-a6d5-4d18-870c-cfeacbaac669
+# ╟─4e2f55f2-4639-4017-a060-03a7487eebb8
+# ╠═d2387c9d-aa6e-4eda-904a-101e5fdd3cae
+# ╟─d87259e7-be0d-4a55-9902-b74567e16750
+# ╠═b430a02b-d4a2-4167-b4b3-28cd604f1f08
+# ╠═abb0b7f7-db96-4804-852a-52b5e25049ea
+# ╠═2a51bca3-0425-450b-83d4-86408197c3e8
+# ╠═77a8c332-ec8c-4770-af12-c25b56e3e87f
+# ╠═9bd00356-36b4-4424-b298-d78255b2642d
+# ╠═ee241d93-653e-4254-a4e5-a03f98e2dd9e
+# ╠═0613b3e4-62d2-46bd-8d42-d782bece25ca
+# ╠═1f4ae3a7-1877-46e7-b0e5-06df88086153
+# ╟─d3fbd37e-ea13-4b8f-abe8-dfb5efa19415
+# ╠═2405bd06-0061-4856-a977-0302d911c760
+# ╟─afdcbf2d-cd4b-42f6-9b33-7cb5c9700c61
+# ╠═6ddbe04d-1bbc-4350-aac6-860212f870dc
+# ╠═67f858f5-af3e-446c-bc29-07f0ecc08bce
+# ╠═e2fcc077-9dbe-49fd-b1e0-d5cb43b20671
+# ╠═352a4649-f395-4cf3-9266-94bf393d8a7a
+# ╠═d00cdab9-e0b2-41a9-9cd1-080d844f8a57
+# ╟─4c51ea7d-0ba3-45be-bb15-31103953e2b1
+# ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
+# ╠═aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
