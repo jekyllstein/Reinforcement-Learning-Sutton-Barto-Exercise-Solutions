@@ -522,8 +522,119 @@ md"""
 ### Episodic Training
 """
 
-# ╔═╡ aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
+# ╔═╡ 3a938f27-b6fe-4411-8c41-5d1efaa8189c
+function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer) where {T<:Real, S, A, P, F1, F2, F3}
+	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = eval_steps)
+	!mdp.isterm(sterm) && return typemin(T)
+	reward_sum = sum(rewards)
+	episode_count = 1
+	remaining_steps = eval_steps - nsteps
+	while remaining_steps > 0
+		(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = remaining_steps)
+		if mdp.isterm(sterm) 
+			reward_sum += sum(rewards)
+			episode_count += 1
+		end
+		remaining_steps -= nsteps
+	end
+	return reward_sum / episode_count
+end
 
+# ╔═╡ ea749dd8-91ad-4360-9304-5382846a02c6
+#=╠═╡
+#checks the average reward per episode for a given policy with a budget of computation steps
+evaluate_episodic_policy_performance(episodic_mdp, s -> rand(1:3), 10_000_000)
+  ╠═╡ =#
+
+# ╔═╡ a5b13027-c3b6-488e-82a1-2ee3be6c63be
+function check_reward_progress(episode_rewards::Vector{T}) where T<:Real 
+	isempty(episode_rewards) && return typemin(T)
+	l = length(episode_rewards)
+	episode_check = ceil(Int64, l/2)
+	Statistics.mean(view(episode_rewards, episode_check:l))
+end
+
+# ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
+function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	linear_sarsa_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
+	linear_dp_params = initialize_linear_parameters(feature_vector, zero(T))
+	function td_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), new_params::Bool = true, use_dp::Bool = false, kwargs...)
+		params = if new_params
+			use_dp ? initialize_linear_parameters(feature_vector, zero(T)) : initialize_linear_parameters(feature_vector, mdp, zero(T))
+		else
+			use_dp ? linear_dp_params : linear_sarsa_params
+		end
+		if iszero(λ)
+			f = use_dp ? semi_gradient_dp_linear : semi_gradient_sarsa_linear
+			f(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, kwargs...)
+		else
+			f = use_dp ? dp_λ_linear : sarsa_λ_linear
+			f(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, parameters = params, kwargs...)
+		end
+	end
+
+	function td_train_exhaustive(γ::T, α::T, λ::T, trial_steps::Integer; use_dp = false, new_params = false, ϵ = one(T) / 10, kwargs...)
+		params = use_dp ? linear_dp_params : linear_sarsa_params
+		
+		@info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
+		output1 = td_train_linear(γ, zero(T), zero(T), 0; use_dp = use_dp, new_params = new_params, kwargs...)
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline episode reward is $reward1, beginning first trial"
+		backup_params = copy(params)
+		output2 = td_train_linear(γ, α, λ, trial_steps; use_dp = use_dp, kwargs..., new_params = false)
+		reward2 = check_reward_progress(output2.episode_rewards)
+
+		if reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			params .= backup_params
+			return output1
+		end
+
+		episode_rewards = output2.episode_rewards
+		while reward2 > reward1
+			trial += 1
+			@info "On trial $trial, reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			backup_params .= params
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			
+			output2 = td_train_linear(γ, α, λ, trial_steps; use_dp = use_dp, kwargs..., new_params = false)
+			reward2 = check_reward_progress(output2.episode_rewards)
+		end
+
+		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		params .= backup_params
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive)	
+end
+
+# ╔═╡ aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
+#=╠═╡
+episodic_linear_value_test = setup_episodic_value_linear_training(episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 97bfe437-8cfb-4070-88e6-690647709b62
+#=╠═╡
+episodic_linear_value_result = episodic_linear_value_test.linear_train_exhaustive(1f0, 1f-4, 0.99f0, 1_000_000; new_params = false, ϵ = 0.1f0, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ ea2ee413-5b8f-4217-9546-14c3e0081413
+#=╠═╡
+plot(episodic_linear_value_result.episode_rewards)
+  ╠═╡ =#
+
+# ╔═╡ d3efbdb7-9412-4cbe-b622-5238f10d2671
+#=╠═╡
+evaluate_episodic_policy_performance(episodic_mdp, s -> rand() < 0.1 ? rand(1:3) : episodic_linear_value_result.value_function(s).maximizing_action, 1_000_000)
+  ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
 md"""
@@ -1583,7 +1694,14 @@ version = "17.4.0+2"
 # ╠═d00cdab9-e0b2-41a9-9cd1-080d844f8a57
 # ╟─4c51ea7d-0ba3-45be-bb15-31103953e2b1
 # ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
+# ╠═3a938f27-b6fe-4411-8c41-5d1efaa8189c
+# ╠═ea749dd8-91ad-4360-9304-5382846a02c6
+# ╠═a5b13027-c3b6-488e-82a1-2ee3be6c63be
+# ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
 # ╠═aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
+# ╠═97bfe437-8cfb-4070-88e6-690647709b62
+# ╠═ea2ee413-5b8f-4217-9546-14c3e0081413
+# ╠═d3efbdb7-9412-4cbe-b622-5238f10d2671
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
