@@ -558,12 +558,22 @@ end
 function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	linear_sarsa_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
 	linear_dp_params = initialize_linear_parameters(feature_vector, zero(T))
-	function td_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), new_params::Bool = true, use_dp::Bool = false, kwargs...)
-		params = if new_params
-			use_dp ? initialize_linear_parameters(feature_vector, zero(T)) : initialize_linear_parameters(feature_vector, mdp, zero(T))
+
+	function reset_params(use_dp::Bool)
+		if use_dp
+			params = linear_dp_params
+			args = (feature_vector, zero(T)) 
 		else
-			use_dp ? linear_dp_params : linear_sarsa_params
+			params = linear_sarsa_params
+			args = (feature_vector, mdp, zero(T))
 		end
+		new_params = initialize_linear_parameters(args...)
+		params .= new_params
+	end
+
+	function td_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), new_params::Bool = true, use_dp::Bool = false, kwargs...)
+		new_params && reset_params(use_dp)
+		params = use_dp ? linear_dp_params : linear_sarsa_params
 		if iszero(λ)
 			f = use_dp ? semi_gradient_dp_linear : semi_gradient_sarsa_linear
 			f(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, kwargs...)
@@ -573,11 +583,11 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		end
 	end
 
-	function td_train_exhaustive(γ::T, α::T, λ::T, trial_steps::Integer; use_dp = false, new_params = false, ϵ = one(T) / 10, kwargs...)
+	function td_train_exhaustive(γ::T, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, kwargs...)
 		params = use_dp ? linear_dp_params : linear_sarsa_params
 		
 		@info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
-		output1 = td_train_linear(γ, zero(T), zero(T), 0; use_dp = use_dp, new_params = new_params, kwargs...)
+		output1 = td_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, use_dp = use_dp, kwargs...)
 		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
@@ -585,13 +595,13 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		
 		@info "Baseline episode reward is $reward1, beginning first trial"
 		backup_params = copy(params)
-		output2 = td_train_linear(γ, α, λ, trial_steps; use_dp = use_dp, kwargs..., new_params = false)
+		output2 = td_train_linear(γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, kwargs...)
 		reward2 = check_reward_progress(output2.episode_rewards)
 
 		if reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			params .= backup_params
-			return output1
+			return (;output1..., performance = reward1)
 		end
 
 		episode_rewards = output2.episode_rewards
@@ -603,17 +613,44 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			backup_params .= params
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
-			output2 = td_train_linear(γ, α, λ, trial_steps; use_dp = use_dp, kwargs..., new_params = false)
+			output2 = td_train_linear(γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, kwargs...)
 			reward2 = check_reward_progress(output2.episode_rewards)
 		end
 
 		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		params .= backup_params
+		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
+	end
+
+	function td_train_rate_decay(γ::T, α_init::T, λ::T, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Beginning exhaustive trials with learning rate $α_init"
+		output1 = td_train_exhaustive(γ, α_init, λ, trial_steps; new_params = new_params, kwargs...)
+		episode_rewards = output1.episode_rewards
+
+		α = α_init / 2
+		@info "Reducing learning rate to $α for next set of trials"
+		output2 = td_train_exhaustive(γ, α, λ, trial_steps; kwargs...)
+
+		if output2.performance ≤ output1.performance
+			@info "Second round performance of $(output2.performance) failed to improve reward"
+			return output1
+		end
+
+		round = 2
+		while output2.performance > output1.performance
+			round += 1
+			α /= 2
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			@info "On round $round reducing learning rate to $α"
+			output2 = td_train_exhaustive(γ, α, λ, trial_steps; kwargs...)
+		end
+		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive)	
+	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
 end
 
 # ╔═╡ aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
@@ -623,17 +660,189 @@ episodic_linear_value_test = setup_episodic_value_linear_training(episodic_mdp, 
 
 # ╔═╡ 97bfe437-8cfb-4070-88e6-690647709b62
 #=╠═╡
-episodic_linear_value_result = episodic_linear_value_test.linear_train_exhaustive(1f0, 1f-4, 0.99f0, 1_000_000; new_params = false, ϵ = 0.1f0, use_dp = true)
+episodic_linear_value_result = episodic_linear_value_test.linear_train_rate_decay(1f0, 1f-3, 0.99f0, 1_000_000; new_params = true, ϵ = 0.1f0, use_dp = false)
   ╠═╡ =#
 
-# ╔═╡ ea2ee413-5b8f-4217-9546-14c3e0081413
+# ╔═╡ e7653fea-304b-4958-b9e6-9ebe86b91d6f
 #=╠═╡
-plot(episodic_linear_value_result.episode_rewards)
+plot(-episodic_linear_value_result.episode_rewards, Layout(yaxis_type = "log"))
   ╠═╡ =#
 
-# ╔═╡ d3efbdb7-9412-4cbe-b622-5238f10d2671
+# ╔═╡ cebdb010-7e8d-4fb8-bf49-418181061ad4
+md"""
+### Continuing Training
+"""
+
+# ╔═╡ 64c23666-9e34-4f95-9787-2d1593725bff
+function evaluate_continuing_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer) where {T<:Real, S, A, P, F1, F2, F3}
+	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = eval_steps)
+	Statistics.mean(rewards)
+end
+
+# ╔═╡ 9d244394-8523-4975-af85-f70cd0cfa430
+function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	function td_train_linear(α::T, λ::T, num_steps::Integer; trace_type = AccumulatingTrace(), use_dp::Bool = false, kwargs...)
+		if iszero(λ)
+			f = use_dp ? semi_gradient_differential_dp_linear : semi_gradient_differential_sarsa_linear
+			f(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+		else
+			f = use_dp ? dp_λ_linear : sarsa_λ_linear
+			f(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
+		end
+	end
+
+	function td_train_exhaustive(α::T, λ::T, trial_steps::Integer; use_dp = false, ϵ = one(T) / 10, kwargs...)
+		@info "Starting exhaustive training with α = $α and λ = $λ with $trial_steps steps per trial"
+		output1 = td_train_linear(zero(T), zero(T), 0; use_dp = use_dp, kwargs...)
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
+		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline average reward is $reward1, beginning first trial"
+		params = output1.final_parameters
+		backup_params = copy(params)
+		output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, kwargs..., parameters = params)
+		reward2 = check_reward_progress(output2.reward_history)
+
+		if reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			params .= backup_params
+			return (;output1, performance = reward1)
+		end
+
+		reward_history = output2.reward_history
+		while reward2 > reward1
+			trial += 1
+			@info "On trial $trial, average reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			backup_params .= params
+			reward_history = vcat(reward_history, output1.reward_history)
+			
+			output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, kwargs..., parameters = params)
+			reward2 = check_reward_progress(output2.reward_history)
+		end
+
+		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		params .= backup_params
+		return (;output1..., reward_history = reward_history, performance = reward1)
+	end
+
+	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; kwargs...)
+		@info "Beginning exhaustive trials with learning rate $α_init"
+		output1 = td_train_exhaustive(α_init, λ, trial_steps; kwargs...)
+
+		params = output1.final_parameters
+		α = α_init / 2
+		@info "Reducing learning rate to $α for next set of trials"
+		output2 = td_train_exhaustive(α, λ, trial_steps; kwargs..., parameters = params)
+
+		round = 2
+		while output2.performance > output1.performance
+			round += 1
+			α /= 2
+			output1 = output2
+			@info "On round $round reducing learning rate to $α"
+			output2 = td_train_exhaustive(α, λ, trial_steps; kwargs..., parameters = params)
+		end
+		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		return output1
+	end
+
+	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay)	
+end
+
+# ╔═╡ 1568bed2-f17e-4a28-8b26-6d5cca22d1ea
 #=╠═╡
-evaluate_episodic_policy_performance(episodic_mdp, s -> rand() < 0.1 ? rand(1:3) : episodic_linear_value_result.value_function(s).maximizing_action, 1_000_000)
+continuing_linear_value_test = setup_continuing_value_linear_training(continuing_mdp, continuing_setup.feature_vector, continuing_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 87365f50-017a-4773-8168-e94c6ebc0c04
+#=╠═╡
+continuing_linear_value_result = continuing_linear_value_test.linear_train_rate_decay(1f-1, 0.2f0, 1_000_000; ϵ = 0.01f0, α_r̄ = 0.01f0)
+  ╠═╡ =#
+
+# ╔═╡ 93e197d7-3b7d-41a0-ae6e-2dad6c327f51
+#=╠═╡
+function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	linear_policy_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
+	linear_value_params = initialize_linear_parameters(feature_vector, zero(T))
+	function ac_train_linear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer; trace_type = AccumulatingTrace(), new_params::Bool = true, kwargs...)
+		policy_params, value_params = if new_params
+			(initialize_linear_parameters(feature_vector, mdp, zero(T)), initialize_linear_parameters(feature_vector, zero(T)))
+		else
+			(linear_policy_params, linear_value_params)
+		end
+		if all(iszero, (λ_θ, λ_w))
+			one_step_actor_critic_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, kwargs...)
+		else
+			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = policy_params, value_params = value_params, kwargs...)
+		end
+	end
+
+	function td_train_exhaustive(α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
+		output1 = ac_train_linear(zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
+		π(s) = output1.policy_sample_action(s)
+		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline average reward is $reward1, beginning first trial"
+		backup_policy_params = copy(linear_policy_params)
+		backup_value_params = copy(linear_value_params)
+		output2 = ac_train_linear(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
+		reward2 = check_reward_progress(output2.reward_history)
+
+		if reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			params .= backup_params
+			return (;output1, performance = reward1)
+		end
+
+		reward_history = output2.reward_history
+		while reward2 > reward1
+			trial += 1
+			@info "On trial $trial, average reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			backup_policy_params .= linear_policy_params
+			reward_history = vcat(reward_history, output1.reward_history)
+			
+			output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, kwargs..., new_params = false)
+			reward2 = check_reward_progress(output2.reward_history)
+		end
+
+		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		params .= backup_params
+		return (;output1..., reward_history = reward_history, performance = reward1)
+	end
+
+	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Beginning exhaustive trials with learning rate $α_init"
+		output1 = td_train_exhaustive(α_init, λ, trial_steps; new_params = new_params, kwargs...)
+
+		α = α_init / 2
+		@info "Reducing learning rate to $α for next set of trials"
+		output2 = td_train_exhaustive(α, λ, trial_steps; kwargs...)
+
+		round = 2
+		while output2.performance > output1.performance
+			round += 1
+			α /= 2
+			output1 = output2
+			@info "On round $round reducing learning rate to $α"
+			output2 = td_train_exhaustive(α, λ, trial_steps; kwargs...)
+		end
+		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		return output1
+	end
+
+	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay)	
+end
   ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
@@ -1700,8 +1909,13 @@ version = "17.4.0+2"
 # ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
 # ╠═aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
 # ╠═97bfe437-8cfb-4070-88e6-690647709b62
-# ╠═ea2ee413-5b8f-4217-9546-14c3e0081413
-# ╠═d3efbdb7-9412-4cbe-b622-5238f10d2671
+# ╠═e7653fea-304b-4958-b9e6-9ebe86b91d6f
+# ╟─cebdb010-7e8d-4fb8-bf49-418181061ad4
+# ╠═64c23666-9e34-4f95-9787-2d1593725bff
+# ╠═9d244394-8523-4975-af85-f70cd0cfa430
+# ╠═1568bed2-f17e-4a28-8b26-6d5cca22d1ea
+# ╠═87365f50-017a-4773-8168-e94c6ebc0c04
+# ╠═93e197d7-3b7d-41a0-ae6e-2dad6c327f51
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
