@@ -517,9 +517,6 @@ md"""
 The basic algorithms run for a fixed number of steps or episodes, but often we want to train until some convergence criteria has been reached and adjust hyperparameters to achieve better results over time.  Doing so requires caching function parameters, saving results, and resuming training from a checkpoint.  The first step to acheiving all these goals is to train repeatedly with a given set of hyper parameters until results fail to improve and save those learned parameters for later use.
 """
 
-# ╔═╡ b3ebd598-944b-41db-b9c9-c9c554907795
-#add non-linear versions which setup a dictionary of parameters that get updated.  Also add option to read and write params to disk
-
 # ╔═╡ bbced5a1-fe8b-402b-9dc5-6b37ebe07767
 md"""
 ### Episodic Training
@@ -556,6 +553,9 @@ function check_reward_progress(episode_rewards::Vector{T}) where T<:Real
 	episode_check = ceil(Int64, l/2)
 	Statistics.mean(view(episode_rewards, episode_check:l))
 end
+
+# ╔═╡ d795d851-f998-4ff4-8834-e89fe2d30c44
+#add versions of setup functions with a name argument that will check the disk for existing parameters and create a save function which can be used to write parameters to disk
 
 # ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
 function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
@@ -1528,6 +1528,14 @@ function load_linear_value_parameters(base_name::AbstractString, use_dp::Bool)
 	return raw_params[:]
 end
 
+# ╔═╡ f7908105-cdb4-4182-b7b1-10d1cf2ce534
+function linear_value_parameters_save_check(base_name::AbstractString, use_dp::Bool)
+	label = use_dp ? "dp" : "sarsa"
+	filename = string(base_name, "_$label", "_linear_value_parameters.bin")
+	check = isfile(filename)
+	return (check, filename)
+end
+
 # ╔═╡ 2d24fea7-915d-43df-b290-a30fdf203eb5
 function linear_value_disk_test()
 	dp_params = rand(Float32, 10)
@@ -1563,6 +1571,15 @@ function save_linear_policy_parameters(base_name::AbstractString, policy_params:
 	FCANN.writeArray(value_input, filename2)
 	@info "Saved policy parameters to $filename1 and value parameters to $filename2"
 	return (filename1, filename2)
+end
+
+# ╔═╡ 9cab6940-85df-47f0-a6c6-c5f7ef2d2f10
+function linear_policy_parameters_save_check(basename::AbstractString)
+	filename1 = string(base_name, "_linear_policy_parameters.bin")
+	filename2 = string(base_name, "_linear_value_parameters.bin")
+
+	check = (isfile(filename1) && isfile(filename2))
+	return (check, filename1, filename2)
 end
 
 # ╔═╡ 78589481-3163-48aa-a8d9-51d258f6a930
@@ -2709,11 +2726,11 @@ version = "17.4.0+2"
 # ╠═352a4649-f395-4cf3-9266-94bf393d8a7a
 # ╠═d00cdab9-e0b2-41a9-9cd1-080d844f8a57
 # ╟─4c51ea7d-0ba3-45be-bb15-31103953e2b1
-# ╠═b3ebd598-944b-41db-b9c9-c9c554907795
 # ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
 # ╠═3a938f27-b6fe-4411-8c41-5d1efaa8189c
 # ╠═ea749dd8-91ad-4360-9304-5382846a02c6
 # ╠═a5b13027-c3b6-488e-82a1-2ee3be6c63be
+# ╠═d795d851-f998-4ff4-8834-e89fe2d30c44
 # ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
 # ╠═c68eab1e-b4f1-4fb5-8b3e-f23ad0df0be0
 # ╠═98d94e3b-4ca5-4ff0-8409-9d748799931f
@@ -2766,13 +2783,15 @@ version = "17.4.0+2"
 # ╠═8d535a89-8eab-4ec3-a144-cd54d3abdfee
 # ╠═696015af-9017-4afd-a6ab-e82e2e2a5a04
 # ╠═c1c283f3-97b1-435c-b2c2-81415d86679e
+# ╠═f7908105-cdb4-4182-b7b1-10d1cf2ce534
 # ╠═2d24fea7-915d-43df-b290-a30fdf203eb5
 # ╠═b30d8e53-a6d7-4e74-9687-89c4431a37bb
 # ╠═460fb9d2-4f40-47ec-9637-c6c6ec0a1b17
+# ╠═9cab6940-85df-47f0-a6c6-c5f7ef2d2f10
 # ╠═78589481-3163-48aa-a8d9-51d258f6a930
 # ╠═69b62157-1af5-4aed-959c-b0eefebf7389
 # ╠═40e18712-6715-4074-89f7-40d4751e8d20
-# ╠═10d1e2fe-605f-49f7-b06a-e8ce97dfba95
+# ╟─10d1e2fe-605f-49f7-b06a-e8ce97dfba95
 # ╠═334158b9-220e-4638-9934-5d377fcc9a32
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
