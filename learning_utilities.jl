@@ -708,7 +708,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		if reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			params .= backup_params
-			return (;output1, performance = reward1)
+			return (;output1..., performance = reward1)
 		end
 
 		reward_history = output2.reward_history
@@ -733,6 +733,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; kwargs...)
 		@info "Beginning exhaustive trials with learning rate $α_init"
 		output1 = td_train_exhaustive(α_init, λ, trial_steps; kwargs...)
+		reward_history = output1.reward_history
 
 		params = output1.final_parameters
 		α = α_init / 2
@@ -744,11 +745,12 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			round += 1
 			α /= 2
 			output1 = output2
+			reward_history = vcat(reward_history, output1.reward_history)
 			@info "On round $round reducing learning rate to $α"
 			output2 = td_train_exhaustive(α, λ, trial_steps; kwargs..., parameters = params)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
-		return output1
+		return (;output1..., reward_history = reward_history)
 	end
 
 	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay)	
@@ -761,28 +763,29 @@ continuing_linear_value_test = setup_continuing_value_linear_training(continuing
 
 # ╔═╡ 87365f50-017a-4773-8168-e94c6ebc0c04
 #=╠═╡
-continuing_linear_value_result = continuing_linear_value_test.linear_train_rate_decay(1f-1, 0.2f0, 1_000_000; ϵ = 0.01f0, α_r̄ = 0.01f0)
+continuing_linear_value_result = continuing_linear_value_test.linear_train_rate_decay(1f-2, 0.5f0, 1_000_000; ϵ = 0.01f0, α_r̄ = 0.01f0)
   ╠═╡ =#
 
 # ╔═╡ 93e197d7-3b7d-41a0-ae6e-2dad6c327f51
-#=╠═╡
 function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	linear_policy_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
 	linear_value_params = initialize_linear_parameters(feature_vector, zero(T))
+	
+	function reset_params()
+		linear_policy_params .= initialize_linear_parameters(feature_vector, mdp, zero(T))
+		linear_value_params .= initialize_linear_parameters(feature_vector, zero(T))
+	end
+	
 	function ac_train_linear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer; trace_type = AccumulatingTrace(), new_params::Bool = true, kwargs...)
-		policy_params, value_params = if new_params
-			(initialize_linear_parameters(feature_vector, mdp, zero(T)), initialize_linear_parameters(feature_vector, zero(T)))
-		else
-			(linear_policy_params, linear_value_params)
-		end
+		new_params && reset_params()
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, kwargs...)
+			one_step_actor_critic_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = policy_params, value_params = value_params, kwargs...)
+			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 		end
 	end
 
-	function td_train_exhaustive(α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
+	function ac_train_exhaustive(α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
 		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_linear(zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
 		π(s) = output1.policy_sample_action(s)
@@ -798,7 +801,8 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 		if reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
-			params .= backup_params
+			linear_policy_params .= backup_policy_params
+			linear_value_params .= backup_value_params
 			return (;output1, performance = reward1)
 		end
 
@@ -809,40 +813,53 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 			output1 = output2
 			reward1 = reward2
 			backup_policy_params .= linear_policy_params
+			backup_value_params .= linear_value_params
 			reward_history = vcat(reward_history, output1.reward_history)
 			
-			output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, kwargs..., new_params = false)
+			output2 = ac_train_linear(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
 		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
 
-		params .= backup_params
+		linear_policy_params .= backup_policy_params
+		linear_value_params .= backup_value_params
 		return (;output1..., reward_history = reward_history, performance = reward1)
 	end
 
-	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; new_params = false, kwargs...)
-		@info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(α_init, λ, trial_steps; new_params = new_params, kwargs...)
+	function ac_train_rate_decay(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
+		output1 = ac_train_exhaustive(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; new_params = new_params, kwargs...)
 
-		α = α_init / 2
-		@info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(α, λ, trial_steps; kwargs...)
+		α_θ = α_θ_init / 2
+		α_w = α_w_init / 2
+		@info "Reducing learning rates to $α_θ and $α_w for next set of trials"
+		output2 = ac_train_exhaustive(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
 
 		round = 2
 		while output2.performance > output1.performance
 			round += 1
-			α /= 2
+			α_θ = α_θ / 2
+			α_w = α_w / 2
 			output1 = output2
-			@info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(α, λ, trial_steps; kwargs...)
+			@info "On round $round reducing learning rates to $α_θ and $α_w"
+			output2 = ac_train_exhaustive(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return output1
 	end
 
-	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay)	
+	(linear_train = ac_train_linear, linear_train_exhaustive = ac_train_exhaustive, linear_train_rate_decay = ac_train_rate_decay, linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)	
 end
+
+# ╔═╡ 5638255a-7d2a-481d-b724-9c72c830ca7a
+#=╠═╡
+continuing_linear_policy_test = setup_continuing_policy_linear_training(continuing_mdp, continuing_setup.feature_vector, continuing_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 79784c4b-2ccf-4c83-8864-6376091a5c9a
+#=╠═╡
+continuing_linear_policy_result = continuing_linear_policy_test.linear_train_rate_decay(1f-2, 1f-2, 0.5f0, 0.5f0, 100_000; α_r̄ = 0.01f0, new_params = true)
   ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
@@ -870,6 +887,36 @@ html"""
 		}
 	</style>
 	"""
+  ╠═╡ =#
+
+# ╔═╡ 455f956d-6c92-46e8-90d4-d62167d455cb
+#=╠═╡
+function smooth_error(error_history, n)
+	l = length(error_history)
+	[mean(view(error_history, i-n:i)) for i in n+1:l]
+end
+  ╠═╡ =#
+
+# ╔═╡ 65068069-1374-4344-83e7-950a894957b9
+#=╠═╡
+begin
+	plot_rewards(rewards::AbstractVector{T}, nsmooth::Integer, npoints::Integer) where T<:Real = plot(smooth_error(rewards, nsmooth)[round.(Int64, LinRange(1, length(rewards) - nsmooth, npoints))])
+
+	function plot_rewards(rewards::AbstractVector{A}, nsmooth::Integer, npoints::Integer) where A <: Union{Missing, T} where T<:Real 	
+		newrewards = [!ismissing(a) for a in rewards]
+		plot_rewards(newrewards, nsmooth, npoints)
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ 2211b988-2a0b-4bb3-947d-efcf72473626
+#=╠═╡
+plot_rewards(continuing_linear_value_result.reward_history, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ f63d3830-c236-4068-bc64-f4e9bda950fc
+#=╠═╡
+plot_rewards(continuing_linear_policy_result.reward_history, 100, 1000)
   ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -1915,7 +1962,11 @@ version = "17.4.0+2"
 # ╠═9d244394-8523-4975-af85-f70cd0cfa430
 # ╠═1568bed2-f17e-4a28-8b26-6d5cca22d1ea
 # ╠═87365f50-017a-4773-8168-e94c6ebc0c04
+# ╠═2211b988-2a0b-4bb3-947d-efcf72473626
 # ╠═93e197d7-3b7d-41a0-ae6e-2dad6c327f51
+# ╠═5638255a-7d2a-481d-b724-9c72c830ca7a
+# ╠═79784c4b-2ccf-4c83-8864-6376091a5c9a
+# ╠═f63d3830-c236-4068-bc64-f4e9bda950fc
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
@@ -1923,5 +1974,7 @@ version = "17.4.0+2"
 # ╠═3a2fa0dd-1da7-41cf-bc4a-d9dbc774dc09
 # ╠═5575d394-0178-4935-b3aa-949c3ec38b45
 # ╠═73e5b3d9-a675-4a1e-83fd-6c6e69ef0e9d
+# ╠═65068069-1374-4344-83e7-950a894957b9
+# ╠═455f956d-6c92-46e8-90d4-d62167d455cb
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
