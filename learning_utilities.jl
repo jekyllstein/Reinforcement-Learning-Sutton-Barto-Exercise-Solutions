@@ -1502,10 +1502,11 @@ md"""
 """
 
 # ╔═╡ 8d535a89-8eab-4ec3-a144-cd54d3abdfee
-function save_linear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::Vector{T}) where T<:Float32
+function save_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, params::Vector{T}) where T<:Float32
 	l = length(feature_vector)
 	@assert l == length(params) "Feature vector length of $l does not match parameter vector length"
-	filename = string(base_name, "_dp_linear_value_parameters_$(l)_input.bin")
+	m = length(mdp.actions)
+	filename = string(base_name, "_dp_linear_value_parameters_$(l)_input_$(m)_actions.bin")
 	input = reshape(params, length(params), 1)
 	FCANN.writeArray(input, filename)
 	@info "Saved parameters to $filename"
@@ -1513,27 +1514,27 @@ function save_linear_value_parameters(base_name::AbstractString, mdp, feature_ve
 end
 
 # ╔═╡ 696015af-9017-4afd-a6ab-e82e2e2a5a04
-function save_linear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::Matrix{T}) where T<:Float32
+function save_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, params::Matrix{T}) where T<:Float32
 	l = length(feature_vector)
 	@assert l == size(params, 1) "Feature vector length of $l does not match parameter dimension"
 
 	num_actions = length(mdp.actions)
 	@assert num_actions == size(params, 2) "MDP action count of $num_actions does not match parameter dimension"
 	
-	filename = string(base_name, "_sarsa_linear_value_parameters_$(l)_input_$(num_actions)_output.bin")
+	filename = string(base_name, "_sarsa_linear_value_parameters_$(l)_input_$(num_actions)_actions.bin")
 	FCANN.writeArray(params, filename)
 	@info "Saved parameters to $filename"
 	return filename
 end
 
 # ╔═╡ c1c283f3-97b1-435c-b2c2-81415d86679e
-function load_linear_value_parameters(base_name::AbstractString, mdp, feature_vector, use_dp::Bool)
+function load_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, use_dp::Bool)
 	l = length(feature_vector)
 	num_actions = length(mdp.actions)
 	
 	label1 = use_dp ? "dp" : "sarsa"
 	label2 = "$(l)_input"
-	label3 = use_dp ? "" : "_$(num_actions)_output"
+	label3 = "_$(num_actions)_actions"
 	filename = string(base_name, "_$label1", "_linear_value_parameters_$label2$label3.bin")
 	raw_params = FCANN.readBinArray(filename)
 	!use_dp && return raw_params
@@ -1542,7 +1543,7 @@ function load_linear_value_parameters(base_name::AbstractString, mdp, feature_ve
 end
 
 # ╔═╡ f7908105-cdb4-4182-b7b1-10d1cf2ce534
-function linear_value_parameters_save_check(base_name::AbstractString, mdp, feature_vector, use_dp::Bool)
+function linear_value_parameters_save_check(base_name::AbstractString, mdp::StateMDP, feature_vector, use_dp::Bool)
 	label1 = use_dp ? "dp" : "sarsa"
 	label2 = "$(l)_input"
 	label3 = use_dp ? "" : "_$(num_actions)_output"
@@ -1579,10 +1580,16 @@ linear_value_disk_test()
   ╠═╡ =#
 
 # ╔═╡ 460fb9d2-4f40-47ec-9637-c6c6ec0a1b17
-function save_linear_policy_parameters(base_name::AbstractString, policy_params::Matrix{T}, value_params::Vector{T}) where T<:Float32
+function save_linear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, policy_params::Matrix{T}, value_params::Vector{T}) where T<:Float32
+	l = length(feature_vector)
+	m = size(policy_params, 2)
+	
+	@assert length(feature_vector) == length(value_params) "Parameter dimensions do not match feature vector"
+	@assert length(mdp.actions) == size(policy_params, 2) "Policy parameter dimensions do not match MDP action space"
 	@assert size(policy_params, 1) == length(value_params) "Policy and value parameter dimensions do not match"
-	filename1 = string(base_name, "_linear_policy_parameters.bin")
-	filename2 = string(base_name, "_linear_value_parameters.bin")
+	
+	filename1 = string(base_name, "_linear_policy_parameters_$(l)_input_$(m)_actions.bin")
+	filename2 = string(base_name, "_linear_value_parameters_$(l)_input_$(m)_actions.bin")
 	value_input = reshape(value_params, length(value_params), 1)
 	FCANN.writeArray(policy_params, filename1)
 	FCANN.writeArray(value_input, filename2)
@@ -1591,29 +1598,35 @@ function save_linear_policy_parameters(base_name::AbstractString, policy_params:
 end
 
 # ╔═╡ 9cab6940-85df-47f0-a6c6-c5f7ef2d2f10
-function linear_policy_parameters_save_check(basename::AbstractString)
-	filename1 = string(base_name, "_linear_policy_parameters.bin")
-	filename2 = string(base_name, "_linear_value_parameters.bin")
+function linear_policy_parameters_save_check(basename::AbstractString, mdp::StateMDP, feature_vector)
+	l = length(feature_vector)
+	m = size(policy_params, 2)
+	filename1 = string(base_name, "_linear_policy_parameters_$(l)_input_$(m)_actions.bin")
+	filename2 = string(base_name, "_linear_value_parameters_$(l)_input_$(m)_actions.bin")
 
 	check = (isfile(filename1) && isfile(filename2))
 	return (check, filename1, filename2)
 end
 
 # ╔═╡ 78589481-3163-48aa-a8d9-51d258f6a930
-function load_linear_policy_parameters(base_name::AbstractString)
-	filename1 = string(base_name, "_linear_policy_parameters.bin")
-	filename2 = string(base_name, "_linear_value_parameters.bin")
+function load_linear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
+	l = length(feature_vector)
+	m = length(mdp.actions)
+	filename1 = string(base_name, "_linear_policy_parameters_$(l)_input_$(m)_actions.bin")
+	filename2 = string(base_name, "_linear_value_parameters_$(l)_input_$(m)_actions.bin")
+	
 	policy_params = FCANN.readBinArray(filename1)
 	value_params = FCANN.readBinArray(filename2)[:]
 	return (policy_params, value_params)
 end
 
 # ╔═╡ 69b62157-1af5-4aed-959c-b0eefebf7389
+#=╠═╡
 function linear_policy_disk_test()
-	policy_params = rand(Float32, 10, 2)
-	value_params = rand(Float32, 10)
-	fname1, fname2 = save_linear_policy_parameters("test1", policy_params, value_params)
-	loaded_linear_params = load_linear_policy_parameters("test1")
+	policy_params = rand(Float32, 2, 3)
+	value_params = rand(Float32, 2)
+	fname1, fname2 = save_linear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, policy_params, value_params)
+	loaded_linear_params = load_linear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector)
 	rm(fname1)
 	rm(fname2)
 	@info "Removed $fname1 and $fname2 from disk"
@@ -1621,6 +1634,7 @@ function linear_policy_disk_test()
 	@assert (value_params == loaded_linear_params[2]) "Loaded value parameters do not match originals"
 	@info "Successfully tested linear policy parameter saving/loading"
 end
+  ╠═╡ =#
 
 # ╔═╡ 40e18712-6715-4074-89f7-40d4751e8d20
 # ╠═╡ skip_as_script = true
