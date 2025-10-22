@@ -113,7 +113,7 @@ export save_linear_value_parameters, load_linear_value_parameters, save_linear_p
 
     function run_access_control_differential_sarsa(max_steps::Int64; num_servers = 10, priority_payments = [1f0, 2f0, 4f0, 8f0], kwargs...)
         (mdp, setup) = create_access_control_task(num_servers, priority_payments)
-        semi_gradient_differential_sarsa_linear(mdp, 1, max_steps, setup...; kwargs...)
+        semi_gradient_differential_sarsa_linear(mdp, max_steps, setup...; kwargs...)
     end
 
     @compile_workload begin
