@@ -90,6 +90,14 @@ export create_cartpole_functions, create_mountaincar_continuing_mdp, mountaincar
 
 export AbstractContinuousTransition, ContinuousMDPTransitionSampler, ContinuousMDP, BinaryGaussianEligibilityVector, BinaryBetaEligibilityVector, BinarySquashedGaussianEligibilityVector, bad_continous_action, gaussian_action_sampler, beta_action_sampler, squashed_gaussian_action_sampler, form_state_continuous_policy_function, setup_binary_gaussian_policy_arguments, setup_binary_beta_policy_arguments, setup_binary_squashed_gaussian_policy_arguments
 
+include(joinpath(@__DIR__, "..", "..", "learning_utilities.jl"))
+
+export setup_episodic_value_parameter_studies, setup_continuing_value_parameter_studies, setup_episodic_policy_parameter_studies, setup_continuing_policy_parameter_studies
+
+export setup_episodic_value_linear_training, setup_continuing_value_linear_training, setup_episodic_policy_linear_training, setup_continuing_policy_linear_training, setup_episodic_value_nonlinear_training, setup_episodic_policy_nonlinear_training, setup_continuing_value_nonlinear_training, setup_continuing_policy_nonlinear_training
+
+export save_linear_value_parameters, load_linear_value_parameters, save_linear_policy_parameters, load_linear_policy_parameters
+
 @setup_workload begin
     γ = 0.9f0
     num_episodes = 10

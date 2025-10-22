@@ -1594,6 +1594,14 @@ end
 linear_policy_disk_test()
   ╠═╡ =#
 
+# ╔═╡ 10d1e2fe-605f-49f7-b06a-e8ce97dfba95
+md"""
+### Non-linear Parameters
+"""
+
+# ╔═╡ 334158b9-220e-4638-9934-5d377fcc9a32
+#add non-linear saving/loading based on architecture, also options to iterate through entire dictionary and save or load
+
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
 md"""
 # Dependencies
@@ -2764,6 +2772,8 @@ version = "17.4.0+2"
 # ╠═78589481-3163-48aa-a8d9-51d258f6a930
 # ╠═69b62157-1af5-4aed-959c-b0eefebf7389
 # ╠═40e18712-6715-4074-89f7-40d4751e8d20
+# ╠═10d1e2fe-605f-49f7-b06a-e8ce97dfba95
+# ╠═334158b9-220e-4638-9934-5d377fcc9a32
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
