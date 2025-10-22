@@ -517,6 +517,9 @@ md"""
 The basic algorithms run for a fixed number of steps or episodes, but often we want to train until some convergence criteria has been reached and adjust hyperparameters to achieve better results over time.  Doing so requires caching function parameters, saving results, and resuming training from a checkpoint.  The first step to acheiving all these goals is to train repeatedly with a given set of hyper parameters until results fail to improve and save those learned parameters for later use.
 """
 
+# ╔═╡ b3ebd598-944b-41db-b9c9-c9c554907795
+#add non-linear versions which setup a dictionary of parameters that get updated.  Also add option to read and write params to disk
+
 # ╔═╡ bbced5a1-fe8b-402b-9dc5-6b37ebe07767
 md"""
 ### Episodic Training
@@ -779,28 +782,45 @@ end
 
 # ╔═╡ 9d244394-8523-4975-af85-f70cd0cfa430
 function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	function td_train_linear(α::T, λ::T, num_steps::Integer; trace_type = AccumulatingTrace(), use_dp::Bool = false, kwargs...)
+	linear_sarsa_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
+	linear_dp_params = initialize_linear_parameters(feature_vector, zero(T))
+
+	function reset_params(use_dp::Bool)
+		if use_dp
+			params = linear_dp_params
+			args = (feature_vector, zero(T)) 
+		else
+			params = linear_sarsa_params
+			args = (feature_vector, mdp, zero(T))
+		end
+		new_params = initialize_linear_parameters(args...)
+		params .= new_params
+	end
+	
+	function td_train_linear(α::T, λ::T, num_steps::Integer; new_params = true, trace_type = AccumulatingTrace(), use_dp::Bool = false, kwargs...)
+		new_params && reset_params(use_dp)
+		params = use_dp ? linear_dp_params : linear_sarsa_params
 		if iszero(λ)
 			f = use_dp ? semi_gradient_differential_dp_linear : semi_gradient_differential_sarsa_linear
-			f(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+			f(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, kwargs...)
 		else
 			f = use_dp ? dp_λ_linear : sarsa_λ_linear
-			f(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
+			f(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, trace_type = trace_type, kwargs...)
 		end
 	end
 
-	function td_train_exhaustive(α::T, λ::T, trial_steps::Integer; use_dp = false, ϵ = one(T) / 10, kwargs...)
+	function td_train_exhaustive(α::T, λ::T, trial_steps::Integer; new_params = false, use_dp = false, ϵ = one(T) / 10, kwargs...)
+		params = use_dp ? linear_dp_params : linear_sarsa_params
 		@info "Starting exhaustive training with α = $α and λ = $λ with $trial_steps steps per trial"
-		output1 = td_train_linear(zero(T), zero(T), 0; use_dp = use_dp, kwargs...)
+		output1 = td_train_linear(zero(T), zero(T), 0; use_dp = use_dp, new_params = new_params, kwargs...)
 		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
 		
 		@info "Baseline average reward is $reward1, beginning first trial"
-		params = output1.final_parameters
 		backup_params = copy(params)
-		output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, kwargs..., parameters = params)
+		output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, new_params = false, kwargs..., parameters = params)
 		reward2 = check_reward_progress(output2.reward_history)
 
 		if reward2 ≤ reward1
@@ -818,7 +838,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			backup_params .= params
 			reward_history = vcat(reward_history, output1.reward_history)
 			
-			output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, kwargs..., parameters = params)
+			output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, new_params = false, kwargs..., parameters = params)
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
@@ -828,15 +848,14 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		return (;output1..., reward_history = reward_history, performance = reward1)
 	end
 
-	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; kwargs...)
+	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; new_params = false, kwargs...)
 		@info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(α_init, λ, trial_steps; kwargs...)
+		output1 = td_train_exhaustive(α_init, λ, trial_steps; new_params = new_params, kwargs...)
 		reward_history = output1.reward_history
 
-		params = output1.final_parameters
 		α = α_init / 2
 		@info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(α, λ, trial_steps; kwargs..., parameters = params)
+		output2 = td_train_exhaustive(α, λ, trial_steps; new_params = false, kwargs...)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -845,13 +864,13 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			output1 = output2
 			reward_history = vcat(reward_history, output1.reward_history)
 			@info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(α, λ, trial_steps; kwargs..., parameters = params)
+			output2 = td_train_exhaustive(α, λ, trial_steps; new_params = false, kwargs...)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., reward_history = reward_history)
 	end
 
-	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay)	
+	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay, linear_sarsa_params = linear_sarsa_params, linear_dp_params = linear_dp_params)	
 end
 
 # ╔═╡ 1568bed2-f17e-4a28-8b26-6d5cca22d1ea
@@ -2054,6 +2073,7 @@ version = "17.4.0+2"
 # ╠═352a4649-f395-4cf3-9266-94bf393d8a7a
 # ╠═d00cdab9-e0b2-41a9-9cd1-080d844f8a57
 # ╟─4c51ea7d-0ba3-45be-bb15-31103953e2b1
+# ╠═b3ebd598-944b-41db-b9c9-c9c554907795
 # ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
 # ╠═3a938f27-b6fe-4411-8c41-5d1efaa8189c
 # ╠═ea749dd8-91ad-4360-9304-5382846a02c6
