@@ -668,7 +668,6 @@ function initialize_fcann_value_params(mdp::StateMDP, feature_vector, hidden_lay
 end
 
 # ╔═╡ 98d94e3b-4ca5-4ff0-8409-9d748799931f
-#update this for nonlinear training
 function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	
 	fcann_parameters = Dict{NamedTuple, FCANNParams{T}}()
@@ -1488,6 +1487,111 @@ continuing_nonlinear_policy_test.nonlinear_policy_params
 # ╔═╡ 8f21188f-3118-4933-a8a5-83d1c9ffd503
 #=╠═╡
 continuing_nonlinear_policy_test.nonlinear_value_params
+  ╠═╡ =#
+
+# ╔═╡ 487ab8b6-d9a8-4f78-a0d0-1f655450857f
+md"""
+## Saving and Loading Parameters from Disk
+
+Often we want to save results from one session and load them in the future or transfer them to another machine.  We can efficiently store parameters to disk in a binary representation and use naming convensions to match parameters with their appropriate problem and algorithm combination.  In the case of non-linear parameters we also need to store the residual layer count in the same since that is necessary to specify the network architecture.  Also in the case of policy gradient methods with non-linear parameters, we will store the policy and value networks separately, but when it comes time to resuming training with them, we must link the non-output layers again since that relationship will not be saved to disk.
+"""
+
+# ╔═╡ 8abce157-f051-4637-bc37-f661eff08146
+md"""
+### Linear Parameters
+"""
+
+# ╔═╡ 8d535a89-8eab-4ec3-a144-cd54d3abdfee
+function save_linear_value_parameters(base_name::AbstractString, params::Vector{T}) where T<:Float32
+	filename = string(base_name, "_dp_linear_value_parameters.bin")
+	input = reshape(params, length(params), 1)
+	FCANN.writeArray(input, filename)
+	@info "Saved parameters to $filename"
+	return filename
+end
+
+# ╔═╡ 696015af-9017-4afd-a6ab-e82e2e2a5a04
+function save_linear_value_parameters(base_name::AbstractString, params::Matrix{T}) where T<:Float32
+	filename = string(base_name, "_sarsa_linear_value_parameters.bin")
+	FCANN.writeArray(params, filename)
+	@info "Saved parameters to $filename"
+	return filename
+end
+
+# ╔═╡ c1c283f3-97b1-435c-b2c2-81415d86679e
+function load_linear_value_parameters(base_name::AbstractString, use_dp::Bool)
+	label = use_dp ? "dp" : "sarsa"
+	filename = string(base_name, "_$label", "_linear_value_parameters.bin")
+	raw_params = FCANN.readBinArray(filename)
+	!use_dp && return raw_params
+
+	return raw_params[:]
+end
+
+# ╔═╡ 2d24fea7-915d-43df-b290-a30fdf203eb5
+function linear_value_disk_test()
+	dp_params = rand(Float32, 10)
+	fname = save_linear_value_parameters("test1", dp_params)
+	loaded_dp_params = load_linear_value_parameters("test1", true)
+	rm(fname)
+	@info "Removed $fname from disk"
+	@assert (dp_params == loaded_dp_params) "Loaded dp parameters do not match originals"
+	@info "Successfully tested linear dp parameter saving/loading"
+
+	sarsa_params = rand(Float32, 10, 2)
+	fname = save_linear_value_parameters("test1", sarsa_params)
+	loaded_sarsa_params = load_linear_value_parameters("test1", false)
+	rm(fname)
+	@info "Removed $fname from disk"
+	@assert (sarsa_params == loaded_sarsa_params) "Loaded sarsa parameters do not match originals"
+	@info "Successfully tested linear sarsa parameter saving/loading"
+end
+
+# ╔═╡ b30d8e53-a6d7-4e74-9687-89c4431a37bb
+# ╠═╡ skip_as_script = true
+#=╠═╡
+linear_value_disk_test()
+  ╠═╡ =#
+
+# ╔═╡ 460fb9d2-4f40-47ec-9637-c6c6ec0a1b17
+function save_linear_policy_parameters(base_name::AbstractString, policy_params::Matrix{T}, value_params::Vector{T}) where T<:Float32
+	@assert size(policy_params, 1) == length(value_params) "Policy and value parameter dimensions do not match"
+	filename1 = string(base_name, "_linear_policy_parameters.bin")
+	filename2 = string(base_name, "_linear_value_parameters.bin")
+	value_input = reshape(value_params, length(value_params), 1)
+	FCANN.writeArray(policy_params, filename1)
+	FCANN.writeArray(value_input, filename2)
+	@info "Saved policy parameters to $filename1 and value parameters to $filename2"
+	return (filename1, filename2)
+end
+
+# ╔═╡ 78589481-3163-48aa-a8d9-51d258f6a930
+function load_linear_policy_parameters(base_name::AbstractString)
+	filename1 = string(base_name, "_linear_policy_parameters.bin")
+	filename2 = string(base_name, "_linear_value_parameters.bin")
+	policy_params = FCANN.readBinArray(filename1)
+	value_params = FCANN.readBinArray(filename2)[:]
+	return (policy_params, value_params)
+end
+
+# ╔═╡ 69b62157-1af5-4aed-959c-b0eefebf7389
+function linear_policy_disk_test()
+	policy_params = rand(Float32, 10, 2)
+	value_params = rand(Float32, 10)
+	fname1, fname2 = save_linear_policy_parameters("test1", policy_params, value_params)
+	loaded_linear_params = load_linear_policy_parameters("test1")
+	rm(fname1)
+	rm(fname2)
+	@info "Removed $fname1 and $fname2 from disk"
+	@assert (policy_params == loaded_linear_params[1]) "Loaded policy parameters do not match originals"
+	@assert (value_params == loaded_linear_params[2]) "Loaded value parameters do not match originals"
+	@info "Successfully tested linear policy parameter saving/loading"
+end
+
+# ╔═╡ 40e18712-6715-4074-89f7-40d4751e8d20
+# ╠═╡ skip_as_script = true
+#=╠═╡
+linear_policy_disk_test()
   ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
@@ -2649,6 +2753,17 @@ version = "17.4.0+2"
 # ╠═996286c3-6766-4ab8-9da3-c0f20cd1cb58
 # ╠═95e267e2-2c3f-4ab2-bc1b-40147a3cb94a
 # ╠═8f21188f-3118-4933-a8a5-83d1c9ffd503
+# ╟─487ab8b6-d9a8-4f78-a0d0-1f655450857f
+# ╟─8abce157-f051-4637-bc37-f661eff08146
+# ╠═8d535a89-8eab-4ec3-a144-cd54d3abdfee
+# ╠═696015af-9017-4afd-a6ab-e82e2e2a5a04
+# ╠═c1c283f3-97b1-435c-b2c2-81415d86679e
+# ╠═2d24fea7-915d-43df-b290-a30fdf203eb5
+# ╠═b30d8e53-a6d7-4e74-9687-89c4431a37bb
+# ╠═460fb9d2-4f40-47ec-9637-c6c6ec0a1b17
+# ╠═78589481-3163-48aa-a8d9-51d258f6a930
+# ╠═69b62157-1af5-4aed-959c-b0eefebf7389
+# ╠═40e18712-6715-4074-89f7-40d4751e8d20
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
