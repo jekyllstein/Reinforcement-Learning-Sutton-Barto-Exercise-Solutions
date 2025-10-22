@@ -928,6 +928,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 	function ac_train_rate_decay(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, kwargs...)
 		@info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
 		output1 = ac_train_exhaustive(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; new_params = new_params, kwargs...)
+		reward_history = output1.reward_history
 
 		α_θ = α_θ_init / 2
 		α_w = α_w_init / 2
@@ -936,6 +937,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 		round = 2
 		while output2.performance > output1.performance
+			reward_history = vcat(reward_history, output2.reward_history)
 			round += 1
 			α_θ = α_θ / 2
 			α_w = α_w / 2
@@ -944,7 +946,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 			output2 = ac_train_exhaustive(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
-		return output1
+		return (;output1..., reward_history = reward_history)
 	end
 
 	(linear_train = ac_train_linear, linear_train_exhaustive = ac_train_exhaustive, linear_train_rate_decay = ac_train_rate_decay, linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)	
@@ -957,7 +959,7 @@ continuing_linear_policy_test = setup_continuing_policy_linear_training(continui
 
 # ╔═╡ 79784c4b-2ccf-4c83-8864-6376091a5c9a
 #=╠═╡
-continuing_linear_policy_result = continuing_linear_policy_test.linear_train_rate_decay(1f-2, 1f-2, 0.5f0, 0.5f0, 100_000; α_r̄ = 0.01f0, new_params = true)
+continuing_linear_policy_result = continuing_linear_policy_test.linear_train_rate_decay(1f-2, 1f-2, 0.75f0, 0.75f0, 100_000; α_r̄ = 0.01f0, new_params = true)
   ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
