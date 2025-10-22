@@ -1502,8 +1502,10 @@ md"""
 """
 
 # ╔═╡ 8d535a89-8eab-4ec3-a144-cd54d3abdfee
-function save_linear_value_parameters(base_name::AbstractString, params::Vector{T}) where T<:Float32
-	filename = string(base_name, "_dp_linear_value_parameters.bin")
+function save_linear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::Vector{T}) where T<:Float32
+	l = length(feature_vector)
+	@assert l == length(params) "Feature vector length of $l does not match parameter vector length"
+	filename = string(base_name, "_dp_linear_value_parameters_$(l)_input.bin")
 	input = reshape(params, length(params), 1)
 	FCANN.writeArray(input, filename)
 	@info "Saved parameters to $filename"
@@ -1511,17 +1513,28 @@ function save_linear_value_parameters(base_name::AbstractString, params::Vector{
 end
 
 # ╔═╡ 696015af-9017-4afd-a6ab-e82e2e2a5a04
-function save_linear_value_parameters(base_name::AbstractString, params::Matrix{T}) where T<:Float32
-	filename = string(base_name, "_sarsa_linear_value_parameters.bin")
+function save_linear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::Matrix{T}) where T<:Float32
+	l = length(feature_vector)
+	@assert l == size(params, 1) "Feature vector length of $l does not match parameter dimension"
+
+	num_actions = length(mdp.actions)
+	@assert num_actions == size(params, 2) "MDP action count of $num_actions does not match parameter dimension"
+	
+	filename = string(base_name, "_sarsa_linear_value_parameters_$(l)_input_$(num_actions)_output.bin")
 	FCANN.writeArray(params, filename)
 	@info "Saved parameters to $filename"
 	return filename
 end
 
 # ╔═╡ c1c283f3-97b1-435c-b2c2-81415d86679e
-function load_linear_value_parameters(base_name::AbstractString, use_dp::Bool)
-	label = use_dp ? "dp" : "sarsa"
-	filename = string(base_name, "_$label", "_linear_value_parameters.bin")
+function load_linear_value_parameters(base_name::AbstractString, mdp, feature_vector, use_dp::Bool)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	
+	label1 = use_dp ? "dp" : "sarsa"
+	label2 = "$(l)_input"
+	label3 = use_dp ? "" : "_$(num_actions)_output"
+	filename = string(base_name, "_$label1", "_linear_value_parameters_$label2$label3.bin")
 	raw_params = FCANN.readBinArray(filename)
 	!use_dp && return raw_params
 
@@ -1529,31 +1542,35 @@ function load_linear_value_parameters(base_name::AbstractString, use_dp::Bool)
 end
 
 # ╔═╡ f7908105-cdb4-4182-b7b1-10d1cf2ce534
-function linear_value_parameters_save_check(base_name::AbstractString, use_dp::Bool)
-	label = use_dp ? "dp" : "sarsa"
-	filename = string(base_name, "_$label", "_linear_value_parameters.bin")
+function linear_value_parameters_save_check(base_name::AbstractString, mdp, feature_vector, use_dp::Bool)
+	label1 = use_dp ? "dp" : "sarsa"
+	label2 = "$(l)_input"
+	label3 = use_dp ? "" : "_$(num_actions)_output"
+	filename = string(base_name, "_$label1", "_linear_value_parameters_$label2$label3.bin")
 	check = isfile(filename)
 	return (check, filename)
 end
 
 # ╔═╡ 2d24fea7-915d-43df-b290-a30fdf203eb5
+#=╠═╡
 function linear_value_disk_test()
-	dp_params = rand(Float32, 10)
-	fname = save_linear_value_parameters("test1", dp_params)
-	loaded_dp_params = load_linear_value_parameters("test1", true)
+	dp_params = rand(Float32, 2)
+	fname = save_linear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, dp_params)
+	loaded_dp_params = load_linear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, true)
 	rm(fname)
 	@info "Removed $fname from disk"
 	@assert (dp_params == loaded_dp_params) "Loaded dp parameters do not match originals"
 	@info "Successfully tested linear dp parameter saving/loading"
 
-	sarsa_params = rand(Float32, 10, 2)
-	fname = save_linear_value_parameters("test1", sarsa_params)
-	loaded_sarsa_params = load_linear_value_parameters("test1", false)
+	sarsa_params = rand(Float32, 2, 3)
+	fname = save_linear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, sarsa_params)
+	loaded_sarsa_params = load_linear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, false)
 	rm(fname)
 	@info "Removed $fname from disk"
 	@assert (sarsa_params == loaded_sarsa_params) "Loaded sarsa parameters do not match originals"
 	@info "Successfully tested linear sarsa parameter saving/loading"
 end
+  ╠═╡ =#
 
 # ╔═╡ b30d8e53-a6d7-4e74-9687-89c4431a37bb
 # ╠═╡ skip_as_script = true
@@ -1618,6 +1635,21 @@ md"""
 
 # ╔═╡ 334158b9-220e-4638-9934-5d377fcc9a32
 #add non-linear saving/loading based on architecture, also options to iterate through entire dictionary and save or load
+
+# ╔═╡ 3d0fb54a-1260-4c95-b5d7-8289f6df40be
+# initialize_fcann_params(10, [5, 5], 3, 1, true) |> get_network_dimensions
+
+# ╔═╡ 673a2a41-5df6-4b45-93b3-33251c39e953
+# function save_nonlinear_value_parameters(base_name::AbstractString, params::FCANNParams{T}) where T<:Float32
+# 	(input_size, hidden_layers, num_layers) = get_network_dimensions(params)
+# 	output_size = params.weights[2][end] |> length
+# 	label = (output_size == 1) ? "dp" : "sarsa"
+# 	reslayers = params.reslayers
+# 	filename = string(base_name, "_$(label)_nonlinear_value_parameters_$(hidden_layers)_hidden_$(reslayers)_reslayers.bin")
+# 	FCANN.writeParams([params.weights]), filename)
+# 	@info "Saved parameters to $filename"
+# 	return filename
+# end
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
 md"""
@@ -2793,6 +2825,8 @@ version = "17.4.0+2"
 # ╠═40e18712-6715-4074-89f7-40d4751e8d20
 # ╟─10d1e2fe-605f-49f7-b06a-e8ce97dfba95
 # ╠═334158b9-220e-4638-9934-5d377fcc9a32
+# ╠═3d0fb54a-1260-4c95-b5d7-8289f6df40be
+# ╠═673a2a41-5df6-4b45-93b3-33251c39e953
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
