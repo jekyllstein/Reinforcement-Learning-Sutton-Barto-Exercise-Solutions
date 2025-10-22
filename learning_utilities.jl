@@ -653,6 +653,94 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
 end
 
+# ╔═╡ 33aa329f-7a8b-4264-837e-19130773315f
+function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	linear_policy_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
+	linear_value_params = initialize_linear_parameters(feature_vector, zero(T))
+	
+	function reset_params()
+		linear_policy_params .= initialize_linear_parameters(feature_vector, mdp, zero(T))
+		linear_value_params .= initialize_linear_parameters(feature_vector, zero(T))
+	end
+	
+	function ac_train_linear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes = typemax(Int64), trace_type = AccumulatingTrace(), new_params::Bool = true, kwargs...)
+		new_params && reset_params()
+		if all(iszero, (λ_θ, λ_w))
+			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+		else
+			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+		end
+	end
+
+	function ac_train_exhaustive(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
+		output1 = ac_train_linear(γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
+		π(s) = output1.policy_sample_action(s)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline episode reward is $reward1, beginning first trial"
+		backup_policy_params = copy(linear_policy_params)
+		backup_value_params = copy(linear_value_params)
+		output2 = ac_train_linear(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
+		reward2 = check_reward_progress(output2.episode_rewards)
+
+		if reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			linear_policy_params .= backup_policy_params
+			linear_value_params .= backup_value_params
+			return (;output1..., performance = reward1)
+		end
+
+		episode_rewards = output2.episode_rewards
+		while reward2 > reward1
+			trial += 1
+			@info "On trial $trial, episode reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			backup_policy_params .= linear_policy_params
+			backup_value_params .= linear_value_params
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			
+			output2 = ac_train_linear(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
+			reward2 = check_reward_progress(output2.episode_rewards)
+		end
+
+		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		linear_policy_params .= backup_policy_params
+		linear_value_params .= backup_value_params
+		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
+	end
+
+	function ac_train_rate_decay(γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
+		output1 = ac_train_exhaustive(γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; new_params = new_params, kwargs...)
+		episode_rewards = output1.episode_rewards
+
+		α_θ = α_θ_init / 2
+		α_w = α_w_init / 2
+		@info "Reducing learning rates to $α_θ and $α_w for next set of trials"
+		output2 = ac_train_exhaustive(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+
+		round = 2
+		while output2.performance > output1.performance
+			episode_rewards = vcat(episode_rewards, output2.episode_rewards)
+			round += 1
+			α_θ = α_θ / 2
+			α_w = α_w / 2
+			output1 = output2
+			@info "On round $round reducing learning rates to $α_θ and $α_w"
+			output2 = ac_train_exhaustive(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+		end
+		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	(linear_train = ac_train_linear, linear_train_exhaustive = ac_train_exhaustive, linear_train_rate_decay = ac_train_rate_decay, linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)	
+end
+
 # ╔═╡ aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
 #=╠═╡
 episodic_linear_value_test = setup_episodic_value_linear_training(episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
@@ -666,6 +754,16 @@ episodic_linear_value_result = episodic_linear_value_test.linear_train_rate_deca
 # ╔═╡ e7653fea-304b-4958-b9e6-9ebe86b91d6f
 #=╠═╡
 plot(-episodic_linear_value_result.episode_rewards, Layout(yaxis_type = "log"))
+  ╠═╡ =#
+
+# ╔═╡ aeed95c6-1f66-4087-a491-faf928fd8f4c
+#=╠═╡
+episodic_linear_policy_test = setup_episodic_policy_linear_training(episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 2fb66afd-5889-4866-8a93-e8903881de9d
+#=╠═╡
+episodic_linear_policy_result = episodic_linear_policy_test.linear_train_rate_decay(1f0, 4f-3, 4f-3, 0.99f0, 0.99f0, 1_000_000; new_params = true)
   ╠═╡ =#
 
 # ╔═╡ cebdb010-7e8d-4fb8-bf49-418181061ad4
@@ -907,6 +1005,11 @@ begin
 		plot_rewards(newrewards, nsmooth, npoints)
 	end
 end
+  ╠═╡ =#
+
+# ╔═╡ e2161522-ec87-47ff-89a5-d683c64f75a1
+#=╠═╡
+plot_rewards(episodic_linear_policy_result.episode_rewards, 100, 1000)
   ╠═╡ =#
 
 # ╔═╡ 2211b988-2a0b-4bb3-947d-efcf72473626
@@ -1954,9 +2057,13 @@ version = "17.4.0+2"
 # ╠═ea749dd8-91ad-4360-9304-5382846a02c6
 # ╠═a5b13027-c3b6-488e-82a1-2ee3be6c63be
 # ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
+# ╠═33aa329f-7a8b-4264-837e-19130773315f
 # ╠═aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
 # ╠═97bfe437-8cfb-4070-88e6-690647709b62
 # ╠═e7653fea-304b-4958-b9e6-9ebe86b91d6f
+# ╠═aeed95c6-1f66-4087-a491-faf928fd8f4c
+# ╠═2fb66afd-5889-4866-8a93-e8903881de9d
+# ╠═e2161522-ec87-47ff-89a5-d683c64f75a1
 # ╟─cebdb010-7e8d-4fb8-bf49-418181061ad4
 # ╠═64c23666-9e34-4f95-9787-2d1593725bff
 # ╠═9d244394-8523-4975-af85-f70cd0cfa430
