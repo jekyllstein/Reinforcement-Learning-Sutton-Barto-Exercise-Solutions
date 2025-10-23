@@ -558,9 +558,7 @@ end
 #add versions of setup functions with a name argument that will check the disk for existing parameters and create a save function which can be used to write parameters to disk
 
 # ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
-function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	linear_sarsa_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
-	linear_dp_params = initialize_linear_parameters(feature_vector, zero(T))
+function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function reset_params(use_dp::Bool)
 		if use_dp
@@ -668,9 +666,7 @@ function initialize_fcann_value_params(mdp::StateMDP, feature_vector, hidden_lay
 end
 
 # ╔═╡ 98d94e3b-4ca5-4ff0-8409-9d748799931f
-function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	
-	fcann_parameters = Dict{NamedTuple, FCANNParams{T}}()
+function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers, use_dp = use_dp)
@@ -767,9 +763,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 end
 
 # ╔═╡ 33aa329f-7a8b-4264-837e-19130773315f
-function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	linear_policy_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
-	linear_value_params = initialize_linear_parameters(feature_vector, zero(T))
+function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	
 	function reset_params()
 		linear_policy_params .= initialize_linear_parameters(feature_vector, mdp, zero(T))
@@ -862,9 +856,7 @@ function initialize_fcann_policy_params(mdp::StateMDP, feature_vector, hidden_la
 end
 
 # ╔═╡ ad63e185-0618-476c-931e-f69b5f24d2a1
-function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	fcann_policy_parameters = Dict{NamedTuple, FCANNParams{T}}()
-	fcann_value_parameters = Dict{NamedTuple, FCANNParams{T}}()
+function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers)
@@ -1044,9 +1036,7 @@ function evaluate_continuing_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2
 end
 
 # ╔═╡ 9d244394-8523-4975-af85-f70cd0cfa430
-function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	linear_sarsa_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
-	linear_dp_params = initialize_linear_parameters(feature_vector, zero(T))
+function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function reset_params(use_dp::Bool)
 		if use_dp
@@ -1137,9 +1127,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 end
 
 # ╔═╡ d1440c54-faaf-4bf5-a11d-f7c3afb3437f
-function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	
-	fcann_parameters = Dict{NamedTuple, FCANNParams{T}}()
+function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers, use_dp = use_dp)
@@ -1236,9 +1224,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 end
 
 # ╔═╡ 93e197d7-3b7d-41a0-ae6e-2dad6c327f51
-function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	linear_policy_params = initialize_linear_parameters(feature_vector, mdp, zero(T))
-	linear_value_params = initialize_linear_parameters(feature_vector, zero(T))
+function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)),	linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	
 	function reset_params()
 		linear_policy_params .= initialize_linear_parameters(feature_vector, mdp, zero(T))
@@ -1324,7 +1310,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 end
 
 # ╔═╡ 5054ef58-74fd-4fd3-aaaa-099cc00492e2
-function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	fcann_policy_parameters = Dict{NamedTuple, FCANNParams{T}}()
 	fcann_value_parameters = Dict{NamedTuple, FCANNParams{T}}()
 
