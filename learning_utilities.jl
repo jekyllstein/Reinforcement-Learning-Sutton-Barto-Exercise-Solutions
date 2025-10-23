@@ -652,7 +652,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
+	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
 end
 
 # ╔═╡ c68eab1e-b4f1-4fb5-8b3e-f23ad0df0be0
@@ -759,7 +759,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(nonlinear_train = td_train_nonlinear, nonlinear_train_exhaustive = td_train_exhaustive, nonlinear_train_rate_decay = td_train_rate_decay, nonlinear_parameters = fcann_parameters)	
+	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, parameters = fcann_parameters)	
 end
 
 # ╔═╡ 33aa329f-7a8b-4264-837e-19130773315f
@@ -845,7 +845,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(linear_train = ac_train_linear, linear_train_exhaustive = ac_train_exhaustive, linear_train_rate_decay = ac_train_rate_decay, linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)	
+	(train = ac_train_linear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, policy_params = linear_policy_params, value_params = linear_value_params)	
 end
 
 # ╔═╡ 8e91e2c2-a5e6-4cce-8d62-d1568bae7e08
@@ -946,7 +946,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(nonlinear_train = ac_train_nonlinear, nonlinear_train_exhaustive = ac_train_exhaustive, nonlinear_train_rate_decay = ac_train_rate_decay, nonlinear_policy_params = fcann_policy_parameters, nonlinear_value_params = fcann_value_parameters)	
+	(train = ac_train_nonlinear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, policy_params = fcann_policy_parameters, value_params = fcann_value_parameters)	
 end
 
 # ╔═╡ 857d4ddd-2b8c-4a45-ac72-81f5467d0e4c
@@ -961,7 +961,7 @@ episodic_linear_value_test = setup_episodic_value_linear_training(episodic_mdp, 
 
 # ╔═╡ 97bfe437-8cfb-4070-88e6-690647709b62
 #=╠═╡
-episodic_linear_value_result = episodic_linear_value_test.linear_train_rate_decay(1f0, 1f-3, 0.99f0, 1_000_000; new_params = true, ϵ = 0.1f0, use_dp = false)
+episodic_linear_value_result = episodic_linear_value_test.train_rate_decay(1f0, 1f-3, 0.99f0, 1_000_000; new_params = true, ϵ = 0.1f0, use_dp = false)
   ╠═╡ =#
 
 # ╔═╡ e7653fea-304b-4958-b9e6-9ebe86b91d6f
@@ -981,12 +981,12 @@ episodic_nonlinear_value_test = setup_episodic_value_nonlinear_training(episodic
 
 # ╔═╡ eabd4d6b-ce35-41ad-845d-aa1498003814
 #=╠═╡
-episodic_nonlinear_value_result = episodic_nonlinear_value_test.nonlinear_train_rate_decay(fill(16, 2), 1, 1f0, 1f-3, 0.99f0, 1_000_000; new_params = false, ϵ = 0.05f0, use_dp = false)
+episodic_nonlinear_value_result = episodic_nonlinear_value_test.train_rate_decay(fill(16, 2), 1, 1f0, 1f-3, 0.99f0, 1_000_000; new_params = false, ϵ = 0.05f0, use_dp = false)
   ╠═╡ =#
 
 # ╔═╡ e9be7dd3-3b76-4043-99b1-cad431310d35
 #=╠═╡
-episodic_nonlinear_value_test.nonlinear_parameters
+episodic_nonlinear_value_test.parameters
   ╠═╡ =#
 
 # ╔═╡ f9c9ccb4-0291-461d-8016-8f13a9dc1c5d
@@ -1001,7 +1001,7 @@ episodic_linear_policy_test = setup_episodic_policy_linear_training(episodic_mdp
 
 # ╔═╡ 2fb66afd-5889-4866-8a93-e8903881de9d
 #=╠═╡
-episodic_linear_policy_result = episodic_linear_policy_test.linear_train_rate_decay(1f0, 4f-3, 4f-3, 0.99f0, 0.99f0, 1_000_000; new_params = true)
+episodic_linear_policy_result = episodic_linear_policy_test.train_rate_decay(1f0, 4f-3, 4f-3, 0.99f0, 0.99f0, 1_000_000; new_params = true)
   ╠═╡ =#
 
 # ╔═╡ d73cd76a-61eb-47b9-abd8-769f00601743
@@ -1016,7 +1016,7 @@ episodic_nonlinear_policy_test = setup_episodic_policy_nonlinear_training(episod
 
 # ╔═╡ 984158d0-7fb1-4eb1-b904-3bc6011501ad
 #=╠═╡
-episodic_nonlinear_policy_result = episodic_nonlinear_policy_test.nonlinear_train_rate_decay(fill(2, 2), 1, 1f0, 1f-3, 1f-3, 0.5f0, 0.5f0, 100_000; new_params = false)
+episodic_nonlinear_policy_result = episodic_nonlinear_policy_test.train_rate_decay(fill(2, 2), 1, 1f0, 1f-3, 1f-3, 0.5f0, 0.5f0, 100_000; new_params = false)
   ╠═╡ =#
 
 # ╔═╡ 001c295b-9fe6-4036-9fb6-337cff79687c
@@ -1123,7 +1123,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		return (;output1..., reward_history = reward_history)
 	end
 
-	(linear_train = td_train_linear, linear_train_exhaustive = td_train_exhaustive, linear_train_rate_decay = td_train_rate_decay, linear_sarsa_params = linear_sarsa_params, linear_dp_params = linear_dp_params)	
+	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
 end
 
 # ╔═╡ d1440c54-faaf-4bf5-a11d-f7c3afb3437f
@@ -1220,7 +1220,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		return (;output1..., reward_history = reward_history)
 	end
 
-	(nonlinear_train = td_train_nonlinear, nonlinear_train_exhaustive = td_train_exhaustive, nonlinear_train_rate_decay = td_train_rate_decay, nonlinear_parameters = fcann_parameters)	
+	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, parameters = fcann_parameters)	
 end
 
 # ╔═╡ 93e197d7-3b7d-41a0-ae6e-2dad6c327f51
@@ -1306,7 +1306,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 		return (;output1..., reward_history = reward_history)
 	end
 
-	(linear_train = ac_train_linear, linear_train_exhaustive = ac_train_exhaustive, linear_train_rate_decay = ac_train_rate_decay, linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)	
+	(train = ac_train_linear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, policy_params = linear_policy_params, value_params = linear_value_params)	
 end
 
 # ╔═╡ 5054ef58-74fd-4fd3-aaaa-099cc00492e2
@@ -1402,7 +1402,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		return (;output1..., reward_history = reward_history)
 	end
 
-	(nonlinear_train = ac_train_nonlinear, nonlinear_train_exhaustive = ac_train_exhaustive, nonlinear_train_rate_decay = ac_train_rate_decay, nonlinear_policy_params = fcann_policy_parameters, nonlinear_value_params = fcann_value_parameters)	
+	(train = ac_train_nonlinear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, policy_params = fcann_policy_parameters, value_params = fcann_value_parameters)	
 end
 
 # ╔═╡ cd7afe0e-486c-43ed-874a-8ce20a01a8bb
@@ -1417,7 +1417,7 @@ continuing_linear_value_test = setup_continuing_value_linear_training(continuing
 
 # ╔═╡ 87365f50-017a-4773-8168-e94c6ebc0c04
 #=╠═╡
-continuing_linear_value_result = continuing_linear_value_test.linear_train_rate_decay(1f-2, 0.5f0, 1_000_000; ϵ = 0.01f0, α_r̄ = 0.01f0)
+continuing_linear_value_result = continuing_linear_value_test.train_rate_decay(1f-2, 0.5f0, 1_000_000; ϵ = 0.01f0, α_r̄ = 0.01f0)
   ╠═╡ =#
 
 # ╔═╡ f9c4402f-da4e-48e8-a125-d6e5db026ae8
@@ -1432,7 +1432,7 @@ continuing_nonlinear_value_test = setup_continuing_value_nonlinear_training(cont
 
 # ╔═╡ 77466131-49bb-4ea5-9c87-423d29842b98
 #=╠═╡
-continuing_nonlinear_value_result = continuing_nonlinear_value_test.nonlinear_train_rate_decay(fill(4, 2), 1, 1f-2, 0.5f0, 100_000; ϵ = 0.01f0, α_r̄ = 0.01f0, new_params = true)
+continuing_nonlinear_value_result = continuing_nonlinear_value_test.train_rate_decay(fill(4, 2), 1, 1f-2, 0.5f0, 100_000; ϵ = 0.01f0, α_r̄ = 0.01f0, new_params = true)
   ╠═╡ =#
 
 # ╔═╡ 1766314b-b9ee-4be0-bdb7-7aa714cc7e6d
@@ -1447,7 +1447,7 @@ continuing_linear_policy_test = setup_continuing_policy_linear_training(continui
 
 # ╔═╡ 79784c4b-2ccf-4c83-8864-6376091a5c9a
 #=╠═╡
-continuing_linear_policy_result = continuing_linear_policy_test.linear_train_rate_decay(1f-2, 1f-2, 0.75f0, 0.75f0, 100_000; α_r̄ = 0.01f0, new_params = true)
+continuing_linear_policy_result = continuing_linear_policy_test.train_rate_decay(1f-2, 1f-2, 0.75f0, 0.75f0, 100_000; α_r̄ = 0.01f0, new_params = true)
   ╠═╡ =#
 
 # ╔═╡ 474df763-cfed-469a-9cde-832e9f52a1b1
@@ -1462,17 +1462,17 @@ continuing_nonlinear_policy_test = setup_continuing_policy_nonlinear_training(co
 
 # ╔═╡ 62a03117-f939-4e8a-9b17-dce78804641e
 #=╠═╡
-continuing_nonlinear_policy_result = continuing_nonlinear_policy_test.nonlinear_train_rate_decay(fill(2, 2), 1, 1f-3, 1f-3, 0.9f0, 0.9f0, 100_000; α_r̄ = 0.1f0, new_params = true)
+continuing_nonlinear_policy_result = continuing_nonlinear_policy_test.train_rate_decay(fill(2, 2), 1, 1f-3, 1f-3, 0.9f0, 0.9f0, 100_000; α_r̄ = 0.1f0, new_params = true)
   ╠═╡ =#
 
 # ╔═╡ 95e267e2-2c3f-4ab2-bc1b-40147a3cb94a
 #=╠═╡
-continuing_nonlinear_policy_test.nonlinear_policy_params
+continuing_nonlinear_policy_test.policy_params
   ╠═╡ =#
 
 # ╔═╡ 8f21188f-3118-4933-a8a5-83d1c9ffd503
 #=╠═╡
-continuing_nonlinear_policy_test.nonlinear_value_params
+continuing_nonlinear_policy_test.value_params
   ╠═╡ =#
 
 # ╔═╡ 487ab8b6-d9a8-4f78-a0d0-1f655450857f
@@ -1535,7 +1535,7 @@ function linear_value_parameters_save_check(base_name::AbstractString, mdp::Stat
 	
 	label1 = use_dp ? "dp" : "sarsa"
 	label2 = "$(l)_input"
-	label3 = use_dp ? "" : "_$(num_actions)_output"
+	label3 = "_$(num_actions)_actions"
 	filename = string(base_name, "_$label1", "_linear_value_parameters_$label2$label3.bin")
 	check = isfile(filename)
 	return (check, filename)
@@ -1587,9 +1587,9 @@ function save_linear_policy_parameters(base_name::AbstractString, mdp::StateMDP,
 end
 
 # ╔═╡ 9cab6940-85df-47f0-a6c6-c5f7ef2d2f10
-function linear_policy_parameters_save_check(basename::AbstractString, mdp::StateMDP, feature_vector)
+function linear_policy_parameters_save_check(base_name::AbstractString, mdp::StateMDP, feature_vector)
 	l = length(feature_vector)
-	m = size(policy_params, 2)
+	m = length(mdp.actions)
 	filename1 = string(base_name, "_linear_policy_parameters_$(l)_input_$(m)_actions.bin")
 	filename2 = string(base_name, "_linear_value_parameters_$(l)_input_$(m)_actions.bin")
 
@@ -1631,13 +1631,85 @@ end
 linear_policy_disk_test()
   ╠═╡ =#
 
+# ╔═╡ 7d454b42-050b-4c2a-a9b2-2c445fd9fec1
+function setup_value_linear_training(basename::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	(check1, fname1) = linear_value_parameters_save_check(basename, mdp, feature_vector, true)
+	(check2, fname2) = linear_value_parameters_save_check(basename, mdp, feature_vector, false)
+	if check1 && check2
+		linear_dp_params = load_linear_value_parameters(basename, mdp, feature_vector, true)
+		linear_sarsa_params = load_linear_value_parameters(basename, mdp, feature_vector, false)
+	end
+
+	setup = isepisodic ? setup_episodic_value_linear_training : setup_continuing_value_linear_training
+	output = setup(mdp, feature_vector, update_feature_vector!; linear_sarsa_params = linear_sarsa_params, linear_dp_params = linear_dp_params)
+
+	function save_params()
+		save_linear_value_parameters(basename, mdp, feature_vector, linear_dp_params)
+		save_linear_value_parameters(basename, mdp, feature_vector, linear_sarsa_params)
+	end
+
+	(;output..., save_params = save_params)
+end
+
+# ╔═╡ a131a509-3b5d-484e-a892-098f3518092c
+#=╠═╡
+value_disk_linear_test = setup_value_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ ea253399-4008-4cb0-bbda-a5b2a8fd0d4e
+#=╠═╡
+value_disk_linear_test.train_rate_decay(1f0, 1f-2, 0.5f0, 10_000; use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 7d4853c5-12a3-404e-9119-b207bc1978ec
+#=╠═╡
+value_disk_linear_test.save_params()
+  ╠═╡ =#
+
+# ╔═╡ 693c797c-441a-4d03-998f-feb762237ccb
+#=╠═╡
+setup_value_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 5e5051fb-e0fe-4108-b581-e7ac9b7d2198
+function setup_policy_linear_training(basename::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	(check, fname1, fname2) = linear_policy_parameters_save_check(basename, mdp, feature_vector)
+	if check
+		(linear_policy_params, linear_value_params) = load_linear_policy_parameters(basename, mdp, feature_vector)
+	end
+
+	setup = isepisodic ? setup_episodic_policy_linear_training : setup_continuing_policy_linear_training
+	output = setup(mdp, feature_vector, update_feature_vector!; linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)
+
+	save_params() = save_linear_policy_parameters(basename, mdp, feature_vector, linear_policy_params, linear_value_params)
+
+	(;output..., save_params = save_params)
+end
+
+# ╔═╡ 94f9d831-2fbc-43b7-b199-d9c547932e49
+#=╠═╡
+policy_disk_linear_test = setup_policy_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 3f63c402-37f1-43ae-a83b-6c8306ad0eb7
+#=╠═╡
+policy_disk_linear_test.train_rate_decay(1f0, 1f-2, 1f-2, 0.5f0, 0.5f0, 10_000)
+  ╠═╡ =#
+
+# ╔═╡ 69eb0a3b-1267-4c12-8bdf-e706ecbe3bac
+#=╠═╡
+policy_disk_linear_test.save_params()
+  ╠═╡ =#
+
+# ╔═╡ 7b6e344a-5db6-4e09-9733-d50b91afbb19
+#=╠═╡
+setup_policy_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
 # ╔═╡ 10d1e2fe-605f-49f7-b06a-e8ce97dfba95
 md"""
 ### Non-linear Parameters
 """
-
-# ╔═╡ 334158b9-220e-4638-9934-5d377fcc9a32
-#add non-linear saving/loading based on architecture, also options to iterate through entire dictionary and save or load
 
 # ╔═╡ 673a2a41-5df6-4b45-93b3-33251c39e953
 function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::FCANNParams{T}) where T<:Float32
@@ -2968,8 +3040,17 @@ version = "17.4.0+2"
 # ╠═78589481-3163-48aa-a8d9-51d258f6a930
 # ╠═69b62157-1af5-4aed-959c-b0eefebf7389
 # ╠═40e18712-6715-4074-89f7-40d4751e8d20
+# ╠═7d454b42-050b-4c2a-a9b2-2c445fd9fec1
+# ╠═a131a509-3b5d-484e-a892-098f3518092c
+# ╠═ea253399-4008-4cb0-bbda-a5b2a8fd0d4e
+# ╠═7d4853c5-12a3-404e-9119-b207bc1978ec
+# ╠═693c797c-441a-4d03-998f-feb762237ccb
+# ╠═5e5051fb-e0fe-4108-b581-e7ac9b7d2198
+# ╠═94f9d831-2fbc-43b7-b199-d9c547932e49
+# ╠═3f63c402-37f1-43ae-a83b-6c8306ad0eb7
+# ╠═69eb0a3b-1267-4c12-8bdf-e706ecbe3bac
+# ╠═7b6e344a-5db6-4e09-9733-d50b91afbb19
 # ╟─10d1e2fe-605f-49f7-b06a-e8ce97dfba95
-# ╠═334158b9-220e-4638-9934-5d377fcc9a32
 # ╠═673a2a41-5df6-4b45-93b3-33251c39e953
 # ╠═379ae227-a73a-4693-8941-16f3a725737a
 # ╠═c3595d58-9c2d-4953-a760-e05ac4b5e6b6
