@@ -1530,6 +1530,9 @@ end
 
 # ╔═╡ f7908105-cdb4-4182-b7b1-10d1cf2ce534
 function linear_value_parameters_save_check(base_name::AbstractString, mdp::StateMDP, feature_vector, use_dp::Bool)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	
 	label1 = use_dp ? "dp" : "sarsa"
 	label2 = "$(l)_input"
 	label3 = use_dp ? "" : "_$(num_actions)_output"
@@ -1636,20 +1639,162 @@ md"""
 # ╔═╡ 334158b9-220e-4638-9934-5d377fcc9a32
 #add non-linear saving/loading based on architecture, also options to iterate through entire dictionary and save or load
 
-# ╔═╡ 3d0fb54a-1260-4c95-b5d7-8289f6df40be
-# initialize_fcann_params(10, [5, 5], 3, 1, true) |> get_network_dimensions
-
 # ╔═╡ 673a2a41-5df6-4b45-93b3-33251c39e953
-# function save_nonlinear_value_parameters(base_name::AbstractString, params::FCANNParams{T}) where T<:Float32
-# 	(input_size, hidden_layers, num_layers) = get_network_dimensions(params)
-# 	output_size = params.weights[2][end] |> length
-# 	label = (output_size == 1) ? "dp" : "sarsa"
-# 	reslayers = params.reslayers
-# 	filename = string(base_name, "_$(label)_nonlinear_value_parameters_$(hidden_layers)_hidden_$(reslayers)_reslayers.bin")
-# 	FCANN.writeParams([params.weights]), filename)
-# 	@info "Saved parameters to $filename"
-# 	return filename
-# end
+function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::FCANNParams{T}) where T<:Float32
+	(input_size, hidden_layers, num_layers) = get_network_dimensions(params)
+	output_size = params.weights[2][end] |> length
+	@assert input_size == length(feature_vector) "Parameter dimensions do not match feature vector"
+	@assert output_size == 1 || output_size == length(mdp.actions) "Parameter dimensions do not match MDP action space"
+	label = (output_size == 1) ? "dp" : "sarsa"
+	reslayers = params.reslayers
+	filename = string(base_name, "_$(label)_nonlinear_value_parameters_$(input_size)_input_$(hidden_layers)_hidden_$(reslayers)_reslayers_$(length(mdp.actions))_actions.bin")
+	FCANN.writeParams([params.weights], filename)
+	@info "Saved parameters to $filename"
+	return filename
+end
+
+# ╔═╡ 379ae227-a73a-4693-8941-16f3a725737a
+function load_nonlinear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	
+	label1 = use_dp ? "dp" : "sarsa"
+	label2 = "$(l)_input"
+	label3 = "$(num_actions)_actions"
+	filename = string(base_name, "_$label1", "_nonlinear_value_parameters_$(label2)_$(hidden_layers)_hidden_$(reslayers)_reslayers_$label3.bin")
+	raw_params = FCANN.readBinParams(filename)
+	(weights = raw_params[1], reslayers = reslayers)
+end
+
+# ╔═╡ c3595d58-9c2d-4953-a760-e05ac4b5e6b6
+function nonlinear_value_parameters_save_check(base_name::AbstractString, mdp::StateMDP, feature_vector, hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	
+	label1 = use_dp ? "dp" : "sarsa"
+	label2 = "$(l)_input"
+	label3 = "$(num_actions)_output"
+	filename = string(base_name, "_$label1", "_nonlinear_value_parameters_$(label2)_$(hidden_layers)_hidden_$(reslayers)_reslayers_$label3.bin")
+
+	check = isfile(filename)
+	return (check, filename)
+end
+
+# ╔═╡ 5dabe906-e44c-47c5-b12c-22f829bbc2c9
+function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params_dict::Dict{NamedTuple, FCANNParams})
+	for k in keys(params_dict)
+		save_nonlinear_value_parameters(base_name, mdp, feature_vector, params_dict[k])
+	end
+end
+
+# ╔═╡ aee066a0-e458-475e-ac15-7fa878d8ce87
+function save_nonlinear_policy_parameters(base_name::AbstractString, mdp, feature_vector, policy_params::FCANNParams{T}, value_params::FCANNParams{T}) where T<:Float32
+	(input_size, hidden_layers, num_layers) = get_network_dimensions(policy_params)
+	output_size = policy_params.weights[2][end] |> length
+	value_output_size = value_params.weights[2][end] |> length
+	@assert input_size == length(feature_vector) "Parameter dimensions do not match feature vector"
+	@assert output_size == length(mdp.actions) "Policy parameter dimensions do not match MDP action space"
+	@assert value_output_size == 1 "Value parameter output size is not 1"
+	
+	reslayers = policy_params.reslayers
+	filename1 = string(base_name, "_nonlinear_policy_parameters_$(input_size)_input_$(hidden_layers)_hidden_$(reslayers)_reslayers_$(length(mdp.actions))_actions.bin")
+	filename2 = string(base_name, "_nonlinear_value_parameters_$(input_size)_input_$(hidden_layers)_hidden_$(reslayers)_reslayers_$(length(mdp.actions))_actions.bin")
+
+	FCANN.writeParams([policy_params.weights], filename1)
+	FCANN.writeParams([value_params.weights], filename2)
+	@info "Saved parameters to $filename1 and $filename2"
+	return (filename1, filename2)
+end
+
+# ╔═╡ b596752c-6c9e-451e-963d-07682db396d9
+function load_nonlinear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, hidden_layers::Vector{Int64}, reslayers::Integer)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	label2 = "$(l)_input"
+	label3 = "$(num_actions)_actions"
+	
+	filename1 = string(base_name, "_nonlinear_policy_parameters_$(label2)_$(hidden_layers)_hidden_$(reslayers)_reslayers_$label3.bin")
+	filename2 = string(base_name, "_nonlinear_value_parameters_$(label2)_$(hidden_layers)_hidden_$(reslayers)_reslayers_$label3.bin")
+
+	raw_policy_params = FCANN.readBinParams(filename1)
+	raw_value_params = FCANN.readBinParams(filename2)
+	
+	policy_params = (weights = raw_policy_params[1], reslayers = reslayers)
+	value_params = initialize_fcann_value_params(policy_params, true)
+	value_params.weights[1][end] .= raw_value_params[1][1][end]
+	value_params.weights[2][end] .= raw_value_params[1][2][end]
+
+	return (policy_params, value_params)
+end
+
+# ╔═╡ 81a61620-3cfa-4a70-b934-e190fed83284
+function nonlinear_policy_parameters_save_check(base_name::AbstractString, mdp::StateMDP, feature_vector, hidden_layers::Vector{Int64}, reslayers::Integer)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	label2 = "$(l)_input"
+	label3 = "$(num_actions)_actions"
+	
+	filename1 = string(base_name, "_nonlinear_policy_parameters_$(label2)_$(hidden_layers)_hidden_$(reslayers)_reslayers_$label3.bin")
+	filename2 = string(base_name, "_nonlinear_value_parameters_$(label2)_$(hidden_layers)_hidden_$(reslayers)_reslayers_$label3.bin")
+
+	check = (isfile(filename1) && isfile(filename2))
+	return (check, filename1, filename2)
+end
+
+# ╔═╡ 75247e5b-f1bb-4409-aaed-16cc8c0e0538
+function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, policy_params_dict::Dict{NamedTuple, FCANNParams}, value_params_dict::Dict{NamedTuple, FCANNParams})
+	for k in keys(policy_params_dict)
+		save_nonlinear_policy_parameters(base_name, mdp, feature_vector, policy_params_dict[k], value_params_dict[k])
+	end
+end
+
+# ╔═╡ 6bdf813e-cd76-46df-afe7-5210435df5e7
+#=╠═╡
+function nonlinear_value_disk_test()
+	dp_params = initialize_fcann_params(2, [2, 2], 1, 1, true)
+	fname = save_nonlinear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, dp_params)
+	loaded_dp_params = load_nonlinear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, [2, 2], 1, true)
+	rm(fname)
+	@info "Removed $fname from disk"
+	@assert (dp_params == loaded_dp_params) "Loaded dp parameters do not match originals"
+	@info "Successfully tested nonlinear dp parameter saving/loading"
+
+	sarsa_params = initialize_fcann_params(2, [2, 2], 3, 1, true)
+	fname = save_nonlinear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, sarsa_params)
+	loaded_sarsa_params = load_nonlinear_value_parameters("test1", episodic_mdp, episodic_setup.feature_vector, [2, 2], 1, false)
+	rm(fname)
+	@info "Removed $fname from disk"
+	@assert (sarsa_params == loaded_sarsa_params) "Loaded sarsa parameters do not match originals"
+	@info "Successfully tested nonlinear sarsa parameter saving/loading"
+end
+  ╠═╡ =#
+
+# ╔═╡ 90976177-23f6-465f-8646-48c77ce5c5a3
+#=╠═╡
+nonlinear_value_disk_test()
+  ╠═╡ =#
+
+# ╔═╡ 0a1d6fb2-f99f-469f-8946-b68841d46171
+#=╠═╡
+function nonlinear_policy_disk_test()
+	policy_params = initialize_fcann_params(2, [2, 2], 3, 1, true)
+	value_params = initialize_fcann_value_params(policy_params, true)
+	fname1, fname2 = save_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, policy_params, value_params)
+	loaded_policy_params, loaded_value_params = load_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, [2, 2], 1)
+	rm(fname1)
+	rm(fname2)
+	@info "Removed $fname1 from disk"
+	@info "Removed $fname2 from disk"
+	@assert (policy_params == loaded_policy_params) "Loaded policy parameters do not match originals"
+	@assert (value_params == loaded_value_params) "Loaded value parameters do not match originals"
+	@info "Successfully tested nonlinear policy and value parameter saving/loading"
+end
+  ╠═╡ =#
+
+# ╔═╡ 7042bc0c-ad15-4e73-89e1-aa8028335ce0
+#=╠═╡
+nonlinear_policy_disk_test()
+  ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
 md"""
@@ -2825,8 +2970,18 @@ version = "17.4.0+2"
 # ╠═40e18712-6715-4074-89f7-40d4751e8d20
 # ╟─10d1e2fe-605f-49f7-b06a-e8ce97dfba95
 # ╠═334158b9-220e-4638-9934-5d377fcc9a32
-# ╠═3d0fb54a-1260-4c95-b5d7-8289f6df40be
 # ╠═673a2a41-5df6-4b45-93b3-33251c39e953
+# ╠═379ae227-a73a-4693-8941-16f3a725737a
+# ╠═c3595d58-9c2d-4953-a760-e05ac4b5e6b6
+# ╠═5dabe906-e44c-47c5-b12c-22f829bbc2c9
+# ╠═6bdf813e-cd76-46df-afe7-5210435df5e7
+# ╠═90976177-23f6-465f-8646-48c77ce5c5a3
+# ╠═aee066a0-e458-475e-ac15-7fa878d8ce87
+# ╠═b596752c-6c9e-451e-963d-07682db396d9
+# ╠═81a61620-3cfa-4a70-b934-e190fed83284
+# ╠═75247e5b-f1bb-4409-aaed-16cc8c0e0538
+# ╠═0a1d6fb2-f99f-469f-8946-b68841d46171
+# ╠═7042bc0c-ad15-4e73-89e1-aa8028335ce0
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
