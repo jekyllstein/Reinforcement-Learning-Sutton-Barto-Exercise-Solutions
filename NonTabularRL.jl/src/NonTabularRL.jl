@@ -96,7 +96,9 @@ export setup_episodic_value_parameter_studies, setup_continuing_value_parameter_
 
 export setup_episodic_value_linear_training, setup_continuing_value_linear_training, setup_episodic_policy_linear_training, setup_continuing_policy_linear_training, setup_episodic_value_nonlinear_training, setup_episodic_policy_nonlinear_training, setup_continuing_value_nonlinear_training, setup_continuing_policy_nonlinear_training
 
-export save_linear_value_parameters, load_linear_value_parameters, save_linear_policy_parameters, load_linear_policy_parameters
+export save_linear_value_parameters, load_linear_value_parameters, save_linear_policy_parameters, load_linear_policy_parameters, linear_value_parameters_save_check, linear_policy_parameters_save_check, save_nonlinear_value_parameters, load_nonlinear_value_parameters, save_nonlinear_policy_parameters, load_nonlinear_policy_parameters, nonlinear_value_parameters_save_check, nonlinear_policy_parameters_save_check
+
+export setup_policy_linear_training, setup_value_linear_training, setup_policy_nonlinear_training, setup_value_nonlinear_training
 
 @setup_workload begin
     γ = 0.9f0
@@ -122,11 +124,6 @@ export save_linear_value_parameters, load_linear_value_parameters, save_linear_p
         run_access_control_differential_sarsa(10)
         run_access_control_differential_sarsa(10; compute_value = compute_expected_sarsa_value)
         run_access_control_differential_sarsa(10; compute_value = compute_q_learning_value)
-
-
-        # for algo! in [sarsa_λ!, expected_sarsa_λ!, true_online_sarsa_λ!, true_online_expected_sarsa_λ!]
-        #     test_sarsa_λ(;algo! = algo!)
-        # end
     end
 end
 

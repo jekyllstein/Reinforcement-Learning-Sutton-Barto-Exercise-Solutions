@@ -540,12 +540,6 @@ function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, 
 	return reward_sum / episode_count
 end
 
-# ╔═╡ ea749dd8-91ad-4360-9304-5382846a02c6
-#=╠═╡
-#checks the average reward per episode for a given policy with a budget of computation steps
-evaluate_episodic_policy_performance(episodic_mdp, s -> rand(1:3), 10_000_000)
-  ╠═╡ =#
-
 # ╔═╡ a5b13027-c3b6-488e-82a1-2ee3be6c63be
 function check_reward_progress(episode_rewards::Vector{T}) where T<:Real 
 	isempty(episode_rewards) && return typemin(T)
@@ -553,9 +547,6 @@ function check_reward_progress(episode_rewards::Vector{T}) where T<:Real
 	episode_check = ceil(Int64, l/2)
 	Statistics.mean(view(episode_rewards, episode_check:l))
 end
-
-# ╔═╡ d795d851-f998-4ff4-8834-e89fe2d30c44
-#add versions of setup functions with a name argument that will check the disk for existing parameters and create a save function which can be used to write parameters to disk
 
 # ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
 function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
@@ -1648,27 +1639,26 @@ function setup_value_linear_training(basename::AbstractString, isepisodic::Bool,
 		save_linear_value_parameters(basename, mdp, feature_vector, linear_sarsa_params)
 	end
 
-	(;output..., save_params = save_params)
+	function erase_params()
+		rm(fname1)
+		rm(fname2)
+		@info "Erased parameters at $fname1 and $fname2"
+	end
+
+	(;output..., save_params = save_params, erase_params = erase_params)
 end
 
 # ╔═╡ a131a509-3b5d-484e-a892-098f3518092c
 #=╠═╡
-value_disk_linear_test = setup_value_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
-  ╠═╡ =#
-
-# ╔═╡ ea253399-4008-4cb0-bbda-a5b2a8fd0d4e
-#=╠═╡
-value_disk_linear_test.train_rate_decay(1f0, 1f-2, 0.5f0, 10_000; use_dp = true)
-  ╠═╡ =#
-
-# ╔═╡ 7d4853c5-12a3-404e-9119-b207bc1978ec
-#=╠═╡
-value_disk_linear_test.save_params()
-  ╠═╡ =#
-
-# ╔═╡ 693c797c-441a-4d03-998f-feb762237ccb
-#=╠═╡
-setup_value_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+begin
+	value_disk_linear_test = setup_value_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+	value_disk_linear_test.train_rate_decay(1f0, 1f-2, 0.5f0, 10_000; use_dp = true)
+	value_disk_linear_test.train_rate_decay(1f0, 1f-2, 0.5f0, 10_000; use_dp = false)
+	value_disk_linear_test.save_params()
+	value_disk_linear_load_test = setup_value_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+	@assert !iszero(sum(value_disk_linear_load_test.dp_params)) "Load test failed"
+	value_disk_linear_test.erase_params()
+end
   ╠═╡ =#
 
 # ╔═╡ 5e5051fb-e0fe-4108-b581-e7ac9b7d2198
@@ -1682,28 +1672,25 @@ function setup_policy_linear_training(basename::AbstractString, isepisodic::Bool
 	output = setup(mdp, feature_vector, update_feature_vector!; linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)
 
 	save_params() = save_linear_policy_parameters(basename, mdp, feature_vector, linear_policy_params, linear_value_params)
+	function erase_params()
+		rm(fname1)
+		rm(fname2)
+		@info "Erased parameters from disk at $fname1 and $fname2"
+	end
 
-	(;output..., save_params = save_params)
+	(;output..., save_params = save_params, erase_params = erase_params)
 end
 
 # ╔═╡ 94f9d831-2fbc-43b7-b199-d9c547932e49
 #=╠═╡
-policy_disk_linear_test = setup_policy_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
-  ╠═╡ =#
-
-# ╔═╡ 3f63c402-37f1-43ae-a83b-6c8306ad0eb7
-#=╠═╡
-policy_disk_linear_test.train_rate_decay(1f0, 1f-2, 1f-2, 0.5f0, 0.5f0, 10_000)
-  ╠═╡ =#
-
-# ╔═╡ 69eb0a3b-1267-4c12-8bdf-e706ecbe3bac
-#=╠═╡
-policy_disk_linear_test.save_params()
-  ╠═╡ =#
-
-# ╔═╡ 7b6e344a-5db6-4e09-9733-d50b91afbb19
-#=╠═╡
-setup_policy_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+begin
+	policy_disk_linear_test = setup_policy_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+	policy_disk_linear_test.train_rate_decay(1f0, 1f-2, 1f-2, 0.5f0, 0.5f0, 10_000)
+	policy_disk_linear_test.save_params()
+	policy_disk_linear_load_test = setup_policy_linear_training("test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+	@assert !iszero(sum(policy_disk_linear_load_test.value_params)) "Load test failed"
+	policy_disk_linear_test.erase_params()
+end
   ╠═╡ =#
 
 # ╔═╡ 10d1e2fe-605f-49f7-b06a-e8ce97dfba95
@@ -1753,7 +1740,7 @@ function nonlinear_value_parameters_save_check(base_name::AbstractString, mdp::S
 end
 
 # ╔═╡ 5dabe906-e44c-47c5-b12c-22f829bbc2c9
-function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params_dict::Dict{NamedTuple, FCANNParams})
+function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params_dict::Dict{N, F}) where {N<:NamedTuple, F<:FCANNParams}
 	for k in keys(params_dict)
 		save_nonlinear_value_parameters(base_name, mdp, feature_vector, params_dict[k])
 	end
@@ -1820,6 +1807,56 @@ function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature
 	end
 end
 
+# ╔═╡ 0a1d6fb2-f99f-469f-8946-b68841d46171
+#=╠═╡
+function nonlinear_policy_disk_test()
+	policy_params = initialize_fcann_params(2, [2, 2], 3, 1, true)
+	value_params = initialize_fcann_value_params(policy_params, true)
+	fname1, fname2 = save_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, policy_params, value_params)
+	loaded_policy_params, loaded_value_params = load_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, [2, 2], 1)
+	rm(fname1)
+	rm(fname2)
+	@info "Removed $fname1 from disk"
+	@info "Removed $fname2 from disk"
+	@assert (policy_params == loaded_policy_params) "Loaded policy parameters do not match originals"
+	@assert (value_params == loaded_value_params) "Loaded value parameters do not match originals"
+	@info "Successfully tested nonlinear policy and value parameter saving/loading"
+end
+  ╠═╡ =#
+
+# ╔═╡ 7042bc0c-ad15-4e73-89e1-aa8028335ce0
+#=╠═╡
+nonlinear_policy_disk_test()
+  ╠═╡ =#
+
+# ╔═╡ ef178187-d3b9-4cf2-82c8-585d5e89ac01
+function load_nonlinear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	parameters = Dict{NamedTuple, FCANNParams}()
+	
+	for label1 in ["dp", "sarsa"]
+		str1 = 
+		str = Regex("^\\Q$base_name\\E_\\Q$label1\\E_nonlinear_value_parameters_\\Q$l\\E_input_\\[([\\d,\\s]+)\\]_hidden_(\\d+)_reslayers_\\Q$num_actions\\E_actions\\.bin\$")
+		use_dp = (label1 == "dp")
+		for f in readdir()
+		 	m = match(str, f)
+		 	if !isnothing(m)
+				try
+					@info "Loading parameters from disk with filename $f"
+					hidden_layers = parse.(Int64, split(m.captures[1], ','))
+					reslayers = parse(Int64, m.captures[2])
+					params = load_nonlinear_value_parameters(base_name, mdp, feature_vector, hidden_layers, reslayers, use_dp)
+					parameters[(hidden_layers = hidden_layers, reslayers = reslayers, use_dp = use_dp)] = params
+				catch
+					@warn "Could not load parameters from $m" 
+				end
+		 	end
+		end
+	end
+	return parameters
+end
+
 # ╔═╡ 6bdf813e-cd76-46df-afe7-5210435df5e7
 #=╠═╡
 function nonlinear_value_disk_test()
@@ -1846,26 +1883,56 @@ end
 nonlinear_value_disk_test()
   ╠═╡ =#
 
-# ╔═╡ 0a1d6fb2-f99f-469f-8946-b68841d46171
-#=╠═╡
-function nonlinear_policy_disk_test()
-	policy_params = initialize_fcann_params(2, [2, 2], 3, 1, true)
-	value_params = initialize_fcann_value_params(policy_params, true)
-	fname1, fname2 = save_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, policy_params, value_params)
-	loaded_policy_params, loaded_value_params = load_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, [2, 2], 1)
-	rm(fname1)
-	rm(fname2)
-	@info "Removed $fname1 from disk"
-	@info "Removed $fname2 from disk"
-	@assert (policy_params == loaded_policy_params) "Loaded policy parameters do not match originals"
-	@assert (value_params == loaded_value_params) "Loaded value parameters do not match originals"
-	@info "Successfully tested nonlinear policy and value parameter saving/loading"
+# ╔═╡ ed6bd002-a0a1-49d8-a4a5-f76d3443576d
+function erase_nonlinear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	for label1 in ["dp", "sarsa"]
+		str1 = 
+		str = Regex("^\\Q$base_name\\E_\\Q$label1\\E_nonlinear_value_parameters_\\Q$l\\E_input_\\[([\\d,\\s]+)\\]_hidden_(\\d+)_reslayers_\\Q$num_actions\\E_actions\\.bin\$")
+		use_dp = (label1 == "dp")
+		for f in readdir()
+		 	m = match(str, f)
+		 	if !isnothing(m)
+				@info "Deleting parameters from disk with filename $f"
+				rm(f)
+		 	end
+		end
+	end
 end
-  ╠═╡ =#
 
-# ╔═╡ 7042bc0c-ad15-4e73-89e1-aa8028335ce0
+# ╔═╡ 707b1a25-0d56-486d-a187-b17b922d49c9
+function setup_value_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	loaded_parameters = load_nonlinear_value_parameters(base_name, mdp, feature_vector)
+	for k in keys(loaded_parameters)
+		fcann_parameters[k] = loaded_parameters[k]
+	end
+
+	setup = isepisodic ? setup_episodic_value_nonlinear_training : setup_continuing_value_nonlinear_training
+
+	output = setup(mdp, feature_vector, update_feature_vector!; fcann_parameters = fcann_parameters)
+
+	save_params() = save_nonlinear_value_parameters(base_name, mdp, feature_vector, fcann_parameters)
+	erase_params() = erase_nonlinear_value_parameters(base_name, mdp, feature_vector)
+	(;output..., save_params = save_params, erase_params = erase_params)
+end
+
+# ╔═╡ 102759b5-f467-4768-8e5e-78806a5b9ad6
 #=╠═╡
-nonlinear_policy_disk_test()
+begin
+	value_disk_nonlinear_test = setup_value_nonlinear_training("nonlinear_value_test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+
+	for layer_size = [4, 8, 16] for use_dp = [true, false]
+		value_disk_nonlinear_test.train_rate_decay(fill(layer_size, 4), 1, 1f0, 1f-2, 0.5f0, 1_000; use_dp = use_dp)
+	end end
+	value_disk_nonlinear_test.save_params()
+		
+	value_disk_nonlinear_load_test = setup_value_nonlinear_training("nonlinear_value_test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+
+	@assert !isempty(value_disk_nonlinear_load_test.parameters) "Load test failed"
+
+	value_disk_nonlinear_test.erase_params()
+end
   ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
@@ -2977,9 +3044,7 @@ version = "17.4.0+2"
 # ╟─4c51ea7d-0ba3-45be-bb15-31103953e2b1
 # ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
 # ╠═3a938f27-b6fe-4411-8c41-5d1efaa8189c
-# ╠═ea749dd8-91ad-4360-9304-5382846a02c6
 # ╠═a5b13027-c3b6-488e-82a1-2ee3be6c63be
-# ╠═d795d851-f998-4ff4-8834-e89fe2d30c44
 # ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
 # ╠═c68eab1e-b4f1-4fb5-8b3e-f23ad0df0be0
 # ╠═98d94e3b-4ca5-4ff0-8409-9d748799931f
@@ -3042,14 +3107,8 @@ version = "17.4.0+2"
 # ╠═40e18712-6715-4074-89f7-40d4751e8d20
 # ╠═7d454b42-050b-4c2a-a9b2-2c445fd9fec1
 # ╠═a131a509-3b5d-484e-a892-098f3518092c
-# ╠═ea253399-4008-4cb0-bbda-a5b2a8fd0d4e
-# ╠═7d4853c5-12a3-404e-9119-b207bc1978ec
-# ╠═693c797c-441a-4d03-998f-feb762237ccb
 # ╠═5e5051fb-e0fe-4108-b581-e7ac9b7d2198
 # ╠═94f9d831-2fbc-43b7-b199-d9c547932e49
-# ╠═3f63c402-37f1-43ae-a83b-6c8306ad0eb7
-# ╠═69eb0a3b-1267-4c12-8bdf-e706ecbe3bac
-# ╠═7b6e344a-5db6-4e09-9733-d50b91afbb19
 # ╟─10d1e2fe-605f-49f7-b06a-e8ce97dfba95
 # ╠═673a2a41-5df6-4b45-93b3-33251c39e953
 # ╠═379ae227-a73a-4693-8941-16f3a725737a
@@ -3063,6 +3122,10 @@ version = "17.4.0+2"
 # ╠═75247e5b-f1bb-4409-aaed-16cc8c0e0538
 # ╠═0a1d6fb2-f99f-469f-8946-b68841d46171
 # ╠═7042bc0c-ad15-4e73-89e1-aa8028335ce0
+# ╠═ef178187-d3b9-4cf2-82c8-585d5e89ac01
+# ╠═ed6bd002-a0a1-49d8-a4a5-f76d3443576d
+# ╠═707b1a25-0d56-486d-a187-b17b922d49c9
+# ╠═102759b5-f467-4768-8e5e-78806a5b9ad6
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
