@@ -724,12 +724,12 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
 		@info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(hidden_layers, reslayers, γ, α_init, λ, trial_steps; kwargs...)
+		output1 = td_train_exhaustive(hidden_layers, reslayers, γ, α_init, λ, trial_steps; use_dp = use_dp, kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α = α_init / 2
 		@info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; kwargs...)
+		output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; use_dp = use_dp, kwargs...)
 
 		if output2.performance ≤ output1.performance
 			@info "Second round performance of $(output2.performance) failed to improve reward"
@@ -744,7 +744,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			@info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; kwargs...)
+			output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; use_dp = use_dp, kwargs...)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
@@ -972,7 +972,7 @@ episodic_nonlinear_value_test = setup_episodic_value_nonlinear_training(episodic
 
 # ╔═╡ eabd4d6b-ce35-41ad-845d-aa1498003814
 #=╠═╡
-episodic_nonlinear_value_result = episodic_nonlinear_value_test.train_rate_decay(fill(16, 2), 1, 1f0, 1f-3, 0.99f0, 1_000_000; new_params = false, ϵ = 0.05f0, use_dp = false)
+episodic_nonlinear_value_result = episodic_nonlinear_value_test.train_rate_decay(fill(16, 2), 1, 1f0, 1f-3, 0.99f0, 1_000_000; new_params = true, ϵ = 0.05f0, use_dp = false)
   ╠═╡ =#
 
 # ╔═╡ e9be7dd3-3b76-4043-99b1-cad431310d35
@@ -1185,12 +1185,12 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
 		@info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs...)
+		output1 = td_train_exhaustive(hidden_layers, reslayers, α_init, λ, trial_steps; use_dp = use_dp, kwargs...)
 		reward_history = output1.reward_history
 
 		α = α_init / 2
 		@info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; kwargs...)
+		output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; use_dp = use_dp, kwargs...)
 
 		if output2.performance ≤ output1.performance
 			@info "Second round performance of $(output2.performance) failed to improve reward"
@@ -1205,7 +1205,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 			output1 = output2
 			reward_history = vcat(reward_history, output1.reward_history)
 			@info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; kwargs...)
+			output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; use_dp = use_dp, kwargs...)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., reward_history = reward_history)
