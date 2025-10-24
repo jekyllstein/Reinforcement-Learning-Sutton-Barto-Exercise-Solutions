@@ -270,14 +270,14 @@ function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, 
 	sarsa_studies = setup_continuing_value_parameter_studies(mdp, feature_vector, update_feature_vector!)
 	!use_dp && return sarsa_studies
 	
-	function dp_train_linear(α::T, λ::T, num_steps::Integer; kwargs...)
+	function dp_train_linear(α::T, λ::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
 			semi_gradient_differential_dp_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			dp_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+			dp_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
-	dp_linear_study = setup_parameter_study(make_continuing_trial(dp_train_linear), (:α, :λ, :num_steps), (ϵ = 0.1f0, α_r̄ = one(T) / 100))
+	dp_linear_study = setup_parameter_study(make_continuing_trial(dp_train_linear), (:α, :λ, :num_steps), (ϵ = 0.1f0, α_r̄ = one(T) / 100, trace_type = AccumulatingTrace()))
 
 	function dp_train_nonlinear(γ::T, α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
@@ -288,7 +288,7 @@ function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, 
 		end
 	end
 	
-	dp_nonlinear_study = setup_parameter_study(make_continuing_trial(dp_train_nonlinear), (:α, :λ, :num_steps, :layer_size, :num_layers, :reslayers), (ϵ = one(T) / 10, α_r̄ = one(T) / 100))
+	dp_nonlinear_study = setup_parameter_study(make_continuing_trial(dp_train_nonlinear), (:α, :λ, :num_steps, :layer_size, :num_layers, :reslayers), (ϵ = one(T) / 10, α_r̄ = one(T) / 100, trace_type = AccumulatingTrace()))
 	
 	(;sarsa_studies..., dp_linear_study = dp_linear_study, dp_nonlinear_study = dp_nonlinear_study)
 end
@@ -1249,7 +1249,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 			@info "First trial performance of $reward2 failed to improve reward"
 			linear_policy_params .= backup_policy_params
 			linear_value_params .= backup_value_params
-			return (;output1, performance = reward1)
+			return (;output1..., performance = reward1)
 		end
 
 		reward_history = output2.reward_history
