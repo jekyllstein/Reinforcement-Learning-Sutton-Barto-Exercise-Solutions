@@ -279,7 +279,7 @@ function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, 
 	end
 	dp_linear_study = setup_parameter_study(make_continuing_trial(dp_train_linear), (:α, :λ, :num_steps), (ϵ = 0.1f0, α_r̄ = one(T) / 100, trace_type = AccumulatingTrace()))
 
-	function dp_train_nonlinear(γ::T, α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...)
+	function dp_train_nonlinear(α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
 			semi_gradient_differential_dp_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
