@@ -1801,33 +1801,11 @@ function nonlinear_policy_parameters_save_check(base_name::AbstractString, mdp::
 end
 
 # ╔═╡ 75247e5b-f1bb-4409-aaed-16cc8c0e0538
-function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, policy_params_dict::Dict{NamedTuple, FCANNParams}, value_params_dict::Dict{NamedTuple, FCANNParams})
+function save_nonlinear_policy_parameters(base_name::AbstractString, mdp, feature_vector, policy_params_dict::Dict{N, F}, value_params_dict::Dict{N, F}) where {N<:NamedTuple, F<:FCANNParams}
 	for k in keys(policy_params_dict)
 		save_nonlinear_policy_parameters(base_name, mdp, feature_vector, policy_params_dict[k], value_params_dict[k])
 	end
 end
-
-# ╔═╡ 0a1d6fb2-f99f-469f-8946-b68841d46171
-#=╠═╡
-function nonlinear_policy_disk_test()
-	policy_params = initialize_fcann_params(2, [2, 2], 3, 1, true)
-	value_params = initialize_fcann_value_params(policy_params, true)
-	fname1, fname2 = save_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, policy_params, value_params)
-	loaded_policy_params, loaded_value_params = load_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, [2, 2], 1)
-	rm(fname1)
-	rm(fname2)
-	@info "Removed $fname1 from disk"
-	@info "Removed $fname2 from disk"
-	@assert (policy_params == loaded_policy_params) "Loaded policy parameters do not match originals"
-	@assert (value_params == loaded_value_params) "Loaded value parameters do not match originals"
-	@info "Successfully tested nonlinear policy and value parameter saving/loading"
-end
-  ╠═╡ =#
-
-# ╔═╡ 7042bc0c-ad15-4e73-89e1-aa8028335ce0
-#=╠═╡
-nonlinear_policy_disk_test()
-  ╠═╡ =#
 
 # ╔═╡ ef178187-d3b9-4cf2-82c8-585d5e89ac01
 function load_nonlinear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
@@ -1932,6 +1910,109 @@ begin
 	@assert !isempty(value_disk_nonlinear_load_test.parameters) "Load test failed"
 
 	value_disk_nonlinear_test.erase_params()
+end
+  ╠═╡ =#
+
+# ╔═╡ 3624fa9e-a3bb-437f-a8db-1b1662e3ba31
+function load_nonlinear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+	value_parameters = Dict{NamedTuple, FCANNParams}()
+	policy_parameters = Dict{NamedTuple, FCANNParams}()
+
+	str = Regex("^\\Q$base_name\\E_nonlinear_policy_parameters_\\Q$l\\E_input_\\[([\\d,\\s]+)\\]_hidden_(\\d+)_reslayers_\\Q$num_actions\\E_actions\\.bin\$")	
+	for f in readdir()
+	 	m = match(str, f)
+		if !isnothing(m)
+			try
+				@info "Loading parameters from disk with filename $f"
+				hidden_layers = parse.(Int64, split(m.captures[1], ','))
+				reslayers = parse(Int64, m.captures[2])
+				policy_params, value_params = load_nonlinear_policy_parameters(base_name, mdp, feature_vector, hidden_layers, reslayers)
+				policy_parameters[(hidden_layers = hidden_layers, reslayers = reslayers)] = policy_params
+				value_parameters[(hidden_layers = hidden_layers, reslayers = reslayers)] = value_params
+			catch
+				@warn "Could not load parameters from $m" 
+			end
+		end
+	end
+	return policy_parameters, value_parameters
+end
+
+# ╔═╡ 0a1d6fb2-f99f-469f-8946-b68841d46171
+#=╠═╡
+function nonlinear_policy_disk_test()
+	policy_params = initialize_fcann_params(2, [2, 2], 3, 1, true)
+	value_params = initialize_fcann_value_params(policy_params, true)
+	fname1, fname2 = save_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, policy_params, value_params)
+	loaded_policy_params, loaded_value_params = load_nonlinear_policy_parameters("test1", episodic_mdp, episodic_setup.feature_vector, [2, 2], 1)
+	rm(fname1)
+	rm(fname2)
+	@info "Removed $fname1 from disk"
+	@info "Removed $fname2 from disk"
+	@assert (policy_params == loaded_policy_params) "Loaded policy parameters do not match originals"
+	@assert (value_params == loaded_value_params) "Loaded value parameters do not match originals"
+	@info "Successfully tested nonlinear policy and value parameter saving/loading"
+end
+  ╠═╡ =#
+
+# ╔═╡ 7042bc0c-ad15-4e73-89e1-aa8028335ce0
+#=╠═╡
+nonlinear_policy_disk_test()
+  ╠═╡ =#
+
+# ╔═╡ 9394e249-1d18-47eb-8b3d-15c71586af53
+function erase_nonlinear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
+	l = length(feature_vector)
+	num_actions = length(mdp.actions)
+
+	
+	str1 = Regex("^\\Q$base_name\\E_nonlinear_policy_parameters_\\Q$l\\E_input_\\[([\\d,\\s]+)\\]_hidden_(\\d+)_reslayers_\\Q$num_actions\\E_actions\\.bin\$")	
+	str2 = Regex("^\\Q$base_name\\E_nonlinear_value_parameters_\\Q$l\\E_input_\\[([\\d,\\s]+)\\]_hidden_(\\d+)_reslayers_\\Q$num_actions\\E_actions\\.bin\$")	
+
+	for f in readdir()
+		for str in [str1, str2]
+		 	m = match(str, f)
+			if !isnothing(m)
+				@info "Deleting parameters from disk with filename $f"
+				rm(f)
+			end
+		end
+	end
+end
+
+# ╔═╡ c182475b-c1b0-4835-8347-f0f4a831909b
+function setup_policy_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	loaded_policy_parameters, loaded_value_parameters = load_nonlinear_policy_parameters(base_name, mdp, feature_vector)
+	for k in keys(loaded_policy_parameters)
+		fcann_policy_parameters[k] = loaded_policy_parameters[k]
+		fcann_value_parameters[k] = loaded_value_parameters[k]
+	end
+
+	setup = isepisodic ? setup_episodic_policy_nonlinear_training : setup_continuing_policy_nonlinear_training
+
+	output = setup(mdp, feature_vector, update_feature_vector!; fcann_policy_parameters = fcann_policy_parameters, fcann_value_parameters = fcann_value_parameters)
+
+	save_params() = save_nonlinear_policy_parameters(base_name, mdp, feature_vector, fcann_policy_parameters, fcann_value_parameters)
+	erase_params() = erase_nonlinear_policy_parameters(base_name, mdp, feature_vector)
+	(;output..., save_params = save_params, erase_params = erase_params)
+end
+
+# ╔═╡ b5c0be58-c2cd-440e-9b8b-254e3990ff44
+#=╠═╡
+begin
+	policy_disk_nonlinear_test = setup_policy_nonlinear_training("nonlinear_policy_test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+
+	for layer_size = [4, 8, 16]
+		policy_disk_nonlinear_test.train_rate_decay(fill(layer_size, 4), 1, 1f0, 1f-2, 1f-2, 0.5f0, 0.5f0, 1_000)
+	end
+	policy_disk_nonlinear_test.save_params()
+		
+	policy_disk_nonlinear_load_test = setup_policy_nonlinear_training("nonlinear_policy_test_episodic", true, episodic_mdp, episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+
+	@assert !isempty(policy_disk_nonlinear_load_test.policy_params) "Load test failed"
+
+	policy_disk_nonlinear_test.erase_params()
 end
   ╠═╡ =#
 
@@ -3126,6 +3207,10 @@ version = "17.4.0+2"
 # ╠═ed6bd002-a0a1-49d8-a4a5-f76d3443576d
 # ╠═707b1a25-0d56-486d-a187-b17b922d49c9
 # ╠═102759b5-f467-4768-8e5e-78806a5b9ad6
+# ╠═3624fa9e-a3bb-437f-a8db-1b1662e3ba31
+# ╠═9394e249-1d18-47eb-8b3d-15c71586af53
+# ╠═c182475b-c1b0-4835-8347-f0f4a831909b
+# ╠═b5c0be58-c2cd-440e-9b8b-254e3990ff44
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
