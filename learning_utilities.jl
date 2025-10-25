@@ -77,6 +77,9 @@ md"""
 When we construct a parameter study for value function methods, usually we care about the learning rate and the training time.  The other parameters can have default settings.
 """
 
+# ╔═╡ e68c46ff-06a4-47ab-b9ec-2b8d2b57d6af
+#considering adding the ability to save a parameter study, the keys are mostly plain text things that can be parsed but the eligibility trace variable will need to be saved in a special way.  could use dataframes and CSV for this since it is just a table.  When I reload it I would want to update the dictionary with the new results
+
 # ╔═╡ 42537afd-7655-45a2-b18b-0759982b124c
 md"""
 #### Episodic Studies
@@ -1302,9 +1305,6 @@ end
 
 # ╔═╡ 5054ef58-74fd-4fd3-aaaa-099cc00492e2
 function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	fcann_policy_parameters = Dict{NamedTuple, FCANNParams{T}}()
-	fcann_value_parameters = Dict{NamedTuple, FCANNParams{T}}()
-
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers)
 		if (!haskey(fcann_policy_parameters, key) || reset_params) 
@@ -3069,6 +3069,7 @@ version = "17.4.0+2"
 # ╠═8cf192df-e554-41b6-b9d0-71a142766021
 # ╠═c20fad45-4033-4c60-b7db-3d8c9148026f
 # ╟─f43d6616-d28e-4799-a677-b00b5811b2c1
+# ╠═e68c46ff-06a4-47ab-b9ec-2b8d2b57d6af
 # ╟─42537afd-7655-45a2-b18b-0759982b124c
 # ╠═e932d0fd-5832-41eb-a2a3-13a89a1e8751
 # ╠═742c8135-9aac-49f3-ac9a-8430aa4c2b41
