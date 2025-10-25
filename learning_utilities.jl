@@ -1147,7 +1147,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
-		@info "Starting exhaustive training with $α = $α, and λ = $λ with $trial_steps steps per trial"
+		@info "Starting exhaustive training with α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, kwargs...)
 		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
