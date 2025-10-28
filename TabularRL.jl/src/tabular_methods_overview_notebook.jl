@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.18
+# v0.20.19
 
 using Markdown
 using InteractiveUtils
@@ -1169,7 +1169,11 @@ begin
 end
 
 # ╔═╡ ed7c22bf-2773-4ff7-93d0-2bd05cfef738
-calc_pct_change(x_old, x_new) = abs(x_old - x_new) / (eps(abs(x_old)) + abs(x_old))
+function calc_pct_change(x_old::T, x_new::T) where T<:Real 
+	isinf(x_old) && isinf(x_new) && return zero(T)
+	isnan(x_old) && isnan(x_new) && return zero(T)
+	abs(x_old - x_new) / (eps(abs(x_old)) + abs(x_old))
+end
 
 # ╔═╡ 28ab0c91-ebfe-4f05-b35b-f4282ae1c57d
 begin
@@ -1621,7 +1625,7 @@ begin
 	function bellman_state_action_value(ptf::TabularStochasticTransition{T, 2}, i_s::Integer, i_a::Integer, γ::T, args...) where T<:Real
 		state_transitions = ptf.state_transition_map[i_a, i_s]
 		reward_transitions = ptf.reward_transition_map[i_a, i_s]
-		isempty(reward_transitions) && return typemin(T) #if there are now reward transitions then the action is invalid
+		isempty(reward_transitions) && return typemin(T) #if there are no reward transitions then the action is invalid
 		v_avg = zero(T)
 		@inbounds @simd for i in eachindex(reward_transitions)
 			r = reward_transitions[i]
