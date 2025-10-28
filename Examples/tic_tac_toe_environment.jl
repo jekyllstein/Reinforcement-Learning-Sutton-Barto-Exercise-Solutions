@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.17
+# v0.20.19
 
 using Markdown
 using InteractiveUtils
@@ -160,7 +160,10 @@ const status_functions = (score_functions..., is_o_move, valid_moves)
 
 # ╔═╡ 62bd6663-101d-45c6-8aad-0425da307d3a
 #rewards associated with arriving at a board with the following conditions for the X player.  rewards for the O player will be negative of this.  The value of draw differing from 0 is so it can be distinguished from an active board.  Also under these rewards a state with equal probability of win and loss would be 0 whereas a state with an expected draw would be valued at -0.5.
-rewardsX = NamedTuple(zip(Symbol.(score_functions), (1f0, -1f0, -0.5f0, 0f0)))
+const rewardsX = NamedTuple(zip(Symbol.(score_functions), (1f0, -1f0, -0.5f0, 0f0)))
+
+# ╔═╡ 5bd479bd-35a5-4ff8-b534-95bd628c9af9
+const rewardsX_alt = NamedTuple(zip(Symbol.(score_functions), (1f0, -0.5f0, -0.5f0, 0f0)))
 
 # ╔═╡ 02237d67-ada1-488e-bfff-f5f51fca757d
 const BoardStatus = NamedTuple{Symbol.(status_functions)}
@@ -175,20 +178,20 @@ get_board_status(board) = get_board_status(BoardTTT(board))
 
 # ╔═╡ bc259929-d37b-441b-af3d-a0f56f6e7387
 #reward associated with arriving at a new board from the perspective of the x player, not that for valid boards only one of the values in status will be true so this will produce a value for invalid boards even though it isn't well defined
-get_reward_x(status::BoardStatus) = sum(rewardsX[k]*status[k] for k in keys(rewardsX))
+get_reward_x(status::BoardStatus; rewards = rewardsX) = sum(rewards[k]*status[k] for k in keys(rewards))
 
 # ╔═╡ 8678870f-3a3a-4293-8295-a53b08cc1549
-get_reward_x(board) = get_reward_x(get_board_status(board))
+get_reward_x(board; kwargslll) = get_reward_x(get_board_status(board); kwargs...)
 
 # ╔═╡ 2c17bef9-da02-4c9a-8aff-72176ed3ec10
-get_reward_o(args...) = -get_reward_x(args...)
+get_reward_o(args...; kwargs...) = -get_reward_x(args...; kwargs...)
 
 # ╔═╡ d5917084-6b70-4158-a32d-a2a9d375ac8a
 #get reward for a board assuming the desired perspective is the player with the available move
-get_reward(status::BoardStatus) = (1 - 2*status.is_o_move) * get_reward_x(status)
+get_reward(status::BoardStatus; kwargs...) = (1 - 2*status.is_o_move) * get_reward_x(status; kwargs...)
 
 # ╔═╡ 857d205e-ff6d-4709-9b2e-f010bee240d1
-get_reward(board) = get_reward(get_board_status(board))
+get_reward(board; kwargs...) = get_reward(get_board_status(board); kwargs...)
 
 # ╔═╡ a514f581-b3ec-41dd-a783-d60fbc56c255
 # convert a board representation as a vector to an integer using powers of 3, need to use UInt16 here to have enough states.  Optionally permute the indices to calculate the state of a transformed board
@@ -294,7 +297,7 @@ md"""
 function π_random_ttt!(action_probabilities::Vector{T}, s::BoardTTT) where T<:Real
 	n = zero(T)
 	for i in eachindex(s)
-		x = iszero(s[i]) #check if action is valid
+		x = T(iszero(s[i])) #check if action is valid
 		action_probabilities[i] = x
 		n += x
 	end
@@ -425,10 +428,10 @@ symmetric_move(board, m) = first(symmetric_board_lookup[ttt_environment.move(boa
 
 # ╔═╡ be80db21-c043-4a9b-8473-f2ab4a1e04ce
 #take a step but map boards to symmetric versions and any inactive board maps to the terminal state. defaults to calculating rewards from the x player perspective
-function ttt_step(board, m; reward_func = get_reward_x)
+function ttt_step(board, m; reward_func = get_reward_x, kwargs...)
 	newboard = symmetric_move(board, m)
 	(status, isym) = lookup_board_status(newboard)
-	r = reward_func(status)
+	r = reward_func(status; kwargs...)
 	(newboard, r, status.is_active)
 	# finalboard = status.is_active ? newboard : ttt_environment.term_board
 	# (finalboard, r, status.is_active)
@@ -444,7 +447,7 @@ function ttt_step(board::BoardTTT, m::UInt8, get_opponent_action::Function; kwar
 end
 
 # ╔═╡ 68b8fd79-09f9-43c5-bf53-b5b875d63c3f
-function make_ttt_ptfs(π_opponent::Function)
+function make_ttt_ptfs(π_opponent::Function; kwargs...)
 	state_transition_map_x = Matrix{SparseVector{Float32, Int64}}(undef, 9, length(symmetric_boards))
 	reward_transition_map_x = Matrix{Vector{Float32}}(undef, 9, length(symmetric_boards))
 	state_transition_map_o = Matrix{SparseVector{Float32, Int64}}(undef, 9, length(symmetric_boards))
@@ -457,11 +460,11 @@ function make_ttt_ptfs(π_opponent::Function)
 			rewards = SparseVector(zeros(Float32, length(symmetric_boards)))
 			if ttt_status_lookup[b].is_active
 				if iszero(b[i_a])
-					(s′, r1, active) = ttt_step(b, i_a)
+					(s′, r1, active) = ttt_step(b, i_a; kwargs...)
 					if active
 						prbs = π_opponent(s′)
 						for i_a2 in findall(!iszero, prbs)
-							(s′′, r2, active2) = ttt_step(s′, i_a2)
+							(s′′, r2, active2) = ttt_step(s′, i_a2; kwargs...)
 							state_transitions[symmetric_board_index[s′′]] += prbs[i_a2]
 							rewards[symmetric_board_index[s′′]] += (r1 + r2)*prbs[i_a2]
 						end
@@ -489,8 +492,8 @@ function make_ttt_ptfs(π_opponent::Function)
 			else
 				state_transitions[i] = 1f0
 				reward_output = [0f0]
-				state_transition_map_o[i_a, i] = state_transitions
-				reward_transition_map_o[i_a, i] = reward_output
+				state_transition_map_o[i_a, i] = copy(state_transitions)
+				reward_transition_map_o[i_a, i] = copy(reward_output)
 				state_transition_map_x[i_a, i] = state_transitions
 				reward_transition_map_x[i_a, i] = reward_output
 			end
@@ -504,9 +507,9 @@ function make_ttt_ptfs(π_opponent::Function)
 end
 
 # ╔═╡ fef5f0c4-46d7-477c-a508-3c221129cc60
-function make_x_o_tabular_mdps(x_results, o_results)
+function make_x_o_tabular_mdps(x_results, o_results; kwargs...)
 	π = make_π_value_iter(x_results, o_results)
-	ptfs = make_ttt_ptfs(π)
+	ptfs = make_ttt_ptfs(π; kwargs...)
 	Tuple(make_ttt_tabular_mdp(ptf) for ptf in ptfs)
 end
 
@@ -804,8 +807,8 @@ make_ttt_ptfs(π_random_ttt)
 const ttt_random_tabular_ptfs = make_ttt_ptfs(π_random_ttt)
 
 # ╔═╡ 22406fa6-fb9b-4d9e-84d8-daa336542563
-function make_x_o_tabular_mdps()
-	ptfs = make_ttt_ptfs(π_random_ttt)
+function make_x_o_tabular_mdps(;kwargs...)
+	ptfs = make_ttt_ptfs(π_random_ttt; kwargs...)
 	Tuple(make_ttt_tabular_mdp(ptf) for ptf in ptfs)
 end
 
@@ -869,6 +872,38 @@ const value_iter_o_vs_iter4 = value_iteration_v(o_value_iter4_mdp, ttt_value_γ)
 #=╠═╡
 @bind strat_select Select([(value_iter_x_vs_rand, value_iter_o_vs_rand) => "Strat 1", (value_iter_x_vs_iter4, value_iter_o_vs_iter4) => "Strat 2"])
   ╠═╡ =#
+
+# ╔═╡ 83bdfbb5-ed4e-4d67-9db5-15037c788a65
+const x_rand_mdp_alt, o_rand_mdp_alt = make_x_o_tabular_mdps(rewards = rewardsX_alt)
+
+# ╔═╡ 57dfcf6f-572b-4029-9c65-cb56b1d1b6bd
+const value_iter_x_vs_rand_alt = value_iteration_v(x_rand_mdp_alt, ttt_value_γ)
+
+# ╔═╡ 712f33b8-8774-46c6-973e-48c765799e6e
+const value_iter_o_vs_rand_alt = value_iteration_v(o_rand_mdp_alt, ttt_value_γ)
+
+# ╔═╡ 1e4cbd58-5b9b-4382-9150-9ef8afd331bb
+const x_value_iter1_mdp_alt, o_value_iter1_mdp_alt = make_x_o_tabular_mdps(value_iter_x_vs_rand_alt, value_iter_o_vs_rand_alt; rewards = rewardsX_alt)
+
+# ╔═╡ fd7742c5-472d-46ac-b885-c720326a82c5
+const value_iter_x_vs_o1_alt = value_iteration_v(x_value_iter1_mdp_alt, ttt_value_γ)
+
+# ╔═╡ b98ceb8e-5780-40a3-95bc-1e8df86466b6
+const value_iter_o_vs_x1_alt = value_iteration_v(o_value_iter1_mdp_alt, ttt_value_γ)
+
+# ╔═╡ 2584f0cf-ad4c-4dca-86a3-357ee024c52c
+#=╠═╡
+@bind strat_select2 Select([(value_iter_x_vs_rand_alt, value_iter_o_vs_rand_alt) => "Strat 1", (value_iter_x_vs_o1_alt, value_iter_o_vs_x1_alt) => "Strat 2"])
+  ╠═╡ =#
+
+# ╔═╡ 10868e8b-f243-45bd-a21e-94b5a7f06f44
+const x_value_iter2_mdp_alt, o_value_iter2_mdp_alt = make_x_o_tabular_mdps(value_iter_x_vs_o1_alt, value_iter_o_vs_x1_alt; rewards = rewardsX_alt)
+
+# ╔═╡ c33be92f-9be3-4bb2-82e2-4ac95f2467f1
+const value_iter_x_vs_o2_alt = value_iteration_v(x_value_iter2_mdp_alt, ttt_value_γ)
+
+# ╔═╡ 73041a13-49da-4bd6-a233-5bb88b4f5fd4
+const value_iter_o_vs_x2_alt = value_iteration_v(o_value_iter2_mdp_alt, ttt_value_γ)
 
 # ╔═╡ 6ac696c7-9f40-45bb-a556-9507f0b10f87
 #compute the action probability distribution and value for a given board state from a value iteration result output
@@ -1885,6 +1920,31 @@ showboard(symmetric_boards[test_index])
 # ╔═╡ 8ff4ceda-e4df-4652-b48f-4b9fe4bbce27
 value_iter_test.optimal_policy[:, symmetric_board_index[get_symmetric_board(value_iter_fixed_board[1])[1]]]
 
+# ╔═╡ bbfa172b-e519-4ee6-9410-935a8baf3cbf
+@bind value_iter_fixed_board2 TTTBoard()
+
+# ╔═╡ bc1b2683-89b1-4813-bf94-2fd41d23e6ed
+const value_iter_rotated_board2 = get_symmetric_index(value_iter_fixed_board2[1])
+
+# ╔═╡ 2a67bf2c-09d1-4dc3-b4f6-200ad9be940e
+const value_iter_board2_status = get_board_status(value_iter_fixed_board2[1])
+
+# ╔═╡ 7717eb2e-1bf7-4953-8892-d8f936a85756
+#=╠═╡
+const value_iter_board2_result = value_iter_board2_status.is_o_move ? strat_select2[2] : strat_select2[1]
+  ╠═╡ =#
+
+# ╔═╡ 32ee92b1-a61a-460a-b436-036ef9cef080
+#=╠═╡
+md"""
+#### Value Iteration Policy Visualization for Alt MDP
+
+The board below is colored according to the policy with green indicating likely moves.
+
+State Value for $(value_iter_board2_status.is_o_move ? "O" : "X") Player: $(round(value_iter_board2_result.final_value[value_iter_rotated_board2.index] |> Float64; sigdigits = 3))
+"""
+  ╠═╡ =#
+
 # ╔═╡ 436c72df-c0a1-428c-a005-25381c758deb
 @bind xplayboard TTTBoard()
 
@@ -2080,6 +2140,26 @@ compare_value_iter_results(value_iter_o_vs_iter3, value_iter_o_vs_iter4)
 compare_value_iter_results(value_iter_x_vs_iter4, value_iter_x_vs_rand)
   ╠═╡ =#
 
+# ╔═╡ 5eaebc86-e45b-4106-a7ed-2ce4f16728c5
+#=╠═╡
+compare_value_iter_results(value_iter_x_vs_o1_alt, value_iter_x_vs_rand_alt)
+  ╠═╡ =#
+
+# ╔═╡ 0950e770-bd38-4cf4-81e1-7e5e3bbb315f
+#=╠═╡
+compare_value_iter_results(value_iter_o_vs_x1_alt, value_iter_o_vs_rand_alt)
+  ╠═╡ =#
+
+# ╔═╡ 11c416e0-d21c-4571-99af-fb8bfdfb42e0
+#=╠═╡
+compare_value_iter_results(value_iter_x_vs_o2_alt, value_iter_x_vs_o1_alt)
+  ╠═╡ =#
+
+# ╔═╡ 56926c91-558f-4199-b84e-c1cf9260b435
+#=╠═╡
+compare_value_iter_results(value_iter_o_vs_x2_alt, value_iter_o_vs_x1_alt)
+  ╠═╡ =#
+
 # ╔═╡ ac994fa8-e45b-4656-a33f-e2e221044255
 #=╠═╡
 begin
@@ -2119,6 +2199,11 @@ end
 # ╔═╡ ef532a60-e84c-45fd-8b83-e3ee77618410
 #=╠═╡
 color_board(value_iter_fixed_board[2], value_iter_board1_result.optimal_policy[value_iter_rotated_board.rot_inds, value_iter_rotated_board.index]) |> HTML
+  ╠═╡ =#
+
+# ╔═╡ 3d96abfe-681f-438c-8f7f-992d2b963c3f
+#=╠═╡
+color_board(value_iter_fixed_board2[2], value_iter_board2_result.optimal_policy[value_iter_rotated_board2.rot_inds, value_iter_rotated_board2.index]) |> HTML
   ╠═╡ =#
 
 # ╔═╡ f7392c49-ee86-40ce-b7f1-b31e72326837
@@ -2343,7 +2428,7 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.6"
+julia_version = "1.11.7"
 manifest_format = "2.0"
 project_hash = "fb175071a7c85444e2ee3da77dd1e4c18a1bb109"
 
@@ -3249,6 +3334,7 @@ version = "17.4.0+2"
 # ╠═e84b32f3-dd81-4dbe-a80d-c198a08e0041
 # ╠═a229d28f-2026-457f-8236-8002f9caa150
 # ╠═62bd6663-101d-45c6-8aad-0425da307d3a
+# ╠═5bd479bd-35a5-4ff8-b534-95bd628c9af9
 # ╠═02237d67-ada1-488e-bfff-f5f51fca757d
 # ╠═cee75d80-e58c-475e-ade5-e3c609a2fe24
 # ╠═6a6ba736-df06-4049-a1b5-fb5b2a3e3bb5
@@ -3328,17 +3414,37 @@ version = "17.4.0+2"
 # ╠═5c83b11b-7756-4b35-895b-ff08c1260f0b
 # ╠═b83d7292-5082-43d5-bc3b-fa6c93c67a32
 # ╠═5a962d71-b56b-4166-8320-71c6baed452b
+# ╠═83bdfbb5-ed4e-4d67-9db5-15037c788a65
+# ╠═57dfcf6f-572b-4029-9c65-cb56b1d1b6bd
+# ╠═712f33b8-8774-46c6-973e-48c765799e6e
+# ╠═1e4cbd58-5b9b-4382-9150-9ef8afd331bb
+# ╠═fd7742c5-472d-46ac-b885-c720326a82c5
+# ╠═b98ceb8e-5780-40a3-95bc-1e8df86466b6
+# ╠═5eaebc86-e45b-4106-a7ed-2ce4f16728c5
+# ╠═0950e770-bd38-4cf4-81e1-7e5e3bbb315f
+# ╠═10868e8b-f243-45bd-a21e-94b5a7f06f44
+# ╠═c33be92f-9be3-4bb2-82e2-4ac95f2467f1
+# ╠═73041a13-49da-4bd6-a233-5bb88b4f5fd4
+# ╠═11c416e0-d21c-4571-99af-fb8bfdfb42e0
+# ╠═56926c91-558f-4199-b84e-c1cf9260b435
 # ╠═ac994fa8-e45b-4656-a33f-e2e221044255
 # ╠═9cf13709-615b-4183-8397-c146f7f91252
 # ╟─cb50cf2c-6adf-42de-be9a-085676876bbe
 # ╠═2180c6dc-1f6d-4976-bd0f-cc8153e6b87d
-# ╟─4a940b85-8f56-414a-a7a8-b2895605ae45
-# ╟─18f5244f-c88a-4e84-9b5b-a8d8c2b76b23
+# ╠═4a940b85-8f56-414a-a7a8-b2895605ae45
+# ╠═18f5244f-c88a-4e84-9b5b-a8d8c2b76b23
 # ╠═4ef908c9-a2a7-4f85-b98d-c9dab9fc3ac7
 # ╠═8b6786f7-220c-4daa-b707-376c2c7bc14c
 # ╠═9d2120cd-5582-4fa6-9a52-bad1121d9da3
+# ╟─32ee92b1-a61a-460a-b436-036ef9cef080
+# ╠═bbfa172b-e519-4ee6-9410-935a8baf3cbf
+# ╟─2584f0cf-ad4c-4dca-86a3-357ee024c52c
+# ╠═bc1b2683-89b1-4813-bf94-2fd41d23e6ed
+# ╠═2a67bf2c-09d1-4dc3-b4f6-200ad9be940e
 # ╠═124519d9-b8b3-492b-a3af-36c48553bc52
+# ╠═7717eb2e-1bf7-4953-8892-d8f936a85756
 # ╠═ef532a60-e84c-45fd-8b83-e3ee77618410
+# ╠═3d96abfe-681f-438c-8f7f-992d2b963c3f
 # ╠═b8a5f496-5727-48ab-804f-3dc027cca0f1
 # ╠═7479eb78-0aab-4a28-b433-968aec5b980b
 # ╠═c23d9164-d96d-43fe-b8de-f1b7c6c6d30f
