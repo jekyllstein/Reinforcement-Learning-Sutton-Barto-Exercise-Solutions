@@ -551,6 +551,23 @@ function check_reward_progress(episode_rewards::Vector{T}) where T<:Real
 	Statistics.mean(view(episode_rewards, episode_check:l))
 end
 
+# ╔═╡ b98a52c7-873a-4e1c-bcb9-5e41d220670b
+#add another condition to check if Inf or NaN values appear anywhere in the parameters.  If so then consider this the same as reward not improving and use backup parameters
+
+# ╔═╡ eaacf747-26db-4934-8df5-002e713f381e
+function check_bad_params(params::Array{T, N}) where {T<:Real, N}
+	any(isinf, params) && return true
+	any(isnan, params) && return true
+	return false
+end
+
+# ╔═╡ b6e2c7c9-0e95-4b91-853d-5dedba06f2cd
+function check_bad_params(params::FCANNParams)
+	any(check_bad_params, params.weights[1]) && return true
+	any(check_bad_params, params.weights[2]) && return true
+	return false
+end
+
 # ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
 function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
@@ -593,14 +610,18 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		output2 = td_train_linear(γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2.episode_rewards)
 
-		if reward2 ≤ reward1
+		if check_bad_params(params)
+			@info "First trial resulted in bad parameter values"
+			params .= backup_params
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		end
 
 		episode_rewards = output2.episode_rewards
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
 			@info "On trial $trial, reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -612,7 +633,13 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			reward2 = check_reward_progress(output2.episode_rewards)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		if check_bad_params(params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		params .= backup_params
 		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
@@ -698,14 +725,18 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		output2 = td_train_nonlinear(hidden_layers, reslayers, γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2.episode_rewards)
 
-		if reward2 ≤ reward1
+		if check_bad_params(params)
+			@info "First trial resulted in bad parameter values"
+			copy!(params,  backup_params)
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			copy!(params, backup_params)
 			return (;output1..., performance = reward1)
 		end
 
 		episode_rewards = output2.episode_rewards
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
 			@info "On trial $trial, reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -717,7 +748,13 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			reward2 = check_reward_progress(output2.episode_rewards)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		if check_bad_params(params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		copy!(params, backup_params)
 		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
@@ -787,7 +824,12 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		output2 = ac_train_linear(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
 		reward2 = check_reward_progress(output2.episode_rewards)
 
-		if reward2 ≤ reward1
+		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
+			@info "First trial performance resulted in bad parameter values"
+			linear_policy_params .= backup_policy_params
+			linear_value_params .= backup_value_params
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			linear_policy_params .= backup_policy_params
 			linear_value_params .= backup_value_params
@@ -795,7 +837,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		end
 
 		episode_rewards = output2.episode_rewards
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(linear_policy_params) && !check_bad_params(linear_value_params)
 			trial += 1
 			@info "On trial $trial, episode reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -808,7 +850,13 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 			reward2 = check_reward_progress(output2.episode_rewards)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		linear_policy_params .= backup_policy_params
 		linear_value_params .= backup_value_params
@@ -887,7 +935,12 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
 		reward2 = check_reward_progress(output2.episode_rewards)
 
-		if reward2 ≤ reward1
+		if check_bad_params(policy_params) || check_bad_params(value_params)
+			@info "First trial performance resulted in bad parameter values"
+			copy!(policy_params, backup_policy_params)
+			copy!(value_params, backup_value_params)
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			copy!(policy_params, backup_policy_params)
 			copy!(value_params, backup_value_params)
@@ -895,7 +948,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		end
 
 		episode_rewards = output2.episode_rewards
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(policy_params) && !check_bad_params(value_params)
 			trial += 1
 			@info "On trial $trial, episode reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -908,7 +961,13 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			reward2 = check_reward_progress(output2.episode_rewards)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		if check_bad_params(policy_params) || check_bad_params(value_params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		copy!(policy_params, backup_policy_params)
 		copy!(value_params, backup_value_params)
@@ -1070,14 +1129,18 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, new_params = false, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2.reward_history)
 
-		if reward2 ≤ reward1
+		if check_bad_params(params)
+			@info "First trial resulted in bad parameter values"
+			params .= backup_params
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		end
 
 		reward_history = output2.reward_history
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
 			@info "On trial $trial, average reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -1089,7 +1152,13 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		if check_bad_params(params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		params .= backup_params
 		return (;output1..., reward_history = reward_history, performance = reward1)
@@ -1159,14 +1228,18 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		output2 = td_train_nonlinear(hidden_layers, reslayers, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2.reward_history)
 
-		if reward2 ≤ reward1
+		if check_bad_params(params)
+			@info "First trial resulted in bad parameter values"
+			copy!(params, backup_params)
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			copy!(params, backup_params)
 			return (;output1..., performance = reward1)
 		end
 
 		reward_history = output2.reward_history
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
 			@info "On trial $trial, reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -1178,7 +1251,13 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		if check_bad_params(params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		copy!(params, backup_params)
 		return (;output1..., reward_history = reward_history, performance = reward1)
@@ -1248,7 +1327,12 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 		output2 = ac_train_linear(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
 		reward2 = check_reward_progress(output2.reward_history)
 
-		if reward2 ≤ reward1
+		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
+			@info "First trial performance resulted in bad parameter values"
+			linear_policy_params .= backup_policy_params
+			linear_value_params .= backup_value_params
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			linear_policy_params .= backup_policy_params
 			linear_value_params .= backup_value_params
@@ -1256,7 +1340,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 		end
 
 		reward_history = output2.reward_history
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(linear_policy_params) && !check_bad_params(linear_value_params)
 			trial += 1
 			@info "On trial $trial, average reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -1269,7 +1353,14 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		
+		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		linear_policy_params .= backup_policy_params
 		linear_value_params .= backup_value_params
@@ -1340,7 +1431,13 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
 		reward2 = check_reward_progress(output2.reward_history)
 
-		if reward2 ≤ reward1
+		
+		if check_bad_params(policy_params) || check_bad_params(value_params)
+			@info "First trial performance resulted in bad parameter values"
+			copy!(policy_params, backup_policy_params)
+			copy!(value_params, backup_value_params)
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
 			@info "First trial performance of $reward2 failed to improve reward"
 			copy!(policy_params, backup_policy_params)
 			copy!(value_params, backup_value_params)
@@ -1348,7 +1445,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		end
 
 		reward_history = output2.reward_history
-		while reward2 > reward1
+		while (reward2 > reward1) && !check_bad_params(policy_params) && !check_bad_params(value_params)
 			trial += 1
 			@info "On trial $trial, average reward improved from $reward1 to $reward2"
 			output1 = output2
@@ -1361,7 +1458,13 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
-		@info "Final trial performance of $reward2 failed to improve reward.  Performance after $trial trials improved from $baseline_reward to $reward1"
+		if check_bad_params(policy_params) || check_bad_params(value_params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		copy!(policy_params, backup_policy_params)
 		copy!(value_params, backup_value_params)
@@ -2137,7 +2240,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.7"
 manifest_format = "2.0"
-project_hash = "dacc54eeb0e9ec145b235f924764cfdd23758c51"
+project_hash = "bb17d57025f84d635f111e7347fee8d060998fef"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -3127,6 +3230,9 @@ version = "17.4.0+2"
 # ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
 # ╠═3a938f27-b6fe-4411-8c41-5d1efaa8189c
 # ╠═a5b13027-c3b6-488e-82a1-2ee3be6c63be
+# ╠═b98a52c7-873a-4e1c-bcb9-5e41d220670b
+# ╠═eaacf747-26db-4934-8df5-002e713f381e
+# ╠═b6e2c7c9-0e95-4b91-853d-5dedba06f2cd
 # ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
 # ╠═c68eab1e-b4f1-4fb5-8b3e-f23ad0df0be0
 # ╠═98d94e3b-4ca5-4ff0-8409-9d748799931f
