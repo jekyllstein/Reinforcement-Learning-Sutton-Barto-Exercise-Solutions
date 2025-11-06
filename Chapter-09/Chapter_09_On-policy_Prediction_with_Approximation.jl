@@ -2712,7 +2712,9 @@ end
 begin
 	import LinearAlgebra.BLAS.gemm!
 	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, V<:StateAggregationFeatureVector}
-		!isone(c2) && output .*= c2
+		if !isone(c2) 
+			output .*= c2
+		end
 		N = length(X)
 		(M, O) = size(θ)
 		if O2 == 'N'
@@ -2738,7 +2740,9 @@ begin
 
 	#operation needed for backprop
 	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, V::Vector{T}, x::StateAggregationFeatureVector, c2::T, output::Matrix{T}) where {T<:Real}
-		!isone(c2) && output .*= c2
+		if !isone(c2) 
+			output .*= c2
+		end
 		(M, N) = size(output)
 		if (O1 == 'N') && (O2 == 'T')
 			@inbounds @simd for i in 1:M
@@ -2750,7 +2754,9 @@ begin
 	end
 
 	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, V<:BinaryFeatureVector}
-		output .*= c2
+		if !isone(c2)
+			output .*= c2
+		end
 		N = length(X) 
 		(M, O) = size(θ)
 		if O2 == 'N'
@@ -2780,7 +2786,9 @@ begin
 
 	#operation needed for backprop
 	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, V::Vector{T}, x::BinaryFeatureVector, c2::T, output::Matrix{T}) where {T<:Real}
-		!isone(c2) && output .*= c2
+		if !isone(c2) 
+			output .*= c2
+		end
 		(M, N) = size(output)
 		if (O1 == 'N') && (O2 == 'T')
 			for n in 1:x.num_features
