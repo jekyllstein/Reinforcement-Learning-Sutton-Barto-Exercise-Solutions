@@ -2045,9 +2045,13 @@ end
 
 # ╔═╡ 1d43e61e-8428-4f50-8dc7-e322b1d256e8
 function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}) where T<:Real
-	@inbounds for i in eachindex(scales)
-		for j in 1:2
-			FCANN.cublasSscal(FCANN.cublas_handle, scales[i], params.weights[j][i])
+	vecs = Tuple([s] for s in scales)
+	GC.@preserve vecs begin
+		ptrs = Tuple(pointer(s) for s in vecs)
+		@inbounds for i in eachindex(scales)
+			for j in 1:2
+				FCANN.cublasSscal(FCANN.cublas_handle, ptrs[i], params.weights[j][i])
+			end
 		end
 	end
 end
@@ -2980,9 +2984,13 @@ end
 
 # ╔═╡ 00d522cd-a4e6-45a0-a90f-6875f1b0da1c
 function update_params_with_gradient!(params::FCANNParamsGPU, α::T, ∇::FCANNParamsGPU) where T<:Float32
-	for i in eachindex(first(params.weights))
-		for j in 1:2
-			FCANN.cublasSaxpy(FCANN.cublas_handle, α, ∇.weights[j][i], params.weights[j][i])
+	tmp = [α]
+	GC.@preserve tmp begin
+		ptr = pointer(tmp)
+		for i in eachindex(first(params.weights))
+			for j in 1:2
+				FCANN.cublasSaxpy(FCANN.cublas_handle, ptr, ∇.weights[j][i], params.weights[j][i])
+			end
 		end
 	end
 	return params

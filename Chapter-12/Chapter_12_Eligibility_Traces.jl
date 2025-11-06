@@ -673,9 +673,13 @@ begin
 		return z
 	end
 	function decay_trace!(z::FCANNParamsGPU, c::T) where T<:Real
-		for i in eachindex(z.weights[1])
-			for j in 1:2
-				FCANN.cublasSscal(FCANN.cublas_handle, c, z.weights[j][i])
+		tmp = [c]
+		GC.@preserve tmp begin
+			ptr = pointer(tmp)
+			for i in eachindex(z.weights[1])
+				for j in 1:2
+					FCANN.cublasSscal(FCANN.cublas_handle, ptr, z.weights[j][i])
+				end
 			end
 		end
 		return z
@@ -712,10 +716,16 @@ begin
 	end
 
 	function update_trace!(z::FCANNParamsGPU, γ::Float32, λ::Float32, ∇v::FCANNParamsGPU)
-		for i in eachindex(z.weights[1])
-			for j in 1:2
-				FCANN.cublasSscal(FCANN.cublas_handle, γ*λ, z.weights[j][i])
-				FCANN.cublasSaxpy(FCANN.cublas_handle, 1f0, ∇v.weights[j][i], z.weights[j][i])
+		tmp1 = [γ*λ]
+		tmp2 = [1f0]
+		GC.@preserve tmp1 tmp2 begin
+			ptr1 = pointer(tmp1)
+			ptr2 = pointer(tmp2)
+			for i in eachindex(z.weights[1])
+				for j in 1:2
+					FCANN.cublasSscal(FCANN.cublas_handle, ptr1, z.weights[j][i])
+					FCANN.cublasSaxpy(FCANN.cublas_handle, ptr2, ∇v.weights[j][i], z.weights[j][i])
+				end
 			end
 		end
 		return z
