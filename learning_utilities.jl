@@ -906,12 +906,12 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		end
 	end
 
-	function ac_train_exhaustive(hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
+	function ac_train_exhaustive(hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
-		output1 = ac_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, kwargs...)
+		output1 = ac_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, use_gpu = use_gpu, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
-		π(s) = output1.policy_sample_action(s; π_kwargs...)
+		π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -919,7 +919,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		@info "Baseline episode reward is $reward1, beginning first trial"
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
-		output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
+		output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
 		reward2 = check_reward_progress(output2.episode_rewards)
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
@@ -944,7 +944,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			copy!(backup_value_params, value_params)
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
-			output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
+			output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
 			reward2 = check_reward_progress(output2.episode_rewards)
 		end
 
@@ -1029,6 +1029,11 @@ episodic_nonlinear_value_result = episodic_nonlinear_value_test.train_rate_decay
 episodic_nonlinear_value_result2 = episodic_nonlinear_value_test.train_rate_decay(fill(2048, 4), 1, 1f0, 1f-3, 0.99f0, 100; new_params = true, ϵ = 0.05f0, use_dp = false, use_gpu = true)
   ╠═╡ =#
 
+# ╔═╡ 5d58a094-f8b9-49a5-8a04-b3aa11ae0726
+#=╠═╡
+episodic_nonlinear_value_result3 = episodic_nonlinear_value_test.train_rate_decay(fill(2048, 4), 1, 1f0, 1f-3, 0.99f0, 100; new_params = true, ϵ = 0.05f0, use_dp = true, use_gpu = true)
+  ╠═╡ =#
+
 # ╔═╡ f9c9ccb4-0291-461d-8016-8f13a9dc1c5d
 md"""
 #### Policy Gradient Linear Example
@@ -1062,6 +1067,11 @@ episodic_nonlinear_policy_result = episodic_nonlinear_policy_test.train_rate_dec
 # ╔═╡ 001c295b-9fe6-4036-9fb6-337cff79687c
 #=╠═╡
 plot(episodic_nonlinear_policy_result.episode_rewards)
+  ╠═╡ =#
+
+# ╔═╡ 5d0cd43c-556b-445e-a32a-8806995b954f
+#=╠═╡
+episodic_nonlinear_policy_result2 = episodic_nonlinear_policy_test.train_rate_decay(fill(1024, 4), 1, 1f0, 1f-3, 1f-3, 0.5f0, 0.5f0, 100; new_params = false, use_gpu = true)
   ╠═╡ =#
 
 # ╔═╡ cebdb010-7e8d-4fb8-bf49-418181061ad4
@@ -1407,12 +1417,12 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		end
 	end
 
-	function ac_train_exhaustive(hidden_layers, reslayers, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
+	function ac_train_exhaustive(hidden_layers, reslayers, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
-		output1 = ac_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, kwargs...)
+		output1 = ac_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), zero(T), zero(T), 0; use_gpu = use_gpu, new_params = false, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
-		π(s) = output1.policy_sample_action(s; π_kwargs...)
+		π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -1420,7 +1430,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		@info "Baseline average reward is $reward1, beginning first trial"
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
-		output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
+		output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
 		reward2 = check_reward_progress(output2.reward_history)
 
 		
@@ -1446,7 +1456,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 			copy!(backup_value_params, value_params)
 			reward_history = vcat(reward_history, output1.reward_history)
 			
-			output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
+			output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
@@ -1589,6 +1599,41 @@ continuing_nonlinear_policy_test.policy_params
 # ╔═╡ 8f21188f-3118-4933-a8a5-83d1c9ffd503
 #=╠═╡
 continuing_nonlinear_policy_test.value_params
+  ╠═╡ =#
+
+# ╔═╡ 48d6ce52-3f0f-4401-a99d-b6cfcb4a345d
+#=╠═╡
+const continuing_nonlinear_policy_test2 = setup_continuing_policy_nonlinear_training(create_mountaincar_continuing_mdp(), episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 0cfe63f6-76e3-4bbb-9df2-9a258fa5c28d
+#=╠═╡
+const continuing_nonlinear_policy_result2 = continuing_nonlinear_policy_test2.train_rate_decay(fill(2048, 4), 1, 1f-2, 1f-2, 0.5f0, 0.95f0, 100; α_r̄ = 0.01f0, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ 2ea8ca97-cdc2-42fb-b914-ce1568f2b99b
+#=╠═╡
+const continuing_nonlinear_policy_kwargs = continuing_nonlinear_policy_result2.form_policy_kwargs()
+  ╠═╡ =#
+
+# ╔═╡ 329129ad-40aa-446d-b948-8dcc95530411
+#=╠═╡
+runepisode(create_mountaincar_continuing_mdp(); π = s -> continuing_nonlinear_policy_result2.policy_sample_action(s; use_gpu = true), max_steps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ ee53f086-5f13-401e-95be-88fba806612c
+#=╠═╡
+runepisode(create_mountaincar_continuing_mdp(); π = s -> continuing_nonlinear_policy_result2.policy_sample_action(s; use_gpu = true, continuing_nonlinear_policy_kwargs...), max_steps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ af01eb2d-32a7-4e0a-ab7c-09bb9f9b0659
+#=╠═╡
+runepisode(create_mountaincar_continuing_mdp(); π = s -> continuing_nonlinear_policy_result2.policy_sample_action(s; use_gpu = false, continuing_nonlinear_policy_kwargs...), max_steps = 1_000)
+  ╠═╡ =#
+
+# ╔═╡ fa101058-3bcd-4ad4-8651-5caf3f8c4d9b
+#=╠═╡
+runepisode(create_mountaincar_continuing_mdp(); π = s -> continuing_nonlinear_policy_result2.policy_sample_action(s; use_gpu = false), max_steps = 1_000)
   ╠═╡ =#
 
 # ╔═╡ 487ab8b6-d9a8-4f78-a0d0-1f655450857f
@@ -3330,6 +3375,7 @@ version = "17.5.0+2"
 # ╠═eabd4d6b-ce35-41ad-845d-aa1498003814
 # ╠═ddd87cf8-b424-469d-900e-5c46057aa05f
 # ╠═4abf9691-4817-4728-acac-1f72ba7a5a87
+# ╠═5d58a094-f8b9-49a5-8a04-b3aa11ae0726
 # ╟─f9c9ccb4-0291-461d-8016-8f13a9dc1c5d
 # ╠═aeed95c6-1f66-4087-a491-faf928fd8f4c
 # ╠═2fb66afd-5889-4866-8a93-e8903881de9d
@@ -3338,6 +3384,7 @@ version = "17.5.0+2"
 # ╠═d7d58cdd-920e-47b4-8ef9-6b5623b85e7d
 # ╠═984158d0-7fb1-4eb1-b904-3bc6011501ad
 # ╠═001c295b-9fe6-4036-9fb6-337cff79687c
+# ╠═5d0cd43c-556b-445e-a32a-8806995b954f
 # ╟─cebdb010-7e8d-4fb8-bf49-418181061ad4
 # ╠═64c23666-9e34-4f95-9787-2d1593725bff
 # ╠═9d244394-8523-4975-af85-f70cd0cfa430
@@ -3368,6 +3415,13 @@ version = "17.5.0+2"
 # ╠═996286c3-6766-4ab8-9da3-c0f20cd1cb58
 # ╠═95e267e2-2c3f-4ab2-bc1b-40147a3cb94a
 # ╠═8f21188f-3118-4933-a8a5-83d1c9ffd503
+# ╠═48d6ce52-3f0f-4401-a99d-b6cfcb4a345d
+# ╠═0cfe63f6-76e3-4bbb-9df2-9a258fa5c28d
+# ╠═2ea8ca97-cdc2-42fb-b914-ce1568f2b99b
+# ╠═329129ad-40aa-446d-b948-8dcc95530411
+# ╠═ee53f086-5f13-401e-95be-88fba806612c
+# ╠═af01eb2d-32a7-4e0a-ab7c-09bb9f9b0659
+# ╠═fa101058-3bcd-4ad4-8651-5caf3f8c4d9b
 # ╟─487ab8b6-d9a8-4f78-a0d0-1f655450857f
 # ╟─8abce157-f051-4637-bc37-f661eff08146
 # ╠═8d535a89-8eab-4ec3-a144-cd54d3abdfee

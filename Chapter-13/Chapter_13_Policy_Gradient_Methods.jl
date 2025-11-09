@@ -930,9 +930,6 @@ md"""
 These functions use two sets of parameters, one to calculate the policy function and another to calculate the state value function.  The state representation vector is shared between the two functions, but the policy function will return a distribution of preferences over actions while the value function will return a single value.  If linear approximation is used to estimate both functions, the the policy parameters $\boldsymbol{\theta}$ will be a $d \times N_a$ matrix where $d$ is the length of the state feature vector representation and the value function parameters $\mathbf{w}$ will be a length $d$ vector.  It is also possible to mix linear and non-linear approximation with this method.
 """
 
-# ╔═╡ c2a136f3-9d9d-4ee4-b846-f00848ac03ce
-#update both function outputs to support GPU toggle like in previous chapters
-
 # ╔═╡ ccd85da6-1220-4e8f-a391-7dfc2ac5dcf8
 begin
 	form_state_value_function(feature_vector::V, update_feature_vector!::Function, parameters::Nothing) where V = (Returns(nothing), Returns(NamedTuple()))
@@ -1024,7 +1021,7 @@ begin
 	
 		form_policy_kwargs() = (feature_vector = deepcopy(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args = form_policy_args(policy_parameters))
 	
-		function π(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, policy_args = form_policy_args(policy_parameters)) 
+		function π(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, policy_args = form_policy_args(policy_parameters), kwargs...) 
 			update_feature_vector!(feature_vector, s)
 			π!(policy, feature_vector, policy_parameters, policy_args...)
 		end
@@ -6403,7 +6400,6 @@ version = "17.5.0+2"
 # ╟─3bafd7df-9bc0-4d13-874d-739590cf3ad9
 # ╟─cc45091e-b889-4d5a-9eef-84d80f792046
 # ╟─d83dc659-dce7-41dd-a8e7-2933ab39d15c
-# ╠═c2a136f3-9d9d-4ee4-b846-f00848ac03ce
 # ╠═ccd85da6-1220-4e8f-a391-7dfc2ac5dcf8
 # ╠═37ec6802-d4c2-4470-ad69-439d5a732f77
 # ╠═4fb83451-b6f8-4e6e-a131-1accc8e10b08
