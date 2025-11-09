@@ -930,6 +930,9 @@ md"""
 These functions use two sets of parameters, one to calculate the policy function and another to calculate the state value function.  The state representation vector is shared between the two functions, but the policy function will return a distribution of preferences over actions while the value function will return a single value.  If linear approximation is used to estimate both functions, the the policy parameters $\boldsymbol{\theta}$ will be a $d \times N_a$ matrix where $d$ is the length of the state feature vector representation and the value function parameters $\mathbf{w}$ will be a length $d$ vector.  It is also possible to mix linear and non-linear approximation with this method.
 """
 
+# ╔═╡ c2a136f3-9d9d-4ee4-b846-f00848ac03ce
+#update both function outputs to support GPU toggle like in previous chapters
+
 # ╔═╡ ccd85da6-1220-4e8f-a391-7dfc2ac5dcf8
 begin
 	form_state_value_function(feature_vector::V, update_feature_vector!::Function, parameters::Nothing) where V = (Returns(nothing), Returns(NamedTuple()))
@@ -954,10 +957,58 @@ begin
 		return (v̂, form_kwargs)
 	end
 
-	function form_state_value_function(feature_vector::FCANN.CUDAArray, update_feature_vector!::Function, parameters::FCANNParamsGPU)
+	function form_state_value_function(feature_vector::Vector{T}, update_feature_vector!::Function, parameters::FCANNParamsGPU) where T<:Real
 		cpu_params = initialize_cpu_params(parameters)
+		gpu_params = initialize_gpu_params(cpu_params)
+
+		function v̂(s; feature_vector::Vector{T} = copy(feature_vector), value_parameters::FCANNParams{T} = cpu_params, use_gpu = false, gpu_value_params::FCANNParamsGPU = gpu_params, gpu_kwargs::NamedTuple = NamedTuple(), kwargs...)
+			update_feature_vector!(feature_vector, s)
+			if !use_gpu
+				v̂(feature_vector, value_parameters; kwargs...)
+			else
+				v̂(feature_vector, gpu_value_params; gpu_kwargs...)
+			end
+		end
+
+		#also return a method that acts on the feature vector itself which has already been updated
+		function v̂(x::Vector{T}, parameters::FCANNParams{T}; value_activations = FCANN.form_activations(parameters.weights[1]), kwargs...) 
+			fcann_value_function!(value_activations, x, parameters)
+			first(last(value_activations))
+		end
+
+		function v̂(x::Vector{T}, parameters::FCANNParamsGPU; d_x::FCANN.CUDAArray = FCANN.cuda_allocate(x), kwargs...)
+			FCANN.memcpy!(d_x, x)
+			v̂(d_x, parameters; kwargs...)
+		end
+
+		function v̂(d_x::FCANN.CUDAArray, parameters::FCANNParamsGPU; value_activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+			fcann_value_function!(value_activations, d_x, parameters)
+			#this method is slightly faster for getting a single value, at least it doesn't allocate any memory
+			dst = Ref{Float32}(0f0)
+			GC.@preserve dst begin
+				FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(value_activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
+				(isnan(dst.x) || isinf(dst.x)) && @warn "Bad value output of $(dst.x)"
+				return dst.x
+			end
+		end
+
+		function form_gpu_kwargs() 
+			activations = FCANN.form_activations(gpu_params.weights[1])
+			d_x = FCANN.cuda_allocate(feature_vector)
+			function cleanup_vars()
+				FCANN.clear_gpu_data(activations)
+				FCANN.clear_gpu_data([d_x])
+			end
+			(value_activations = activations, d_x = d_x, cleanup_vars = cleanup_vars)
+		end
+		form_kwargs() = (feature_vector = copy(feature_vector), value_parameters = cpu_params, value_activations = FCANN.form_activations(cpu_params.weights[1]), gpu_kwargs = form_gpu_kwargs())
+		
+		return (v̂, form_kwargs)
+	end
+
+	function form_state_value_function(feature_vector::FCANN.CUDAArray, update_feature_vector!::Function, parameters::FCANNParamsGPU)
 		cpu_feature = FCANN.host_allocate(feature_vector)
-		form_state_value_function(cpu_feature, update_feature_vector!, cpu_params)
+		form_state_value_function(cpu_feature, update_feature_vector!, parameters)
 	end
 end
 
@@ -995,11 +1046,84 @@ begin
 		return (policy_function = π, form_policy_kwargs = form_policy_kwargs, value_function = v̂, form_value_kwargs = form_value_kwargs, policy_sample_action = π_sample, policy_and_value = policy_and_value, form_policy_and_value_kwargs = form_policy_and_value_kwargs)
 	end
 
-	function form_policy_and_value_function(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, feature_vector::FCANN.CUDAArray, update_feature_vector!::Function, policy_parameters::FCANNParamsGPU, value_parameters::FCANNParamsGPU) where {T<:Real, S, A, PTF, F1, F2, F3}
+	function form_policy_and_value_function(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, feature_vector::Vector{T}, update_feature_vector!::Function, policy_parameters::FCANNParamsGPU, value_parameters::FCANNParamsGPU) where {T<:Real, S, A, PTF, F1, F2, F3}
 		cpu_policy_params = initialize_cpu_params(policy_parameters)
 		cpu_value_params = initialize_cpu_params(value_parameters)
+		gpu_policy_params = initialize_gpu_params(cpu_policy_params)
+		gpu_value_params = initialize_gpu_params(cpu_value_params)
+
+		v̂, form_value_kwargs = form_state_value_function(feature_vector, update_feature_vector!, value_parameters)
+
+
+		function π!(policy::Vector{T}, x, params, args...)
+			update_policy_dist!(policy, x, params, args...)
+			return policy
+		end
+		
+		function π(s::S, params::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(params)) 
+			update_feature_vector!(feature_vector, s)
+			π!(policy, feature_vector, params, policy_args_cpu...)
+		end
+
+		function π(s::S, params::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(params)) 
+			update_feature_vector!(feature_vector, s)
+			FCANN.memcpy!(d_x, feature_vector)
+			π!(policy, d_x, params, policy_args_gpu...)
+		end
+
+		function π(s::S; policy_parameters::FCANNParams{T} = cpu_policy_params, policy_parameters_gpu::FCANNParamsGPU = gpu_policy_params, use_gpu::Bool = false, policy_kwargs_cpu::NamedTuple = NamedTuple(), policy_kwargs_gpu::NamedTuple = NamedTuple(), kwargs...) 
+			if !use_gpu
+				π(s, policy_parameters; policy_kwargs_cpu...)
+			else
+				π(s, policy_parameters_gpu; policy_kwargs_gpu...)
+			end
+		end
+
+		form_policy_kwargs_cpu() = (feature_vector = copy(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(cpu_policy_params))
+		form_policy_kwargs_gpu() = (feature_vector = copy(feature_vector), d_x = FCANN.cuda_allocate(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(gpu_policy_params))
+
+		form_policy_kwargs() = (policy_kwargs_cpu = form_policy_kwargs_cpu(), policy_kwargs_gpu = form_policy_kwargs_gpu())
+
+		function π_sample(s::S; kwargs...) 
+			policy = π(s; kwargs...)
+			sample_action(policy)
+		end
+
+		function policy_and_value(s::S, policy_parameters::FCANNParams{T}, value_parameters::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(policy_parameters), kwargs...)
+			update_feature_vector!(feature_vector, s)
+			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args_cpu...)
+			v = v̂(feature_vector, value_parameters; kwargs...)
+			return (value = v, policy_dist = policy)
+		end
+
+		function policy_and_value(s::S, policy_parameters::FCANNParamsGPU, value_parameters::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(policy_parameters), kwargs...)
+			update_feature_vector!(feature_vector, s)
+			FCANN.memcpy!(d_x, feature_vector)
+			update_policy_dist!(policy, d_x, policy_parameters, policy_args_gpu...)
+			v = v̂(d_x, value_parameters; kwargs...)
+			return (value = v, policy_dist = policy)
+		end
+
+		function policy_and_value(s::S; policy_parameters::FCANNParams{T} = cpu_policy_params, policy_parameters_gpu::FCANNParamsGPU = gpu_policy_params, value_parameters::FCANNParams{T} = cpu_value_params, value_parameters_gpu::FCANNParamsGPU = gpu_value_params, use_gpu::Bool = false, kwargs_cpu::NamedTuple = NamedTuple(), kwargs_gpu::NamedTuple = NamedTuple(), kwargs...)
+			if !use_gpu
+				policy_and_value(s, policy_parameters, value_parameters; kwargs_cpu...)
+			else
+				policy_and_value(s, policy_parameters_gpu, value_parameters_gpu; kwargs_gpu...)
+			end
+		end
+
+		form_policy_and_value_kwargs_cpu() = (;form_policy_kwargs_cpu()..., value_parameters = cpu_value_params, value_activations = FCANN.form_activations(cpu_value_params.weights[1]))
+		
+		form_policy_and_value_kwargs_gpu() = (;form_policy_kwargs_gpu()..., value_parameters = gpu_value_params, value_activations = FCANN.form_activations(gpu_value_params.weights[1]))
+
+		form_policy_and_value_kwargs() = (kwargs_cpu = form_policy_and_value_kwargs_cpu(), kwargs_gpu = form_policy_and_value_kwargs_gpu())
+
+		return (policy_function = π, form_policy_kwargs = form_policy_kwargs, value_function = v̂, form_value_kwargs = form_value_kwargs, policy_sample_action = π_sample, policy_and_value = policy_and_value, form_policy_and_value_kwargs = form_policy_and_value_kwargs)
+	end
+
+	function form_policy_and_value_function(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, feature_vector::FCANN.CUDAArray, update_feature_vector!::Function, policy_parameters::FCANNParamsGPU, value_parameters::FCANNParamsGPU) where {T<:Real, S, A, PTF, F1, F2, F3}
 		cpu_feature = FCANN.host_allocate(feature_vector)
-		form_policy_and_value_function(mdp, cpu_feature, update_feature_vector!, cpu_policy_params, cpu_value_params)
+		form_policy_and_value_function(mdp, cpu_feature, update_feature_vector!, policy_parameters, value_parameters)
 	end
 end
 
@@ -4428,6 +4552,40 @@ const mountaincar_continuing_fcann_test = mountaincar_continuing_actor_critic_fc
 mountaincar_continuing_fcann_test.policy_and_value(mountaincar_continuing_mdp.initialize_state())
   ╠═╡ =#
 
+# ╔═╡ 21846f4f-fa5e-4637-bb5d-96bff59ba625
+#=╠═╡
+const mountaincar_continuing_fcann_test2 = mountaincar_continuing_actor_critic_fcann(6f-3, 2f-2, 0.005f0, 0.05f0, 0.95f0; num_steps = 100, hidden_layers = fill(1024, 4), reslayers = 1, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ f2b22fbb-84d3-417d-b656-966563b99541
+#=╠═╡
+const test_kwargs = mountaincar_continuing_fcann_test2.form_policy_and_value_kwargs()
+  ╠═╡ =#
+
+# ╔═╡ 40d0376d-ed03-44f2-979d-912657c76cf0
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = false, $test_kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 7dd7fa63-edbd-4fa4-9f39-5a2ab6e55b81
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = false) #, $test_kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 69dff193-479a-40c5-861a-d1962f71a147
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = true, $test_kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 456e9cb4-038a-44d8-ba49-d4889118d55f
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = true) #, $test_kwargs...)
+  ╠═╡ =#
+
 # ╔═╡ 1220d142-b402-45cf-9faf-55bd54ff947c
 #=╠═╡
 begin
@@ -6245,6 +6403,7 @@ version = "17.5.0+2"
 # ╟─3bafd7df-9bc0-4d13-874d-739590cf3ad9
 # ╟─cc45091e-b889-4d5a-9eef-84d80f792046
 # ╟─d83dc659-dce7-41dd-a8e7-2933ab39d15c
+# ╠═c2a136f3-9d9d-4ee4-b846-f00848ac03ce
 # ╠═ccd85da6-1220-4e8f-a391-7dfc2ac5dcf8
 # ╠═37ec6802-d4c2-4470-ad69-439d5a732f77
 # ╠═4fb83451-b6f8-4e6e-a131-1accc8e10b08
@@ -6404,6 +6563,12 @@ version = "17.5.0+2"
 # ╟─4e3b62a1-2d59-4a9d-9f09-b66e4d725889
 # ╟─45a28c1f-84e1-463d-862e-2e4a0c320fe2
 # ╠═7e605d62-a26f-4fe9-af72-a5c9c0a4063d
+# ╠═21846f4f-fa5e-4637-bb5d-96bff59ba625
+# ╠═f2b22fbb-84d3-417d-b656-966563b99541
+# ╠═40d0376d-ed03-44f2-979d-912657c76cf0
+# ╠═7dd7fa63-edbd-4fa4-9f39-5a2ab6e55b81
+# ╠═69dff193-479a-40c5-861a-d1962f71a147
+# ╠═456e9cb4-038a-44d8-ba49-d4889118d55f
 # ╠═ebe7bdce-abd7-4f2b-afb8-d95b7de29268
 # ╠═fdd0f834-ff1f-4bb8-82a2-b7e4ea9a8878
 # ╠═5bda649c-903f-4e76-9c6e-62a147e19bf5
