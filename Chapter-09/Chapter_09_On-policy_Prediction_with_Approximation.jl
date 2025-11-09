@@ -8,7 +8,6 @@ using InteractiveUtils
 using PlutoDevMacros
 
 # ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
-# ╠═╡ show_logs = false
 @only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
@@ -2045,15 +2044,29 @@ end
 
 # ╔═╡ 1d43e61e-8428-4f50-8dc7-e322b1d256e8
 function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}) where T<:Real
-	vecs = Tuple([s] for s in scales)
-	GC.@preserve vecs begin
-		ptrs = Tuple(pointer(s) for s in vecs)
-		@inbounds for i in eachindex(scales)
+	@inbounds for i in eachindex(scales)
+		tmp = [scales[i]]
+		GC.@preserve tmp begin
+			ptr = pointer(tmp)
 			for j in 1:2
-				FCANN.cublasSscal(FCANN.cublas_handle, ptrs[i], params.weights[j][i])
+				FCANN.cublasSscal(FCANN.cublas_handle, ptr, params.weights[j][i])
 			end
 		end
 	end
+end
+
+# ╔═╡ c064a91d-7dd3-403b-8bc0-285014bc873c
+function check_bad_params(params::Array{T, N}) where {T<:Real, N}
+	any(isinf, params) && return true
+	any(isnan, params) && return true
+	return false
+end
+
+# ╔═╡ 5513f245-de2e-4cb5-b56a-abbe8261249a
+function check_bad_params(params::FCANNParams)
+	any(check_bad_params, params.weights[1]) && return true
+	any(check_bad_params, params.weights[2]) && return true
+	return false
 end
 
 # ╔═╡ 322fa46d-125f-418b-90a2-6b8ddfc86b6d
@@ -2873,7 +2886,7 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 		end
 	end
 
-	function value_function(x, params::FCANNParams; activations::FCANNActivations = activations) 			
+	function value_function(x, params::FCANNParams; activations::FCANNActivations = activations, kwargs...) 			
 		fcann_value_function!(activations, x, params)
 		return first(last(activations))
 	end
@@ -2892,15 +2905,18 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 		d_gradient = initialize_gpu_params(params)
 		d_x = FCANN.cuda_allocate(zeros(T, input_length))
 
-		function value_function(d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations) 			
+		function value_function(d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations, kwargs...) 			
 			fcann_value_function!(activations, d_x, params)
 			
 			# return FCANN.host_allocate(last(activations))[1]
 
 			#this method is slightly faster for getting a single value, at least it doesn't allocate any memory
 			dst = Ref{Float32}(0f0)
-			FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
-			dst.x
+			GC.@preserve dst begin
+				FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
+				(isnan(dst.x) || isinf(dst.x)) && @warn "Bad value output of $(dst.x)"
+				return dst.x
+			end
 		end
 		
 		function value_function(x::Vector{T}, params::FCANNParamsGPU; gpu_feature_vector::FCANN.CUDAArray = d_x, kwargs...) 			
@@ -2912,8 +2928,17 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 			update_fcann_value_gradient!(∇v̂, d_x, 1, params, hidden_layers, l2, d_tanh_grad_z, d_activations, d_deltas, dropout, activation_list)
 			use_μP && scale_fcann_params!(∇v̂, scales)
 			dst = Ref{Float32}(0f0)
-			FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(d_activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
-			return dst.x
+			GC.@preserve dst begin
+				FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(d_activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
+				if (isnan(dst.x) || isinf(dst.x)) 
+					activations = FCANN.host_allocate(d_activations[end])
+					cpu_params = initialize_cpu_params(params)
+					badparams = check_bad_params(cpu_params)
+					badgrads = check_bad_params(initialize_cpu_params(∇v̂))
+					@warn "Bad value output of $(dst.x) from activations $activations and badparams = $badparams and badgrads = $badgrads"
+				end
+				return dst.x
+			end
 		end
 
 		function update_value_gradient!(∇v̂::FCANNParamsGPU, x::Vector{T}, params::FCANNParamsGPU) 
@@ -3122,25 +3147,16 @@ end
 
 # ╔═╡ 16eff6bc-ce43-4d97-aa76-73df2ff76b29
 begin
-	# function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where T<:Real
-	# 	function v̂(s; gpu_feature_vector::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), feature_vector = feature_vector, parameters::FCANNParamsGPU = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
-	# 		update_feature_vector!(feature_vector, s)
-	# 		value_function(feature_vector, parameters; activations = activations, gpu_feature_vector = gpu_feature_vector, kwargs...)
-	# 	end
-	
-	# 	#also return a method that acts on the feature vector itself which has already been updated
-	# 	v̂(x::Vector{T}, parameters; kwargs...) = value_function(x, parameters; kwargs...)
-	
-	# 	form_kwargs() = (gpu_feature_vector = FCANN.cuda_allocate(feature_vector), feature_vector = copy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
-		
-	# 	return (v̂, form_kwargs)
-	# end
-	
 	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where T<:Real
 		cpu_params = initialize_cpu_params(parameters)
-		function v̂(s; feature_vector::Vector{T} = copy(feature_vector), parameters::FCANNParams{T} = cpu_params, kwargs...)
+		gpu_params = initialize_gpu_params(cpu_params)
+		function v̂(s; feature_vector::Vector{T} = copy(feature_vector), parameters::FCANNParams{T} = cpu_params, use_gpu = false, gpu_params::FCANNParamsGPU = gpu_params, gpu_kwargs::NamedTuple = NamedTuple(), kwargs...)
 			update_feature_vector!(feature_vector, s)
-			v̂(feature_vector, parameters; kwargs...)
+			if !use_gpu
+				v̂(feature_vector, parameters; kwargs...)
+			else
+				v̂(feature_vector, gpu_params; gpu_kwargs...)
+			end
 		end
 	
 		#also return a method that acts on the feature vector itself which has already been updated
@@ -3148,8 +3164,29 @@ begin
 			fcann_value_function!(activations, feature_vector, parameters)
 			first(last(activations))
 		end
+
+		function v̂(x::Vector{T}, parameters::FCANNParamsGPU; activations = FCANN.form_activations(parameters.weights[1]), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(x), kwargs...)
+			FCANN.memcpy!(d_x, x)
+			fcann_value_function!(activations, d_x, parameters)
+			#this method is slightly faster for getting a single value, at least it doesn't allocate any memory
+			dst = Ref{Float32}(0f0)
+			GC.@preserve dst begin
+				FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
+				(isnan(dst.x) || isinf(dst.x)) && @warn "Bad value output of $(dst.x)"
+				return dst.x
+			end
+		end
 	
-		form_kwargs() = (feature_vector = copy(feature_vector), parameters = cpu_params, activations = FCANN.form_activations(cpu_params.weights[1]))
+		function form_gpu_kwargs() 
+			activations = FCANN.form_activations(gpu_params.weights[1])
+			d_x = FCANN.cuda_allocate(feature_vector)
+			function cleanup_vars()
+				FCANN.clear_gpu_data(activations)
+				FCANN.clear_gpu_data([d_x])
+			end
+			(activations = activations, d_x = d_x, cleanup_vars = cleanup_vars)
+		end
+		form_kwargs() = (feature_vector = copy(feature_vector), parameters = cpu_params, activations = FCANN.form_activations(cpu_params.weights[1]), gpu_kwargs = form_gpu_kwargs())
 		
 		return (v̂, form_kwargs)
 	end
@@ -5895,6 +5932,8 @@ version = "17.5.0+2"
 # ╠═1d43e61e-8428-4f50-8dc7-e322b1d256e8
 # ╠═b2c56d0e-668e-43cd-a886-bb830a60b132
 # ╠═6fb5606d-75fe-4108-adff-a6a644f572a2
+# ╠═c064a91d-7dd3-403b-8bc0-285014bc873c
+# ╠═5513f245-de2e-4cb5-b56a-abbe8261249a
 # ╠═67db7264-2a5e-44be-98e7-e5d08d5e7273
 # ╠═322fa46d-125f-418b-90a2-6b8ddfc86b6d
 # ╠═8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf

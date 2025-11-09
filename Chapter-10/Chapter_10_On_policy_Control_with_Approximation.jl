@@ -11,6 +11,7 @@ using PlutoDevMacros
 @only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ 9fb5dace-a799-4424-bcb3-8542e508dd4b
+# ╠═╡ show_logs = false
 # ╠═╡ skip_as_script = true
 #=╠═╡
 begin
@@ -437,6 +438,39 @@ begin
 	update_params_with_gradient!(w::Matrix{T}, α::T, ∇w::LinearActionValueGradient) where T<:Real = update_params_with_gradient!(w, α, ∇w.action_gradient, ∇w.action_index)
 end
 
+# ╔═╡ 7956c5af-4f26-4790-88c6-9e4d2a7b37f7
+#add gpu option toggle for action value functions too
+
+# ╔═╡ 585140d8-4c17-4adb-999c-ef4a72ab07b7
+begin
+	function form_action_value_kwargs(mdp, feature_vector, parameters::Array{T, N}) where {T<:Real, N} 
+		(action_values = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters = parameters)
+	end
+
+	function form_action_value_kwargs(mdp, feature_vector, parameters1::Array{T, N}, parameters2::Array{T, N}) where {T<:Real, N} 
+		(action_values1 = zeros(T, length(mdp.actions)), action_values2 = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters1 = parameters1, parameters2 = parameters2)
+	end
+
+	function form_action_value_kwargs(mdp, feature_vector, parameters::FCANNParams{T}) where {T<:Real} 
+		(action_values = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+	end
+
+	function form_action_value_kwargs(mdp, feature_vector::Vector{T}, cpu_params::FCANNParams{T}, gpu_params::FCANNParamsGPU) where {T<:Real} 
+		activations = FCANN.form_activations(gpu_params.weights[1])
+		d_x = FCANN.cuda_allocate(feature_vector)
+		function cleanup_vars()
+			FCANN.clear_gpu_data(activations)
+			FCANN.clear_gpu_data([d_x])
+		end
+		gpu_kwargs = (activations = activations, d_x = d_x, cleanup_vars = cleanup_vars)
+		(action_values = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters = cpu_params, activations = FCANN.form_activations(cpu_params.weights[1]), gpu_kwargs = gpu_kwargs)
+	end
+
+	function form_action_value_kwargs(mdp, feature_vector, parameters1::FCANNParams{T}, parameters2::FCANNParams{T}) where {T<:Real} 
+		(action_values1 = zeros(T, length(mdp.actions)), action_values2 = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters1 = parameters1, parameters2 = parameters2, activations = FCANN.form_activations(parameters1.weights[1]))
+	end
+end
+
 # ╔═╡ fc0b88f3-fbf9-450d-b770-b34357ffad49
 #in normal sarsa, we use the action value of the action actually taken, later on with methods like expected sarsa we would actually use the policy vector compute a weighted average of all action values
 """
@@ -627,7 +661,7 @@ begin
 		return maxq, i_a_max
 	end
 
-	function update_action_values!(action_values::Array{T, N}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix, activations) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
+	function update_action_values!(action_values::Array{T, N}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix, activations; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
 		for i_a in eachindex(action_values)
 			r, s′ = mdp.ptf.step(s, i_a)
 			update_feature_vector!(feature_vector, s′)
@@ -637,10 +671,12 @@ begin
 		update_state_values!(action_values, feature_matrix, parameters, activations)
 		action_values .= reward_values .+ γ .* action_values
 		maxq, imax = findmax(action_values)
+		isinf(maxq) && @warn "Infinite action value found in state $s out of $action_values"
+		isnan(maxq) && @warn "NaN action value found in state $s out of $action_values"
 		return maxq, prod(Tuple(imax)) 
 	end
 
-	function update_action_values!(action_values::Array{T, N}, s, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, parameters::FCANNParamsGPU, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix::Matrix{T}, gpu_matrix::FCANN.CUDAArray, activations) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
+	function update_action_values!(action_values::Array{T, N}, s, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, parameters::FCANNParamsGPU, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix::Matrix{T}, gpu_matrix::FCANN.CUDAArray, activations; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
 		for i_a in eachindex(action_values)
 			r, s′ = mdp.ptf.step(s, i_a)
 			update_feature_vector!(feature_vector, s′)
@@ -651,6 +687,8 @@ begin
 		update_state_values!(action_values, gpu_matrix, parameters, activations)
 		action_values .= reward_values .+ γ .* action_values
 		maxq, imax = findmax(action_values)
+		isinf(maxq) && @warn "Infinite action value found in state $s out of $action_values"
+		isnan(maxq) && @warn "NaN action value found in state $s out of $action_values"
 		return maxq, prod(Tuple(imax))
 	end
 end
@@ -760,32 +798,35 @@ begin
 			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
 
-		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters = parameters)
-	
-		return q̂, form_kwargs
-	end
-
-	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W<:FCANNParams{T}}
-		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters::W = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
-			update_feature_vector!(feature_vector, s)
-			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; activations = activations, kwargs...)
-			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
-		end
-	
-		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+		form_kwargs() = form_action_value_kwargs(mdp, feature_vector, parameters)
 	
 		return q̂, form_kwargs
 	end
 
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::Vector{T}, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W<:FCANNParamsGPU}
 		cpu_params = initialize_cpu_params(parameters)
-		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::Vector{T} = copy(feature_vector), parameters::FCANNParams{T} = cpu_params, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+		gpu_params = initialize_gpu_params(cpu_params)
+		function q̂(s::S; feature_vector::Vector{T} = copy(feature_vector), parameters::FCANNParams{T} = cpu_params, gpu_params::FCANNParamsGPU = gpu_params, gpu_kwargs::NamedTuple = NamedTuple(), use_gpu::Bool = false, kwargs...)
 			update_feature_vector!(feature_vector, s)
-			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; activations = activations, kwargs...)
+			if !use_gpu
+				q̂(feature_vector, parameters; kwargs...)
+			else
+				q̂(feature_vector, gpu_params; gpu_kwargs...)
+			end
+		end
+
+		function q̂(x::Vector{T}, parameters::FCANNParams{T}; action_values::Vector{T} = zeros(T, length(mdp.actions)), activations = FCANN.form_activations(cpu_params.weights[1]), kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, x, cpu_params; activations = activations, kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+
+		function q̂(x::Vector{T}, parameters::FCANNParamsGPU; action_values::Vector{T} = zeros(T, length(mdp.actions)), activations = FCANN.form_activations(gpu_params.weights[1]), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(x), kwargs...)
+			FCANN.memcpy!(d_x, x)
+			maxq, i_a_max = update_action_values!(action_values, d_x, parameters; activations = activations, kwargs...)
 			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
 	
-		form_kwargs() = (action_values = zeros(T, length(mdp.actions)), feature_vector = copy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+		form_kwargs() = form_action_value_kwargs(mdp, feature_vector, cpu_params, gpu_params)
 	
 		return q̂, form_kwargs
 	end
@@ -799,7 +840,7 @@ begin
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
 		function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, action_value_kwargs...)
 			update_feature_vector!(feature_vector, s)
-			update_action_values!(action_values1, feature_vector, parameters1;  action_value_kwargs...)
+			update_action_values!(action_values1, feature_vector, parameters1; action_value_kwargs...)
 			update_action_values!(action_values2, feature_vector, parameters2; action_value_kwargs...)
 			action_values1 .+= action_values2
 			action_values1 ./= 2
@@ -808,24 +849,7 @@ begin
 			(action_values = action_values1, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
 
-		form_kwargs() = (action_values1 = zeros(T, length(mdp.actions)), action_values2 = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters1 = parameters1, parameters2 = parameters2)
-
-		return q̂, form_kwargs
-	end	
-
-	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W <: FCANNParams{T}}
-		function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, activations = FCANN.form_activations(parameters1.weights[1]), action_value_kwargs...)
-			update_feature_vector!(feature_vector, s)
-			update_action_values!(action_values1, feature_vector, parameters1; activations = activations, action_value_kwargs...)
-			update_action_values!(action_values2, feature_vector, parameters2; activations = activations, action_value_kwargs...)
-			action_values1 .+= action_values2
-			action_values1 ./= 2
-			(maxq, i_a_max) = findmax(action_values1)
-				
-			(action_values = action_values1, maximizing_action = i_a_max, maximizing_value = maxq)
-		end
-
-		form_kwargs() = (action_values1 = zeros(T, length(mdp.actions)), action_values2 = zeros(T, length(mdp.actions)), feature_vector = deepcopy(feature_vector), parameters1 = parameters1, parameters2 = parameters2, activations = FCANN.form_activations(parameters1.weights[1]))
+		form_kwargs() = form_action_value_kwargs(mdp, feature_vector, parameters1, parameters2)
 
 		return q̂, form_kwargs
 	end	
@@ -848,7 +872,28 @@ begin
 
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::Vector{T}, parameters::FCANNParamsGPU) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
 		cpu_params = initialize_cpu_params(parameters)
-		form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, cpu_params)
+		gpu_params = initialize_gpu_params(cpu_params)
+
+		function q̂(s::S; use_gpu::Bool = false, parameters = cpu_params, gpu_params = gpu_params, kwargs...)
+			if !use_gpu
+				q̂(s, parameters; kwargs...)
+			else
+				q̂(s, gpu_params; kwargs...)
+			end
+		end
+
+		function q̂(s::S, parameters::FCANNParams{T}; action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), feature_vector::Vector{T} = copy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ, action_value_args...; kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max |> Tuple |> prod, maximizing_value = maxq)
+		end
+
+		function q̂(s::S, parameters::FCANNParamsGPU; action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), feature_vector::Vector{T} = copy(feature_vector), gpu_action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, γ, gpu_action_value_args...; kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max |> Tuple |> prod, maximizing_value = maxq)
+		end
+
+		form_kwargs() = (action_values = zeros(T, length(mdp.actions), 1), parameters = cpu_params, feature_vector = copy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, cpu_params), gpu_action_value_args = form_action_value_args(mdp, feature_vector, gpu_params))
+		return q̂, form_kwargs
 	end
 
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, update_feature_vector!::Function, value_function::Function, feature_vector::FCANN.CUDAArray, parameters::FCANNParamsGPU) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
@@ -1304,10 +1349,13 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		end
 	end
 
-	function update_action_values!(action_values::Vector{T}, x, params; activations = activations) 
+	function update_action_values!(action_values::Vector{T}, x, params; activations = activations, kwargs...) 
 		fcann_value_function!(activations, x, params)
 		action_values .= activations[end]
-		findmax(action_values)
+		val, index = findmax(action_values)
+		isnan(val) && @warn "Got NaN action value inside $action_values"
+		isinf(val) && @warn "Got Inf action value inside $action_values"
+		return (val, index)
 	end
 	
 	function update_value_gradient!(∇q̂::FCANNParams, x, i_a::Integer, params::FCANNParams) 
@@ -1319,7 +1367,10 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 	function update_value_gradient!(∇q̂::FCANNParams, action_values::Vector{T}, x, i_a::Integer, params::FCANNParams) 
 		update_value_gradient!(∇q̂, x, i_a, params)
 		action_values .= activations[end]
-		findmax(action_values)
+		val, index = findmax(action_values)
+		isnan(val) && @warn "Got NaN action value inside $action_values"
+		isinf(val) && @warn "Got Inf action value inside $action_values"
+		return (val, index)
 	end
 
 	if use_gpu && in(:GPU, backendList)
@@ -1330,10 +1381,13 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		d_gradient = initialize_gpu_params(params)
 		d_x = FCANN.cuda_allocate(zeros(T, input_length))
 
-		function update_action_values!(action_values::Vector{T}, d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations) 			
+		function update_action_values!(action_values::Vector{T}, d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations, kwargs...) 			
 			fcann_value_function!(activations, d_x, params)
 			FCANN.memcpy!(action_values, activations[end])
-			findmax(action_values)
+			val, index = findmax(action_values)
+			isnan(val) && @warn "Got NaN action value inside $action_values"
+			isinf(val) && @warn "Got Inf action value inside $action_values"
+			return (val, index)
 		end
 
 		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; gpu_feature_vector::FCANN.CUDAArray = d_x, kwargs...) 			
@@ -1355,6 +1409,10 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		function update_value_gradient!(∇q̂::FCANNParamsGPU, action_values::Vector{T}, x, i_a::Integer, params::FCANNParamsGPU)
 			update_value_gradient!(∇q̂, x, i_a, params)
 			FCANN.memcpy!(action_values, d_activations[end])
+			val, index = findmax(action_values)
+			isnan(val) && @warn "Got NaN action value inside $action_values"
+			isinf(val) && @warn "Got Inf action value inside $action_values"
+			return (val, index)
 		end
 
 		function cleanup_vars()
@@ -2089,7 +2147,7 @@ end
 # ╔═╡ ee59176e-24b6-4213-8f8e-759a70bc1d5e
 # ╠═╡ skip_as_script = true
 #=╠═╡
-const mountaincar_fcann_dp_results = mountaincar_fcann_dp(100_000, 1f-4, 0.01f0, fill(64, 4), MountainCarTask.deterministic_mdp; reslayers = 1)
+const mountaincar_fcann_dp_results = mountaincar_fcann_dp(100_000, 1f-4, 0.01f0, fill(64, 4), MountainCarTask.deterministic_mdp; reslayers = 1, use_gpu = false)
   ╠═╡ =#
 
 # ╔═╡ 1e224a46-91ef-4a5f-ae35-ef4062147f2d
@@ -3060,9 +3118,11 @@ end
 			update_feature_matrix!(feature_matrix, feature_vector, i_a)
 			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
 		end
-		update_state_values!(action_values, feature_matrix, parameters, activations; kwargs...)
+		update_state_values!(action_values, feature_matrix, parameters, activations)
 		action_values .= reward_values .- R̄ .+ action_values
 		vmax, imax = findmax(action_values)
+		isinf(vmax) && @warn "Infinite action value found in state $s out of $action_values"
+		isnan(vmax) && @warn "NaN action value found in state $s out of $action_values"
 		return (vmax, prod(Tuple(imax)))
 	end
 
@@ -3074,9 +3134,11 @@ end
 			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
 		end
 		FCANN.memcpy!(gpu_matrix, feature_matrix)
-		update_state_values!(action_values, gpu_matrix, parameters, activations; kwargs...)
+		update_state_values!(action_values, gpu_matrix, parameters, activations)
 		action_values .= reward_values .- R̄ .+ action_values
 		vmax, imax = findmax(action_values)
+		isinf(vmax) && @warn "Infinite action value found in state $s out of $action_values"
+		isnan(vmax) && @warn "NaN action value found in state $s out of $action_values"
 		return (vmax, prod(Tuple(imax)))
 	end
 end
@@ -3132,7 +3194,28 @@ begin
 
 	function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V <: Vector{T}, W <: FCANNParamsGPU}
 		cpu_params = initialize_cpu_params(parameters)
-		form_differential_value_function(mdp, R̄, update_feature_vector!, value_function, feature_vector, cpu_params)
+		gpu_params = initialize_gpu_params(cpu_params)
+		
+		function q̂(s::S; use_gpu::Bool = false, parameters = cpu_params, gpu_params = gpu_params, kwargs...)
+			if !use_gpu
+				q̂(s, parameters; kwargs...)
+			else
+				q̂(s, gpu_params; kwargs...)
+			end
+		end
+
+		function q̂(s::S, parameters::FCANNParams{T}; action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), feature_vector::Vector{T} = copy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
+			maxq, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, R̄, action_value_args...; kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+
+		function q̂(s::S, parameters::FCANNParamsGPU; action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), feature_vector::Vector{T} = copy(feature_vector), gpu_action_value_args = form_action_value_args(mdp, feature_vector, parameters), kwargs...)
+			maxq, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, value_function, parameters, mdp, R̄, gpu_action_value_args...; kwargs...)
+			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+
+		form_kwargs() = (action_values = zeros(T, length(mdp.actions), 1), parameters = cpu_params, feature_vector = copy(feature_vector), action_value_args = form_action_value_args(mdp, feature_vector, cpu_params), gpu_action_value_args = form_action_value_args(mdp, feature_vector, gpu_params))
+		return q̂, form_kwargs
 	end
 
 	function form_differential_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, update_feature_vector!::Function, value_function::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V <: FCANN.CUDAArray, W <: FCANNParamsGPU}
@@ -3218,7 +3301,7 @@ function semi_gradient_differential_dp!(parameters::PR, mdp::StateMDP{T, S, A, P
 	R̄ = zero(T)
 	ō = zero(T)
 	for step in 1:num_steps
-		save_parameter_history && (parameter_history[step] = deepcopy(parameters))
+		save_parameter_history && (parameter_history[step] = copy(parameters))
 		update_feature_vector!(feature_vector, s)
 		v̂ = update_value_gradient!(∇v̂, feature_vector, parameters)
 		
@@ -3245,6 +3328,10 @@ function semi_gradient_differential_dp!(parameters::PR, mdp::StateMDP{T, S, A, P
 			ō += α_r̄ * (one(T) - ō)
 			R̄ += (α_r̄/ō)*(target - R̄ - v̂)
 		end
+
+		# if step <= 3
+		# 	@info "v̂ = $v̂, target = $target, δ = $δ, R̄ = $R̄, action values are $action_values"
+		# end
 
 		s = s′
 	end
@@ -3519,6 +3606,16 @@ end
 (q̂_mountain_car2_fcann, fcann_rewards2, average_step_reward_fcann) = mountaincar_fcann_differential_test(100_000, 1f-5, 1f-3, 0.01f0; num_layers = 4, layer_size = 64, reslayers = 1, compute_value = compute_q_learning_value, use_gpu=false)
   ╠═╡ =#
 
+# ╔═╡ 6d4016c6-8edd-4466-9cc4-015452c669ba
+#=╠═╡
+const cont_sarsa_fcann_test = mountaincar_fcann_differential_test(100, 1f-5, 1f-3, 0.01f0; num_layers = 4, layer_size = 64, reslayers = 1, compute_value = compute_q_learning_value, use_gpu=true)
+  ╠═╡ =#
+
+# ╔═╡ 2df5adc1-130b-4982-a4bc-7e0c7417923e
+#=╠═╡
+cont_sarsa_fcann_test.value_function((0f0, 0f0); use_gpu = false, cont_sarsa_fcann_test.form_kwargs()...)
+  ╠═╡ =#
+
 # ╔═╡ 2306039b-7b4d-4013-be1b-1402231ef8e8
 #=╠═╡
 π_mountain_car2_fcann(s) = q̂_mountain_car2_fcann(s).maximizing_action
@@ -3596,6 +3693,16 @@ end
 # ╔═╡ 86f7dcde-b27e-4096-bec8-c5d17fd553d2
 #=╠═╡
 const differential_nonlinear_dp_mountaincar = mountaincar_differential_dp_nonlinear_test(100_000, 1f-5, 4f-2, 0.01f0; layer_size = 16, num_layers = 4, use_gpu = false)
+  ╠═╡ =#
+
+# ╔═╡ defe9c74-d514-44ea-af09-fb77764dfaa4
+#=╠═╡
+const cont_dp_fcann_test = mountaincar_differential_dp_nonlinear_test(100, 1f-5, 1f-3, 0.01f0; num_layers = 4, layer_size = 64, reslayers = 1, use_gpu=true)
+  ╠═╡ =#
+
+# ╔═╡ 7ed745f4-5b7d-41b4-a40e-5b782ca12530
+#=╠═╡
+cont_dp_fcann_test.value_function((0.5f0, 0f0); use_gpu = true, cont_dp_fcann_test.form_kwargs()...)
   ╠═╡ =#
 
 # ╔═╡ ad692a51-e93b-4480-8a6c-2ad86dc6766b
@@ -5634,6 +5741,8 @@ version = "17.5.0+2"
 # ╠═0226d8a3-bb22-4a32-9700-e234abf518a6
 # ╠═08c74b7d-7aa6-4085-a09b-b6191f8d098e
 # ╠═1393f7a6-05c7-48a3-96a9-130eb6d45937
+# ╠═7956c5af-4f26-4790-88c6-9e4d2a7b37f7
+# ╠═585140d8-4c17-4adb-999c-ef4a72ab07b7
 # ╠═94fa7f7d-c77c-4df5-a7b9-b3c931cb3bce
 # ╠═d82faf3b-c975-4b23-ad62-473bd943c4e2
 # ╟─fc0b88f3-fbf9-450d-b770-b34357ffad49
@@ -5791,6 +5900,8 @@ version = "17.5.0+2"
 # ╟─86cd431e-7b05-410a-b943-ba03b286f3f0
 # ╠═d3ba78fa-f032-4bb9-9359-ef3bcff2252d
 # ╠═ae5c5377-8b44-4c82-a63c-d2cb8a0d6667
+# ╠═6d4016c6-8edd-4466-9cc4-015452c669ba
+# ╠═2df5adc1-130b-4982-a4bc-7e0c7417923e
 # ╠═2306039b-7b4d-4013-be1b-1402231ef8e8
 # ╠═425fe768-c7bb-4d3e-87e6-47fa052ba612
 # ╠═b191d3f9-cf25-4fb4-8f5a-8da86e96e125
@@ -5805,6 +5916,8 @@ version = "17.5.0+2"
 # ╟─0e34a25b-f8ee-4da9-8664-b6c094163759
 # ╠═3b66c97b-ebad-4d13-987c-ac0172b349d1
 # ╠═86f7dcde-b27e-4096-bec8-c5d17fd553d2
+# ╠═defe9c74-d514-44ea-af09-fb77764dfaa4
+# ╠═7ed745f4-5b7d-41b4-a40e-5b782ca12530
 # ╠═ad692a51-e93b-4480-8a6c-2ad86dc6766b
 # ╟─cf00a316-38e3-4423-9909-d5ffbd7c0b06
 # ╠═89288ce6-11e8-41f3-b32d-e19edee7db33

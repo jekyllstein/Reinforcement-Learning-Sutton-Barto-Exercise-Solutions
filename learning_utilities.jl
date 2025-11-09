@@ -551,23 +551,6 @@ function check_reward_progress(episode_rewards::Vector{T}) where T<:Real
 	Statistics.mean(view(episode_rewards, episode_check:l))
 end
 
-# ╔═╡ b98a52c7-873a-4e1c-bcb9-5e41d220670b
-#add another condition to check if Inf or NaN values appear anywhere in the parameters.  If so then consider this the same as reward not improving and use backup parameters
-
-# ╔═╡ eaacf747-26db-4934-8df5-002e713f381e
-function check_bad_params(params::Array{T, N}) where {T<:Real, N}
-	any(isinf, params) && return true
-	any(isnan, params) && return true
-	return false
-end
-
-# ╔═╡ b6e2c7c9-0e95-4b91-853d-5dedba06f2cd
-function check_bad_params(params::FCANNParams)
-	any(check_bad_params, params.weights[1]) && return true
-	any(check_bad_params, params.weights[2]) && return true
-	return false
-end
-
 # ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
 function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
@@ -600,7 +583,8 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		
 		@info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, use_dp = use_dp, kwargs...)
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
+		π_kwargs = output1.form_kwargs()
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; π_kwargs...).maximizing_action
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -710,19 +694,20 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		end
 	end
 
-	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, kwargs...)
+	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, λ::T, trial_steps::Integer; use_gpu::Bool = false, use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
 		@info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
-		output1 = td_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, kwargs...)
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
+		output1 = td_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, use_gpu = use_gpu, kwargs...)
+		π_kwargs = output1.form_kwargs()
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; use_gpu = use_gpu, π_kwargs...).maximizing_action
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
 		
 		@info "Baseline episode reward is $reward1, beginning first trial"
 		backup_params = copy(params)
-		output2 = td_train_nonlinear(hidden_layers, reslayers, γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
+		output2 = td_train_nonlinear(hidden_layers, reslayers, γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, use_gpu = use_gpu, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2.episode_rewards)
 
 		if check_bad_params(params)
@@ -744,7 +729,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			copy!(backup_params, params)
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
-			output2 = td_train_nonlinear(hidden_layers, reslayers, γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
+			output2 = td_train_nonlinear(hidden_layers, reslayers, γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, use_gpu = use_gpu, ϵ = ϵ, kwargs...)
 			reward2 = check_reward_progress(output2.episode_rewards)
 		end
 
@@ -813,7 +798,8 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 	function ac_train_exhaustive(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
 		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_linear(γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
-		π(s) = output1.policy_sample_action(s)
+		π_kwargs = output1.form_policy_kwargs()
+		π(s) = output1.policy_sample_action(s; π_kwargs...)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -924,7 +910,8 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, kwargs...)
-		π(s) = output1.policy_sample_action(s)
+		π_kwargs = output1.form_policy_kwargs()
+		π(s) = output1.policy_sample_action(s; π_kwargs...)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -1037,9 +1024,9 @@ episodic_nonlinear_value_test = setup_episodic_value_nonlinear_training(episodic
 episodic_nonlinear_value_result = episodic_nonlinear_value_test.train_rate_decay(fill(16, 2), 1, 1f0, 1f-3, 0.99f0, 1_000_000; new_params = true, ϵ = 0.05f0, use_dp = false)
   ╠═╡ =#
 
-# ╔═╡ e9be7dd3-3b76-4043-99b1-cad431310d35
+# ╔═╡ 4abf9691-4817-4728-acac-1f72ba7a5a87
 #=╠═╡
-episodic_nonlinear_value_test.parameters
+episodic_nonlinear_value_result2 = episodic_nonlinear_value_test.train_rate_decay(fill(2048, 4), 1, 1f0, 1f-3, 0.99f0, 100; new_params = true, ϵ = 0.05f0, use_dp = false, use_gpu = true)
   ╠═╡ =#
 
 # ╔═╡ f9c9ccb4-0291-461d-8016-8f13a9dc1c5d
@@ -1119,7 +1106,8 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		params = use_dp ? linear_dp_params : linear_sarsa_params
 		@info "Starting exhaustive training with α = $α and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_linear(zero(T), zero(T), 0; use_dp = use_dp, new_params = new_params, kwargs...)
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
+		π_kwargs = output1.form_kwargs()
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; π_kwargs...).maximizing_action
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -1214,19 +1202,20 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		end
 	end
 
-	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, kwargs...)
+	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_gpu::Bool = false, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
 		@info "Starting exhaustive training with α = $α, and λ = $λ with $trial_steps steps per trial"
-		output1 = td_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, kwargs...)
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s).maximizing_action
+		output1 = td_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, use_gpu = use_gpu, kwargs...)
+		π_kwargs = output1.form_kwargs()
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; use_gpu = use_gpu, π_kwargs...).maximizing_action
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
 		
 		@info "Baseline average reward is $reward1, beginning first trial"
 		backup_params = copy(params)
-		output2 = td_train_nonlinear(hidden_layers, reslayers, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
+		output2 = td_train_nonlinear(hidden_layers, reslayers, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, use_gpu = use_gpu, kwargs...)
 		reward2 = check_reward_progress(output2.reward_history)
 
 		if check_bad_params(params)
@@ -1248,7 +1237,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 			copy!(backup_params, params)
 			reward_history = vcat(reward_history, output1.reward_history)
 			
-			output2 = td_train_nonlinear(hidden_layers, reslayers, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
+			output2 = td_train_nonlinear(hidden_layers, reslayers, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, use_gpu = use_gpu, kwargs...)
 			reward2 = check_reward_progress(output2.reward_history)
 		end
 
@@ -1317,7 +1306,8 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 	function ac_train_exhaustive(α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
 		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_linear(zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
-		π(s) = output1.policy_sample_action(s)
+		π_kwargs = output1.form_policy_kwargs()
+		π(s) = output1.policy_sample_action(s; π_kwargs...)
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -1421,7 +1411,8 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, kwargs...)
-		π(s) = output1.policy_sample_action(s)
+		π_kwargs = output1.form_policy_kwargs()
+		π(s) = output1.policy_sample_action(s; π_kwargs...)
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -1528,6 +1519,36 @@ continuing_nonlinear_value_test = setup_continuing_value_nonlinear_training(cont
 # ╔═╡ 77466131-49bb-4ea5-9c87-423d29842b98
 #=╠═╡
 continuing_nonlinear_value_result = continuing_nonlinear_value_test.train_rate_decay(fill(4, 2), 1, 1f-2, 0.5f0, 100_000; ϵ = 0.01f0, α_r̄ = 0.01f0, new_params = true)
+  ╠═╡ =#
+
+# ╔═╡ 61266580-bac3-4528-a358-fc1260d7c9ce
+#=╠═╡
+const continuing_nonlinear_value_test2 = setup_continuing_value_nonlinear_training(create_mountaincar_continuing_mdp(), episodic_setup.feature_vector, episodic_setup.update_feature_vector!)
+  ╠═╡ =#
+
+# ╔═╡ 61382f79-e914-4692-b1fd-3b2daf0d5448
+#=╠═╡
+const continuing_nonlinear_value_result2 = continuing_nonlinear_value_test2.train_rate_decay(fill(2048, 4), 1, 1f-2, 0.95f0, 100; ϵ = 0.01f0, α_r̄ = 0.01f0, use_dp = true, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ baab0f51-4d55-4449-9895-c7fdaf164444
+#=╠═╡
+const continuing_nonlinear_kwargs = continuing_nonlinear_value_result2.form_kwargs()
+  ╠═╡ =#
+
+# ╔═╡ 26d2800b-b7a1-4c9e-9c16-37dc189676dd
+#=╠═╡
+runepisode(create_mountaincar_continuing_mdp(); π = s -> continuing_nonlinear_value_result2.value_function(s; use_gpu = true).maximizing_action, max_steps = 100)
+  ╠═╡ =#
+
+# ╔═╡ 85629069-f0a5-4930-9b8c-cfc727a7115c
+#=╠═╡
+runepisode(create_mountaincar_continuing_mdp(); π = s -> continuing_nonlinear_value_result2.value_function(s; use_gpu = true, continuing_nonlinear_kwargs...).maximizing_action, max_steps = 100)
+  ╠═╡ =#
+
+# ╔═╡ 028aff42-2fc7-4fc9-af95-fc170675be42
+#=╠═╡
+runepisode(create_mountaincar_continuing_mdp(); π = s -> continuing_nonlinear_value_result2.value_function(s; use_gpu = false, continuing_nonlinear_kwargs...).maximizing_action, max_steps = 100)
   ╠═╡ =#
 
 # ╔═╡ 1766314b-b9ee-4be0-bdb7-7aa714cc7e6d
@@ -2120,6 +2141,11 @@ begin
 end
   ╠═╡ =#
 
+# ╔═╡ 85085734-baf2-4e7e-9282-295edfc7183a
+md"""
+# GPU Testing
+"""
+
 # ╔═╡ 76df3e20-7d89-4142-8e79-8d7186ba5fec
 function test_decay(α::Float32)
 	testparams = initialize_fcann_params(8, fill(8, 2), 1, 1, true)
@@ -2133,6 +2159,43 @@ end
 # ╠═╡ skip_as_script = true
 #=╠═╡
 test_decay(0.25f0)
+  ╠═╡ =#
+
+# ╔═╡ cc1e47f0-e6f3-4a3d-80e4-56af46f6c42a
+function test_scale(scales::Vector{Float32})
+	testparams = initialize_fcann_params(4, fill(4, 2), 1, 1, true)
+	testparams_gpu = initialize_gpu_params(testparams)
+	# zero_trace!(testparams_gpu)
+	# decay_trace!(testparams_gpu, α)
+	scale_fcann_params!(testparams_gpu, scales)
+	(testparams.weights[1], initialize_cpu_params(testparams_gpu).weights[1])
+end
+
+# ╔═╡ f60389f6-8e9d-4c64-a54c-78ea5b3415aa
+# ╠═╡ skip_as_script = true
+#=╠═╡
+test_scale([1f0, 5.0f0, 0f0])
+  ╠═╡ =#
+
+# ╔═╡ e33457c9-3be3-4301-9a72-c5889bef0b99
+function test_param_update()
+	testparams = initialize_fcann_params(4, fill(4, 2), 1, 1, true)
+	testparams_gpu1 = initialize_gpu_params(testparams)
+	testparams_gpu2 = initialize_gpu_params(testparams)
+	update_params_with_gradient!(testparams_gpu2, 1f0, testparams_gpu1)
+	(testparams.weights[1], initialize_cpu_params(testparams_gpu2).weights[1])
+end
+
+# ╔═╡ dd258176-523e-4ffe-b108-a0ebf941bde9
+# ╠═╡ skip_as_script = true
+#=╠═╡
+test_param_update()
+  ╠═╡ =#
+
+# ╔═╡ 075ca176-f27c-450a-a697-c4f6394a823a
+# ╠═╡ skip_as_script = true
+#=╠═╡
+FCANN.checkNumGradGPU(0f0; n = 10)
   ╠═╡ =#
 
 # ╔═╡ 6245ffaa-acb4-11f0-3a8d-47ce889cb225
@@ -3252,9 +3315,6 @@ version = "17.5.0+2"
 # ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
 # ╠═3a938f27-b6fe-4411-8c41-5d1efaa8189c
 # ╠═a5b13027-c3b6-488e-82a1-2ee3be6c63be
-# ╠═b98a52c7-873a-4e1c-bcb9-5e41d220670b
-# ╠═eaacf747-26db-4934-8df5-002e713f381e
-# ╠═b6e2c7c9-0e95-4b91-853d-5dedba06f2cd
 # ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
 # ╠═c68eab1e-b4f1-4fb5-8b3e-f23ad0df0be0
 # ╠═98d94e3b-4ca5-4ff0-8409-9d748799931f
@@ -3269,7 +3329,7 @@ version = "17.5.0+2"
 # ╠═5443cd2e-78c8-4723-9093-df2840f59a33
 # ╠═eabd4d6b-ce35-41ad-845d-aa1498003814
 # ╠═ddd87cf8-b424-469d-900e-5c46057aa05f
-# ╠═e9be7dd3-3b76-4043-99b1-cad431310d35
+# ╠═4abf9691-4817-4728-acac-1f72ba7a5a87
 # ╟─f9c9ccb4-0291-461d-8016-8f13a9dc1c5d
 # ╠═aeed95c6-1f66-4087-a491-faf928fd8f4c
 # ╠═2fb66afd-5889-4866-8a93-e8903881de9d
@@ -3292,6 +3352,12 @@ version = "17.5.0+2"
 # ╠═ed63609b-1b7d-4075-b71f-62f1205bb122
 # ╠═77466131-49bb-4ea5-9c87-423d29842b98
 # ╠═c3467768-4c72-4a33-a9d3-12d94f755ee9
+# ╠═61266580-bac3-4528-a358-fc1260d7c9ce
+# ╠═61382f79-e914-4692-b1fd-3b2daf0d5448
+# ╠═baab0f51-4d55-4449-9895-c7fdaf164444
+# ╠═26d2800b-b7a1-4c9e-9c16-37dc189676dd
+# ╠═85629069-f0a5-4930-9b8c-cfc727a7115c
+# ╠═028aff42-2fc7-4fc9-af95-fc170675be42
 # ╟─1766314b-b9ee-4be0-bdb7-7aa714cc7e6d
 # ╠═5638255a-7d2a-481d-b724-9c72c830ca7a
 # ╠═79784c4b-2ccf-4c83-8864-6376091a5c9a
@@ -3340,8 +3406,14 @@ version = "17.5.0+2"
 # ╠═9394e249-1d18-47eb-8b3d-15c71586af53
 # ╠═c182475b-c1b0-4835-8347-f0f4a831909b
 # ╠═b5c0be58-c2cd-440e-9b8b-254e3990ff44
+# ╟─85085734-baf2-4e7e-9282-295edfc7183a
 # ╠═76df3e20-7d89-4142-8e79-8d7186ba5fec
 # ╠═68ce6195-9be3-4f76-9afd-587b171ac422
+# ╠═cc1e47f0-e6f3-4a3d-80e4-56af46f6c42a
+# ╠═f60389f6-8e9d-4c64-a54c-78ea5b3415aa
+# ╠═e33457c9-3be3-4301-9a72-c5889bef0b99
+# ╠═dd258176-523e-4ffe-b108-a0ebf941bde9
+# ╠═075ca176-f27c-450a-a697-c4f6394a823a
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═2648f295-b04d-4e2d-9d81-7d2f868f9051
