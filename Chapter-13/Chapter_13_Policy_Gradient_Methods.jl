@@ -1513,9 +1513,6 @@ md"""
 #### Tile Coding Method
 """
 
-# ╔═╡ c5897cda-b674-4a2b-9dcf-03d9ccc40563
-#set up parameter study here for continuing problem and compare it to sarsa_λ and dp_λ (differential versions of both)
-
 # ╔═╡ de3cba34-9842-44d1-9b79-47126c0a0751
 #=╠═╡
 setup_cartpole_tiles(num_tiles::NTuple{4, Int64}, num_tilings::Integer) = tile_coding_feature_setup(cartpole_continuing_mdp, cartpole_functions.min_vals, cartpole_functions.max_vals, num_tiles, num_tilings; value_inds = (:x, :θ, :ẋ, :θ̇))
@@ -6479,7 +6476,7 @@ version = "17.5.0+2"
 # ╟─436c52d2-280b-4ca4-9360-d6587b8254c7
 # ╠═f0104778-81a6-417b-8501-f916e5e7f3af
 # ╠═1ac9296f-047b-4051-ba5c-0c23d5f9cde9
-# ╠═18bf6fe9-0233-4a20-9fbe-84a969613626
+# ╟─18bf6fe9-0233-4a20-9fbe-84a969613626
 # ╠═431365c7-7dc9-44d6-a837-abd40091c9e7
 # ╠═c718274d-5dfc-4764-83d9-c737275a66eb
 # ╠═40985248-85d9-4cbd-9e75-5ef8b9b9cc90
@@ -6499,7 +6496,6 @@ version = "17.5.0+2"
 # ╠═602a07dd-8928-4b44-97e5-01c5cbf38351
 # ╠═81271bbb-08ba-41d1-8807-7a2c1eadf59a
 # ╟─7dbb42a3-aa8c-47e5-b668-18e6325d4038
-# ╠═c5897cda-b674-4a2b-9dcf-03d9ccc40563
 # ╠═de3cba34-9842-44d1-9b79-47126c0a0751
 # ╠═e2a545d0-d44b-4476-9baa-a68c12d3e9d3
 # ╠═246c080e-8394-4498-a500-670cfefba1ea

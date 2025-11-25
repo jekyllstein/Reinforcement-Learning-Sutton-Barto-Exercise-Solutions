@@ -1649,19 +1649,19 @@ md"""
 """
 
 # ╔═╡ 8d535a89-8eab-4ec3-a144-cd54d3abdfee
-function save_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, params::Vector{T}) where T<:Float32
+function save_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, params::Vector{T}; show_message::Bool = true) where T<:Float32
 	l = length(feature_vector)
 	@assert l == length(params) "Feature vector length of $l does not match parameter vector length"
 	m = length(mdp.actions)
 	filename = string(base_name, "_dp_linear_value_parameters_$(l)_input_$(m)_actions.bin")
 	input = reshape(params, length(params), 1)
 	FCANN.writeArray(input, filename)
-	@info "Saved parameters to $filename"
+	show_message && @info "Saved parameters to $filename"
 	return filename
 end
 
 # ╔═╡ 696015af-9017-4afd-a6ab-e82e2e2a5a04
-function save_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, params::Matrix{T}) where T<:Float32
+function save_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, params::Matrix{T}; show_message::Bool = true) where T<:Float32
 	l = length(feature_vector)
 	@assert l == size(params, 1) "Feature vector length of $l does not match parameter dimension"
 
@@ -1670,7 +1670,7 @@ function save_linear_value_parameters(base_name::AbstractString, mdp::StateMDP, 
 	
 	filename = string(base_name, "_sarsa_linear_value_parameters_$(l)_input_$(num_actions)_actions.bin")
 	FCANN.writeArray(params, filename)
-	@info "Saved parameters to $filename"
+	show_message && @info "Saved parameters to $filename"
 	return filename
 end
 
@@ -1730,7 +1730,7 @@ linear_value_disk_test()
   ╠═╡ =#
 
 # ╔═╡ 460fb9d2-4f40-47ec-9637-c6c6ec0a1b17
-function save_linear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, policy_params::Matrix{T}, value_params::Vector{T}) where T<:Float32
+function save_linear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector, policy_params::Matrix{T}, value_params::Vector{T}; show_message::Bool = true) where T<:Float32
 	l = length(feature_vector)
 	m = size(policy_params, 2)
 	
@@ -1743,7 +1743,7 @@ function save_linear_policy_parameters(base_name::AbstractString, mdp::StateMDP,
 	value_input = reshape(value_params, length(value_params), 1)
 	FCANN.writeArray(policy_params, filename1)
 	FCANN.writeArray(value_input, filename2)
-	@info "Saved policy parameters to $filename1 and value parameters to $filename2"
+	show_message && @info "Saved policy parameters to $filename1 and value parameters to $filename2"
 	return (filename1, filename2)
 end
 
@@ -1804,9 +1804,9 @@ function setup_value_linear_training(basename::AbstractString, isepisodic::Bool,
 	setup = isepisodic ? setup_episodic_value_linear_training : setup_continuing_value_linear_training
 	output = setup(mdp, feature_vector, update_feature_vector!; linear_sarsa_params = linear_sarsa_params, linear_dp_params = linear_dp_params)
 
-	function save_params()
-		save_linear_value_parameters(basename, mdp, feature_vector, linear_dp_params)
-		save_linear_value_parameters(basename, mdp, feature_vector, linear_sarsa_params)
+	function save_params(;kwargs...)
+		save_linear_value_parameters(basename, mdp, feature_vector, linear_dp_params; kwargs...)
+		save_linear_value_parameters(basename, mdp, feature_vector, linear_sarsa_params; kwargs...)
 	end
 
 	function erase_params()
@@ -1841,7 +1841,7 @@ function setup_policy_linear_training(basename::AbstractString, isepisodic::Bool
 	setup = isepisodic ? setup_episodic_policy_linear_training : setup_continuing_policy_linear_training
 	output = setup(mdp, feature_vector, update_feature_vector!; linear_policy_params = linear_policy_params, linear_value_params = linear_value_params)
 
-	save_params() = save_linear_policy_parameters(basename, mdp, feature_vector, linear_policy_params, linear_value_params)
+	save_params(;kwargs...) = save_linear_policy_parameters(basename, mdp, feature_vector, linear_policy_params, linear_value_params; kwargs...)
 	function erase_params()
 		rm(fname1)
 		rm(fname2)
@@ -1869,7 +1869,7 @@ md"""
 """
 
 # ╔═╡ 673a2a41-5df6-4b45-93b3-33251c39e953
-function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::FCANNParams{T}) where T<:Float32
+function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params::FCANNParams{T}; show_message::Bool = true) where T<:Float32
 	(input_size, hidden_layers, num_layers) = get_network_dimensions(params)
 	output_size = params.weights[2][end] |> length
 	@assert input_size == length(feature_vector) "Parameter dimensions do not match feature vector"
@@ -1878,7 +1878,7 @@ function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature
 	reslayers = params.reslayers
 	filename = string(base_name, "_$(label)_nonlinear_value_parameters_$(input_size)_input_$(hidden_layers)_hidden_$(reslayers)_reslayers_$(length(mdp.actions))_actions.bin")
 	FCANN.writeParams([params.weights], filename)
-	@info "Saved parameters to $filename"
+	show_message && @info "Saved parameters to $filename"
 	return filename
 end
 
@@ -1910,14 +1910,14 @@ function nonlinear_value_parameters_save_check(base_name::AbstractString, mdp::S
 end
 
 # ╔═╡ 5dabe906-e44c-47c5-b12c-22f829bbc2c9
-function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params_dict::Dict{N, F}) where {N<:NamedTuple, F<:FCANNParams}
+function save_nonlinear_value_parameters(base_name::AbstractString, mdp, feature_vector, params_dict::Dict{N, F}; kwargs...) where {N<:NamedTuple, F<:FCANNParams}
 	for k in keys(params_dict)
-		save_nonlinear_value_parameters(base_name, mdp, feature_vector, params_dict[k])
+		save_nonlinear_value_parameters(base_name, mdp, feature_vector, params_dict[k]; kwargs...)
 	end
 end
 
 # ╔═╡ aee066a0-e458-475e-ac15-7fa878d8ce87
-function save_nonlinear_policy_parameters(base_name::AbstractString, mdp, feature_vector, policy_params::FCANNParams{T}, value_params::FCANNParams{T}) where T<:Float32
+function save_nonlinear_policy_parameters(base_name::AbstractString, mdp, feature_vector, policy_params::FCANNParams{T}, value_params::FCANNParams{T}; show_message::Bool = true) where T<:Float32
 	(input_size, hidden_layers, num_layers) = get_network_dimensions(policy_params)
 	output_size = policy_params.weights[2][end] |> length
 	value_output_size = value_params.weights[2][end] |> length
@@ -1931,7 +1931,7 @@ function save_nonlinear_policy_parameters(base_name::AbstractString, mdp, featur
 
 	FCANN.writeParams([policy_params.weights], filename1)
 	FCANN.writeParams([value_params.weights], filename2)
-	@info "Saved parameters to $filename1 and $filename2"
+	show_message && @info "Saved parameters to $filename1 and $filename2"
 	return (filename1, filename2)
 end
 
@@ -1971,14 +1971,14 @@ function nonlinear_policy_parameters_save_check(base_name::AbstractString, mdp::
 end
 
 # ╔═╡ 75247e5b-f1bb-4409-aaed-16cc8c0e0538
-function save_nonlinear_policy_parameters(base_name::AbstractString, mdp, feature_vector, policy_params_dict::Dict{N, F}, value_params_dict::Dict{N, F}) where {N<:NamedTuple, F<:FCANNParams}
+function save_nonlinear_policy_parameters(base_name::AbstractString, mdp, feature_vector, policy_params_dict::Dict{N, F}, value_params_dict::Dict{N, F}; kwargs...) where {N<:NamedTuple, F<:FCANNParams}
 	for k in keys(policy_params_dict)
-		save_nonlinear_policy_parameters(base_name, mdp, feature_vector, policy_params_dict[k], value_params_dict[k])
+		save_nonlinear_policy_parameters(base_name, mdp, feature_vector, policy_params_dict[k], value_params_dict[k]; kwargs...)
 	end
 end
 
 # ╔═╡ ef178187-d3b9-4cf2-82c8-585d5e89ac01
-function load_nonlinear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
+function load_nonlinear_value_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector; show_message::Bool = true)
 	l = length(feature_vector)
 	num_actions = length(mdp.actions)
 	parameters = Dict{NamedTuple, FCANNParams}()
@@ -1991,7 +1991,7 @@ function load_nonlinear_value_parameters(base_name::AbstractString, mdp::StateMD
 		 	m = match(str, f)
 		 	if !isnothing(m)
 				try
-					@info "Loading parameters from disk with filename $f"
+					show_message && @info "Loading parameters from disk with filename $f"
 					hidden_layers = parse.(Int64, split(m.captures[1], ','))
 					reslayers = parse(Int64, m.captures[2])
 					params = load_nonlinear_value_parameters(base_name, mdp, feature_vector, hidden_layers, reslayers, use_dp)
@@ -2050,8 +2050,8 @@ function erase_nonlinear_value_parameters(base_name::AbstractString, mdp::StateM
 end
 
 # ╔═╡ 707b1a25-0d56-486d-a187-b17b922d49c9
-function setup_value_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	loaded_parameters = load_nonlinear_value_parameters(base_name, mdp, feature_vector)
+function setup_value_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), show_message::Bool = true) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	loaded_parameters = load_nonlinear_value_parameters(base_name, mdp, feature_vector; show_message = show_message)
 	for k in keys(loaded_parameters)
 		fcann_parameters[k] = loaded_parameters[k]
 	end
@@ -2060,7 +2060,7 @@ function setup_value_nonlinear_training(base_name::AbstractString, isepisodic::B
 
 	output = setup(mdp, feature_vector, update_feature_vector!; fcann_parameters = fcann_parameters)
 
-	save_params() = save_nonlinear_value_parameters(base_name, mdp, feature_vector, fcann_parameters)
+	save_params(;kwargs...) = save_nonlinear_value_parameters(base_name, mdp, feature_vector, fcann_parameters; kwargs...)
 	erase_params() = erase_nonlinear_value_parameters(base_name, mdp, feature_vector)
 	(;output..., save_params = save_params, erase_params = erase_params)
 end
@@ -2084,7 +2084,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 3624fa9e-a3bb-437f-a8db-1b1662e3ba31
-function load_nonlinear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector)
+function load_nonlinear_policy_parameters(base_name::AbstractString, mdp::StateMDP, feature_vector; show_message::Bool = true)
 	l = length(feature_vector)
 	num_actions = length(mdp.actions)
 	value_parameters = Dict{NamedTuple, FCANNParams}()
@@ -2095,7 +2095,7 @@ function load_nonlinear_policy_parameters(base_name::AbstractString, mdp::StateM
 	 	m = match(str, f)
 		if !isnothing(m)
 			try
-				@info "Loading parameters from disk with filename $f"
+				show_message && @info "Loading parameters from disk with filename $f"
 				hidden_layers = parse.(Int64, split(m.captures[1], ','))
 				reslayers = parse(Int64, m.captures[2])
 				policy_params, value_params = load_nonlinear_policy_parameters(base_name, mdp, feature_vector, hidden_layers, reslayers)
@@ -2152,8 +2152,8 @@ function erase_nonlinear_policy_parameters(base_name::AbstractString, mdp::State
 end
 
 # ╔═╡ c182475b-c1b0-4835-8347-f0f4a831909b
-function setup_policy_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
-	loaded_policy_parameters, loaded_value_parameters = load_nonlinear_policy_parameters(base_name, mdp, feature_vector)
+function setup_policy_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), show_message::Bool = true) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+	loaded_policy_parameters, loaded_value_parameters = load_nonlinear_policy_parameters(base_name, mdp, feature_vector; show_message = show_message)
 	for k in keys(loaded_policy_parameters)
 		fcann_policy_parameters[k] = loaded_policy_parameters[k]
 		fcann_value_parameters[k] = loaded_value_parameters[k]
@@ -2163,7 +2163,7 @@ function setup_policy_nonlinear_training(base_name::AbstractString, isepisodic::
 
 	output = setup(mdp, feature_vector, update_feature_vector!; fcann_policy_parameters = fcann_policy_parameters, fcann_value_parameters = fcann_value_parameters)
 
-	save_params() = save_nonlinear_policy_parameters(base_name, mdp, feature_vector, fcann_policy_parameters, fcann_value_parameters)
+	save_params(;kwargs...) = save_nonlinear_policy_parameters(base_name, mdp, feature_vector, fcann_policy_parameters, fcann_value_parameters; kwargs...)
 	erase_params() = erase_nonlinear_policy_parameters(base_name, mdp, feature_vector)
 	(;output..., save_params = save_params, erase_params = erase_params)
 end
