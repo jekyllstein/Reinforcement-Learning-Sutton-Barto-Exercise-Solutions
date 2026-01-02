@@ -1,7 +1,7 @@
 name = "NonTabularRL"
 uuid = "c7324298-1923-4c4f-bd91-98f34631c25c"
-authors = ["Jason Eckstein <jekyllstein@gmail.com>"]
 version = "0.1.0"
+authors = ["Jason Eckstein <jekyllstein@gmail.com>"]
 
 [deps]
 ApproximationUtils = "d30c7613-7be3-47bd-9ebc-e60dbcd590b6"
@@ -25,11 +25,11 @@ TailRec = "f6209947-f0a9-4a6b-8802-d6ceac74b6f9"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [sources]
-TabularRL = {path = "../TabularRL.jl"}
 ApproximationUtils = {path = "../ApproximationUtils.jl"}
-FCANN = {url = "https://github.com/Blackbody-Research/FCANN.jl"}
-NVIDIALibraries = {url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
-TailRec = {url = "https://github.com/TakekazuKATO/TailRec.jl"}
+FCANN = {rev = "master", url = "https://github.com/Blackbody-Research/FCANN.jl"}
+NVIDIALibraries = {rev = "master", url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
+TabularRL = {path = "../TabularRL.jl"}
+TailRec = {rev = "master", url = "https://github.com/TakekazuKATO/TailRec.jl"}
 
 [compat]
 DataFrames = "1.7.0"

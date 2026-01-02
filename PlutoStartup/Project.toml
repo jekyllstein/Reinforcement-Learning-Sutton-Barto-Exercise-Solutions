@@ -1,7 +1,7 @@
 name = "PlutoStartup"
 uuid = "7fd7c61b-229c-4c29-8df5-3e433ba2eae1"
-authors = ["Jason Eckstein <jekyllstein@gmail.com>"]
 version = "0.1.0"
+authors = ["Jason Eckstein <jekyllstein@gmail.com>"]
 
 [deps]
 Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
@@ -39,11 +39,11 @@ TailRec = "f6209947-f0a9-4a6b-8802-d6ceac74b6f9"
 Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 
 [sources]
-NVIDIALibraries = {url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
-FCANN = {url = "https://github.com/Blackbody-Research/FCANN.jl"}
-TailRec = {url = "https://github.com/TakekazuKATO/TailRec.jl"}
-TabularRL = {path = "../TabularRL.jl"}
+FCANN = {rev = "master", url = "https://github.com/Blackbody-Research/FCANN.jl"}
+NVIDIALibraries = {rev = "master", url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
 NonTabularRL = {path = "../NonTabularRL.jl"}
+TabularRL = {path = "../TabularRL.jl"}
+TailRec = {rev = "master", url = "https://github.com/TakekazuKATO/TailRec.jl"}
 
 [compat]
 julia = "1.11"
