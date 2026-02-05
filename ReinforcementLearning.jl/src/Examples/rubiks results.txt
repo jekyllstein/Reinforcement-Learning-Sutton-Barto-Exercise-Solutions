@@ -1,0 +1,185 @@
+.85 reward
+.59 9 -scramble
+.49 10-scramble
+.38 11-scramble
+.1  15-scramble
+
+After training up to 20
+
+.64 9 -scramble
+.48 10-scramble
+.45 11-scramble
+.17 15-scramble
+
+-----------------------------------
+[16, 16] dp semi gradient
+
+min_moves: 5, max_moves: 5
+
+1-4: 100% solve rate
+5: 93%
+6: 78%
+7: 57%
+8: 38%
+------------------------------------
+[64, 64, 64] dp semi gradient
+
+min_moves: 5, max_moves: 5
+
+learning reward: 0.94
+
+1-5: 100% solve rate
+6: 72%
+7: 68%
+8: 46%
+
+------------------------------------
+[64, 64, 64] dp semi gradient
+
+min_moves: 6, max_moves: 6
+
+learning reward: 0.89
+
+1-5: 100% solve rate
+6: 95%
+7: 77%
+8: 62%
+
+------------------------------------
+[64, 64, 64] dp semi gradient
+
+min_moves: 7, max_moves: 7
+
+learning reward: 0.9
+
+1-5: 100% solve rate
+06: 97.2%
+07: 87%
+08: 73%
+09: 60%
+10: 46%
+
+------------------------------------
+[64, 64, 64] dp semi gradient
+
+min_moves: 8, max_moves: 8
+
+learning reward: 0.84
+
+1-5: 100% solve rate
+06: 98.7%
+07: 95.2%
+08: 83.2%
+09: 71.1%
+10: 54.1%
+
+------------------------------------
+[256, 256, 256, 256, 256] dp semi gradient
+
+min_moves: 8, max_moves: 8
+
+learning reward: 0.87
+
+1-6: 100% solve rate
+07: 94%
+08: 84%
+09: 68%
+10: 56%
+
+------------------------------------
+[64, 64, 64] dp semi gradient
+
+min_moves: 8, max_moves: 10
+
+learning reward: 0.72
+
+1-5: 100% solve rate
+06: 98.6% 
+07: 93.9%
+08: 85.1%
+09: 70.2%
+10: 57.1%
+
+------------------------------------
+[64, 64, 64] dp semi gradient
+
+min_moves: 9, max_moves: 9
+
+learning reward: .73
+
+1-5: 100% solve rate
+06: 98.9%
+07: 95.2%
+08: 86.5%
+09: 75%
+10: 55.2%
+
+------------------------------------
+[256, 256, 256, 256, 256] dp semi gradient
+
+min_moves: 9, max_moves: 9
+
+learning reward: .776
+
+1-5: 100% solve rate
+06: 98.6%
+07: 96.4%
+08: 89%
+09: 76%
+10: 63.1%
+
+------------------------------------
+[64, 64, 64] dp semi gradient
+
+min_moves: 10, max_moves: 10
+
+learning reward: .59
+
+1-5: 100% solve rate
+06: 98.7%
+07: 94.7%
+08: 84.4%
+09: 72.5%
+10: 58.9%
+11: 44.9%
+
+------------------------------------
+[256, 256, 256, 256, 256] dp semi gradient
+
+min_moves: 10, max_moves: 10
+
+learning reward: .68
+
+1-5: 100% solve rate
+06: 99.4%
+07: 97.8%
+08: 91.9%
+09: 79.2%
+10: 65.9%
+11: 55.4%
+12: 44.1%
+
+------------------------------------
+[256, 256, 256, 256, 256] dp semi gradient
+
+min_moves: 11, max_moves: 11
+
+learning reward: .55
+
+1-5: 100% solve rate
+06: 99.6%
+07: 97.3%
+08: 92.4%
+09: 80.8%
+10: 70%
+11: 53.8%
+12: 42.9%
+
+------------------------
+32x5 layer dp semi gradient curriculum results
+1-5: 100%
+6:   94.6%
+7:   85.5%
+8:   70%
+9:   56.3%
+10:  42%

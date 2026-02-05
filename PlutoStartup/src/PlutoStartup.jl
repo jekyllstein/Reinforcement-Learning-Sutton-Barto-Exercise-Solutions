@@ -2,9 +2,10 @@ module PlutoStartup
 
 using Reexport, PrecompileTools, Base.Threads
 
-@reexport using Pluto, NonTabularRL
+@reexport using Pluto, ReinforcementLearning
 
 function __init__()
+    cd(joinpath(@__DIR__, "..", "..", "ReinforcementLearning.jl", "src"))
     Pluto.run(launch_browser=false)
 end
 # @setup_workload begin

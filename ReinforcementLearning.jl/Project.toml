@@ -1,0 +1,13 @@
+name = "ReinforcementLearning"
+uuid = "cab08130-57d6-4169-b7fb-99c5b62d5ad8"
+version = "0.1.0"
+authors = ["Jason Eckstein <jekyllstein@gmail.com>"]
+
+[deps]
+NonTabularRL = "c7324298-1923-4c4f-bd91-98f34631c25c"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
+
+[compat]
+PrecompileTools = "1.3.3"
+Reexport = "1.2.2"

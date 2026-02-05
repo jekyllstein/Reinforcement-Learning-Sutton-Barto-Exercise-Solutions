@@ -4,16 +4,23 @@ manifest_paths = [
     "TabularRL.jl",
     "ApproximationUtils.jl/",
     "NonTabularRL.jl",
-    "PlutoStartup.jl"
 ]
 
 for path in manifest_paths
-    base_path = joinpath(@__DIR__, path)
-    if !isfile(joinpath(base_path, "Manifest.toml"))
-        Pkg.activate(base_path)
-        Pkg.instantiate()
-        Pkg.precompile()
-    end
+    base_path = joinpath(@__DIR__, "ReinforcementLearning.jl", "src", path)
+    Pkg.activate(base_path)
+    Pkg.resolve()
+    Pkg.precompile()
 end
+
+top_path = "ReinforcementLearning.jl"
+
+Pkg.activate(top_path)
+Pkg.resolve()
+Pkg.precompile()
+
+Pkg.activate("PlutoStartup")
+Pkg.resolve()
+Pkg.precompile()
 
 mkpath(joinpath(@__DIR__, "setup_complete"))
