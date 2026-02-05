@@ -9,14 +9,9 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
 [sources]
-# ApproximationUtils = {path = "src/ApproximationUtils.jl"}
-# FCANN = {rev = "master", url = "https://github.com/Blackbody-Research/FCANN.jl"}
-# NVIDIALibraries = {rev = "master", url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
-# TabularRL = {path = "src/TabularRL.jl"}
-# TailRec = {rev = "master", url = "https://github.com/TakekazuKATO/TailRec.jl"}
 NonTabularRL = {path = "src/NonTabularRL.jl"}
 
 [compat]
+NonTabularRL = "0.1.0"
 PrecompileTools = "1.3.3"
 Reexport = "1.2.2"
-NonTabularRL = "0.1.0"
