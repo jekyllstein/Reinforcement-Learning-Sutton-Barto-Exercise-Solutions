@@ -17,7 +17,6 @@ JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
 NVIDIALibraries = "455bb3cc-869f-42f8-aad9-fcdd684af481"
-NonTabularRL = "c7324298-1923-4c4f-bd91-98f34631c25c"
 PlotlyJS = "f0f68f2c-4968-5e81-91da-67840de0976a"
 Pluto = "c3e4b0f8-55cb-11ea-2926-15256bba5781"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
@@ -43,9 +42,9 @@ Transducers = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 [sources]
 FCANN = {rev = "master", url = "https://github.com/Blackbody-Research/FCANN.jl"}
 NVIDIALibraries = {rev = "master", url = "https://github.com/Blackbody-Research/NVIDIALibraries.jl"}
-# NonTabularRL = {path = "../ReinforcementLearning.jl/src/NonTabularRL.jl"}
-# TabularRL = {path = "../ReinforcementLearning.jl/src/TabularRL.jl"}
 TailRec = {rev = "master", url = "https://github.com/TakekazuKATO/TailRec.jl"}
+TabularRL = {path = "../ReinforcementLearning.jl/src/TabularRL.jl"}
+ApproximationUtils = {path = "../ReinforcementLearning.jl/src/ApproximationUtils.jl"}
 
 [compat]
 julia = "1.11"

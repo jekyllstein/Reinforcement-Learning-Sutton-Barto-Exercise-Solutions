@@ -2,8 +2,7 @@ using Pkg
 
 manifest_paths = [
     "TabularRL.jl",
-    "ApproximationUtils.jl/",
-    "NonTabularRL.jl",
+    "ApproximationUtils.jl/"
 ]
 
 for path in manifest_paths

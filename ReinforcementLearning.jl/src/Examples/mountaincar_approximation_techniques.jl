@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.19
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
@@ -13,10 +13,9 @@ using DataFrames
 # ╔═╡ 9a4d0c70-ca15-4201-8a2e-56af95a60290
 using PlutoDevMacros, Random, Statistics, LinearAlgebra, Transducers, Base.Threads, Random, Distributions, Statistics, StatsBase, StaticArrays
 
-# ╔═╡ acfabeef-f268-4c7f-a07c-4c05d1333305
+# ╔═╡ 0202799e-7735-4082-9530-9124e08c2e67
 begin
-	PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) using NonTabularRL
-
+	PlutoDevMacros.@fromparent using ReinforcementLearning
 	switch_device(3)
 end
 
@@ -2359,6 +2358,7 @@ PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+ReinforcementLearning = "158674fc-8238-5cab-b5ba-03dfc80d1318"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
@@ -2376,6 +2376,7 @@ PlutoPlotly = "~0.6.5"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.71"
 ProgressLogging = "~0.1.5"
+ReinforcementLearning = "~0.11.0"
 StaticArrays = "~1.9.15"
 StatsBase = "~0.34.6"
 Transducers = "~0.4.85"
@@ -2387,7 +2388,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.7"
 manifest_format = "2.0"
-project_hash = "ea61808d53f7b96f544c6650b0f34d7f86b26aca"
+project_hash = "e3180908c13c1ee4c0dbb32e4eddda1bba333202"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -3516,7 +3517,7 @@ version = "17.4.0+2"
 # ╟─4f16565e-09bb-11f0-3729-7ffc5462cdc8
 # ╠═f173569d-182f-4873-97ed-1b9cad2b4309
 # ╠═9a4d0c70-ca15-4201-8a2e-56af95a60290
-# ╠═acfabeef-f268-4c7f-a07c-4c05d1333305
+# ╠═0202799e-7735-4082-9530-9124e08c2e67
 # ╠═c77a29da-a2a4-4956-9795-56ce63337495
 # ╠═43999574-da93-475c-9a67-e5024fb08202
 # ╠═1b84943c-c8f5-4ad4-b95a-66dc818fa609
