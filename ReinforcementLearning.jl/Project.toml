@@ -34,13 +34,10 @@ TailRec = {rev = "master", url = "https://github.com/TakekazuKATO/TailRec.jl"}
 [compat]
 DataFrames = "1.7.0"
 Distributions = "0.25.120"
-FCANN = "1.11.0"
 LinearAlgebra = "1.11.0"
-NVIDIALibraries = "1.0.0"
 Random = "1.11.0"
 SpecialFunctions = "2.5.1"
 StaticArrays = "1.9.14"
 Statistics = "1.11.1"
 StatsBase = "0.34.5"
-TailRec = "0.2.0"
 Transducers = "0.4.84"
