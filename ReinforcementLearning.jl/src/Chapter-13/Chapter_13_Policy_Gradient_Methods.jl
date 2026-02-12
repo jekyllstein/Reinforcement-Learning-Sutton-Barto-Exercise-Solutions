@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.20
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
@@ -8,10 +8,7 @@ using InteractiveUtils
 using PlutoDevMacros
 
 # ╔═╡ 2e2c7ba4-4b45-4110-8045-9382370d37dd
-using Random, StatsBase, StaticArrays, SpecialFunctions, DataFrames, Distributions
-
-# ╔═╡ d963ff6d-f1b6-4799-aa0e-1ae100310d84
-@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+using SpecialFunctions, DataFrames, Distributions
 
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═╡ skip_as_script = true
@@ -24,6 +21,7 @@ end
 
 # ╔═╡ 7cf26604-9c2b-4a77-9674-7d4dac2f99f0
 @only_in_nb begin
+	PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) import *
 	include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-11", "Chapter_11_Off_policy_Methods_with_Approximation.jl"))
@@ -1745,6 +1743,30 @@ const mountaincar_continuing_mdp = create_mountaincar_continuing_mdp()
 end |> confirm
   ╠═╡ =#
 
+# ╔═╡ 40d0376d-ed03-44f2-979d-912657c76cf0
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = false, $test_kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 7dd7fa63-edbd-4fa4-9f39-5a2ab6e55b81
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = false) #, $test_kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 69dff193-479a-40c5-861a-d1962f71a147
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = true, $test_kwargs...)
+  ╠═╡ =#
+
+# ╔═╡ 456e9cb4-038a-44d8-ba49-d4889118d55f
+# ╠═╡ disabled = true
+#=╠═╡
+@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = true) #, $test_kwargs...)
+  ╠═╡ =#
+
 # ╔═╡ a4203f8a-d631-4f97-9c39-7c1b2efa3333
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -2176,7 +2198,7 @@ end
 
 # ╔═╡ f946c886-6246-4f98-a96f-f06984691ad8
 begin
-	function ApproximationUtils.runepisode!((states, actions, rewards)::Tuple{Vector{S}, Vector{A}, Vector{T}}, mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, π::Function; s0::S = mdp.initialize_state(), a0::A = π(s0), max_steps = typemax(Int64)) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
+	function TabularRL.runepisode!((states, actions, rewards)::Tuple{Vector{S}, Vector{A}, Vector{T}}, mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, π::Function; s0::S = mdp.initialize_state(), a0::A = π(s0), max_steps = typemax(Int64)) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
 		s = s0
 		l = length(states)
 		@assert l == length(actions) == length(rewards)
@@ -2225,14 +2247,14 @@ begin
 		return states, actions, rewards, sterm, step-1
 	end
 	
-	function ApproximationUtils.runepisode(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, π::Function; kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
+	function TabularRL.runepisode(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, π::Function; kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
 		states = Vector{S}()
 		actions = Vector{A}()
 		rewards = Vector{T}()
 		runepisode!((states, actions, rewards), mdp, π; kwargs...)
 	end
 
-	ApproximationUtils.runepisode(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}; kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} = runepisode(mdp, Returns(rand(A)); kwargs...)
+	TabularRL.runepisode(mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}; kwargs...) where {T<:Real, S, N, A <: Union{T, NTuple{N, T}}, P, F1, F2, F3} = runepisode(mdp, Returns(rand(A)); kwargs...)
 end
 
 # ╔═╡ f7433324-acc3-49a5-b5b3-ada0c8f09d52
@@ -4556,30 +4578,6 @@ const mountaincar_continuing_fcann_test2 = mountaincar_continuing_actor_critic_f
 const test_kwargs = mountaincar_continuing_fcann_test2.form_policy_and_value_kwargs()
   ╠═╡ =#
 
-# ╔═╡ 40d0376d-ed03-44f2-979d-912657c76cf0
-# ╠═╡ disabled = true
-#=╠═╡
-@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = false, $test_kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ 7dd7fa63-edbd-4fa4-9f39-5a2ab6e55b81
-# ╠═╡ disabled = true
-#=╠═╡
-@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = false) #, $test_kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ 69dff193-479a-40c5-861a-d1962f71a147
-# ╠═╡ disabled = true
-#=╠═╡
-@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = true, $test_kwargs...)
-  ╠═╡ =#
-
-# ╔═╡ 456e9cb4-038a-44d8-ba49-d4889118d55f
-# ╠═╡ disabled = true
-#=╠═╡
-@btime mountaincar_continuing_fcann_test2.policy_and_value($((-1.0f0, 0.05f0)); use_gpu = true) #, $test_kwargs...)
-  ╠═╡ =#
-
 # ╔═╡ 1220d142-b402-45cf-9faf-55bd54ff947c
 #=╠═╡
 begin
@@ -5502,10 +5500,7 @@ PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
-StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
-StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 BenchmarkTools = "~1.6.3"
@@ -5519,17 +5514,15 @@ PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.73"
 ProgressLogging = "~0.1.5"
 SpecialFunctions = "~2.6.1"
-StaticArrays = "~1.9.15"
-StatsBase = "~0.34.7"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.1"
+julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "5d6162a2a84810b5ac339daa5aadce843159ba6e"
+project_hash = "447668db5d5fd58c56ed9ba62506acf50f89edf8"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -5677,7 +5670,7 @@ version = "0.9.5"
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
-version = "1.6.0"
+version = "1.7.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
@@ -5833,7 +5826,7 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.11.1+1"
+version = "8.15.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -5906,7 +5899,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.5.20"
+version = "2025.11.4"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -5925,7 +5918,7 @@ version = "0.8.7+0"
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.1+0"
+version = "3.5.4+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
@@ -5963,7 +5956,7 @@ version = "2.8.3"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.0"
+version = "1.12.1"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -6168,25 +6161,6 @@ version = "2.6.1"
     [deps.SpecialFunctions.weakdeps]
     ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 
-[[deps.StaticArrays]]
-deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
-git-tree-sha1 = "b8693004b385c842357406e3af647701fe783f98"
-uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "1.9.15"
-
-    [deps.StaticArrays.extensions]
-    StaticArraysChainRulesCoreExt = "ChainRulesCore"
-    StaticArraysStatisticsExt = "Statistics"
-
-    [deps.StaticArrays.weakdeps]
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-    Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-
-[[deps.StaticArraysCore]]
-git-tree-sha1 = "6ab403037779dae8c514bad259f32a447262455a"
-uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
-version = "1.4.4"
-
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
@@ -6315,9 +6289,9 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 version = "1.64.0+1"
 
 [[deps.p7zip_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.5.0+2"
+version = "17.7.0+0"
 """
 
 # ╔═╡ Cell order:
@@ -6766,7 +6740,6 @@ version = "17.5.0+2"
 # ╟─0ab70fc3-6188-42eb-aba2-d808f319be9f
 # ╠═b24007e8-3e80-4022-af59-b72efa5b5e2d
 # ╠═2e2c7ba4-4b45-4110-8045-9382370d37dd
-# ╠═d963ff6d-f1b6-4799-aa0e-1ae100310d84
 # ╠═7cf26604-9c2b-4a77-9674-7d4dac2f99f0
 # ╠═d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═16ae3aa6-8f28-4cb0-a15f-7a96c01cdaeb

@@ -1,14 +1,11 @@
 ### A Pluto.jl notebook ###
-# v0.20.20
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ bee124fd-5605-4512-833b-945ef77c056e
 using PlutoDevMacros
-
-# ╔═╡ fa5fecfd-c039-4063-9acb-365a046e06f2
-@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ 9fb5dace-a799-4424-bcb3-8542e508dd4b
 # ╠═╡ show_logs = false
@@ -20,8 +17,11 @@ begin
 end
   ╠═╡ =#
 
-# ╔═╡ 318b398a-d8f2-4f39-a45d-fd9023961bf8
-@only_in_nb include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
+# ╔═╡ fa5fecfd-c039-4063-9acb-365a046e06f2
+begin
+	@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) import *
+	@only_in_nb include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
+end
 
 # ╔═╡ 35d59eae-77fd-11ef-2790-35dd5a834060
 md"""
@@ -1570,7 +1570,7 @@ md"""
 
 # ╔═╡ f221fb13-4ef2-4ebe-b71b-fe6adbddb1e4
 module MountainCarTask
-	import TabularRL
+	import ..TabularRL
 	const actions = [-1f0, 0f0, 1f0]
 	const action_names = ["Decelerate", "Nothing", "Accelerate"]
 
@@ -5225,7 +5225,7 @@ PlutoUI = "~0.7.73"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.1"
+julia_version = "1.12.4"
 manifest_format = "2.0"
 project_hash = "3d1178c7404f262152d31e2855f70e2a3293599d"
 
@@ -5328,7 +5328,7 @@ version = "0.9.5"
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
-version = "1.6.0"
+version = "1.7.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
@@ -5427,7 +5427,7 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.11.1+1"
+version = "8.15.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -5478,7 +5478,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.5.20"
+version = "2025.11.4"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -5492,7 +5492,7 @@ version = "0.3.29+0"
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.1+0"
+version = "3.5.4+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
@@ -5514,7 +5514,7 @@ version = "2.8.3"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.0"
+version = "1.12.1"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -5720,9 +5720,9 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 version = "1.64.0+1"
 
 [[deps.p7zip_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.5.0+2"
+version = "17.7.0+0"
 """
 
 # ╔═╡ Cell order:
@@ -5993,7 +5993,6 @@ version = "17.5.0+2"
 # ╟─6cea9e69-bf8c-4079-9884-663a728d7b08
 # ╠═bee124fd-5605-4512-833b-945ef77c056e
 # ╠═fa5fecfd-c039-4063-9acb-365a046e06f2
-# ╠═318b398a-d8f2-4f39-a45d-fd9023961bf8
 # ╠═9fb5dace-a799-4424-bcb3-8542e508dd4b
 # ╠═ed1bd92c-8cc7-457f-9692-a10a9487c953
 # ╠═dd472c0f-7b43-4abe-ada9-9dc8004a18cb

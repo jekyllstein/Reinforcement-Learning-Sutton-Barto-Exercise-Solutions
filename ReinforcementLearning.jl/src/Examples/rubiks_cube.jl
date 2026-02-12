@@ -10,21 +10,12 @@ using PlutoLinks, PlutoHooks, Base.Threads
 # ╔═╡ c5256762-ca4a-4c81-805b-4f865efc2091
 using PlutoDevMacros
 
-# ╔═╡ 624eef76-16a7-4556-a466-14341346f7a5
-begin
-	PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) begin 
-		using NonTabularRL
-		using >.Random, >.Statistics, >.LinearAlgebra, >.Transducers, >.StaticArrays, >.DataStructures
-	end
-	switch_device(3)
-end
-
 # ╔═╡ c5c0f635-171d-4904-9675-d1b0a01f6d7a
 # ╠═╡ show_logs = false
 # ╠═╡ skip_as_script = true
 #=╠═╡
 begin
-	using PlutoUI, PlutoPlotly, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral, DataFrames, Dates
+	using PlutoUI, PlutoPlotly, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral, Dates
 	
 	TableOfContents()
 end
@@ -103,9 +94,6 @@ When a face is rotated, it affects the position of pieces on every other face ex
 # ╔═╡ 42e03441-cd7c-4f3c-a30d-9814b36428c7
 const face_independence_lookup = [4, 6, 5, 1, 3, 2]
 
-# ╔═╡ ebc5bf2b-abef-4b4a-9f12-b0884c089350
-const rubiks_move_index = TabularRL.makelookup(rubiks_moves)
-
 # ╔═╡ 46bbd599-ae25-485e-b064-af28efde316f
 md"""
 Any move can be reversed by applying the opposite rotation to the same face.  Any move followed by its reversal will result in the same cube state.  A double rotation is its own reverse move.
@@ -126,9 +114,6 @@ From the standard orientation, the face squares are numbered from 1 to 8 in left
 
 When a face is rotated, the color values of some squares are swapped.  This transformation can be represented by a permutation of the matrix indices.  For a given face, the indices associated with that face are permuted as follows:
 """
-
-# ╔═╡ 7aedab25-1129-4ad5-bfc5-bd673b8d2509
-const clockwise_perm = SVector{8, UInt8}([6, 4, 1, 7, 2, 8, 5, 3])
 
 # ╔═╡ 4dd63f4c-32ce-4672-a165-6a96ef75895f
 md"""
@@ -340,15 +325,6 @@ function make_rubiks_feature2(cube::AbstractVector{I}) where I <: Integer
 	return v
 end
 
-# ╔═╡ f1256bc8-a69e-4daf-a304-bd436ce8cfbe
-const rubiks_binary_feature = BinaryFeatureVector(48*48)
-
-# ╔═╡ 066ec351-b414-4232-a614-09b0430ede86
-function update_rubiks_feature!(v::BinaryFeatureVector{Int64, 48*48}, cube::AbstractVector{I}) where I<:Integer
-	active_features = ((i-1)*48 + cube[i] for i in 1:48)
-	NonTabularRL.update_binary_feature_vector!(v, active_features)
-end
-
 # ╔═╡ 80069af6-31fd-4042-8690-a388c213fe28
 const solved_cube_feature2 = make_rubiks_feature2(solved_cube_indices)
 
@@ -472,27 +448,6 @@ function update_rubiks_piece_vector!(v::AbstractVector{T}, cube::AbstractVector{
 	return v
 end
 
-# ╔═╡ b7586067-6d80-49c4-b8c4-877aa3e2ce3f
-function update_rubiks_feature!(x::NonTabularRL.BinaryFeatureVector{I1, 256}, cube::AbstractVector{I2}) where {I1 <: Integer, I2 <: Integer}
-	pieces = calculate_cube_pieces(cube)
-	ind = 1
-	for (i, t) in enumerate(pieces.corner_pieces)
-		base_ind = (i-1)*11
-		x.active_features[ind] = base_ind + first(t)
-		ind += 1
-		x.active_features[ind] = base_ind + 8 + last(t)
-		ind += 1
-	end
-	corner_last_ind = 11*8
-	for (i, t) in enumerate(pieces.edge_pieces)
-		base_ind = (i-1)*14 + corner_last_ind
-		x.active_features[ind] = base_ind + first(t)
-		ind += 1
-		x.active_features[ind] = base_ind + 12 + last(t)
-		ind += 1
-	end
-end
-
 # ╔═╡ d2f662c5-dc52-45c2-a335-5cc7ce2eb486
 function get_active_rubiks_piece_features(cube::AbstractVector{I}) where {I <: Integer}
 	features = Vector{Int64}()
@@ -509,22 +464,6 @@ function get_active_rubiks_piece_features(cube::AbstractVector{I}) where {I <: I
 		push!(features, base_ind + 12 + last(t))
 	end
 	return features
-end
-
-# ╔═╡ 5a6a4b92-7b02-441a-9f05-2f7924eec600
-function make_rubiks_piece_binary_vector(cube::AbstractVector{I}) where I <: Integer
-	v = NonTabularRL.BinaryFeatureVector(14*12 + 11*8)
-	v.num_features = 8*2 + 12*2
-	v.active_features = get_active_rubiks_piece_features(cube)
-	return v
-end
-
-# ╔═╡ d949035a-4258-46b2-b749-83397213c379
-function initialize_piece_vector() 
-	v = NonTabularRL.BinaryFeatureVector(256)
-	v.num_features = 8*2 + 12*2
-	v.active_features = get_active_rubiks_piece_features(solved_cube_indices)
-	return v
 end
 
 # ╔═╡ 343aa4fe-f38d-42b7-967b-c589be65077d
@@ -562,16 +501,6 @@ md"""
 # ╔═╡ 97f64a35-b10d-4c3d-ac28-468110f9177f
 update_rubiks_feature!(v, s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) = update_rubiks_feature!(v, s.cube)
 
-# ╔═╡ 09538cca-7da3-4d48-9541-90f00acce794
-function make_rubiks_feature(cube::AbstractVector{I}) where I <: Integer
-	v = zeros(Float32, 48*48)
-	update_rubiks_feature!(v, cube)
-	return v
-end
-
-# ╔═╡ 2040ffd4-f977-4c30-83a0-875b500099aa
-const solved_cube_feature = make_rubiks_feature(solved_cube_indices)
-
 # ╔═╡ cbf95b8e-e6e1-4f6b-aec7-af96cf1bb752
 update_rubiks_piece_vector!(v::AbstractVector{T}, s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) where T<:Real = update_rubiks_piece_vector!(v, s.cube)
 
@@ -598,12 +527,6 @@ end
 # ╔═╡ e6cc1a1e-ab00-435f-a0ae-0afc09288023
 const solved_cube_essential_feature = make_rubiks_essential_feature(solved_cube_indices)
 
-# ╔═╡ 9e25905f-452d-4ca5-ae9b-4b03284ad03d
-function run_dp_rubiks_linear_piece_test(min_moves, max_moves; γ = 0.9f0, num_steps = 10_000, kwargs...)
-	mdp =  make_tdcube_mdp(min_moves, max_moves)
-	semi_gradient_dp_linear(mdp, γ, typemax(Int64), num_steps, copy(solved_cube_piece_feature), update_rubiks_piece_vector!; suppress_warning=true, kwargs...)
-end
-
 # ╔═╡ 7f12e90c-1dd5-49e4-91a1-786e3165c769
 md"""
 ### Non-linear Method
@@ -612,14 +535,8 @@ md"""
 # ╔═╡ dd36dbbd-1807-42d2-ae8e-95ea9ad91069
 const sarsa_params_layers = fill(16, 3)
 
-# ╔═╡ 0ac973d8-bd67-499f-a05d-1341fa9ca52b
-const sarsa_fcann_params = NonTabularRL.initialize_fcann_params(48*48, sarsa_params_layers, length(rubiks_moves), 1, true)
-
 # ╔═╡ 9e34bffc-e324-414d-a409-ef2cb13d365a
 const dp_params_layers = fill(512, 2)
-
-# ╔═╡ 6014ac2d-7d49-483c-92b7-7b1e24466b42
-const dp_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_params_layers, 1, 1, true)
 
 # ╔═╡ 98e24e54-e285-4c2f-984f-159e315fbdeb
 # display_learning_output(test_dp_fcann_output; max_scramble = 8)
@@ -637,11 +554,6 @@ const dp_fcann_step_mastery_results = Dict{NamedTuple, NamedTuple}()
 # ╠═╡ disabled = true
 #=╠═╡
 const dp_mastery_params_layers = fill(512, 4)
-  ╠═╡ =#
-
-# ╔═╡ 33ffe90d-941f-4c84-93b5-628bd175140d
-#=╠═╡
-const dp_mastery_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_mastery_params_layers, 1, 1, true)
   ╠═╡ =#
 
 # ╔═╡ 2a0dc867-0b2b-4ad5-9bf9-ce8e1b0d545a
@@ -669,31 +581,6 @@ begin
 	added_fcann_mastery_result = true;
 end
   ╠═╡ =#
-
-# ╔═╡ 4f244f15-8f07-403c-a2b4-7b2cb9dc7284
-function run_dp_rubiks_fcann_test(min_moves, max_moves; γ = 0.99f0, layers = [8, 8], num_steps = 10_000, kwargs...)
-	mdp =  make_tdcube_mdp(min_moves, max_moves)
-	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_feature!, length(solved_cube_feature), layers; suppress_warning=true, kwargs...)
-end
-
-# ╔═╡ 6cab2983-d84f-49dd-b9ff-91933e45667c
-function run_dp_rubiks_essential_fcann_test(min_moves, max_moves; γ = 0.9f0, layers = [8, 8], num_steps = 10_000, kwargs...)
-	mdp =  make_tdcube_mdp(min_moves, max_moves)
-	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_essential_feature!, length(solved_cube_essential_feature), layers; suppress_warning=true, kwargs...)
-end
-
-# ╔═╡ 6d7d5e1d-6aa3-49f2-a85b-f34627868351
-function run_dp_rubiks_piece_fcann_test(min_moves, max_moves; γ = 0.99f0, layers = [8, 8], num_steps = 10_000, kwargs...)
-	mdp =  make_tdcube_mdp(min_moves, max_moves)
-	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_piece_vector!, length(solved_cube_piece_feature), layers; suppress_warning=true, kwargs...)
-end
-
-# ╔═╡ f13eb4cd-7a45-41c6-b954-6e5f305c461b
-function get_hidden_layers(params::FCANNParams)
-	β = params.weights[2]
-	l = length(β)
-	[length(β[x]) for x in 1:l-1]
-end
 
 # ╔═╡ 4ddc8f58-fb12-47d7-946a-6601aab2b072
 #might need to add the training extension here without yielding a result outside the function.  that way I can extend if there's progress but you wouldn't be able to see that happening in real time
@@ -751,6 +638,7 @@ md"""
 """
 
 # ╔═╡ 6782e301-16ac-41e3-bd64-fe41dad938de
+# ╠═╡ disabled = true
 #=╠═╡
 function check_reward_progress(rewards::AbstractVector{T}) where T<:Real
 	l = length(rewards)
@@ -762,6 +650,26 @@ function check_reward_progress(rewards::AbstractVector{T}) where T<:Real
 	v1 > v2 && return false
 	v1 >= v2 && return true
 	return true
+end
+  ╠═╡ =#
+
+# ╔═╡ bd50c529-c78f-48c4-8b30-bbbe4af87ca6
+#=╠═╡
+function run_rubiks_dp_curriculum_eval_loop(min_steps, max_steps; kwargs...)
+	reward_progress = true
+	curriculum_count = 1
+	while reward_progress
+		set_test_fcann_dp_curriculum_count(curriculum_count)
+		set_test_fcann_dp_start_time(time())
+		output = run_dp_rubiks_fcann_test(min_steps, max_steps; kwargs...)
+		set_test_fcann_dp_output(output)
+		set_test_fcann_dp_end_time(time())
+		reward_progress = check_reward_progress(output.episode_rewards)
+		curriculum_count += 1
+		if !reward_progress
+			break
+		end
+	end
 end
   ╠═╡ =#
 
@@ -992,9 +900,6 @@ else
 end
   ╠═╡ =#
 
-# ╔═╡ 72204679-8fdd-49a0-8fc2-24bf2f0e83ac
-curriculum_results[get_hidden_layers(test_fcann_dp_output3.final_results.final_parameters)] = test_fcann_dp_output3
-
 # ╔═╡ fb106a66-d9ea-4195-8c0e-4246205a794e
 md"""
 #### Select Results to View
@@ -1087,16 +992,6 @@ md"""
 #### Essential Indices with 48 Bit Representation
 """
 
-# ╔═╡ 04bababf-cebe-4d37-940f-f17ffc9c8f36
-@use_effect([]) do
-	@spawn begin
-		set_test_fcann_dp_essential_start_time(time())
-		output = run_dp_rubiks_essential_fcann_test(6, 6; num_steps = 10_000, α = 1f-2, layers = layers_essential, parameters = dp_essential_params, ϵ = 0.01f0, reslayers = 1)
-		set_test_fcann_dp_essential_output(output)
-		set_test_fcann_dp_essential_end_time(time())
-	end
-end
-
 # ╔═╡ 18061035-b795-4df9-aa9d-a0a32b7c6598
 #=╠═╡
 if isnothing(test_fcann_dp_essential_start_time)
@@ -1145,38 +1040,6 @@ function make_fast_value_function(dp_output, params::Vector{T}) where T<:Real
 		dp_output.value_function(s; x = x).maximizing_value
 	end
 	return v̂
-end
-
-# ╔═╡ d2454f2a-c61d-4a76-8c6f-2234afefa0e4
-function make_fast_value_function(dp_output, params::FCANNParams{T}) where T<:Real
-	x = zeros(T, size(params[1][1], 2))
-	function v̂(s)
-		dp_output.value_function(s; x = x).maximizing_value
-	end
-	return v̂
-end
-
-# ╔═╡ 09c5e213-f175-4032-a5e5-dbd9f7b0d753
-function calculate_mcts_improvement(min_scramble, max_scramble, dp_output; nsamples = 100, mcts_kwargs...)
-	# vanilla_score = 0f0
-	# mcts_score = 0f0
-	# π = make_threadsafe_policy(dp_output)
-	v̂ = make_fast_value_function(dp_output, dp_output.final_parameters)
-	# v̂(s) = dp_output.value_function(s).maximizing_value
-	(vanilla_score, mcts_score) = 1:nsamples |> Map() do _
-		mdp = make_tdcube_mdp(min_scramble, max_scramble)
-		
-		s0 = mdp.initialize_state()
-		while mdp.isterm(s0) #ensures that we don't begin an episode at a terminal state
-			s0 = mdp.initialize_state()
-		end
-		vanilla_score = runepisode(mdp; π = s -> dp_output.value_function(s).maximizing_action, s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
-		# vanilla_score = runepisode(mdp; π = π, s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
-		mcts_score = runepisode(mdp; π = s -> monte_carlo_tree_search(mdp, 0.9f0, (mdp, s, γ) -> v̂(s), s; mcts_kwargs...)[1], s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
-		# mcts_score = runepisode(mdp; π = s -> monte_carlo_tree_search(mdp, 0.9f0, (mdp, s, γ) -> π(s), s; mcts_kwargs...)[1], s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
-		(vanilla_score, mcts_score)
-	end |> foldxl((a, b) -> (a[1] + b[1], a[2] + b[2]))
-	(vanilla_success_rate = vanilla_score / nsamples, mcts_success_rate = mcts_score / nsamples)
 end
 
 # ╔═╡ 831c8323-576e-4826-a868-514d21804986
@@ -1258,23 +1121,6 @@ function make_threadsafe_policy(dp_output)
 	return π
 end
 
-# ╔═╡ 54149d2e-06ee-4a5c-8c55-fcd0cd1442b5
-# ╠═╡ disabled = true
-#=╠═╡
-function make_threadunsafe_value_function(dp_output, update_feature_vector!::Function, reslayers::Integer)
-	activations = FCANN.form_activations(dp_output.final_parameters[1])
-	l = size(dp_output.final_parameters[1][1], 2)
-	feature_vector = zeros(Float32, l)
-	action_values = zeros(Float32, 12)
-	function v̂(s)
-		update_rubiks_feature!(feature_vector, s.cube)
-		NonTabularRL.fcann_value_function!(activations, feature_vector, dp_output.final_parameters, reslayers)
-		return first(last(activations))
-	end
-	return v̂
-end
-  ╠═╡ =#
-
 # ╔═╡ ab2affbb-fe34-49d8-b63d-fab610b62f14
 #=╠═╡
 dp3_threadunsafe_value = make_threadunsafe_value_function(test_fcann_dp_output3, update_rubiks_feature!, 1)
@@ -1343,9 +1189,6 @@ The value function will then equal the minimum number of steps required to solve
 
 Any move that would produce a cube that doesn't exist in the state space must not be part of the optimal policy.  Such moves will be punished with a reward of -N to ensure the value estimate is lower than any valid move.
 """
-
-# ╔═╡ 7464b10d-056b-47cc-8db8-44ace4b84d11
-const nmove_lookup = Dict{Int64, Set{SVector{48, UInt8}}}();
 
 # ╔═╡ 4017ed01-5cbb-47b6-bc29-d7a30b03a0c0
 md"""
@@ -1448,21 +1291,12 @@ md"""
 This time I can consider the 24 unique facelets of the pocket cube and only 3 moves instead of 12.  That's because there is a relationship between the opposite faces such that if you rotate a face you produce the same cube as rotating the opposite face in the same direction.  So we should be able to produce all of the cube states by just looking at the front, top, and right faces and only doing clockwise rotations.
 """
 
-# ╔═╡ 4409a59f-e138-4c5b-910c-828bf8bd4497
-const solved_pocket_cube = SVector{24}(UInt8.(1:24))
-
 # ╔═╡ 47ebe08c-5234-42bf-9750-1fca5bb63e99
 #each column represents a face of the cube
 const solved_pocket_cube_values = mapreduce(i -> fill(i, 4), hcat, square_values)
 
 # ╔═╡ ccd01889-2619-4518-b7e5-aa2768cde226
 const pocket_moves = [RubiksMove{F, Clockwise}() for F in face_order[1:3]]
-
-# ╔═╡ 62dd2f4f-4ecb-4152-bb9e-7a6fb75222d9
-const pocket_move_index = TabularRL.makelookup(pocket_moves)
-
-# ╔═╡ dda10443-ec98-45a7-a935-86e65d608dd7
-const pocket_clockwise_perm = SVector{4, UInt8}([3, 1, 4, 2])
 
 # ╔═╡ 9b8f7aeb-d009-444a-9fea-b54677c30197
 const pocket_clockwise_rotation_mapping = Dict([
@@ -1579,15 +1413,6 @@ const all_pocket_moves = [(f, n) for f in 1:3 for n in 1:3]
 
 # ╔═╡ b1d4a9f9-ebea-46ac-8c38-0ab3dfd2e905
 get_next_pocket_moves(m::Tuple{Int64, Int64}) = next_pocket_move_lookup[m[1]]
-
-# ╔═╡ b5f46f2f-2ea8-40ee-a28b-bd8c90e52149
-function count_misplaced(s::AbstractVector{I}) where I<:Integer
-	n = 0
-	@inbounds @simd for i in eachindex(s)
-		n += (s[i] != solved_pocket_cube[i])
-	end
-	return n
-end
 
 # ╔═╡ 5b910da9-52ad-4e3e-a264-2fa6c6df3cf3
 #=╠═╡
@@ -1983,23 +1808,6 @@ md"""
 ## Linear Approximation of Value Function
 """
 
-# ╔═╡ 9084cb79-a89f-432d-a4f9-4b1f9ee65c4d
-#=╠═╡
-function run_rubiks_mrp_linear(num_episodes::Integer, λ::Float32, α::Float32; scramble_moves::Integer = 7, γ = 0.9f0, feature_vector = rubiks_binary_feature, kwargs...)
-	mrp = create_rubiks_mrp(;scramble_moves = scramble_moves)
-	output = NonTabularRL.semi_gradient_TDλ_linear(mrp, γ, λ, num_episodes, typemax(Int64), deepcopy(feature_vector), update_rubiks_feature!; α = α, kwargs...)
-	
-	q̂, form_kwargs = NonTabularRL.form_value_function(rubiks_reset_mdp, γ, update_rubiks_feature!, output.value_function, deepcopy(feature_vector), output.parameters)
-	
-	(episode_rewards = output.episode_history.errors, value_function = q̂, form_kwargs = form_kwargs)
-end
-  ╠═╡ =#
-
-# ╔═╡ d9460da6-d51f-458b-bd90-888961ffe3a0
-#=╠═╡
-const linear_mrp_test = run_rubiks_mrp_linear(100_000, 0.75f0, 1f-4; scramble_moves = 6, trace_type = NonTabularRL.ReplacingTrace(), feature_vector = initialize_piece_vector())
-  ╠═╡ =#
-
 # ╔═╡ db57648d-ea66-4ece-85af-0df97a725ae5
 #=╠═╡
 display_learning_output(linear_mrp_test)
@@ -2009,23 +1817,6 @@ display_learning_output(linear_mrp_test)
 md"""
 ## Non-linear Approximation of Value Function
 """
-
-# ╔═╡ 837479ed-a3c7-46dc-8fa0-31c98bb3ef6e
-# ╠═╡ disabled = true
-#=╠═╡
-function initialize_rubiks_mrp_nonlinear_test(layers::Vector{Int64}; feature_vector = initialize_piece_vector(), kwargs...)
-
-	params = NonTabularRL.initialize_fcann_params(length(feature_vector), layers, 1, 1, true)
-	
-	function f!(num_episodes, λ, α; scramble_moves = 7, γ = 0.9f0, kwargs...)
-		mrp = create_rubiks_mrp(;scramble_moves = scramble_moves)
-		output = NonTabularRL.semi_gradient_TDλ_fcann(mrp, γ, λ, num_episodes, typemax(Int64), deepcopy(feature_vector), update_rubiks_feature!, layers; α = α, parameters = params, kwargs...)
-		q̂, form_kwargs = NonTabularRL.form_value_function(rubiks_reset_mdp, γ, update_rubiks_feature!, output.value_function, deepcopy(feature_vector), output.parameters)
-		(episode_rewards = output.episode_history.errors, value_function = q̂, form_kwargs = form_kwargs)
-	end
-	(parameters = params, update! = f!)
-end
-  ╠═╡ =#
 
 # ╔═╡ fb49c6c1-1a4c-4d57-92e8-b4abda1d6533
 const mrp_nonlinear_layers = fill(256, 8)
@@ -2114,19 +1905,6 @@ linear_training_output = fullTrain("test", X, ymod, 1, 64, Vector{Int64}(), 0f0,
 show_rubiks_policy_eval(make_greedy_policy(rubiks_dist_mdp, make_linear_value_function(Tuple(linear_training_output[2:3])), 0.9f0), 1000; max_scramble = 10)
   ╠═╡ =#
 
-# ╔═╡ 4f9ae2a3-cc42-42cf-8fc9-c80d4588f675
-function make_linear_value_function(params::NonTabularRL.FCANNParams)
-	function v̂(s::Vector{UInt8})
-		x = make_rubiks_feature(s)
-		out = params[1][1] * x .+ params[2][1]
-		return first(out)
-	end
-
-	v̂(s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) = v̂(s.cube)
-
-	return v̂
-end
-
 # ╔═╡ ae4ddf00-85b2-4794-b92c-7ef76b8a1738
 md"""
 ## Non-linear Approximation of Value Function
@@ -2142,43 +1920,6 @@ nonlinear_training_output = fullTrain("test", X, ymod, 100, 256, [256, 256, 256,
 #=╠═╡
 show_rubiks_policy_eval(make_greedy_policy(rubiks_dist_mdp, make_nn_value_function(Tuple(nonlinear_training_output[2:3])), 0.9f0), 100; max_scramble = 10)
   ╠═╡ =#
-
-# ╔═╡ 88087bbf-3bc3-4331-bf7a-44f4a023f54d
-function make_nn_value_function(value_params::NonTabularRL.FCANNParams)
-	value_activations = FCANN.form_activations(value_params[1])
-	value_function(x, params) = NonTabularRL.fcann_value_function(x, params, value_activations, 0)
-	
-	
-	
-	
-	function v̂(s::Vector{UInt8}) 
-		x = make_rubiks_feature(s)
-		value_function(x, value_params)
-	end
-
-	v̂(s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) = v̂(s.cube)
-
-	return v̂
-end
-
-# ╔═╡ e8b7cf98-f5ed-4fb0-9d7a-4eb7fcd6bea4
-function make_greedy_policy(mdp::StateMDP{T, S, A, P, F1, F2, F3}, v̂::Function, γ::T) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
-	num_actions = length(mdp.actions)
-	function π_greedy(s)
-		action_values = zeros(T, num_actions)
-		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			q = zero(T) 
-			for i in eachindex(probabilities)
-				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
-				q += probabilities[i]*(rewards[i] + γ*v̂′)
-			end
-			action_values[i_a] = q
-		end
-		make_greedy_policy!(action_values)
-		i_a = sample_action(action_values)
-	end
-end
 
 # ╔═╡ 8fc4500b-de4f-44f0-ac51-b2fb875a336a
 #=╠═╡
@@ -2304,88 +2045,8 @@ md"""
 ## N-Step Action Space
 """
 
-# ╔═╡ 1735c965-8aa0-4c74-bb41-8800d145e09d
-const face_index = TabularRL.makelookup(face_order)
-
-# ╔═╡ 84d639ef-08d8-45c5-8df6-39e1dcb31abe
-begin
-	check_valid_move(::RubiksMove{F, D1}, ::RubiksMove{F, D2}) where {F<:Face, D1<:Direction, D2<:Direction} = false
-	check_valid_move(::RubiksMove, ::RubiksMove) = true
-	function check_valid_move(m1::RubiksMove{F1, D1}, m2::RubiksMove{F2, D2}, m3::RubiksMove{F3, D3}) where {F1<:Face, F2<:Face, F3<:Face, D1<:Direction, D2<:Direction, D3<:Direction}
-		!check_valid_move(m1, m2) && return false
-		!check_valid_move(m2, m3) && return false
-		face_independence_lookup[face_index[F1]] != face_index[F2] && return true
-		F3 != F1
-	end
-end
-
-# ╔═╡ 44f7e193-61c2-4591-abe7-1800328abb18
-begin
-	get_valid_moves(m::RubiksMove) = filter(m2 -> check_valid_move(m, m2), rubiks_moves)
-	get_valid_moves(m1::RubiksMove, m2::RubiksMove) = filter(m3 -> check_valid_move(m1, m2, m3), rubiks_moves)
-end
-
-# ╔═╡ 546635bc-83d8-4b07-8b0e-df6d8a29d45f
-const valid_move_inds = Dict(begin
-	i_a = rubiks_move_index[m]
-	valid_moves = get_valid_moves(m)
-	valid_inds = [rubiks_move_index[m2] for m2 in valid_moves]
-	i_a => valid_inds
-end
-for m in rubiks_moves)
-
-# ╔═╡ 1e8f8041-0cf2-47f7-b24f-d4b81ef36360
-const valid_double_move_inds = mapreduce(vcat, keys(valid_move_inds)) do i_a
-	[begin
-		valid_moves = get_valid_moves(rubiks_moves[i_a], rubiks_moves[i_a2])
-		valid_inds = [rubiks_move_index[m3] for m3 in valid_moves]
-		(i_a, i_a2) => valid_inds
-	end
-	for i_a2 in valid_move_inds[i_a]]
-end |> Dict
-
-# ╔═╡ b609b7fc-3994-4488-beed-a151f1984d46
-begin
-	lookup_valid_moves() = eachindex(rubiks_moves)
-	lookup_valid_moves(i_a::Integer) = valid_move_inds[i_a]
-	lookup_valid_moves(move_inds::NTuple{1, Int64}) = lookup_valid_moves(first(move_inds))
-	lookup_valid_moves(move_inds::NTuple{N, Int64}) where N = valid_double_move_inds[(move_inds[N-1], move_inds[N])]
-	lookup_valid_moves(move_inds::Vector{Int64}) = lookup_valid_moves(Tuple(move_inds))
-end
-
-# ╔═╡ bd6ef1e0-0e75-4186-b597-01860adb10b4
-begin
-	function extend_move(move_inds::NTuple{N, Int64}) where N
-		[(move_inds..., i_a) for i_a in valid_double_move_inds[(move_inds[N-1], move_inds[N])]]
-	end
-	
-	function extend_move(move_inds::NTuple{1, Int64})
-		[(move_inds..., i_a) for i_a in valid_move_inds[last(move_inds)]]
-	end
-end
-
-# ╔═╡ 7b61d79d-e304-488d-8cc8-ed70a0e7d052
-extend_move(move_index::Integer) = [(move, i_a) for i_a in valid_move_inds[move_index]]
-
-# ╔═╡ 1222ffc4-82a4-4397-89f0-e0b5ce568fed
-function make_rubiks_nstep_moves(previous_moves, n::Integer)
-	n == 0 && return previous_moves
-	newmoves = mapreduce(vcat, previous_moves) do moves
-		extend_move(moves)
-	end
-	make_rubiks_nstep_moves(newmoves, n-1)
-end
-
 # ╔═╡ a67c9467-fe95-424d-92bf-1dd6eecfbd88
 make_rubiks_nstep_moves(n::Integer) = make_rubiks_nstep_moves([(i,) for i in eachindex(rubiks_moves)], n-1)
-
-# ╔═╡ ddcbd552-d3a2-46ed-9a5d-d705730501c7
-const rubiks_nstep_moves = Dict(n => let
-	actions = make_rubiks_nstep_moves(n)
-	action_index = Dict(zip(actions, eachindex(actions)))
-	(actions = actions, action_index = action_index)
-	end
-	for n in 1:4)
 
 # ╔═╡ 1f3cc59d-81c4-4c2f-a6d2-702d803b1f1d
 md"""
@@ -2412,30 +2073,6 @@ md"""
 md"""
 ### Linear Method Curriculum Scramble
 """
-
-# ╔═╡ f8180571-8869-4904-929b-dc89a0a612c6
-function get_nstep_scramble_statistic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, scramble::Integer, output, ntrials::Integer) where {N, T, S, A<:NTuple{N, Int64}, P, F1, F2, F3}
-	1:ntrials |> Map() do i
-		runepisode(mdp; π = s -> output.value_function(s; output.form_kwargs()...).maximizing_action, s0 = mdp.initialize_state(;nmoves = scramble))[3][end] 
-	end |> foldxt(+) |> x -> x / ntrials
-end
-
-# ╔═╡ 8c76e9af-b50c-4d3c-b5f6-48c189a44c8b
-function get_nstep_policy_scramble_statistic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, scramble::Integer, output, ntrials::Integer) where {N, T, S, A<:NTuple{N, Int64}, P, F1, F2, F3}
-	1:ntrials |> Map() do i
-		runepisode(mdp; π = s -> output.policy_sample_action(s), s0 = mdp.initialize_state(;nmoves = scramble))[3][end] 
-	end |> foldxt(+) |> x -> x / ntrials
-end
-
-# ╔═╡ fb4a36de-15af-41eb-8678-6418d55c5f65
-function get_nstep_statistics(nstep_result, min_scramble, max_scramble; ntrials = 100)
-	[(n = n, solve_rate = get_nstep_scramble_statistic(nstep_result.mdp, n, nstep_result.output, ntrials)) for n in min_scramble:max_scramble]
-end
-
-# ╔═╡ 3afc9543-8172-42e1-bb28-717dfb59e7ee
-function get_nstep_policy_statistics(nstep_result, min_scramble, max_scramble; ntrials = 100)
-	[(n = n, solve_rate = get_nstep_policy_scramble_statistic(nstep_result.mdp, n, nstep_result.output, ntrials)) for n in min_scramble:max_scramble]
-end
 
 # ╔═╡ 8e317749-78a6-4835-8a2d-e4f4690c7c68
 md"""
@@ -2480,29 +2117,6 @@ calculate_max_performance(policy_scrambles_2_step..., 2)
 # ╔═╡ 568815ac-9c48-4ccf-b22c-e9ed38831cad
 const dp_λ_fcann_rubiks_nstep_mastery_results = Dict{NamedTuple, NamedTuple}()
 
-# ╔═╡ 68a4f3ac-16d2-4b18-bdca-74718172ede5
-save_fcann_params(parameters::FCANNParams, name::String) = FCANN.writeParams([parameters.weights], name)
-
-# ╔═╡ b9f439b0-12cd-4c78-ac83-549451efc90a
-function load_curriculum_dp_λ_nstep_params(hidden::Vector{Int64}, reslayers::Integer, n::Integer)
-	name = "rubiks_cube_curriculum_dp_λ_fcann_params_$(n)_move_$(string(hidden))_$(reslayers)_reslayer.bin"
-	if isfile(name)
-		v = FCANN.readBinParams(name)
-		θs = v[1][1]
-		βs = v[1][2]
-		(weights = (θs, βs), reslayers = reslayers)
-	else
-		initialize_fcann_params(48*48, hidden, 1, reslayers, true)
-	end
-end
-
-# ╔═╡ 1478b8d9-a051-4f8d-b221-1468231b3ece
-function save_curriculum_dp_λ_nstep_params(params::FCANNParams)
-	input_size, hidden, num_layers = get_network_dimensions(params)
-	name = "rubiks_cube_curriculum_dp_λ_fcann_params_$(n)_move_$(string(hidden))_$(params.reslayers)_reslayer.bin"
-	save_fcann_params(params, name)
-end
-
 # ╔═╡ b54f218a-46f6-407c-bf7a-e41a87f351d6
 function initialize_dp_λ_rubiks_nstep_fcann_test()
 end
@@ -2510,21 +2124,10 @@ end
 # ╔═╡ b903b3af-4c89-4054-88cd-4dfcc3a7d6f0
 const fcann_2step_layers = fill(256, 4)
 
-# ╔═╡ 58f6a2f1-c6eb-4031-9671-22c0d6416862
-# ╠═╡ disabled = true
-#=╠═╡
-const fcann_2step_params = NonTabularRL.initialize_fcann_params(48*48, fcann_2step_layers, 1, 1, true)
-  ╠═╡ =#
-
 # ╔═╡ 8bc7748a-babe-46a9-9277-fc69d11220f9
 # ╠═╡ disabled = true
 #=╠═╡
 const dp_mastery_2move_params_layers = fill(4096, 8)
-  ╠═╡ =#
-
-# ╔═╡ bd930459-d714-4cdd-a274-bc6ae44efb26
-#=╠═╡
-const dp_mastery_2move_fcann_params = NonTabularRL.initialize_fcann_params(48*48, dp_mastery_2move_params_layers, 1, 1, true)
   ╠═╡ =#
 
 # ╔═╡ fc718149-0104-4893-8ace-3ffe1260ccdf
@@ -2568,11 +2171,6 @@ display_nstep_αdecay_output(dp_step_mastery_2move_fcann_results[1])
 # ╠═╡ disabled = true
 #=╠═╡
 const dp_mastery_2move_params_layers2 = fill(512, 4)
-  ╠═╡ =#
-
-# ╔═╡ afd359a6-8f15-4d79-9267-07a2683f7635
-#=╠═╡
-const dp_mastery_2move_fcann_params2 = NonTabularRL.initialize_fcann_params(48*48, dp_mastery_2move_params_layers2, 1, 1, true)
   ╠═╡ =#
 
 # ╔═╡ eff2c88c-a308-42d7-b3f2-98da787c930c
@@ -2637,12 +2235,6 @@ md"""
 ## Non-linear Deterministic Cube Test
 """
 
-# ╔═╡ 28a886a2-6fc0-4c16-9426-882f1745b67c
-function run_deterministic_dp_rubiks_2step_fcann_test(min_moves, max_moves; γ = 0.9f0, layers = [8, 8], num_steps = 10_000, kwargs...)
-	mdp =  make_deterministic_cube_2step_mdp(min_moves, max_moves)
-	semi_gradient_deterministic_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_feature!, length(solved_cube_feature), layers; kwargs...)
-end
-
 # ╔═╡ 68cce5b5-a52e-47e3-8670-911dbbdb7509
 fcann_deterministic_2step_output, set_fcann_deterministic_2step_output = @use_state(nothing)
 
@@ -2706,70 +2298,6 @@ end
 # ╔═╡ f04f6ab1-6de1-4b38-8973-40064f496514
 #try to load one of the other value functions into this technique and see how strong it is
 
-# ╔═╡ 421add0b-6b3b-49fd-8f71-1898decd24af
-function get_deterministic_2step_scramble_statistic(scramble::Integer, deterministic_output, ntrials::Integer)
-	1:ntrials |> Map(i -> runepisode(make_deterministic_cube_2step_mdp(scramble, scramble); π = s -> deterministic_output.value_function(s).maximizing_action)[3][end]) |> foldxt(+) |> x -> x / ntrials
-end
-
-# ╔═╡ cc689336-57ac-4a0d-9a3e-81a17b2e0b39
-function get_deterministic_2step_statistics(deterministic_output, min_scramble::Integer, max_scramble::Integer; ntrials = 1000) 
-	[(n = n, solve_rate = get_deterministic_2step_scramble_statistic(n, deterministic_output, ntrials)) for n in min_scramble:max_scramble]
-end
-
-# ╔═╡ e2d1180d-e34e-45ad-8593-d6c1dd34cad2
-#=╠═╡
-function run_deterministic_dp_2step_scramble_mastery_fcann_test!(parameters::FCANNParams{T}, num_moves::Integer, feature_vector::Vector{T}, update_feature_vector!, step_interval, α::T; γ::T = 0.9f0, kwargs...) where T<:Real
-	function check_reward_progress(episode_rewards::Vector{T}) 
-		l = length(episode_rewards)
-		episode_check = max(1000, ceil(Int64, l/2))
-		mean(episode_rewards[max(1, l-episode_check):l])
-	end
-	layers = get_hidden_layers(parameters)
-	mdp = make_deterministic_cube_2step_mdp(num_moves, num_moves+1) #always include an even and odd move to avoid a lack of certain states visted
-	run_function() = semi_gradient_deterministic_dp_fcann(mdp, γ, typemax(Int64), step_interval, update_feature_vector!, length(feature_vector), layers; parameters = parameters, α = α, kwargs...)
-	first_output = run_function()
-	reward_check1 = check_reward_progress(first_output.episode_rewards)
-	@info "After first learning pass for a scramble of $num_moves, average reward is $reward_check1"
-	flush(stdout)
-
-	second_output = run_function()
-	reward_check2 = check_reward_progress(second_output.episode_rewards)
-	@info "After second learning pass for a scramble of $num_moves, average reward is $reward_check2"
-
-	episode_rewards = vcat(first_output.episode_rewards, second_output.episode_rewards)
-	pass = 2
-	while reward_check2 > reward_check1
-		pass += 1
-		@info "Reward still improving so proceeding with pass number $pass"
-		reward_check1 = reward_check2
-		second_output = run_function()
-		reward_check2 = check_reward_progress(second_output.episode_rewards)
-		episode_rewards = vcat(episode_rewards, second_output.episode_rewards)
-		@info "After pass number $pass for a scramble of $num_moves, average reward is $reward_check2"
-	end
-	@info "Concluded learning after $pass passes"
-
-	@info "Calculating performance statistics for final parameters"
-	stats = get_deterministic_2step_statistics(second_output, 1, 15; ntrials = 1000)
-	final_output = (value_function = second_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check2, total_passes = pass, final_parameters = deepcopy(parameters), stats = stats, num_passes = pass)
-	key = (layers = layers, scramble_moves = num_moves, α = α)
-
-	return (key, final_output)
-end
-  ╠═╡ =#
-
-# ╔═╡ a7a35c3d-b82d-48b0-b42a-5551ff38bc32
-#=╠═╡
-@use_effect([]) do
-	@spawn begin
-		set_fcann_deterministic_2step_start_time(time())
-		output = run_deterministic_dp_2step_scramble_mastery_fcann_test!(deterministic_fcann_2step_params, 2, make_rubiks_feature(solved_cube_indices), update_rubiks_feature!, 10_000, 4f-3; ϵ = 0.01f0, γ = 0.9f0, reslayers = 1)
-		set_fcann_deterministic_2step_output(output)
-		set_fcann_deterministic_2step_end_time(time())
-	end
-end
-  ╠═╡ =#
-
 # ╔═╡ 9339a39a-bc74-4408-ac44-557366426840
 function get_scramble_statistic(scramble::Integer, output::NamedTuple, ntrials::Integer)
 	π(s) = output.value_function(s; output.form_kwargs()...).maximizing_action
@@ -2794,18 +2322,6 @@ const mcts_2step_eval_output = fcann_deterministic_2step_results[(layers = fill(
 
 # ╔═╡ 8fb578c8-51d9-46ad-88ec-cd0cf0e73cf3
 rubiks_2step_test_mdp.initialize_state()
-
-# ╔═╡ ca5aad17-43a7-40af-abb8-5bc430510fce
-function make_fast_deterministic_value_function(dp_output, mdp::StateMDP, params::FCANNParams{T}) where T<:Real
-	feature_vector = zeros(T, size(params[1][1], 2))
-	action_values = zeros(T, length(mdp.actions))
-	reward_values = copy(action_values)
-	feature_matrix = zeros(T, length(mdp.actions), length(feature_vector))
-	function v̂(s)
-		dp_output.value_function(s; feature_vector = feature_vector, action_values = action_values, reward_values = reward_values, feature_matrix = feature_matrix)
-	end
-	return v̂
-end
 
 # ╔═╡ f181e0a7-0e3f-43e2-af6e-70eb2ca98854
 #=╠═╡
@@ -2937,16 +2453,6 @@ md"""
 Using this reversal function, we should be able to generate a policy from this trajectory that will successfully solve the cube we end up with at the end of the scramble.  First let's create a lookup table that maps each rubiks move index to the index of the reverse move.
 """
 
-# ╔═╡ bfbc45f1-900e-4596-965a-0dfe6e9bdc9c
-const rubiks_move_index_reversal_lookup = Dict(i_a => rubiks_move_index[reverse_move(rubiks_moves[i_a])] for i_a in eachindex(rubiks_moves))
-
-# ╔═╡ 75e1b19f-299b-4f05-a98a-87cc4ddb14d0
-function make_unscramble_policy(states::AbstractVector{S}, actions::Vector{Int64}) where {I<: Integer, S <: AbstractVector{I}}
-	l = length(actions)
-	action_lookup = Dict(states[i] => rubiks_move_index_reversal_lookup[actions[i]] for i in l:-1:1)
-	π(s) = action_lookup[s]
-end
-
 # ╔═╡ fa4fa0fe-113b-4537-a498-a1be486a9b8e
 md"""
 If we look at the first 7 scramble moves and compare it to the exact solution for the tabular problem, we see that the fastest way to unscramble these first 7 moves is simply to reverse them.  There is no redundancy for this early stage of the problem.  Hopefully that efficiency extends somewhat to the later scrambles.
@@ -3006,9 +2512,6 @@ md"""
 # ╔═╡ cbf5ed88-ef38-40f9-ad2c-649505f55997
 const reversible_fcann_layers = fill(64, 3)
 
-# ╔═╡ 94a15d87-790e-4917-ba9f-446f699cfe92
-const reversible_fcann_params = NonTabularRL.initialize_fcann_params(48*48, reversible_fcann_layers, 1, 1, true)
-
 # ╔═╡ 621f415b-ef9b-4ad5-bcc0-dcf51af1d1f9
 md"""
 ## Semi-gradient TD Estimation
@@ -3016,98 +2519,6 @@ md"""
 
 # ╔═╡ d28b936a-5ca6-494c-a6fd-c96c60d24add
 const reversible_fcann_td_layers = fill(128, 3)
-
-# ╔═╡ 55f31d00-a946-46e2-b021-855120b73e77
-const reversible_fcann_td_params = NonTabularRL.initialize_fcann_params(48*48, reversible_fcann_td_layers, 1, 1, true)
-
-# ╔═╡ 7fdfe56e-681a-4708-ac7e-5cbc7957adc1
-function form_policy_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, value_function::Function) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
-	function π(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), kwargs...)
-		maxq, i_a_max = NonTabularRL.update_action_values!(action_values, s, s -> value_function(s; kwargs...), mdp, γ)
-		i_a_max
-	end
-end
-
-# ╔═╡ c2a1a4a9-c652-400f-ad3a-5a05d4e10073
-#=╠═╡
-function smooth_error(error_history, n)
-	l = length(error_history)
-	[mean(error_history[i-n:i]) for i in n+1:l]
-end
-  ╠═╡ =#
-
-# ╔═╡ 6148ec6a-5d38-40d1-84ba-8b5253d5fdaa
-#=╠═╡
-begin
-	function plot_rewards(rewards::AbstractVector{T}, nsmooth::Integer, npoints::Integer) where T<:Real 
-		isempty(rewards) && return plot()
-		l = length(rewards)
-		plot(smooth_error(rewards, nsmooth)[round.(Int64, LinRange(1, max(1, l - nsmooth), npoints))])
-	end
-
-	function plot_rewards(rewards::AbstractVector{A}, nsmooth::Integer, npoints::Integer) where A <: Union{Missing, T} where T<:Real 	
-		isempty(rewards) && return plot()
-			
-		newrewards = [!ismissing(a) for a in rewards]
-		plot_rewards(newrewards, nsmooth, npoints)
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ bec0a916-9689-482f-9008-15f035057838
-#=╠═╡
-plot_rewards(test_fcann_dp_output.episode_rewards, 1000, 1000)
-  ╠═╡ =#
-
-# ╔═╡ 2d67019e-557e-4751-8c08-429be62b76d4
-#=╠═╡
-plot_rewards(test_fcann_dp_output2.episode_rewards, 1000, 1000)
-  ╠═╡ =#
-
-# ╔═╡ 4f163fc4-beb6-43ff-a232-d3d8c19199c0
-#=╠═╡
-plot_rewards(curriculum_results[layer_select].dict_results[move_select][α_select].episode_rewards, 100, 1000)
-  ╠═╡ =#
-
-# ╔═╡ 5f2bdb07-5a8e-4a62-a288-ba4b0d29aaac
-#=╠═╡
-plot_rewards(test_fcann_dp_piece_output3.episode_rewards, 100, 1000)
-  ╠═╡ =#
-
-# ╔═╡ eb488bad-2830-406f-ad87-7cc98566e610
-#=╠═╡
-plot_rewards(test_fcann_dp_essential_output.episode_rewards, 100, 1000)
-  ╠═╡ =#
-
-# ╔═╡ c6fbbf97-1a25-4b80-bd5c-89034efa3f07
-#=╠═╡
-function display_deterministic_2step_output(output)
-	reward_plot = output.episode_rewards |> v -> plot_rewards(v, 100, 1000)
-	try
-		md"""
-		Training progress stalled after $(output.num_passes) passes and $(length(output.episode_rewards)) episodes
-		$reward_plot
-		$(DataFrame(output.stats))
-		"""
-	catch
-		md"""
-		$reward_plot
-		$(DataFrame(output.stats))
-		"""
-	end
-end
-  ╠═╡ =#
-
-# ╔═╡ a76fa602-642d-46d2-9540-4fa94b38e7cb
-#=╠═╡
-if !isnothing(fcann_deterministic_2step_results)
-	display_deterministic_2step_output(fcann_deterministic_2step_results[fcann_deterministic_2step_select[1]])
-else
-	md"""
-	Waiting for results
-	"""
-end
-  ╠═╡ =#
 
 # ╔═╡ 17006174-caad-4043-b8d5-883aa0e10c80
 #=╠═╡
@@ -3138,22 +2549,6 @@ value2onehot(v::Integer) = onehot_lookup[UInt8(v)]
 bits2value(solved_cube_bits)
   ╠═╡ =#
 
-# ╔═╡ 639b2d17-59c9-4605-a394-8fce6dc5449b
-const solved_cube_bits = solved_cube_values |> Map(value2onehot) |> foldxl(vcat)
-
-# ╔═╡ 7bb3fe7c-a8a5-41b0-b35c-2ca92a4d2eb0
-function make_value_data(states::AbstractVector)
-	l = length(states)
-	v = copy(solved_cube_bits)
-	X = zeros(Float32, l, 48*48)
-	for i in 1:l
-		s = states[i]
-		update_rubiks_feature!(v, s)
-		X[i, :] .= v
-	end
-	return X
-end
-
 # ╔═╡ 1af6a2f7-ea00-4d96-8045-2ce280b5a833
 const face_names = ["Front", "Top", "Right", "Back", "Left", "Bottom"]
 
@@ -3171,6 +2566,35 @@ end
 
 # ╔═╡ f8d68c24-71f0-4850-804d-67e5634ed60d
 const face2value = Dict(zip(face_order, square_values))
+
+# ╔═╡ 6b410101-edb1-4814-8aa6-344d0c969e01
+md"""
+# Dependencies
+"""
+
+# ╔═╡ 624eef76-16a7-4556-a466-14341346f7a5
+begin
+	PlutoDevMacros.@fromparent begin 
+		import *
+	end
+	switch_device(3)
+end
+
+# ╔═╡ ebc5bf2b-abef-4b4a-9f12-b0884c089350
+const rubiks_move_index = TabularRL.makelookup(rubiks_moves)
+
+# ╔═╡ bfbc45f1-900e-4596-965a-0dfe6e9bdc9c
+const rubiks_move_index_reversal_lookup = Dict(i_a => rubiks_move_index[reverse_move(rubiks_moves[i_a])] for i_a in eachindex(rubiks_moves))
+
+# ╔═╡ 75e1b19f-299b-4f05-a98a-87cc4ddb14d0
+function make_unscramble_policy(states::AbstractVector{S}, actions::Vector{Int64}) where {I<: Integer, S <: AbstractVector{I}}
+	l = length(actions)
+	action_lookup = Dict(states[i] => rubiks_move_index_reversal_lookup[actions[i]] for i in l:-1:1)
+	π(s) = action_lookup[s]
+end
+
+# ╔═╡ 7aedab25-1129-4ad5-bfc5-bd673b8d2509
+const clockwise_perm = SVector{8, UInt8}([6, 4, 1, 7, 2, 8, 5, 3])
 
 # ╔═╡ eb1f5b65-e804-4578-9123-ea8d65e75397
 begin
@@ -3287,9 +2711,6 @@ function rubiks_move(cube::Vector{UInt8}, i_a::Integer; kwargs...)
 	(reward, cube′)
 end
 
-# ╔═╡ 44499455-ab75-4a65-9fec-1d544afb8a33
-const rubiks_transition = StateMDPTransitionDeterministic(rubiks_move, solved_cube_indices)
-
 # ╔═╡ 790aea25-52d1-41c0-8b80-5b987c294c54
 function test_cube_policy(s0::Matrix{UInt8}, π::Function; maxsteps = 10_000)
 	s = s0
@@ -3303,335 +2724,86 @@ function test_cube_policy(s0::Matrix{UInt8}, π::Function; maxsteps = 10_000)
 	return step
 end
 
-# ╔═╡ 8c396914-675b-404f-9f0c-90e880c55658
-function initialize_rubiks_cube(num_actions)
-	cube = copy(solved_cube_indices)
-	cube′ = copy(cube)
-	action_list = Vector{Int64}()
-	i_a = rand(eachindex(rubiks_moves))
-	action_list = [i_a]
-	for i in 1:num_actions
-		rotate_cube(cube, i_a; cube′ = cube′)
-		cube .= cube′
-		i_a = rand(lookup_valid_moves(action_list))
-		push!(action_list, i_a)
-	end
-	return cube
-end
-
-# ╔═╡ 1fbcf1f1-722a-4014-b8f6-11c2a5f12548
-function make_rubiks_mdp(make_init_actions::Function, transition::AbstractStateTransition)
-	StateMDP(rubiks_moves, transition, () -> initialize_rubiks_cube(make_init_actions()), s -> isequal(s, solved_cube_indices))
-end
-
-# ╔═╡ b28d50ad-ca0a-4743-bace-be46c0821ac2
-const rubiks_cube_mdp = make_rubiks_mdp(() -> 30, rubiks_transition)
-
-# ╔═╡ fe20a8bd-c608-4ac7-9bb0-3251bcf7d85c
-runepisode(rubiks_cube_mdp; max_steps = 100)
-
-# ╔═╡ 18fa27e3-d076-4543-92cc-679ee3c32156
-const rubiks_mdp = make_rubiks_mdp(() -> 5, rubiks_transition)
-
-# ╔═╡ 09cf4ae7-d1fb-44d6-a617-0dbc7f64c2f2
-const rubiks_dist_mdp = make_rubiks_mdp(() -> 5, rubiks_transition_distribution)
-
-# ╔═╡ 3617c5a0-79e6-4fc0-814e-45bbdd373b5d
-rubiks_mcts_policy(s; kwargs...) = TabularRL.monte_carlo_tree_search2(rubiks_dist_mdp, 0.99f0, s, π_dist_rubiks_uniform!, 1f0, 1, -48f0, 48f0; depth = 5, c = 0.5f0, kwargs...)[1](s)
-
-# ╔═╡ 3af88755-0e11-4a17-8867-b8687a484312
-function initialize_reset_cube(nmoves::Integer)
-	cube = initialize_rubiks_cube(nmoves)
-	return (cube = cube, scramble_moves = nmoves, move_count = 0)
-end
-
-# ╔═╡ cfab1b66-884a-4db6-bdae-6df295163838
-const mcts_s0 = initialize_rubiks_cube(10)
-
-# ╔═╡ 2e177050-ee05-4de9-9fa8-4e23199fc669
-monte_carlo_tree_search(rubiks_mdp, 0.99f0, (mdp, s, γ) -> 0f0, mcts_s0; depth = 5, c = 1f0, nsims = 1_000)[3][mcts_s0]
-
-# ╔═╡ 30af4178-b39b-4389-a664-6c9e457f8ca1
-const mcts2_results = TabularRL.monte_carlo_tree_search2(rubiks_dist_mdp, 0.99f0, mcts_s0, π_dist_rubiks_uniform!, 100f0, 12, -48f0, 48f0; depth = 3, c = 0.5f0, nsims = 100)
-
-# ╔═╡ be7b4bb5-0deb-4c96-ad0c-90e785a3ff28
-mcts2_results[2](mcts_s0)
-
-# ╔═╡ 1bf2d626-12c4-4065-a63d-c007f6ddd15b
-mcts2_results[1](mcts_s0)
-
-# ╔═╡ 11d96bf0-c09d-411d-a2fa-1e172ab1b7aa
-mcts2_results[3][mcts_s0]
-
-# ╔═╡ 52eb3090-66a0-41aa-90ed-f658847f9601
-const tabular_eval_cube = initialize_rubiks_cube(6)
-
-# ╔═╡ 5656dbff-1763-4464-bf7a-438983907e8e
-testcube = initialize_rubiks_cube(10)
-
-# ╔═╡ 71bd3296-99ba-4706-9c34-c8543f9fb020
-ceil(Int64, count_misplaced_rubiks(testcube) / 20)
-
-# ╔═╡ b9b7030d-3035-4401-bd5e-006bd2fd583f
-count_misplaced_rubiks_piece_heuristic(testcube)
-
-# ╔═╡ d86a6362-bd09-4eac-a0a3-2149c566d693
-dp_step_mastery_2move_fcann_results2[1].output_dict[0.000125f0].value_function((cube = initialize_rubiks_cube(5), scramble_moves = 5, move_count = 0))
-
-# ╔═╡ 004c8296-38db-4999-a134-3f009eba8034
-monte_carlo_tree_search(rubiks_2step_test_mdp, 0.9f0, (mdp, s, γ) -> mcts_2step_eval_output.value_function(s).maximizing_value, (cube = initialize_rubiks_cube(10), scramble_moves = 10, move_count = 0); depth = 1, nsims = 200)
-
-# ╔═╡ 013fe195-8a8a-4717-a95b-16bb86e8de29
-#create a cube mdp which saves in the state the number of initial scramble moves as well as how many moves have been attempted since the initial scramble
-function make_reset_mdp(min_moves::Integer, max_moves::Integer)
-	initialize_state(nmoves::Integer) = (cube = initialize_rubiks_cube(nmoves), scramble_moves = nmoves, move_count = 0)
-	function isterm(s)
-		s.move_count > 50 && return true
-		s.move_count > 2*s.scramble_moves && return true
-		s.cube == solved_cube_indices
-	end
-
-	function step(s, i_a)
-		isterm(s) && return (0f0, s)
-		cube′ = rotate_cube(s.cube, i_a)
-		s′ = (cube = cube′, scramble_moves = s.scramble_moves, move_count = s.move_count + 1)
-		r = Float32(s′.cube == solved_cube_indices)
-		(r, s′)
-	end
-	ptf = StateMDPTransitionDeterministic(step, initialize_state(1))
-	
-	StateMDP(rubiks_moves, ptf, () -> initialize_state(rand(min_moves:max_moves)), isterm)
-end
-
-# ╔═╡ fd053336-7b1f-4c79-afaa-f60b6fcc5938
-const rubiks_reset_mdp = make_reset_mdp(1, 5)
-
-# ╔═╡ 54f505d3-2a6b-4ce7-a0a4-96b62159dd4c
-function form_rubiks_policy(v̂::Function)
-	π_raw = form_policy_function(rubiks_reset_mdp, 1f0, s -> v̂((cube = s.cube, π = Returns(1))))
-
-	# π(s::Vector{UInt8}) = π_raw((cube = s, scramble_moves = 100, move_count = 0))
-end
-
-# ╔═╡ f90125d1-04d9-4c0c-a0b3-cf2c98b933d8
-function form_reversible_policy(mc_output::NamedTuple)
-	q̂, form_kwargs = NonTabularRL.form_value_function(rubiks_reset_mdp, 0.9f0, update_rubiks_feature!, mc_output.value_function, deepcopy(rubiks_binary_feature), mc_output.parameters)
-
-	π(s) = q̂(s; form_kwargs()...).maximizing_action
-end
-
-# ╔═╡ 128c8762-e4a7-46e1-a673-39d0ffbf2f72
-function run_sarsa_rubiks_linear_test(min_scramble::Integer, max_scramble::Integer; γ = 0.9f0, max_steps = 10_000, kwargs...)
-	mdp =  make_reset_mdp(min_scramble, max_scramble)
-	NonTabularRL.semi_gradient_sarsa_linear(mdp, γ, typemax(Int64), max_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
-end
-
-# ╔═╡ 027d5ff6-b250-427f-9a00-ec9562236bc3
-function run_sarsa_rubiks_linear_test(min_scramble::Integer, max_scramble::Integer, λ; γ = 0.9f0, max_steps = 10_000, kwargs...)
-	mdp =  make_reset_mdp(min_scramble, max_scramble)
-	NonTabularRL.sarsa_λ_linear(mdp, γ, λ, typemax(Int64), max_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
-end
-
-# ╔═╡ 35ae742a-db14-4868-bb2d-d59cd9300de4
-const test_sarsa_output = run_sarsa_rubiks_linear_test(3, 5, 0.85f0; max_steps = 100_000, α = 0.004f0, ϵ = 0.01f0)
-
-# ╔═╡ d163d3cd-e8ca-44fb-81b2-66a2e1a92812
-function run_dp_rubiks_linear_test(min_moves, max_moves; γ = 0.9f0, num_steps = 10_000, kwargs...)
-	mdp =  make_reset_mdp(min_moves, max_moves)
-	output = semi_gradient_dp_linear(mdp, γ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
-end
-
-# ╔═╡ 99a7d920-173b-4b01-ab16-5248e6849f12
-function run_dp_rubiks_linear_test(min_moves, max_moves, λ; γ = 0.9f0, num_steps = 10_000, kwargs...)
-	mdp =  make_reset_mdp(min_moves, max_moves)
-	output = NonTabularRL.dp_λ_linear(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
-end
-
-# ╔═╡ a538ead8-188b-4dd6-a105-a0c7a5d7d64f
-const test_dp_output = run_dp_rubiks_linear_test(3, 4; num_steps = 1_000_000, α = 1f-4, ϵ = 0.01f0)
-
-# ╔═╡ ae2427cb-be0a-4792-b0d9-5d14c17d9fb4
-monte_carlo_tree_search(rubiks_mcts_mdp, 0.9f0, (mdp, s, γ) -> test_dp_output.value_function(s).maximizing_value, rubiks_mcts_s0; depth = 1, nsims = 13)
-
-# ╔═╡ 6f551c31-3082-452a-ad9d-d77432c61af9
-function run_sarsa_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
-	mdp =  make_reset_mdp(min_scramble, max_scramble)
-	NonTabularRL.semi_gradient_sarsa_fcann(mdp, γ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
-end
-
-# ╔═╡ 03432a16-954e-4223-abdf-729aea9cbd26
-function run_dp_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
-	mdp =  make_reset_mdp(min_scramble, max_scramble)
-	NonTabularRL.semi_gradient_dp_fcann(mdp, γ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
-end
-
-# ╔═╡ debc0525-2158-46ea-a7a7-cbf983fc40d6
-function run_sarsa_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}, λ; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
-	mdp =  make_reset_mdp(min_scramble, max_scramble)
-	NonTabularRL.sarsa_λ_fcann(mdp, γ, λ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
-end
-
-# ╔═╡ 699bf657-14cb-4575-925b-bedf97bc168c
-const test_sarsa_fcann_output = run_sarsa_rubiks_fcann_test(3, 3, sarsa_params_layers, 0.0f0; max_steps = 100_000, α = 1f-2, ϵ = 0.01f0, parameters = sarsa_fcann_params) # feature_vector = make_rubiks_feature(solved_cube_indices))
-
-# ╔═╡ 9b1e056c-1025-45a9-b508-f16691fb5696
-function run_dp_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}, λ; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
-	mdp =  make_reset_mdp(min_scramble, max_scramble)
-	NonTabularRL.dp_λ_fcann(mdp, γ, λ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
-end
-
-# ╔═╡ a2ef7212-d2b6-40ab-8af8-6d38ab9f39f2
-const test_dp_fcann_output = run_dp_rubiks_fcann_test(4, 5, dp_params_layers; max_steps = 1_000, α = 1f-4, ϵ = 0.01f0, parameters = dp_fcann_params) #, feature_vector = zeros(Float32, 48*48), use_gpu = true)
-
-# ╔═╡ bd50c529-c78f-48c4-8b30-bbbe4af87ca6
-#=╠═╡
-function run_rubiks_dp_curriculum_eval_loop(min_steps, max_steps; kwargs...)
-	reward_progress = true
-	curriculum_count = 1
-	while reward_progress
-		set_test_fcann_dp_curriculum_count(curriculum_count)
-		set_test_fcann_dp_start_time(time())
-		output = run_dp_rubiks_fcann_test(min_steps, max_steps; kwargs...)
-		set_test_fcann_dp_output(output)
-		set_test_fcann_dp_end_time(time())
-		reward_progress = check_reward_progress(output.episode_rewards)
-		curriculum_count += 1
-		if !reward_progress
+# ╔═╡ a38e34b1-57ac-496e-be00-73501b865b6f
+function rubiks_nstep_move(cube::Vector{UInt8}, move::NTuple{N, Int64}; cube′::Vector{UInt8} = copy(cube), cube′′::Vector{UInt8} = copy(cube)) where N
+	reward = 0f0
+	cube′ .= cube
+	for i_a in move
+		rotate_cube!(cube′′, cube′, i_a)
+		if cube′′ == solved_cube_indices 
+			reward = 1f0
 			break
 		end
+		cube′ .= cube′′
+	end
+	(reward, cube′′)
+end
+
+# ╔═╡ fe415c36-f2b2-4b25-9ab2-33011fdc9f28
+function rubiks_reversible_move(cube::Vector{UInt8}, i_a::Integer; kwargs...)
+	cube′ = rotate_cube(cube, i_a; kwargs...)
+	r = 2*Float32(cube′ == solved_cube_indices) - 1f0/8 #this produces values roughly from -1.75 to 1.75 for states from 30 moves away to the solved state
+	(r, cube′)
+	# (-1f0/15, cube′)
+end
+
+# ╔═╡ af0c2dba-c7ee-4f75-a31d-1bc1dffd3e84
+function rubiks_reversible_mrp_move(s::NamedTuple; kwargs...) 
+	i_a = s.π(s.cube)
+	(r, cube′) = rubiks_reversible_move(s.cube, i_a; kwargs...)
+	return (r, (cube = cube′, π = s.π))
+end
+
+# ╔═╡ 44499455-ab75-4a65-9fec-1d544afb8a33
+const rubiks_transition = StateMDPTransitionDeterministic(rubiks_move, solved_cube_indices)
+
+# ╔═╡ f1256bc8-a69e-4daf-a304-bd436ce8cfbe
+const rubiks_binary_feature = BinaryFeatureVector(48*48)
+
+# ╔═╡ 066ec351-b414-4232-a614-09b0430ede86
+function update_rubiks_feature!(v::BinaryFeatureVector{Int64, 48*48}, cube::AbstractVector{I}) where I<:Integer
+	active_features = ((i-1)*48 + cube[i] for i in 1:48)
+	update_binary_feature_vector!(v, active_features)
+end
+
+# ╔═╡ 5a6a4b92-7b02-441a-9f05-2f7924eec600
+function make_rubiks_piece_binary_vector(cube::AbstractVector{I}) where I <: Integer
+	v = BinaryFeatureVector(14*12 + 11*8)
+	v.num_features = 8*2 + 12*2
+	v.active_features = get_active_rubiks_piece_features(cube)
+	return v
+end
+
+# ╔═╡ b7586067-6d80-49c4-b8c4-877aa3e2ce3f
+function update_rubiks_feature!(x::BinaryFeatureVector{I1, 256}, cube::AbstractVector{I2}) where {I1 <: Integer, I2 <: Integer}
+	pieces = calculate_cube_pieces(cube)
+	ind = 1
+	for (i, t) in enumerate(pieces.corner_pieces)
+		base_ind = (i-1)*11
+		x.active_features[ind] = base_ind + first(t)
+		ind += 1
+		x.active_features[ind] = base_ind + 8 + last(t)
+		ind += 1
+	end
+	corner_last_ind = 11*8
+	for (i, t) in enumerate(pieces.edge_pieces)
+		base_ind = (i-1)*14 + corner_last_ind
+		x.active_features[ind] = base_ind + first(t)
+		ind += 1
+		x.active_features[ind] = base_ind + 12 + last(t)
+		ind += 1
 	end
 end
-  ╠═╡ =#
 
-# ╔═╡ 738f63c0-4101-48df-b73f-610bea1553af
-#=╠═╡
-function run_dp_step_mastery_fcann_test!(parameters::FCANNParams{T}, min_moves::Integer, max_moves::Integer, feature_vector, update_feature_vector!, step_interval; γ::T = 0.9f0, kwargs...) where T<:Real
-	function check_reward_progress(episode_rewards::Vector{T}) 
-		l = length(episode_rewards)
-		episode_check = max(1000, ceil(Int64, l/2))
-		mean(episode_rewards[max(1, l-episode_check):l])
-	end
-	layers = get_hidden_layers(parameters)
-	mdp = make_reset_mdp(min_moves, max_moves)
-	first_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
-	reward_check1 = check_reward_progress(first_output.episode_rewards)
-	@info "After first learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check1"
-
-	second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
-	reward_check2 = check_reward_progress(second_output.episode_rewards)
-	@info "After second learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
-
-	episode_rewards = vcat(first_output.episode_rewards, second_output.episode_rewards)
-	pass = 2
-	while reward_check2 > reward_check1
-		pass += 1
-		@info "Reward still improving so proceeding with pass number $pass"
-		reward_check1 = reward_check2
-		second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
-		reward_check2 = check_reward_progress(second_output.episode_rewards)
-		episode_rewards = vcat(episode_rewards, second_output.episode_rewards)
-		@info "After pass number $pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
-	end
-	@info "Concluded learning after $pass passes"
-
-	return (value_function = second_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check2, total_passes = pass, final_parameters = deepcopy(parameters), form_kwargs = second_output.form_kwargs)
-end
-  ╠═╡ =#
-
-# ╔═╡ 436bd68b-e3f0-4e22-8898-d1c586f7d69d
-#=╠═╡
-function run_dp_curriculum_mastery_fcann_test!(parameters::FCANNParams{T}, min_moves::Integer, max_moves::Integer, feature_vector::Vector{T}, update_feature_vector!, step_interval, αlist::Vector{T}; kwargs...) where T<:Real
-	sorted_αlist = sort(αlist; rev=true)
-	dict_results = Dict(begin
-	 	@info "Starting curriculum mastery for $num_moves moves"
-		out = Dict(begin
-		 @info "Using learning rate of α = $α"
-		 inner_out = run_dp_step_mastery_fcann_test!(parameters, num_moves, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...) 
-		α => inner_out 
-		end
-		for α in αlist)
-		num_moves => out
-	 end
-	 for num_moves in min_moves:max_moves)
-	final_results = dict_results[max_moves][last(sorted_αlist)]
-	(dict_results = dict_results, final_results = final_results)
-end
-  ╠═╡ =#
-
-# ╔═╡ 9e25ea7c-c3ff-4dae-873b-3decf08b4625
-function get_scramble_statistic(scramble::Integer, π::Function, ntrials::Integer)
-	1:ntrials |> Map(i -> runepisode(make_reset_mdp(scramble, scramble); π = π) |> out -> out[1][1].cube == solved_cube_indices ? 1f0 : out[3][end]) |> foldxt(+) |> x -> x / ntrials
+# ╔═╡ 09538cca-7da3-4d48-9541-90f00acce794
+function make_rubiks_feature(cube::AbstractVector{I}) where I <: Integer
+	v = zeros(Float32, 48*48)
+	update_rubiks_feature!(v, cube)
+	return v
 end
 
-# ╔═╡ 0d8fcded-38b2-40fc-a4d5-0da61767cc2d
-function get_scramble_statistics(output, min_scramble::Integer, max_scramble::Integer; ntrials = 1000) 
-	[(n = n, solve_rate = get_scramble_statistic(n, output, ntrials)) for n in min_scramble:max_scramble]
-end
-
-# ╔═╡ ded411aa-2927-4435-9e3e-3f01ae35b78c
-#=╠═╡
-function display_learning_output(output; min_scramble = 1, max_scramble = 15)
-	reward_plot = output.episode_rewards |> v -> plot_rewards(v, 100, 1000)
-	stats = get_scramble_statistics(output, min_scramble, max_scramble)
-	@htl("""
-	<div style = "display: flex;">
-	<div style = "width: 75%">
-	$reward_plot
-	</div>
-	$(DataFrame(stats))
-	</div>
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ ac46c949-a0b5-42fc-bcf0-707faf7c0742
-#=╠═╡
-display_learning_output(test_sarsa_output)
-  ╠═╡ =#
-
-# ╔═╡ 3479a6e6-91ca-4be6-9d0a-0d720b1f04dd
-#=╠═╡
-display_learning_output(test_dp_output)
-  ╠═╡ =#
-
-# ╔═╡ c07cc5dd-5ae5-4887-b7bd-c5a4c95ffa0b
-#=╠═╡
-display_learning_output(test_sarsa_fcann_output)
-  ╠═╡ =#
-
-# ╔═╡ 4e9029e2-1c7c-4fc6-901d-c10a617c3cc0
-#=╠═╡
-function display_reversible_solution(output::NamedTuple; nsmooth = 100, npoints = 1000, max_scramble = 10, kwargs...)
-	p1 = try 
-		plot_rewards(log.(output.error_history), nsmooth, npoints)
-		catch
-			try
-				plot_rewards(log.(output.error_history.errors), nsmooth, npoints)
-				catch
-				plot_rewards(log.(output.episode_history.errors), nsmooth, npoints)
-			end
-	end
-
-	π = form_reversible_policy(output)
-
-	tbl = get_scramble_statistics(π, 1, max_scramble; kwargs...) |> DataFrame
-
-	@htl("""
-		 <div style = "display: flex;">
-		 <div style = "width: 70%;">
-		 $p1
-	     </div>
-		 $tbl
-		 </div>
-		 """)
-end
-  ╠═╡ =#
-
-# ╔═╡ 7251946d-0899-465f-ba00-aa1c623b74da
-testepisode = runepisode(make_reset_mdp(2, 2); π = s -> test_sarsa_output.value_function(s; test_sarsa_output.form_kwargs()...).maximizing_action)
-
-# ╔═╡ 598a04c6-b290-4758-9480-e1704b9326a4
-testepisode[1][1].cube == solved_cube_indices
+# ╔═╡ 2040ffd4-f977-4c30-83a0-875b500099aa
+const solved_cube_feature = make_rubiks_feature(solved_cube_indices)
 
 # ╔═╡ 662729cc-54fa-449c-a90b-4c32196aef20
 function plot_feature_changes(num_moves)
@@ -3653,6 +2825,125 @@ end
 #=╠═╡
 PlutoPlotly.heatmap(;plot_feature_changes(50)..., colorscale = "Greys", showscale=false) |> tr -> plot(tr, Layout(xaxis_title = "vector index", yaxis_title = "rotations", title = "Feature Vector Changing Through Random Moves"))
   ╠═╡ =#
+
+# ╔═╡ 28a886a2-6fc0-4c16-9426-882f1745b67c
+function run_deterministic_dp_rubiks_2step_fcann_test(min_moves, max_moves; γ = 0.9f0, layers = [8, 8], num_steps = 10_000, kwargs...)
+	mdp =  make_deterministic_cube_2step_mdp(min_moves, max_moves)
+	semi_gradient_deterministic_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_feature!, length(solved_cube_feature), layers; kwargs...)
+end
+
+# ╔═╡ d949035a-4258-46b2-b749-83397213c379
+function initialize_piece_vector() 
+	v = BinaryFeatureVector(256)
+	v.num_features = 8*2 + 12*2
+	v.active_features = get_active_rubiks_piece_features(solved_cube_indices)
+	return v
+end
+
+# ╔═╡ 9e25905f-452d-4ca5-ae9b-4b03284ad03d
+function run_dp_rubiks_linear_piece_test(min_moves, max_moves; γ = 0.9f0, num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	semi_gradient_dp_linear(mdp, γ, typemax(Int64), num_steps, copy(solved_cube_piece_feature), update_rubiks_piece_vector!; suppress_warning=true, kwargs...)
+end
+
+# ╔═╡ 0ac973d8-bd67-499f-a05d-1341fa9ca52b
+const sarsa_fcann_params = initialize_fcann_params(48*48, sarsa_params_layers, length(rubiks_moves), 1, true)
+
+# ╔═╡ 6014ac2d-7d49-483c-92b7-7b1e24466b42
+const dp_fcann_params = initialize_fcann_params(48*48, dp_params_layers, 1, 1, true)
+
+# ╔═╡ 33ffe90d-941f-4c84-93b5-628bd175140d
+const dp_mastery_fcann_params = initialize_fcann_params(48*48, dp_mastery_params_layers, 1, 1, true)
+
+# ╔═╡ 4f244f15-8f07-403c-a2b4-7b2cb9dc7284
+function run_dp_rubiks_fcann_test(min_moves, max_moves; γ = 0.99f0, layers = [8, 8], num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_feature!, length(solved_cube_feature), layers; suppress_warning=true, kwargs...)
+end
+
+# ╔═╡ 6cab2983-d84f-49dd-b9ff-91933e45667c
+function run_dp_rubiks_essential_fcann_test(min_moves, max_moves; γ = 0.9f0, layers = [8, 8], num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_essential_feature!, length(solved_cube_essential_feature), layers; suppress_warning=true, kwargs...)
+end
+
+# ╔═╡ 04bababf-cebe-4d37-940f-f17ffc9c8f36
+@use_effect([]) do
+	@spawn begin
+		set_test_fcann_dp_essential_start_time(time())
+		output = run_dp_rubiks_essential_fcann_test(6, 6; num_steps = 10_000, α = 1f-2, layers = layers_essential, parameters = dp_essential_params, ϵ = 0.01f0, reslayers = 1)
+		set_test_fcann_dp_essential_output(output)
+		set_test_fcann_dp_essential_end_time(time())
+	end
+end
+
+# ╔═╡ 6d7d5e1d-6aa3-49f2-a85b-f34627868351
+function run_dp_rubiks_piece_fcann_test(min_moves, max_moves; γ = 0.99f0, layers = [8, 8], num_steps = 10_000, kwargs...)
+	mdp =  make_tdcube_mdp(min_moves, max_moves)
+	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), num_steps, update_rubiks_piece_vector!, length(solved_cube_piece_feature), layers; suppress_warning=true, kwargs...)
+end
+
+# ╔═╡ f13eb4cd-7a45-41c6-b954-6e5f305c461b
+function get_hidden_layers(params::FCANNParams)
+	β = params.weights[2]
+	l = length(β)
+	[length(β[x]) for x in 1:l-1]
+end
+
+# ╔═╡ 72204679-8fdd-49a0-8fc2-24bf2f0e83ac
+curriculum_results[get_hidden_layers(test_fcann_dp_output3.final_results.final_parameters)] = test_fcann_dp_output3
+
+# ╔═╡ d2454f2a-c61d-4a76-8c6f-2234afefa0e4
+function make_fast_value_function(dp_output, params::FCANNParams{T}) where T<:Real
+	x = zeros(T, size(params[1][1], 2))
+	function v̂(s)
+		dp_output.value_function(s; x = x).maximizing_value
+	end
+	return v̂
+end
+
+# ╔═╡ 09c5e213-f175-4032-a5e5-dbd9f7b0d753
+function calculate_mcts_improvement(min_scramble, max_scramble, dp_output; nsamples = 100, mcts_kwargs...)
+	# vanilla_score = 0f0
+	# mcts_score = 0f0
+	# π = make_threadsafe_policy(dp_output)
+	v̂ = make_fast_value_function(dp_output, dp_output.final_parameters)
+	# v̂(s) = dp_output.value_function(s).maximizing_value
+	(vanilla_score, mcts_score) = 1:nsamples |> Map() do _
+		mdp = make_tdcube_mdp(min_scramble, max_scramble)
+		
+		s0 = mdp.initialize_state()
+		while mdp.isterm(s0) #ensures that we don't begin an episode at a terminal state
+			s0 = mdp.initialize_state()
+		end
+		vanilla_score = runepisode(mdp; π = s -> dp_output.value_function(s).maximizing_action, s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
+		# vanilla_score = runepisode(mdp; π = π, s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
+		mcts_score = runepisode(mdp; π = s -> monte_carlo_tree_search(mdp, 0.9f0, (mdp, s, γ) -> v̂(s), s; mcts_kwargs...)[1], s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
+		# mcts_score = runepisode(mdp; π = s -> monte_carlo_tree_search(mdp, 0.9f0, (mdp, s, γ) -> π(s), s; mcts_kwargs...)[1], s0 = (cube = s0.cube, scramble_moves = 100, move_count = 0))[3][end]
+		(vanilla_score, mcts_score)
+	end |> foldxl((a, b) -> (a[1] + b[1], a[2] + b[2]))
+	(vanilla_success_rate = vanilla_score / nsamples, mcts_success_rate = mcts_score / nsamples)
+end
+
+# ╔═╡ 54149d2e-06ee-4a5c-8c55-fcd0cd1442b5
+# ╠═╡ disabled = true
+#=╠═╡
+function make_threadunsafe_value_function(dp_output, update_feature_vector!::Function, reslayers::Integer)
+	activations = FCANN.form_activations(dp_output.final_parameters[1])
+	l = size(dp_output.final_parameters[1][1], 2)
+	feature_vector = zeros(Float32, l)
+	action_values = zeros(Float32, 12)
+	function v̂(s)
+		update_rubiks_feature!(feature_vector, s.cube)
+		fcann_value_function!(activations, feature_vector, dp_output.final_parameters, reslayers)
+		return first(last(activations))
+	end
+	return v̂
+end
+  ╠═╡ =#
+
+# ╔═╡ 7464b10d-056b-47cc-8db8-44ace4b84d11
+const nmove_lookup = Dict{Int64, Set{SVector{48, UInt8}}}();
 
 # ╔═╡ fa2286f8-7b20-4f33-8f5a-bccacbe758e9
 #builds a list of all unique cube states that are within n moves of the solved state.  Any state that is outside of this set can be considered terminal with a losing condition, need to test to see how large n can be before the problem is unweildy
@@ -3723,429 +3014,23 @@ function build_tabular_rubiks_mdp(nmoves::Integer)
 	TabularMDP(statelist, rubiks_moves, TabularDeterministicTransition(state_transition_map, reward_transition_map), () -> rand(eachindex(statelist)); state_index = state_index_map)
 end
 
-# ╔═╡ a38e34b1-57ac-496e-be00-73501b865b6f
-function rubiks_nstep_move(cube::Vector{UInt8}, move::NTuple{N, Int64}; cube′::Vector{UInt8} = copy(cube), cube′′::Vector{UInt8} = copy(cube)) where N
-	reward = 0f0
-	cube′ .= cube
-	for i_a in move
-		rotate_cube!(cube′′, cube′, i_a)
-		if cube′′ == solved_cube_indices 
-			reward = 1f0
-			break
-		end
-		cube′ .= cube′′
+# ╔═╡ 4409a59f-e138-4c5b-910c-828bf8bd4497
+const solved_pocket_cube = SVector{24}(UInt8.(1:24))
+
+# ╔═╡ b5f46f2f-2ea8-40ee-a28b-bd8c90e52149
+function count_misplaced(s::AbstractVector{I}) where I<:Integer
+	n = 0
+	@inbounds @simd for i in eachindex(s)
+		n += (s[i] != solved_pocket_cube[i])
 	end
-	(reward, cube′′)
+	return n
 end
 
-# ╔═╡ 194595ee-5b5d-4b97-a48a-bba10a491fdd
-function rubiks_nstep_continuing_move(s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}, move::NTuple{N, Int64}; min_moves::Integer = 1, max_moves::Integer = 20, kwargs...) where N
-	scramble_moves = rand(min_moves:max_moves)
-	(s.cube == solved_cube_indices) && return (0f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
-	(s.move_count > 2*s.scramble_moves) && return (0f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
-	(s.move_count > 50) && return (0f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
-	(reward, cube′) = rubiks_nstep_move(s.cube, move; kwargs...)
-	(cube′ == solved_cube_indices) && return (1f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
-	return (reward, (cube = cube′, scramble_moves = s.scramble_moves, move_count = s.move_count + N))
-end
-
-# ╔═╡ 96223544-4478-41ab-aba5-fcde3cac0768
-#create a cube mdp which saves in the state the number of initial scramble moves as well as how many moves have been attempted since the initial scramble
-function make_rubiks_nstep_continuing_mdp(min_moves::Integer, max_moves::Integer, moves_per_step::Integer)
-	initialize_state(;nmoves::Integer = rand(min_moves:max_moves)) = (cube = initialize_rubiks_cube(nmoves), scramble_moves = nmoves, move_count = 0)
-
-	!haskey(rubiks_nstep_moves, moves_per_step) && error("Have not computed these actions ahead of time")
-	actions, action_index = rubiks_nstep_moves[moves_per_step]
-
-	step(s, i_a; kwargs...) = rubiks_nstep_continuing_move(s, actions[i_a]; min_moves = min_moves, max_moves = max_moves, kwargs...)
-	ptf = StateMDPTransitionDeterministic(step, initialize_state(;nmoves=1))
-	
-	StateMDP(actions, ptf, initialize_state, Returns(false); action_index = action_index)
-end
-
-# ╔═╡ 9d70d00d-39ba-430b-8a78-17c6dc4b6cb2
-begin
-	function rubiks_nstep_nonlinear_value_training(hidden_layers::Vector{Int64}, reslayers::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false)
-		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
-		setup = setup_value_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(2, 2, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
-		setup.train(hidden_layers, reslayers, 0f0, 0f0, training_steps; use_dp = true, use_gpu = use_gpu, new_params = false)
-	end
-
-	function rubiks_nstep_nonlinear_policy_training(hidden_layers::Vector{Int64}, reslayers::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false)
-		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
-		setup = setup_policy_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(2, 2, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
-		setup.train(hidden_layers, reslayers, 0f0, 0f0, 0f0, 0f0, training_steps; use_gpu = use_gpu, new_params = false)
-	end
-		
-	function rubiks_nstep_nonlinear_value_training(α::Float32, λ::Float32, hidden_layers::Vector{Int64}, reslayers::Integer, min_scramble::Integer, max_scramble::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false, kwargs...)
-		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
-		setup = setup_value_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(min_scramble, max_scramble, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
-		output = setup.train_rate_decay(hidden_layers, reslayers, α, λ, training_steps; use_dp = true, use_gpu = use_gpu, kwargs...)
-		setup.save_params(; show_message = show_message)
-		return output
-	end
-
-	function rubiks_nstep_nonlinear_policy_training(α_θ::Float32, α_w::Float32, λ_θ::Float32, λ_w::Float32, hidden_layers::Vector{Int64}, reslayers::Integer, min_scramble::Integer, max_scramble::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false, kwargs...)
-		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
-		setup = setup_policy_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(min_scramble, max_scramble, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
-		output = setup.train_rate_decay(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, training_steps; use_gpu = use_gpu, kwargs...)
-		setup.save_params(; show_message = show_message)
-		return output
-	end
-end
-
-# ╔═╡ 26a14497-12d2-4aec-b17c-72544ab23709
-const dp_λ_2step_fcann_result = rubiks_nstep_nonlinear_value_training(4f-2, 0.1f0, fill(4096, 8), 1, value_scrambles_2_step..., 2, 1_000_000; use_gpu = true, ϵ = 0.001f0, α_r̄ = 0.1f0, l2 = 0.0f0, dropout = 0.0f0)
-
-# ╔═╡ 6095a2c1-b33d-4f39-965d-c61e042bebe9
-const ac_2step_fcann_result = rubiks_nstep_nonlinear_policy_training(2f-2, 2f-2, 0.5f0, 0.5f0, fill(1024, 8), 1, policy_scrambles_2_step..., 2, 1_000_000; use_gpu = true, α_r̄ = 0.1f0, l2 = 0.0f0)
-
-# ╔═╡ c676f6ab-07cd-4e55-b853-ff7a13c03f80
-rubiks_nstep_move(initialize_rubiks_cube(10), (2, 6))
-
-# ╔═╡ 6f2724d4-dcf7-417b-966d-1ff8deeb2a65
-#create a cube mdp which saves in the state the number of initial scramble moves as well as how many moves have been attempted since the initial scramble
-function make_rubiks_nstep_mdp(min_moves::Integer, max_moves::Integer, moves_per_step::Integer)
-	initialize_state(;nmoves::Integer = rand(min_moves:max_moves)) = (cube = initialize_rubiks_cube(nmoves), scramble_moves = nmoves, move_count = 0)
-	
-	function isterm(s)
-		s.move_count > 50 && return true
-		s.move_count > 2*s.scramble_moves && return true
-		s.cube == solved_cube_indices
-	end
-
-	!haskey(rubiks_nstep_moves, moves_per_step) && error("Have not computed these actions ahead of time")
-	actions, action_index = rubiks_nstep_moves[moves_per_step]
-
-	step(s, i_a; kwargs...) = rubiks_nstep_move(s, actions[i_a]; kwargs...)
-	ptf = StateMDPTransitionDeterministic(step, initialize_state(;nmoves=1))
-	
-	StateMDP(actions, ptf, initialize_state, isterm; action_index = action_index)
-end
-
-# ╔═╡ 440470e3-1f38-4041-b554-13a155f19cdf
-const rubiks_2step_mdp = make_rubiks_nstep_mdp(1, 10, 2)
-
-# ╔═╡ 174669a8-218c-49e8-a4d9-e4482d3850ae
-@code_warntype rubiks_2step_mdp.ptf(initialize_rubiks_cube(10), rand(1:100))
-
-# ╔═╡ d952334c-1953-49f5-8871-d96bfbfa64e3
-const rubiks_3step_mdp = make_rubiks_nstep_mdp(1, 10, 3)
-
-# ╔═╡ 07377754-fa04-4e5a-b15d-f6cfd9d52dab
-function run_dp_λ_rubiks_nstep_linear_test(γ, λ, n, min_moves, max_moves; num_steps = 10_000, kwargs...)
-	mdp =  make_rubiks_nstep_mdp(min_moves, max_moves, n)
-	output = NonTabularRL.dp_λ_linear(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
-	(mdp = mdp, output = output)
-end
-
-# ╔═╡ 56cf2e20-41ee-46fb-a5d4-0b79642ac3b9
-const dp_λ_2step_result = run_dp_λ_rubiks_nstep_linear_test(0.9f0, 0.95f0, 2, 2, 5; num_steps = 50_000, α = 1f-2, ϵ = 0.001f0, trace_type = NonTabularRL.ReplacingTrace())
-
-# ╔═╡ affd9578-11a2-4150-862a-aad1f7cfa565
-function run_dp_λ_rubiks_nstep_linear_curriculum_test(γ, λ, steps_per_move, min_scramble, max_scramble; kwargs...)
-	scramble = min_scramble
-	output = run_dp_λ_rubiks_nstep_linear_test(γ, λ, steps_per_move, scramble, scramble+steps_per_move - 1; kwargs...).results
-	results = Dict([scramble => output])
-	scramble += 1
-	while scramble ≤ max_scramble
-		output = run_dp_λ_rubiks_nstep_linear_test(γ, λ, steps_per_move, scramble, scramble+steps_per_move - 1; parameters = output.final_parameters, kwargs...).results
-		results[scramble] = output 
-		scramble += 1
-	end
-	return results
-end
-
-# ╔═╡ bb6fea94-f0cc-46c9-90f3-4bed62b520c3
-function run_sarsa_λ_rubiks_nstep_linear_test(γ, λ, n, min_moves, max_moves; num_steps = 10_000, kwargs...)
-	mdp =  make_rubiks_nstep_mdp(min_moves, max_moves, n)
-	output = NonTabularRL.sarsa_λ_linear(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
-	(mdp = mdp, output = output)
-end
-
-# ╔═╡ dde9d10b-e259-4c86-98fd-d6459f36699b
-const sarsa_λ_2step_result = run_sarsa_λ_rubiks_nstep_linear_test(0.9f0, 0.95f0, 2, 2, 5; num_steps = 100_000, α = 1f-2, ϵ = 0.01f0, trace_type = NonTabularRL.ReplacingTrace())
-
-# ╔═╡ 74c9b56a-d890-4dca-a26e-a6d41f105cde
-function get_nstep_statistics(nstep::Integer, output::NamedTuple, min_scramble, max_scramble; ntrials = 100)
-	[(n = n, solve_rate = get_nstep_scramble_statistic(make_rubiks_nstep_mdp(n, n, nstep), n, output, ntrials)) for n in min_scramble:max_scramble]
-end
-
-# ╔═╡ fe719761-de47-4240-a50d-a1dccdf2d1e1
-#=╠═╡
-function display_nstep_output(nstep_result; nsmooth = 100, npoints = 1000, min_scramble = 1, max_scramble = 10, kwargs...)
-	reward_plot = nstep_result.output.episode_rewards |> v -> plot_rewards(v, nsmooth, npoints)
-	stats = get_nstep_statistics(nstep_result, min_scramble::Integer, max_scramble::Integer; kwargs...)
-	@htl("""
-	<div style = "display: flex;">
-	<div style = "width = 0.75;">$reward_plot</div>
-	$(DataFrame(stats))
-	</div>
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ b117af73-16a0-44cb-abfb-fd9df962bb97
-#=╠═╡
-display_nstep_output(sarsa_λ_2step_result)
-  ╠═╡ =#
-
-# ╔═╡ 1f0429c4-e6c7-4b09-8896-62fdf5569148
-#=╠═╡
-display_nstep_output(dp_λ_2step_result)
-  ╠═╡ =#
-
-# ╔═╡ ee8842f2-86af-495b-9b37-41aa59dd4cc1
-#=╠═╡
-function display_nstep_αdecay_output(results)
-	αs = sort(collect(keys(results.output_dict)); rev = true)
-	rewards = mapreduce(a -> results.output_dict[a].episode_rewards, vcat, αs)
-
-	last_output = results.output_dict[last(αs)]
-	result = (mdp = results.mdp, output = (value_function = last_output.value_function, episode_rewards = rewards, final_reward = last_output.final_reward, total_passes = sum(results.output_dict[a].total_passes for a in αs), final_parameters = last_output.final_parameters, form_kwargs = last_output.form_kwargs))
-	@htl("""
-	Showing results over the following learning rates: $(reduce((a, b) -> "$a, $b", αs)) for scrambles: $(results.min_scramble) to $(results.max_scramble) and $(result.output.total_passes) passes
-		 
-	$(display_nstep_output(result))
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ ca57f9f0-4d9b-41d6-b7ec-931415b39641
-#=╠═╡
-display_nstep_αdecay_output(dp_step_mastery_2move_fcann_results2[1])
-  ╠═╡ =#
-
-# ╔═╡ 7f88d0d3-2069-4c97-a3a0-20196a7151a7
-#=╠═╡
-function display_nstep_continuing_output(n::Integer, output::NamedTuple; nsmooth = 100, npoints = 1000, min_scramble = 1, max_scramble = 10, kwargs...)
-	reward_plot = output.reward_history |> v -> plot_rewards(v, nsmooth, npoints)
-	stats = get_nstep_statistics(n::Integer, output, min_scramble::Integer, max_scramble::Integer; kwargs...)
-	@htl("""
-	<div style = "display: flex;">
-	<div style = "width = 0.75;">$reward_plot</div>
-	$(DataFrame(stats))
-	</div>
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ f0316e07-2873-4538-b7a5-01256b089561
-#=╠═╡
-display_nstep_continuing_output(2, dp_λ_2step_fcann_result; ntrials = 100)
-  ╠═╡ =#
-
-# ╔═╡ ef8c2a99-d462-4cb1-b433-d669cda52d31
-function get_nstep_policy_statistics(nstep::Integer, output::NamedTuple, min_scramble, max_scramble; ntrials = 100)
-	[(n = n, solve_rate = get_nstep_policy_scramble_statistic(make_rubiks_nstep_mdp(n, n, nstep), n, output, ntrials)) for n in min_scramble:max_scramble]
-end
-
-# ╔═╡ 273923d3-ab5e-4899-80bd-f257fa5c1d3c
-#=╠═╡
-function display_nstep_continuing_policy_output(n::Integer, output::NamedTuple; nsmooth = 100, npoints = 1000, min_scramble = 1, max_scramble = 10, kwargs...)
-	reward_plot = output.reward_history |> v -> plot_rewards(v, nsmooth, npoints)
-	stats = get_nstep_policy_statistics(n::Integer, output, min_scramble::Integer, max_scramble::Integer; kwargs...)
-	@htl("""
-	<div style = "display: flex;">
-	<div style = "width = 0.75;">$reward_plot</div>
-	$(DataFrame(stats))
-	</div>
-	""")
-end
-  ╠═╡ =#
-
-# ╔═╡ b760fbbf-5e07-446f-9b37-6e184868dfdd
-#=╠═╡
-display_nstep_continuing_policy_output(2, ac_2step_fcann_result)
-  ╠═╡ =#
-
-# ╔═╡ 341ec41b-bc42-4548-b11a-f9b326179422
-function run_dp_λ_rubiks_nstep_fcann_test(γ, λ, n, min_moves, max_moves, layers; num_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
-	mdp =  make_rubiks_nstep_mdp(min_moves, max_moves, n)
-	output = NonTabularRL.dp_λ_fcann(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
-	(mdp = mdp, output = output)
-end
-
-# ╔═╡ cde3b13f-86e0-46ad-8a74-84684cc32811
-#=╠═╡
-function run_dp_step_mastery_nmove_fcann_test!(parameters::FCANNParams{T}, min_moves::Integer, max_moves::Integer, moves_per_step::Integer, feature_vector, update_feature_vector!, step_interval; γ::T = 0.9f0, kwargs...) where T<:Real
-	function check_reward_progress(episode_rewards::Vector{T}) 
-		l = length(episode_rewards)
-		episode_check = max(1000, ceil(Int64, l/2))
-		mean(episode_rewards[max(1, l-episode_check):l])
-	end
-	params = copy(parameters)
-	layers = get_hidden_layers(parameters)
-	mdp = make_rubiks_nstep_mdp(min_moves, max_moves, moves_per_step)
-	first_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
-	reward_check1 = check_reward_progress(first_output.episode_rewards)
-	@info "After first learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check1"
-
-	second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
-	reward_check2 = check_reward_progress(second_output.episode_rewards)
-	@info "After second learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
-
-	episode_rewards = first_output.episode_rewards
-	pass = 2
-	while reward_check2 > reward_check1
-		copy!(params, parameters)
-		pass += 1
-		@info "Reward still improving so proceeding with pass number $pass"
-		reward_check1 = reward_check2
-		first_output = second_output
-		episode_rewards = vcat(episode_rewards, first_output.episode_rewards)
-		second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
-		reward_check2 = check_reward_progress(second_output.episode_rewards)
-		
-		@info "After pass number $pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
-	end
-	@info "Concluded learning after $pass passes"
-	copy!(parameters, params)
-	output = (value_function = first_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check1, total_passes = pass, final_parameters = copy(parameters), form_kwargs = first_output.form_kwargs)
-	return (mdp = mdp, output = output)
-end
-  ╠═╡ =#
-
-# ╔═╡ b9586038-58ca-467b-8cd5-f5a16663682e
-#=╠═╡
-function run_dp_α_decay_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval, α0::T; decay = T(0.5), kwargs...) where T<:Real
-	α = α0
-	@info "Beginning training with learning rate $α"
-	(mdp, output1) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
-
-	results = Dict([α => output1])
-
-	α *= decay
-	@info "Training second round with learning rate $α"
-	(mdp, output2) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
-	results[α] = output2
-
-	reward_check2 = output2.final_reward
-	reward_check1 = output1.final_reward
-	while reward_check2 > reward_check1
-		reward_check1 = reward_check2
-		α *= decay
-		@info "Training next round with learning rate $α"
-		(mdp, output) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
-		reward_check2 = output.final_reward
-		results[α] = output
-	end
-	@info "Concluded rate decay with learning rate $(α*2)"
-	return (mdp = mdp, output_dict = results, min_scramble = min_moves, max_scramble = max_moves)
-end
-  ╠═╡ =#
-
-# ╔═╡ a56e5eb6-7ec3-45ce-b93d-2230691652b2
-function make_scramble_trajectory(num_actions)
-	cube = copy(solved_cube_indices)
-	cube′ = copy(cube)
-	states = Vector{typeof(cube)}(undef, num_actions)
-	actions = Vector{Int64}(undef, num_actions)
-	i_a = rand(eachindex(rubiks_moves))
-	for i in 1:num_actions
-		actions[i] = i_a
-		rotate_cube(cube, i_a; cube′ = cube′)
-		cube .= cube′
-		states[i] = copy(cube)
-		i_a = rand(valid_move_inds[i_a])
-	end
-	return states, actions
-end
-
-# ╔═╡ d41c9ab0-0712-4960-a2dc-aaf3661e0866
-test_trajectory = make_scramble_trajectory(30)
-
-# ╔═╡ 00609e53-d6bd-4630-9a28-8e69acc10901
-length(unique(test_trajectory[1]))
-
-# ╔═╡ 4aed6452-26e6-4a48-9a3a-b1be7d961157
-π_unscramble_test = make_unscramble_policy(test_trajectory...)
-
-# ╔═╡ fc8a9f05-2b66-4ef2-8e05-538f66b4b840
-runepisode(rubiks_cube_mdp; s0 = test_trajectory[1][end], π = π_unscramble_test)
-
-# ╔═╡ 4828ae7b-2f70-4b17-94f0-06505fac7887
-function initialize_reversible_cube(num_moves::Integer)
-	(states, actions) = make_scramble_trajectory(num_moves)
-	π = make_unscramble_policy(states, actions)
-	cube = states[end]
-	(cube = cube, π = π)
-end
-
-# ╔═╡ 86ef6b80-f902-48da-9032-fca221c3ed6f
-initialize_reversible_cube(30)
-
-# ╔═╡ fe415c36-f2b2-4b25-9ab2-33011fdc9f28
-function rubiks_reversible_move(cube::Vector{UInt8}, i_a::Integer; kwargs...)
-	cube′ = rotate_cube(cube, i_a; kwargs...)
-	r = 2*Float32(cube′ == solved_cube_indices) - 1f0/8 #this produces values roughly from -1.75 to 1.75 for states from 30 moves away to the solved state
-	(r, cube′)
-	# (-1f0/15, cube′)
-end
-
-# ╔═╡ af0c2dba-c7ee-4f75-a31d-1bc1dffd3e84
-function rubiks_reversible_mrp_move(s::NamedTuple; kwargs...) 
-	i_a = s.π(s.cube)
-	(r, cube′) = rubiks_reversible_move(s.cube, i_a; kwargs...)
-	return (r, (cube = cube′, π = s.π))
-end
-
-# ╔═╡ dd14d0ff-5163-43da-b1be-3fc420682fe3
-const rubiks_reversible_mrp_transition = StateMRPTransitionSampler(rubiks_reversible_mrp_move, initialize_reversible_cube(1))
-
-# ╔═╡ 46749d40-8c07-43dc-bbff-013797fd56cd
-function make_rubiks_reversible_mrp(num_scramble::Integer)
-	StateMRP(rubiks_reversible_mrp_transition, () -> initialize_reversible_cube(num_scramble), s -> isequal(s.cube, solved_cube_indices))
-end
-
-# ╔═╡ 242a57ef-7e7e-4439-95cb-9f747b23d6b3
-const rubiks_reversible_mrp = make_rubiks_reversible_mrp(7)
-
-# ╔═╡ 00c67f96-456c-48d1-9d1b-0fcd8ddac671
-const reversible_linear_td_solution = semi_gradient_td0_estimation_linear(rubiks_reversible_mrp, 1f0, 400_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 1f-4)
-
-# ╔═╡ 51105316-c191-44a5-b4f3-703f30efebad
-#=╠═╡
-display_reversible_solution(reversible_linear_td_solution)
-  ╠═╡ =#
-
-# ╔═╡ 9fffc847-87c2-41d6-9f87-d10d645708da
-const reversible_fcann_td_solution = semi_gradient_td0_estimation_fcann(rubiks_reversible_mrp, 1f0, 1_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_td_layers; α = 1f-5, params = reversible_fcann_td_params)
-
-# ╔═╡ 42106894-5ae2-4a1e-a26e-0e8e7085d035
-#=╠═╡
-display_reversible_solution(reversible_fcann_td_solution)
-  ╠═╡ =#
-
-# ╔═╡ 99a280b6-a371-43ac-9a27-319501a47d96
-const rubiks_reversible_transition = StateMDPTransitionSampler(rubiks_reversible_move, initialize_reversible_cube(10))
-
-# ╔═╡ cb8d0b4a-39de-4a18-8048-7a525a6bfca8
-function make_rubiks_reversible_mdp(num_scramble::Integer)
-	StateMDP(rubiks_moves, rubiks_reversible_transition, () -> initialize_reversible_cube(num_scramble), s -> isequal(s.cube, solved_cube_indices))
-end
-
-# ╔═╡ 717209cb-24de-4fae-b434-bf8258f39fc6
-const rubiks_reversible_mdp = make_rubiks_reversible_mdp(7)
-
-# ╔═╡ 36f51608-7d65-4f21-ad71-98707f94b12a
-runepisode(rubiks_reversible_mdp; π = π_cube_reverse)
-
-# ╔═╡ 9d87dbb3-1a3c-47d3-a090-4eb76a5c6c2d
-const reversible_linear_mc_solution = gradient_monte_carlo_policy_estimation_linear(rubiks_reversible_mdp, π_cube_reverse, 1f0, 400_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 4f-6)
-
-# ╔═╡ a3555ab8-63b0-451f-a91d-995d7d8632bf
-#=╠═╡
-display_reversible_solution(reversible_linear_mc_solution)
-  ╠═╡ =#
-
-# ╔═╡ 9ffbb5d0-defa-4734-883e-7ff1f86e326b
-const reversible_fcann_mc_solution = gradient_monte_carlo_policy_estimation_fcann(rubiks_reversible_mdp, π_cube_reverse, 1f0, 10_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_layers; α = 1f-5, params = reversible_fcann_params)
-
-# ╔═╡ af9571f9-9d82-4563-83b1-d3dc23668b6c
-#=╠═╡
-display_reversible_solution(reversible_fcann_mc_solution; ntrials = 100)
-  ╠═╡ =#
+# ╔═╡ 62dd2f4f-4ecb-4152-bb9e-7a6fb75222d9
+const pocket_move_index = TabularRL.makelookup(pocket_moves)
+
+# ╔═╡ dda10443-ec98-45a7-a935-86e65d608dd7
+const pocket_clockwise_perm = SVector{4, UInt8}([3, 1, 4, 2])
 
 # ╔═╡ 1a0d2678-c228-40a3-a376-01df24292556
 function get_pocket_rotation_indices(::RubiksMove{F, Clockwise}) where F<:Face
@@ -4178,19 +3063,6 @@ end
 
 # ╔═╡ 8e44a35b-ed6c-4a9e-9f68-9fe28aa5af22
 const pocket_rotation_lookup = [get_pocket_rotation_indices(m) for m in pocket_moves]
-
-# ╔═╡ a7ed00c6-6ada-41ee-9cbc-770c3eed776c
-begin
-	#always produce a copy of the cube since I plan to use this to generate an exhaustive list anyway
-	function rotate_pocket_cube(cube::SVector{24, UInt8}, i_a::Integer)
-		indices = pocket_rotation_lookup[i_a]
-		SVector{24}(cube[indices[i]] for i in eachindex(cube))
-	end
-	rotate_pocket_cube(cube::SVector{UInt8}, m::RubiksMove) = rotate_pocket_cube(cube, pocket_move_index[m])
-end
-
-# ╔═╡ c5c1942a-86ff-4494-9e38-3ad0bc6c0517
-rotate_pocket_cube(solved_pocket_cube, 1)
 
 # ╔═╡ 76e07bdb-82c7-4dc8-893d-e7ca3d0d318a
 function permute_cube!(s′′::Vector{UInt8}, s′, s0, m::Tuple{Int64, Int64})
@@ -4259,6 +3131,19 @@ function check_next_moves_recur2(current_cube, trajectory::Vector{Tuple{Int64, I
 
 	return (false, min_overshoot)
 end
+
+# ╔═╡ a7ed00c6-6ada-41ee-9cbc-770c3eed776c
+begin
+	#always produce a copy of the cube since I plan to use this to generate an exhaustive list anyway
+	function rotate_pocket_cube(cube::SVector{24, UInt8}, i_a::Integer)
+		indices = pocket_rotation_lookup[i_a]
+		SVector{24}(cube[indices[i]] for i in eachindex(cube))
+	end
+	rotate_pocket_cube(cube::SVector{UInt8}, m::RubiksMove) = rotate_pocket_cube(cube, pocket_move_index[m])
+end
+
+# ╔═╡ c5c1942a-86ff-4494-9e38-3ad0bc6c0517
+rotate_pocket_cube(solved_pocket_cube, 1)
 
 # ╔═╡ 2e4fa908-f1c4-4594-a0cf-782cf6513208
 function check_next_moves2(cube::SVector{24, UInt8}, cube′::Vector{UInt8}, maxdepth::Integer)
@@ -4422,13 +3307,1118 @@ function solve_pocket_cube_exhaustive_iterative(s::SVector{24, UInt8}; maxdepth:
 	end
 end
 
+# ╔═╡ 4f9ae2a3-cc42-42cf-8fc9-c80d4588f675
+function make_linear_value_function(params::FCANNParams)
+	function v̂(s::Vector{UInt8})
+		x = make_rubiks_feature(s)
+		out = params[1][1] * x .+ params[2][1]
+		return first(out)
+	end
+
+	v̂(s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) = v̂(s.cube)
+
+	return v̂
+end
+
+# ╔═╡ 88087bbf-3bc3-4331-bf7a-44f4a023f54d
+function make_nn_value_function(value_params::FCANNParams)
+	value_activations = FCANN.form_activations(value_params[1])
+	value_function(x, params) = fcann_value_function(x, params, value_activations, 0)
+	
+	
+	
+	
+	function v̂(s::Vector{UInt8}) 
+		x = make_rubiks_feature(s)
+		value_function(x, value_params)
+	end
+
+	v̂(s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}) = v̂(s.cube)
+
+	return v̂
+end
+
+# ╔═╡ e8b7cf98-f5ed-4fb0-9d7a-4eb7fcd6bea4
+function make_greedy_policy(mdp::StateMDP{T, S, A, P, F1, F2, F3}, v̂::Function, γ::T) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
+	num_actions = length(mdp.actions)
+	function π_greedy(s)
+		action_values = zeros(T, num_actions)
+		for i_a in eachindex(action_values)
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			q = zero(T) 
+			for i in eachindex(probabilities)
+				v̂′ = !mdp.isterm(states[i])*v̂(states[i])
+				q += probabilities[i]*(rewards[i] + γ*v̂′)
+			end
+			action_values[i_a] = q
+		end
+		make_greedy_policy!(action_values)
+		i_a = sample_action(action_values)
+	end
+end
+
+# ╔═╡ 1735c965-8aa0-4c74-bb41-8800d145e09d
+const face_index = TabularRL.makelookup(face_order)
+
+# ╔═╡ 84d639ef-08d8-45c5-8df6-39e1dcb31abe
+begin
+	check_valid_move(::RubiksMove{F, D1}, ::RubiksMove{F, D2}) where {F<:Face, D1<:Direction, D2<:Direction} = false
+	check_valid_move(::RubiksMove, ::RubiksMove) = true
+	function check_valid_move(m1::RubiksMove{F1, D1}, m2::RubiksMove{F2, D2}, m3::RubiksMove{F3, D3}) where {F1<:Face, F2<:Face, F3<:Face, D1<:Direction, D2<:Direction, D3<:Direction}
+		!check_valid_move(m1, m2) && return false
+		!check_valid_move(m2, m3) && return false
+		face_independence_lookup[face_index[F1]] != face_index[F2] && return true
+		F3 != F1
+	end
+end
+
+# ╔═╡ 44f7e193-61c2-4591-abe7-1800328abb18
+begin
+	get_valid_moves(m::RubiksMove) = filter(m2 -> check_valid_move(m, m2), rubiks_moves)
+	get_valid_moves(m1::RubiksMove, m2::RubiksMove) = filter(m3 -> check_valid_move(m1, m2, m3), rubiks_moves)
+end
+
+# ╔═╡ 546635bc-83d8-4b07-8b0e-df6d8a29d45f
+const valid_move_inds = Dict(begin
+	i_a = rubiks_move_index[m]
+	valid_moves = get_valid_moves(m)
+	valid_inds = [rubiks_move_index[m2] for m2 in valid_moves]
+	i_a => valid_inds
+end
+for m in rubiks_moves)
+
+# ╔═╡ 7b61d79d-e304-488d-8cc8-ed70a0e7d052
+extend_move(move_index::Integer) = [(move, i_a) for i_a in valid_move_inds[move_index]]
+
+# ╔═╡ a56e5eb6-7ec3-45ce-b93d-2230691652b2
+function make_scramble_trajectory(num_actions)
+	cube = copy(solved_cube_indices)
+	cube′ = copy(cube)
+	states = Vector{typeof(cube)}(undef, num_actions)
+	actions = Vector{Int64}(undef, num_actions)
+	i_a = rand(eachindex(rubiks_moves))
+	for i in 1:num_actions
+		actions[i] = i_a
+		rotate_cube(cube, i_a; cube′ = cube′)
+		cube .= cube′
+		states[i] = copy(cube)
+		i_a = rand(valid_move_inds[i_a])
+	end
+	return states, actions
+end
+
+# ╔═╡ d41c9ab0-0712-4960-a2dc-aaf3661e0866
+test_trajectory = make_scramble_trajectory(30)
+
+# ╔═╡ 00609e53-d6bd-4630-9a28-8e69acc10901
+length(unique(test_trajectory[1]))
+
+# ╔═╡ 4aed6452-26e6-4a48-9a3a-b1be7d961157
+π_unscramble_test = make_unscramble_policy(test_trajectory...)
+
+# ╔═╡ 4828ae7b-2f70-4b17-94f0-06505fac7887
+function initialize_reversible_cube(num_moves::Integer)
+	(states, actions) = make_scramble_trajectory(num_moves)
+	π = make_unscramble_policy(states, actions)
+	cube = states[end]
+	(cube = cube, π = π)
+end
+
+# ╔═╡ 86ef6b80-f902-48da-9032-fca221c3ed6f
+initialize_reversible_cube(30)
+
+# ╔═╡ 1e8f8041-0cf2-47f7-b24f-d4b81ef36360
+const valid_double_move_inds = mapreduce(vcat, keys(valid_move_inds)) do i_a
+	[begin
+		valid_moves = get_valid_moves(rubiks_moves[i_a], rubiks_moves[i_a2])
+		valid_inds = [rubiks_move_index[m3] for m3 in valid_moves]
+		(i_a, i_a2) => valid_inds
+	end
+	for i_a2 in valid_move_inds[i_a]]
+end |> Dict
+
+# ╔═╡ b609b7fc-3994-4488-beed-a151f1984d46
+begin
+	lookup_valid_moves() = eachindex(rubiks_moves)
+	lookup_valid_moves(i_a::Integer) = valid_move_inds[i_a]
+	lookup_valid_moves(move_inds::NTuple{1, Int64}) = lookup_valid_moves(first(move_inds))
+	lookup_valid_moves(move_inds::NTuple{N, Int64}) where N = valid_double_move_inds[(move_inds[N-1], move_inds[N])]
+	lookup_valid_moves(move_inds::Vector{Int64}) = lookup_valid_moves(Tuple(move_inds))
+end
+
+# ╔═╡ 8c396914-675b-404f-9f0c-90e880c55658
+function initialize_rubiks_cube(num_actions)
+	cube = copy(solved_cube_indices)
+	cube′ = copy(cube)
+	action_list = Vector{Int64}()
+	i_a = rand(eachindex(rubiks_moves))
+	action_list = [i_a]
+	for i in 1:num_actions
+		rotate_cube(cube, i_a; cube′ = cube′)
+		cube .= cube′
+		i_a = rand(lookup_valid_moves(action_list))
+		push!(action_list, i_a)
+	end
+	return cube
+end
+
+# ╔═╡ 1fbcf1f1-722a-4014-b8f6-11c2a5f12548
+function make_rubiks_mdp(make_init_actions::Function, transition::AbstractStateTransition)
+	StateMDP(rubiks_moves, transition, () -> initialize_rubiks_cube(make_init_actions()), s -> isequal(s, solved_cube_indices))
+end
+
+# ╔═╡ b28d50ad-ca0a-4743-bace-be46c0821ac2
+const rubiks_cube_mdp = make_rubiks_mdp(() -> 30, rubiks_transition)
+
+# ╔═╡ fe20a8bd-c608-4ac7-9bb0-3251bcf7d85c
+runepisode(rubiks_cube_mdp; max_steps = 100)
+
+# ╔═╡ 18fa27e3-d076-4543-92cc-679ee3c32156
+const rubiks_mdp = make_rubiks_mdp(() -> 5, rubiks_transition)
+
+# ╔═╡ 09cf4ae7-d1fb-44d6-a617-0dbc7f64c2f2
+const rubiks_dist_mdp = make_rubiks_mdp(() -> 5, rubiks_transition_distribution)
+
+# ╔═╡ 3617c5a0-79e6-4fc0-814e-45bbdd373b5d
+rubiks_mcts_policy(s; kwargs...) = TabularRL.monte_carlo_tree_search2(rubiks_dist_mdp, 0.99f0, s, π_dist_rubiks_uniform!, 1f0, 1, -48f0, 48f0; depth = 5, c = 0.5f0, kwargs...)[1](s)
+
+# ╔═╡ 013fe195-8a8a-4717-a95b-16bb86e8de29
+#create a cube mdp which saves in the state the number of initial scramble moves as well as how many moves have been attempted since the initial scramble
+function make_reset_mdp(min_moves::Integer, max_moves::Integer)
+	initialize_state(nmoves::Integer) = (cube = initialize_rubiks_cube(nmoves), scramble_moves = nmoves, move_count = 0)
+	function isterm(s)
+		s.move_count > 50 && return true
+		s.move_count > 2*s.scramble_moves && return true
+		s.cube == solved_cube_indices
+	end
+
+	function step(s, i_a)
+		isterm(s) && return (0f0, s)
+		cube′ = rotate_cube(s.cube, i_a)
+		s′ = (cube = cube′, scramble_moves = s.scramble_moves, move_count = s.move_count + 1)
+		r = Float32(s′.cube == solved_cube_indices)
+		(r, s′)
+	end
+	ptf = StateMDPTransitionDeterministic(step, initialize_state(1))
+	
+	StateMDP(rubiks_moves, ptf, () -> initialize_state(rand(min_moves:max_moves)), isterm)
+end
+
+# ╔═╡ fd053336-7b1f-4c79-afaa-f60b6fcc5938
+const rubiks_reset_mdp = make_reset_mdp(1, 5)
+
+# ╔═╡ 9084cb79-a89f-432d-a4f9-4b1f9ee65c4d
+function run_rubiks_mrp_linear(num_episodes::Integer, λ::Float32, α::Float32; scramble_moves::Integer = 7, γ = 0.9f0, feature_vector = rubiks_binary_feature, kwargs...)
+	mrp = create_rubiks_mrp(;scramble_moves = scramble_moves)
+	output = semi_gradient_TDλ_linear(mrp, γ, λ, num_episodes, typemax(Int64), deepcopy(feature_vector), update_rubiks_feature!; α = α, kwargs...)
+	
+	q̂, form_kwargs = form_value_function(rubiks_reset_mdp, γ, update_rubiks_feature!, output.value_function, deepcopy(feature_vector), output.parameters)
+	
+	(episode_rewards = output.episode_history.errors, value_function = q̂, form_kwargs = form_kwargs)
+end
+
+# ╔═╡ d9460da6-d51f-458b-bd90-888961ffe3a0
+const linear_mrp_test = run_rubiks_mrp_linear(100_000, 0.75f0, 1f-4; scramble_moves = 6, trace_type = ReplacingTrace(), feature_vector = initialize_piece_vector())
+
+# ╔═╡ 837479ed-a3c7-46dc-8fa0-31c98bb3ef6e
+# ╠═╡ disabled = true
+#=╠═╡
+function initialize_rubiks_mrp_nonlinear_test(layers::Vector{Int64}; feature_vector = initialize_piece_vector(), kwargs...)
+
+	params = initialize_fcann_params(length(feature_vector), layers, 1, 1, true)
+	
+	function f!(num_episodes, λ, α; scramble_moves = 7, γ = 0.9f0, kwargs...)
+		mrp = create_rubiks_mrp(;scramble_moves = scramble_moves)
+		output = semi_gradient_TDλ_fcann(mrp, γ, λ, num_episodes, typemax(Int64), deepcopy(feature_vector), update_rubiks_feature!, layers; α = α, parameters = params, kwargs...)
+		q̂, form_kwargs = form_value_function(rubiks_reset_mdp, γ, update_rubiks_feature!, output.value_function, deepcopy(feature_vector), output.parameters)
+		(episode_rewards = output.episode_history.errors, value_function = q̂, form_kwargs = form_kwargs)
+	end
+	(parameters = params, update! = f!)
+end
+  ╠═╡ =#
+
+# ╔═╡ 128c8762-e4a7-46e1-a673-39d0ffbf2f72
+function run_sarsa_rubiks_linear_test(min_scramble::Integer, max_scramble::Integer; γ = 0.9f0, max_steps = 10_000, kwargs...)
+	mdp =  make_reset_mdp(min_scramble, max_scramble)
+	semi_gradient_sarsa_linear(mdp, γ, typemax(Int64), max_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
+end
+
+# ╔═╡ 027d5ff6-b250-427f-9a00-ec9562236bc3
+function run_sarsa_rubiks_linear_test(min_scramble::Integer, max_scramble::Integer, λ; γ = 0.9f0, max_steps = 10_000, kwargs...)
+	mdp =  make_reset_mdp(min_scramble, max_scramble)
+	sarsa_λ_linear(mdp, γ, λ, typemax(Int64), max_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
+end
+
+# ╔═╡ 35ae742a-db14-4868-bb2d-d59cd9300de4
+const test_sarsa_output = run_sarsa_rubiks_linear_test(3, 5, 0.85f0; max_steps = 100_000, α = 0.004f0, ϵ = 0.01f0)
+
+# ╔═╡ d163d3cd-e8ca-44fb-81b2-66a2e1a92812
+function run_dp_rubiks_linear_test(min_moves, max_moves; γ = 0.9f0, num_steps = 10_000, kwargs...)
+	mdp =  make_reset_mdp(min_moves, max_moves)
+	output = semi_gradient_dp_linear(mdp, γ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
+end
+
+# ╔═╡ 99a7d920-173b-4b01-ab16-5248e6849f12
+function run_dp_rubiks_linear_test(min_moves, max_moves, λ; γ = 0.9f0, num_steps = 10_000, kwargs...)
+	mdp =  make_reset_mdp(min_moves, max_moves)
+	output = dp_λ_linear(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
+end
+
+# ╔═╡ a538ead8-188b-4dd6-a105-a0c7a5d7d64f
+const test_dp_output = run_dp_rubiks_linear_test(3, 4; num_steps = 1_000_000, α = 1f-4, ϵ = 0.01f0)
+
+# ╔═╡ ae2427cb-be0a-4792-b0d9-5d14c17d9fb4
+monte_carlo_tree_search(rubiks_mcts_mdp, 0.9f0, (mdp, s, γ) -> test_dp_output.value_function(s).maximizing_value, rubiks_mcts_s0; depth = 1, nsims = 13)
+
+# ╔═╡ 6f551c31-3082-452a-ad9d-d77432c61af9
+function run_sarsa_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
+	mdp =  make_reset_mdp(min_scramble, max_scramble)
+	semi_gradient_sarsa_fcann(mdp, γ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
+end
+
+# ╔═╡ 03432a16-954e-4223-abdf-729aea9cbd26
+function run_dp_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
+	mdp =  make_reset_mdp(min_scramble, max_scramble)
+	semi_gradient_dp_fcann(mdp, γ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
+end
+
+# ╔═╡ debc0525-2158-46ea-a7a7-cbf983fc40d6
+function run_sarsa_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}, λ; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
+	mdp =  make_reset_mdp(min_scramble, max_scramble)
+	sarsa_λ_fcann(mdp, γ, λ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
+end
+
+# ╔═╡ 699bf657-14cb-4575-925b-bedf97bc168c
+const test_sarsa_fcann_output = run_sarsa_rubiks_fcann_test(3, 3, sarsa_params_layers, 0.0f0; max_steps = 100_000, α = 1f-2, ϵ = 0.01f0, parameters = sarsa_fcann_params) # feature_vector = make_rubiks_feature(solved_cube_indices))
+
+# ╔═╡ 9b1e056c-1025-45a9-b508-f16691fb5696
+function run_dp_rubiks_fcann_test(min_scramble::Integer, max_scramble::Integer, layers::Vector{Int64}, λ; γ = 0.9f0, max_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
+	mdp =  make_reset_mdp(min_scramble, max_scramble)
+	dp_λ_fcann(mdp, γ, λ, typemax(Int64), max_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
+end
+
+# ╔═╡ a2ef7212-d2b6-40ab-8af8-6d38ab9f39f2
+const test_dp_fcann_output = run_dp_rubiks_fcann_test(4, 5, dp_params_layers; max_steps = 1_000, α = 1f-4, ϵ = 0.01f0, parameters = dp_fcann_params) #, feature_vector = zeros(Float32, 48*48), use_gpu = true)
+
+# ╔═╡ 738f63c0-4101-48df-b73f-610bea1553af
+#=╠═╡
+function run_dp_step_mastery_fcann_test!(parameters::FCANNParams{T}, min_moves::Integer, max_moves::Integer, feature_vector, update_feature_vector!, step_interval; γ::T = 0.9f0, kwargs...) where T<:Real
+	function check_reward_progress(episode_rewards::Vector{T}) 
+		l = length(episode_rewards)
+		episode_check = max(1000, ceil(Int64, l/2))
+		mean(episode_rewards[max(1, l-episode_check):l])
+	end
+	layers = get_hidden_layers(parameters)
+	mdp = make_reset_mdp(min_moves, max_moves)
+	first_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+	reward_check1 = check_reward_progress(first_output.episode_rewards)
+	@info "After first learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check1"
+
+	second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+	reward_check2 = check_reward_progress(second_output.episode_rewards)
+	@info "After second learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
+
+	episode_rewards = vcat(first_output.episode_rewards, second_output.episode_rewards)
+	pass = 2
+	while reward_check2 > reward_check1
+		pass += 1
+		@info "Reward still improving so proceeding with pass number $pass"
+		reward_check1 = reward_check2
+		second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+		reward_check2 = check_reward_progress(second_output.episode_rewards)
+		episode_rewards = vcat(episode_rewards, second_output.episode_rewards)
+		@info "After pass number $pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
+	end
+	@info "Concluded learning after $pass passes"
+
+	return (value_function = second_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check2, total_passes = pass, final_parameters = deepcopy(parameters), form_kwargs = second_output.form_kwargs)
+end
+  ╠═╡ =#
+
+# ╔═╡ 436bd68b-e3f0-4e22-8898-d1c586f7d69d
+#=╠═╡
+function run_dp_curriculum_mastery_fcann_test!(parameters::FCANNParams{T}, min_moves::Integer, max_moves::Integer, feature_vector::Vector{T}, update_feature_vector!, step_interval, αlist::Vector{T}; kwargs...) where T<:Real
+	sorted_αlist = sort(αlist; rev=true)
+	dict_results = Dict(begin
+	 	@info "Starting curriculum mastery for $num_moves moves"
+		out = Dict(begin
+		 @info "Using learning rate of α = $α"
+		 inner_out = run_dp_step_mastery_fcann_test!(parameters, num_moves, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...) 
+		α => inner_out 
+		end
+		for α in αlist)
+		num_moves => out
+	 end
+	 for num_moves in min_moves:max_moves)
+	final_results = dict_results[max_moves][last(sorted_αlist)]
+	(dict_results = dict_results, final_results = final_results)
+end
+  ╠═╡ =#
+
+# ╔═╡ 3af88755-0e11-4a17-8867-b8687a484312
+function initialize_reset_cube(nmoves::Integer)
+	cube = initialize_rubiks_cube(nmoves)
+	return (cube = cube, scramble_moves = nmoves, move_count = 0)
+end
+
+# ╔═╡ cfab1b66-884a-4db6-bdae-6df295163838
+const mcts_s0 = initialize_rubiks_cube(10)
+
+# ╔═╡ 2e177050-ee05-4de9-9fa8-4e23199fc669
+monte_carlo_tree_search(rubiks_mdp, 0.99f0, (mdp, s, γ) -> 0f0, mcts_s0; depth = 5, c = 1f0, nsims = 1_000)[3][mcts_s0]
+
+# ╔═╡ 30af4178-b39b-4389-a664-6c9e457f8ca1
+const mcts2_results = TabularRL.monte_carlo_tree_search2(rubiks_dist_mdp, 0.99f0, mcts_s0, π_dist_rubiks_uniform!, 100f0, 12, -48f0, 48f0; depth = 3, c = 0.5f0, nsims = 100)
+
+# ╔═╡ be7b4bb5-0deb-4c96-ad0c-90e785a3ff28
+mcts2_results[2](mcts_s0)
+
+# ╔═╡ 1bf2d626-12c4-4065-a63d-c007f6ddd15b
+mcts2_results[1](mcts_s0)
+
+# ╔═╡ 11d96bf0-c09d-411d-a2fa-1e172ab1b7aa
+mcts2_results[3][mcts_s0]
+
+# ╔═╡ 52eb3090-66a0-41aa-90ed-f658847f9601
+const tabular_eval_cube = initialize_rubiks_cube(6)
+
+# ╔═╡ 5656dbff-1763-4464-bf7a-438983907e8e
+testcube = initialize_rubiks_cube(10)
+
+# ╔═╡ 71bd3296-99ba-4706-9c34-c8543f9fb020
+ceil(Int64, count_misplaced_rubiks(testcube) / 20)
+
+# ╔═╡ b9b7030d-3035-4401-bd5e-006bd2fd583f
+count_misplaced_rubiks_piece_heuristic(testcube)
+
+# ╔═╡ 194595ee-5b5d-4b97-a48a-bba10a491fdd
+function rubiks_nstep_continuing_move(s::@NamedTuple{cube::Vector{UInt8}, scramble_moves::Int64, move_count::Int64}, move::NTuple{N, Int64}; min_moves::Integer = 1, max_moves::Integer = 20, kwargs...) where N
+	scramble_moves = rand(min_moves:max_moves)
+	(s.cube == solved_cube_indices) && return (0f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
+	(s.move_count > 2*s.scramble_moves) && return (0f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
+	(s.move_count > 50) && return (0f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
+	(reward, cube′) = rubiks_nstep_move(s.cube, move; kwargs...)
+	(cube′ == solved_cube_indices) && return (1f0, (cube = initialize_rubiks_cube(scramble_moves), scramble_moves = scramble_moves, move_count = 0))
+	return (reward, (cube = cube′, scramble_moves = s.scramble_moves, move_count = s.move_count + N))
+end
+
+# ╔═╡ c676f6ab-07cd-4e55-b853-ff7a13c03f80
+rubiks_nstep_move(initialize_rubiks_cube(10), (2, 6))
+
+# ╔═╡ d86a6362-bd09-4eac-a0a3-2149c566d693
+dp_step_mastery_2move_fcann_results2[1].output_dict[0.000125f0].value_function((cube = initialize_rubiks_cube(5), scramble_moves = 5, move_count = 0))
+
+# ╔═╡ bd6ef1e0-0e75-4186-b597-01860adb10b4
+begin
+	function extend_move(move_inds::NTuple{N, Int64}) where N
+		[(move_inds..., i_a) for i_a in valid_double_move_inds[(move_inds[N-1], move_inds[N])]]
+	end
+	
+	function extend_move(move_inds::NTuple{1, Int64})
+		[(move_inds..., i_a) for i_a in valid_move_inds[last(move_inds)]]
+	end
+end
+
+# ╔═╡ 1222ffc4-82a4-4397-89f0-e0b5ce568fed
+function make_rubiks_nstep_moves(previous_moves, n::Integer)
+	n == 0 && return previous_moves
+	newmoves = mapreduce(vcat, previous_moves) do moves
+		extend_move(moves)
+	end
+	make_rubiks_nstep_moves(newmoves, n-1)
+end
+
+# ╔═╡ ddcbd552-d3a2-46ed-9a5d-d705730501c7
+const rubiks_nstep_moves = Dict(n => let
+	actions = make_rubiks_nstep_moves(n)
+	action_index = Dict(zip(actions, eachindex(actions)))
+	(actions = actions, action_index = action_index)
+	end
+	for n in 1:4)
+
+# ╔═╡ 6f2724d4-dcf7-417b-966d-1ff8deeb2a65
+#create a cube mdp which saves in the state the number of initial scramble moves as well as how many moves have been attempted since the initial scramble
+function make_rubiks_nstep_mdp(min_moves::Integer, max_moves::Integer, moves_per_step::Integer)
+	initialize_state(;nmoves::Integer = rand(min_moves:max_moves)) = (cube = initialize_rubiks_cube(nmoves), scramble_moves = nmoves, move_count = 0)
+	
+	function isterm(s)
+		s.move_count > 50 && return true
+		s.move_count > 2*s.scramble_moves && return true
+		s.cube == solved_cube_indices
+	end
+
+	!haskey(rubiks_nstep_moves, moves_per_step) && error("Have not computed these actions ahead of time")
+	actions, action_index = rubiks_nstep_moves[moves_per_step]
+
+	step(s, i_a; kwargs...) = rubiks_nstep_move(s, actions[i_a]; kwargs...)
+	ptf = StateMDPTransitionDeterministic(step, initialize_state(;nmoves=1))
+	
+	StateMDP(actions, ptf, initialize_state, isterm; action_index = action_index)
+end
+
+# ╔═╡ 440470e3-1f38-4041-b554-13a155f19cdf
+const rubiks_2step_mdp = make_rubiks_nstep_mdp(1, 10, 2)
+
+# ╔═╡ 174669a8-218c-49e8-a4d9-e4482d3850ae
+@code_warntype rubiks_2step_mdp.ptf(initialize_rubiks_cube(10), rand(1:100))
+
+# ╔═╡ d952334c-1953-49f5-8871-d96bfbfa64e3
+const rubiks_3step_mdp = make_rubiks_nstep_mdp(1, 10, 3)
+
+# ╔═╡ 96223544-4478-41ab-aba5-fcde3cac0768
+#create a cube mdp which saves in the state the number of initial scramble moves as well as how many moves have been attempted since the initial scramble
+function make_rubiks_nstep_continuing_mdp(min_moves::Integer, max_moves::Integer, moves_per_step::Integer)
+	initialize_state(;nmoves::Integer = rand(min_moves:max_moves)) = (cube = initialize_rubiks_cube(nmoves), scramble_moves = nmoves, move_count = 0)
+
+	!haskey(rubiks_nstep_moves, moves_per_step) && error("Have not computed these actions ahead of time")
+	actions, action_index = rubiks_nstep_moves[moves_per_step]
+
+	step(s, i_a; kwargs...) = rubiks_nstep_continuing_move(s, actions[i_a]; min_moves = min_moves, max_moves = max_moves, kwargs...)
+	ptf = StateMDPTransitionDeterministic(step, initialize_state(;nmoves=1))
+	
+	StateMDP(actions, ptf, initialize_state, Returns(false); action_index = action_index)
+end
+
+# ╔═╡ 07377754-fa04-4e5a-b15d-f6cfd9d52dab
+function run_dp_λ_rubiks_nstep_linear_test(γ, λ, n, min_moves, max_moves; num_steps = 10_000, kwargs...)
+	mdp =  make_rubiks_nstep_mdp(min_moves, max_moves, n)
+	output = dp_λ_linear(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
+	(mdp = mdp, output = output)
+end
+
+# ╔═╡ affd9578-11a2-4150-862a-aad1f7cfa565
+function run_dp_λ_rubiks_nstep_linear_curriculum_test(γ, λ, steps_per_move, min_scramble, max_scramble; kwargs...)
+	scramble = min_scramble
+	output = run_dp_λ_rubiks_nstep_linear_test(γ, λ, steps_per_move, scramble, scramble+steps_per_move - 1; kwargs...).results
+	results = Dict([scramble => output])
+	scramble += 1
+	while scramble ≤ max_scramble
+		output = run_dp_λ_rubiks_nstep_linear_test(γ, λ, steps_per_move, scramble, scramble+steps_per_move - 1; parameters = output.final_parameters, kwargs...).results
+		results[scramble] = output 
+		scramble += 1
+	end
+	return results
+end
+
+# ╔═╡ bb6fea94-f0cc-46c9-90f3-4bed62b520c3
+function run_sarsa_λ_rubiks_nstep_linear_test(γ, λ, n, min_moves, max_moves; num_steps = 10_000, kwargs...)
+	mdp =  make_rubiks_nstep_mdp(min_moves, max_moves, n)
+	output = sarsa_λ_linear(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(rubiks_binary_feature), update_rubiks_feature!; kwargs...)
+	(mdp = mdp, output = output)
+end
+
+# ╔═╡ f8180571-8869-4904-929b-dc89a0a612c6
+function get_nstep_scramble_statistic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, scramble::Integer, output, ntrials::Integer) where {N, T, S, A<:NTuple{N, Int64}, P, F1, F2, F3}
+	1:ntrials |> Map() do i
+		runepisode(mdp; π = s -> output.value_function(s; output.form_kwargs()...).maximizing_action, s0 = mdp.initialize_state(;nmoves = scramble))[3][end] 
+	end |> foldxt(+) |> x -> x / ntrials
+end
+
+# ╔═╡ fb4a36de-15af-41eb-8678-6418d55c5f65
+function get_nstep_statistics(nstep_result, min_scramble, max_scramble; ntrials = 100)
+	[(n = n, solve_rate = get_nstep_scramble_statistic(nstep_result.mdp, n, nstep_result.output, ntrials)) for n in min_scramble:max_scramble]
+end
+
+# ╔═╡ 74c9b56a-d890-4dca-a26e-a6d41f105cde
+function get_nstep_statistics(nstep::Integer, output::NamedTuple, min_scramble, max_scramble; ntrials = 100)
+	[(n = n, solve_rate = get_nstep_scramble_statistic(make_rubiks_nstep_mdp(n, n, nstep), n, output, ntrials)) for n in min_scramble:max_scramble]
+end
+
+# ╔═╡ 8c76e9af-b50c-4d3c-b5f6-48c189a44c8b
+function get_nstep_policy_scramble_statistic(mdp::StateMDP{T, S, A, P, F1, F2, F3}, scramble::Integer, output, ntrials::Integer) where {N, T, S, A<:NTuple{N, Int64}, P, F1, F2, F3}
+	1:ntrials |> Map() do i
+		runepisode(mdp; π = s -> output.policy_sample_action(s), s0 = mdp.initialize_state(;nmoves = scramble))[3][end] 
+	end |> foldxt(+) |> x -> x / ntrials
+end
+
+# ╔═╡ 3afc9543-8172-42e1-bb28-717dfb59e7ee
+function get_nstep_policy_statistics(nstep_result, min_scramble, max_scramble; ntrials = 100)
+	[(n = n, solve_rate = get_nstep_policy_scramble_statistic(nstep_result.mdp, n, nstep_result.output, ntrials)) for n in min_scramble:max_scramble]
+end
+
+# ╔═╡ ef8c2a99-d462-4cb1-b433-d669cda52d31
+function get_nstep_policy_statistics(nstep::Integer, output::NamedTuple, min_scramble, max_scramble; ntrials = 100)
+	[(n = n, solve_rate = get_nstep_policy_scramble_statistic(make_rubiks_nstep_mdp(n, n, nstep), n, output, ntrials)) for n in min_scramble:max_scramble]
+end
+
+# ╔═╡ dde9d10b-e259-4c86-98fd-d6459f36699b
+const sarsa_λ_2step_result = run_sarsa_λ_rubiks_nstep_linear_test(0.9f0, 0.95f0, 2, 2, 5; num_steps = 100_000, α = 1f-2, ϵ = 0.01f0, trace_type = ReplacingTrace())
+
+# ╔═╡ 56cf2e20-41ee-46fb-a5d4-0b79642ac3b9
+const dp_λ_2step_result = run_dp_λ_rubiks_nstep_linear_test(0.9f0, 0.95f0, 2, 2, 5; num_steps = 50_000, α = 1f-2, ϵ = 0.001f0, trace_type = ReplacingTrace())
+
+# ╔═╡ 9d70d00d-39ba-430b-8a78-17c6dc4b6cb2
+begin
+	function rubiks_nstep_nonlinear_value_training(hidden_layers::Vector{Int64}, reslayers::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false)
+		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
+		setup = setup_value_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(2, 2, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
+		setup.train(hidden_layers, reslayers, 0f0, 0f0, training_steps; use_dp = true, use_gpu = use_gpu, new_params = false)
+	end
+
+	function rubiks_nstep_nonlinear_policy_training(hidden_layers::Vector{Int64}, reslayers::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false)
+		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
+		setup = setup_policy_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(2, 2, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
+		setup.train(hidden_layers, reslayers, 0f0, 0f0, 0f0, 0f0, training_steps; use_gpu = use_gpu, new_params = false)
+	end
+		
+	function rubiks_nstep_nonlinear_value_training(α::Float32, λ::Float32, hidden_layers::Vector{Int64}, reslayers::Integer, min_scramble::Integer, max_scramble::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false, kwargs...)
+		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
+		setup = setup_value_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(min_scramble, max_scramble, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
+		output = setup.train_rate_decay(hidden_layers, reslayers, α, λ, training_steps; use_dp = true, use_gpu = use_gpu, kwargs...)
+		setup.save_params(; show_message = show_message)
+		return output
+	end
+
+	function rubiks_nstep_nonlinear_policy_training(α_θ::Float32, α_w::Float32, λ_θ::Float32, λ_w::Float32, hidden_layers::Vector{Int64}, reslayers::Integer, min_scramble::Integer, max_scramble::Integer, nstep::Integer, training_steps::Integer; show_message = false, use_gpu = false, kwargs...)
+		feature_vector = use_gpu ? zeros(Float32, 48*48) : deepcopy(rubiks_binary_feature)
+		setup = setup_policy_nonlinear_training("rubiks_cube_$(nstep)step_fcann", false, make_rubiks_nstep_continuing_mdp(min_scramble, max_scramble, nstep), feature_vector, update_rubiks_feature!; show_message = show_message)
+		output = setup.train_rate_decay(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, training_steps; use_gpu = use_gpu, kwargs...)
+		setup.save_params(; show_message = show_message)
+		return output
+	end
+end
+
+# ╔═╡ 26a14497-12d2-4aec-b17c-72544ab23709
+const dp_λ_2step_fcann_result = rubiks_nstep_nonlinear_value_training(4f-2, 0.1f0, fill(4096, 8), 1, value_scrambles_2_step..., 2, 10_000; use_gpu = true, ϵ = 0.001f0, α_r̄ = 0.1f0, l2 = 0.0f0, dropout = 0.0f0)
+
+# ╔═╡ 6095a2c1-b33d-4f39-965d-c61e042bebe9
+const ac_2step_fcann_result = rubiks_nstep_nonlinear_policy_training(2f-2, 2f-2, 0.5f0, 0.5f0, fill(1024, 8), 1, policy_scrambles_2_step..., 2, 100_000; use_gpu = true, α_r̄ = 0.1f0, l2 = 0.0f0)
+
+# ╔═╡ 68a4f3ac-16d2-4b18-bdca-74718172ede5
+save_fcann_params(parameters::FCANNParams, name::String) = FCANN.writeParams([parameters.weights], name)
+
+# ╔═╡ b9f439b0-12cd-4c78-ac83-549451efc90a
+function load_curriculum_dp_λ_nstep_params(hidden::Vector{Int64}, reslayers::Integer, n::Integer)
+	name = "rubiks_cube_curriculum_dp_λ_fcann_params_$(n)_move_$(string(hidden))_$(reslayers)_reslayer.bin"
+	if isfile(name)
+		v = FCANN.readBinParams(name)
+		θs = v[1][1]
+		βs = v[1][2]
+		(weights = (θs, βs), reslayers = reslayers)
+	else
+		initialize_fcann_params(48*48, hidden, 1, reslayers, true)
+	end
+end
+
+# ╔═╡ 1478b8d9-a051-4f8d-b221-1468231b3ece
+function save_curriculum_dp_λ_nstep_params(params::FCANNParams)
+	input_size, hidden, num_layers = get_network_dimensions(params)
+	name = "rubiks_cube_curriculum_dp_λ_fcann_params_$(n)_move_$(string(hidden))_$(params.reslayers)_reslayer.bin"
+	save_fcann_params(params, name)
+end
+
+# ╔═╡ 341ec41b-bc42-4548-b11a-f9b326179422
+function run_dp_λ_rubiks_nstep_fcann_test(γ, λ, n, min_moves, max_moves, layers; num_steps = 10_000, feature_vector = rubiks_binary_feature, kwargs...)
+	mdp =  make_rubiks_nstep_mdp(min_moves, max_moves, n)
+	output = dp_λ_fcann(mdp, γ, λ, typemax(Int64), num_steps, deepcopy(feature_vector), update_rubiks_feature!, layers; kwargs...)
+	(mdp = mdp, output = output)
+end
+
+# ╔═╡ 58f6a2f1-c6eb-4031-9671-22c0d6416862
+# ╠═╡ disabled = true
+#=╠═╡
+const fcann_2step_params = initialize_fcann_params(48*48, fcann_2step_layers, 1, 1, true)
+  ╠═╡ =#
+
+# ╔═╡ cde3b13f-86e0-46ad-8a74-84684cc32811
+#=╠═╡
+function run_dp_step_mastery_nmove_fcann_test!(parameters::FCANNParams{T}, min_moves::Integer, max_moves::Integer, moves_per_step::Integer, feature_vector, update_feature_vector!, step_interval; γ::T = 0.9f0, kwargs...) where T<:Real
+	function check_reward_progress(episode_rewards::Vector{T}) 
+		l = length(episode_rewards)
+		episode_check = max(1000, ceil(Int64, l/2))
+		mean(episode_rewards[max(1, l-episode_check):l])
+	end
+	params = copy(parameters)
+	layers = get_hidden_layers(parameters)
+	mdp = make_rubiks_nstep_mdp(min_moves, max_moves, moves_per_step)
+	first_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+	reward_check1 = check_reward_progress(first_output.episode_rewards)
+	@info "After first learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check1"
+
+	second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+	reward_check2 = check_reward_progress(second_output.episode_rewards)
+	@info "After second learning pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
+
+	episode_rewards = first_output.episode_rewards
+	pass = 2
+	while reward_check2 > reward_check1
+		copy!(params, parameters)
+		pass += 1
+		@info "Reward still improving so proceeding with pass number $pass"
+		reward_check1 = reward_check2
+		first_output = second_output
+		episode_rewards = vcat(episode_rewards, first_output.episode_rewards)
+		second_output = semi_gradient_dp_fcann(mdp, γ, typemax(Int64), step_interval, feature_vector, update_feature_vector!, layers; parameters = parameters, kwargs...)
+		reward_check2 = check_reward_progress(second_output.episode_rewards)
+		
+		@info "After pass number $pass for a scramble of $min_moves to $max_moves, average reward is $reward_check2"
+	end
+	@info "Concluded learning after $pass passes"
+	copy!(parameters, params)
+	output = (value_function = first_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check1, total_passes = pass, final_parameters = copy(parameters), form_kwargs = first_output.form_kwargs)
+	return (mdp = mdp, output = output)
+end
+  ╠═╡ =#
+
+# ╔═╡ b9586038-58ca-467b-8cd5-f5a16663682e
+#=╠═╡
+function run_dp_α_decay_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval, α0::T; decay = T(0.5), kwargs...) where T<:Real
+	α = α0
+	@info "Beginning training with learning rate $α"
+	(mdp, output1) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
+
+	results = Dict([α => output1])
+
+	α *= decay
+	@info "Training second round with learning rate $α"
+	(mdp, output2) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
+	results[α] = output2
+
+	reward_check2 = output2.final_reward
+	reward_check1 = output1.final_reward
+	while reward_check2 > reward_check1
+		reward_check1 = reward_check2
+		α *= decay
+		@info "Training next round with learning rate $α"
+		(mdp, output) = run_dp_step_mastery_nmove_fcann_test!(parameters, min_moves, max_moves, moves_per_step, feature_vector, update_feature_vector!, step_interval; α = α, kwargs...)
+		reward_check2 = output.final_reward
+		results[α] = output
+	end
+	@info "Concluded rate decay with learning rate $(α*2)"
+	return (mdp = mdp, output_dict = results, min_scramble = min_moves, max_scramble = max_moves)
+end
+  ╠═╡ =#
+
+# ╔═╡ bd930459-d714-4cdd-a274-bc6ae44efb26
+const dp_mastery_2move_fcann_params = initialize_fcann_params(48*48, dp_mastery_2move_params_layers, 1, 1, true)
+
+# ╔═╡ afd359a6-8f15-4d79-9267-07a2683f7635
+const dp_mastery_2move_fcann_params2 = initialize_fcann_params(48*48, dp_mastery_2move_params_layers2, 1, 1, true)
+
+# ╔═╡ 421add0b-6b3b-49fd-8f71-1898decd24af
+function get_deterministic_2step_scramble_statistic(scramble::Integer, deterministic_output, ntrials::Integer)
+	1:ntrials |> Map(i -> runepisode(make_deterministic_cube_2step_mdp(scramble, scramble); π = s -> deterministic_output.value_function(s).maximizing_action)[3][end]) |> foldxt(+) |> x -> x / ntrials
+end
+
+# ╔═╡ cc689336-57ac-4a0d-9a3e-81a17b2e0b39
+function get_deterministic_2step_statistics(deterministic_output, min_scramble::Integer, max_scramble::Integer; ntrials = 1000) 
+	[(n = n, solve_rate = get_deterministic_2step_scramble_statistic(n, deterministic_output, ntrials)) for n in min_scramble:max_scramble]
+end
+
+# ╔═╡ e2d1180d-e34e-45ad-8593-d6c1dd34cad2
+#=╠═╡
+function run_deterministic_dp_2step_scramble_mastery_fcann_test!(parameters::FCANNParams{T}, num_moves::Integer, feature_vector::Vector{T}, update_feature_vector!, step_interval, α::T; γ::T = 0.9f0, kwargs...) where T<:Real
+	function check_reward_progress(episode_rewards::Vector{T}) 
+		l = length(episode_rewards)
+		episode_check = max(1000, ceil(Int64, l/2))
+		mean(episode_rewards[max(1, l-episode_check):l])
+	end
+	layers = get_hidden_layers(parameters)
+	mdp = make_deterministic_cube_2step_mdp(num_moves, num_moves+1) #always include an even and odd move to avoid a lack of certain states visted
+	run_function() = semi_gradient_deterministic_dp_fcann(mdp, γ, typemax(Int64), step_interval, update_feature_vector!, length(feature_vector), layers; parameters = parameters, α = α, kwargs...)
+	first_output = run_function()
+	reward_check1 = check_reward_progress(first_output.episode_rewards)
+	@info "After first learning pass for a scramble of $num_moves, average reward is $reward_check1"
+	flush(stdout)
+
+	second_output = run_function()
+	reward_check2 = check_reward_progress(second_output.episode_rewards)
+	@info "After second learning pass for a scramble of $num_moves, average reward is $reward_check2"
+
+	episode_rewards = vcat(first_output.episode_rewards, second_output.episode_rewards)
+	pass = 2
+	while reward_check2 > reward_check1
+		pass += 1
+		@info "Reward still improving so proceeding with pass number $pass"
+		reward_check1 = reward_check2
+		second_output = run_function()
+		reward_check2 = check_reward_progress(second_output.episode_rewards)
+		episode_rewards = vcat(episode_rewards, second_output.episode_rewards)
+		@info "After pass number $pass for a scramble of $num_moves, average reward is $reward_check2"
+	end
+	@info "Concluded learning after $pass passes"
+
+	@info "Calculating performance statistics for final parameters"
+	stats = get_deterministic_2step_statistics(second_output, 1, 15; ntrials = 1000)
+	final_output = (value_function = second_output.value_function, episode_rewards = episode_rewards, final_reward = reward_check2, total_passes = pass, final_parameters = deepcopy(parameters), stats = stats, num_passes = pass)
+	key = (layers = layers, scramble_moves = num_moves, α = α)
+
+	return (key, final_output)
+end
+  ╠═╡ =#
+
+# ╔═╡ a7a35c3d-b82d-48b0-b42a-5551ff38bc32
+#=╠═╡
+@use_effect([]) do
+	@spawn begin
+		set_fcann_deterministic_2step_start_time(time())
+		output = run_deterministic_dp_2step_scramble_mastery_fcann_test!(deterministic_fcann_2step_params, 2, make_rubiks_feature(solved_cube_indices), update_rubiks_feature!, 10_000, 4f-3; ϵ = 0.01f0, γ = 0.9f0, reslayers = 1)
+		set_fcann_deterministic_2step_output(output)
+		set_fcann_deterministic_2step_end_time(time())
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ 9e25ea7c-c3ff-4dae-873b-3decf08b4625
+function get_scramble_statistic(scramble::Integer, π::Function, ntrials::Integer)
+	1:ntrials |> Map(i -> runepisode(make_reset_mdp(scramble, scramble); π = π) |> out -> out[1][1].cube == solved_cube_indices ? 1f0 : out[3][end]) |> foldxt(+) |> x -> x / ntrials
+end
+
+# ╔═╡ 0d8fcded-38b2-40fc-a4d5-0da61767cc2d
+function get_scramble_statistics(output, min_scramble::Integer, max_scramble::Integer; ntrials = 1000) 
+	[(n = n, solve_rate = get_scramble_statistic(n, output, ntrials)) for n in min_scramble:max_scramble]
+end
+
+# ╔═╡ 7251946d-0899-465f-ba00-aa1c623b74da
+testepisode = runepisode(make_reset_mdp(2, 2); π = s -> test_sarsa_output.value_function(s; test_sarsa_output.form_kwargs()...).maximizing_action)
+
+# ╔═╡ 598a04c6-b290-4758-9480-e1704b9326a4
+testepisode[1][1].cube == solved_cube_indices
+
+# ╔═╡ 004c8296-38db-4999-a134-3f009eba8034
+monte_carlo_tree_search(rubiks_2step_test_mdp, 0.9f0, (mdp, s, γ) -> mcts_2step_eval_output.value_function(s).maximizing_value, (cube = initialize_rubiks_cube(10), scramble_moves = 10, move_count = 0); depth = 1, nsims = 200)
+
+# ╔═╡ ca5aad17-43a7-40af-abb8-5bc430510fce
+function make_fast_deterministic_value_function(dp_output, mdp::StateMDP, params::FCANNParams{T}) where T<:Real
+	feature_vector = zeros(T, size(params[1][1], 2))
+	action_values = zeros(T, length(mdp.actions))
+	reward_values = copy(action_values)
+	feature_matrix = zeros(T, length(mdp.actions), length(feature_vector))
+	function v̂(s)
+		dp_output.value_function(s; feature_vector = feature_vector, action_values = action_values, reward_values = reward_values, feature_matrix = feature_matrix)
+	end
+	return v̂
+end
+
+# ╔═╡ fc8a9f05-2b66-4ef2-8e05-538f66b4b840
+runepisode(rubiks_cube_mdp; s0 = test_trajectory[1][end], π = π_unscramble_test)
+
+# ╔═╡ 99a280b6-a371-43ac-9a27-319501a47d96
+const rubiks_reversible_transition = StateMDPTransitionSampler(rubiks_reversible_move, initialize_reversible_cube(10))
+
+# ╔═╡ dd14d0ff-5163-43da-b1be-3fc420682fe3
+const rubiks_reversible_mrp_transition = StateMRPTransitionSampler(rubiks_reversible_mrp_move, initialize_reversible_cube(1))
+
+# ╔═╡ cb8d0b4a-39de-4a18-8048-7a525a6bfca8
+function make_rubiks_reversible_mdp(num_scramble::Integer)
+	StateMDP(rubiks_moves, rubiks_reversible_transition, () -> initialize_reversible_cube(num_scramble), s -> isequal(s.cube, solved_cube_indices))
+end
+
+# ╔═╡ 717209cb-24de-4fae-b434-bf8258f39fc6
+const rubiks_reversible_mdp = make_rubiks_reversible_mdp(7)
+
+# ╔═╡ 46749d40-8c07-43dc-bbff-013797fd56cd
+function make_rubiks_reversible_mrp(num_scramble::Integer)
+	StateMRP(rubiks_reversible_mrp_transition, () -> initialize_reversible_cube(num_scramble), s -> isequal(s.cube, solved_cube_indices))
+end
+
+# ╔═╡ 242a57ef-7e7e-4439-95cb-9f747b23d6b3
+const rubiks_reversible_mrp = make_rubiks_reversible_mrp(7)
+
+# ╔═╡ 36f51608-7d65-4f21-ad71-98707f94b12a
+runepisode(rubiks_reversible_mdp; π = π_cube_reverse)
+
+# ╔═╡ 9d87dbb3-1a3c-47d3-a090-4eb76a5c6c2d
+const reversible_linear_mc_solution = gradient_monte_carlo_policy_estimation_linear(rubiks_reversible_mdp, π_cube_reverse, 1f0, 400_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 4f-6)
+
+# ╔═╡ 94a15d87-790e-4917-ba9f-446f699cfe92
+const reversible_fcann_params = initialize_fcann_params(48*48, reversible_fcann_layers, 1, 1, true)
+
+# ╔═╡ 9ffbb5d0-defa-4734-883e-7ff1f86e326b
+const reversible_fcann_mc_solution = gradient_monte_carlo_policy_estimation_fcann(rubiks_reversible_mdp, π_cube_reverse, 1f0, 10_000, deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_layers; α = 1f-5, params = reversible_fcann_params)
+
+# ╔═╡ 00c67f96-456c-48d1-9d1b-0fcd8ddac671
+const reversible_linear_td_solution = semi_gradient_td0_estimation_linear(rubiks_reversible_mrp, 1f0, 400_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!); α = 1f-4)
+
+# ╔═╡ 55f31d00-a946-46e2-b021-855120b73e77
+const reversible_fcann_td_params = initialize_fcann_params(48*48, reversible_fcann_td_layers, 1, 1, true)
+
+# ╔═╡ 9fffc847-87c2-41d6-9f87-d10d645708da
+const reversible_fcann_td_solution = semi_gradient_td0_estimation_fcann(rubiks_reversible_mrp, 1f0, 1_000, typemax(Int64), deepcopy(rubiks_binary_feature), make_reversible_feature_update(update_rubiks_feature!), reversible_fcann_td_layers; α = 1f-5, params = reversible_fcann_td_params)
+
+# ╔═╡ 7fdfe56e-681a-4708-ac7e-5cbc7957adc1
+function form_policy_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, value_function::Function) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
+	function π(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), kwargs...)
+		maxq, i_a_max = update_action_values!(action_values, s, s -> value_function(s; kwargs...), mdp, γ)
+		i_a_max
+	end
+end
+
+# ╔═╡ 54f505d3-2a6b-4ce7-a0a4-96b62159dd4c
+function form_rubiks_policy(v̂::Function)
+	π_raw = form_policy_function(rubiks_reset_mdp, 1f0, s -> v̂((cube = s.cube, π = Returns(1))))
+
+	# π(s::Vector{UInt8}) = π_raw((cube = s, scramble_moves = 100, move_count = 0))
+end
+
+# ╔═╡ f90125d1-04d9-4c0c-a0b3-cf2c98b933d8
+function form_reversible_policy(mc_output::NamedTuple)
+	q̂, form_kwargs = form_value_function(rubiks_reset_mdp, 0.9f0, update_rubiks_feature!, mc_output.value_function, deepcopy(rubiks_binary_feature), mc_output.parameters)
+
+	π(s) = q̂(s; form_kwargs()...).maximizing_action
+end
+
+# ╔═╡ c2a1a4a9-c652-400f-ad3a-5a05d4e10073
+#=╠═╡
+function smooth_error(error_history, n)
+	l = length(error_history)
+	[mean(error_history[i-n:i]) for i in n+1:l]
+end
+  ╠═╡ =#
+
+# ╔═╡ 6148ec6a-5d38-40d1-84ba-8b5253d5fdaa
+#=╠═╡
+begin
+	function plot_rewards(rewards::AbstractVector{T}, nsmooth::Integer, npoints::Integer) where T<:Real 
+		isempty(rewards) && return plot()
+		l = length(rewards)
+		plot(smooth_error(rewards, nsmooth)[round.(Int64, LinRange(1, max(1, l - nsmooth), npoints))])
+	end
+
+	function plot_rewards(rewards::AbstractVector{A}, nsmooth::Integer, npoints::Integer) where A <: Union{Missing, T} where T<:Real 	
+		isempty(rewards) && return plot()
+			
+		newrewards = [!ismissing(a) for a in rewards]
+		plot_rewards(newrewards, nsmooth, npoints)
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ bec0a916-9689-482f-9008-15f035057838
+#=╠═╡
+plot_rewards(test_fcann_dp_output.episode_rewards, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 2d67019e-557e-4751-8c08-429be62b76d4
+#=╠═╡
+plot_rewards(test_fcann_dp_output2.episode_rewards, 1000, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 4f163fc4-beb6-43ff-a232-d3d8c19199c0
+#=╠═╡
+plot_rewards(curriculum_results[layer_select].dict_results[move_select][α_select].episode_rewards, 100, 1000)
+  ╠═╡ =#
+
+# ╔═╡ 5f2bdb07-5a8e-4a62-a288-ba4b0d29aaac
+#=╠═╡
+plot_rewards(test_fcann_dp_piece_output3.episode_rewards, 100, 1000)
+  ╠═╡ =#
+
+# ╔═╡ eb488bad-2830-406f-ad87-7cc98566e610
+#=╠═╡
+plot_rewards(test_fcann_dp_essential_output.episode_rewards, 100, 1000)
+  ╠═╡ =#
+
+# ╔═╡ fe719761-de47-4240-a50d-a1dccdf2d1e1
+#=╠═╡
+function display_nstep_output(nstep_result; nsmooth = 100, npoints = 1000, min_scramble = 1, max_scramble = 10, kwargs...)
+	reward_plot = nstep_result.output.episode_rewards |> v -> plot_rewards(v, nsmooth, npoints)
+	stats = get_nstep_statistics(nstep_result, min_scramble::Integer, max_scramble::Integer; kwargs...)
+	@htl("""
+	<div style = "display: flex;">
+	<div style = "width = 0.75;">$reward_plot</div>
+	$(DataFrame(stats))
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ b117af73-16a0-44cb-abfb-fd9df962bb97
+#=╠═╡
+display_nstep_output(sarsa_λ_2step_result)
+  ╠═╡ =#
+
+# ╔═╡ 1f0429c4-e6c7-4b09-8896-62fdf5569148
+#=╠═╡
+display_nstep_output(dp_λ_2step_result)
+  ╠═╡ =#
+
+# ╔═╡ ee8842f2-86af-495b-9b37-41aa59dd4cc1
+#=╠═╡
+function display_nstep_αdecay_output(results)
+	αs = sort(collect(keys(results.output_dict)); rev = true)
+	rewards = mapreduce(a -> results.output_dict[a].episode_rewards, vcat, αs)
+
+	last_output = results.output_dict[last(αs)]
+	result = (mdp = results.mdp, output = (value_function = last_output.value_function, episode_rewards = rewards, final_reward = last_output.final_reward, total_passes = sum(results.output_dict[a].total_passes for a in αs), final_parameters = last_output.final_parameters, form_kwargs = last_output.form_kwargs))
+	@htl("""
+	Showing results over the following learning rates: $(reduce((a, b) -> "$a, $b", αs)) for scrambles: $(results.min_scramble) to $(results.max_scramble) and $(result.output.total_passes) passes
+		 
+	$(display_nstep_output(result))
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ ca57f9f0-4d9b-41d6-b7ec-931415b39641
+#=╠═╡
+display_nstep_αdecay_output(dp_step_mastery_2move_fcann_results2[1])
+  ╠═╡ =#
+
+# ╔═╡ 7f88d0d3-2069-4c97-a3a0-20196a7151a7
+#=╠═╡
+function display_nstep_continuing_output(n::Integer, output::NamedTuple; nsmooth = 100, npoints = 1000, min_scramble = 1, max_scramble = 10, kwargs...)
+	reward_plot = output.reward_history |> v -> plot_rewards(v, nsmooth, npoints)
+	stats = get_nstep_statistics(n::Integer, output, min_scramble::Integer, max_scramble::Integer; kwargs...)
+	@htl("""
+	<div style = "display: flex;">
+	<div style = "width = 0.75;">$reward_plot</div>
+	$(DataFrame(stats))
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ f0316e07-2873-4538-b7a5-01256b089561
+#=╠═╡
+display_nstep_continuing_output(2, dp_λ_2step_fcann_result; ntrials = 100)
+  ╠═╡ =#
+
+# ╔═╡ 273923d3-ab5e-4899-80bd-f257fa5c1d3c
+#=╠═╡
+function display_nstep_continuing_policy_output(n::Integer, output::NamedTuple; nsmooth = 100, npoints = 1000, min_scramble = 1, max_scramble = 10, kwargs...)
+	reward_plot = output.reward_history |> v -> plot_rewards(v, nsmooth, npoints)
+	stats = get_nstep_policy_statistics(n::Integer, output, min_scramble::Integer, max_scramble::Integer; kwargs...)
+	@htl("""
+	<div style = "display: flex;">
+	<div style = "width = 0.75;">$reward_plot</div>
+	$(DataFrame(stats))
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ b760fbbf-5e07-446f-9b37-6e184868dfdd
+#=╠═╡
+display_nstep_continuing_policy_output(2, ac_2step_fcann_result)
+  ╠═╡ =#
+
+# ╔═╡ c6fbbf97-1a25-4b80-bd5c-89034efa3f07
+#=╠═╡
+function display_deterministic_2step_output(output)
+	reward_plot = output.episode_rewards |> v -> plot_rewards(v, 100, 1000)
+	try
+		md"""
+		Training progress stalled after $(output.num_passes) passes and $(length(output.episode_rewards)) episodes
+		$reward_plot
+		$(DataFrame(output.stats))
+		"""
+	catch
+		md"""
+		$reward_plot
+		$(DataFrame(output.stats))
+		"""
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ a76fa602-642d-46d2-9540-4fa94b38e7cb
+#=╠═╡
+if !isnothing(fcann_deterministic_2step_results)
+	display_deterministic_2step_output(fcann_deterministic_2step_results[fcann_deterministic_2step_select[1]])
+else
+	md"""
+	Waiting for results
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ ded411aa-2927-4435-9e3e-3f01ae35b78c
+#=╠═╡
+function display_learning_output(output; min_scramble = 1, max_scramble = 15)
+	reward_plot = output.episode_rewards |> v -> plot_rewards(v, 100, 1000)
+	stats = get_scramble_statistics(output, min_scramble, max_scramble)
+	@htl("""
+	<div style = "display: flex;">
+	<div style = "width: 75%">
+	$reward_plot
+	</div>
+	$(DataFrame(stats))
+	</div>
+	""")
+end
+  ╠═╡ =#
+
+# ╔═╡ ac46c949-a0b5-42fc-bcf0-707faf7c0742
+#=╠═╡
+display_learning_output(test_sarsa_output)
+  ╠═╡ =#
+
+# ╔═╡ 3479a6e6-91ca-4be6-9d0a-0d720b1f04dd
+#=╠═╡
+display_learning_output(test_dp_output)
+  ╠═╡ =#
+
+# ╔═╡ c07cc5dd-5ae5-4887-b7bd-c5a4c95ffa0b
+#=╠═╡
+display_learning_output(test_sarsa_fcann_output)
+  ╠═╡ =#
+
+# ╔═╡ 4e9029e2-1c7c-4fc6-901d-c10a617c3cc0
+#=╠═╡
+function display_reversible_solution(output::NamedTuple; nsmooth = 100, npoints = 1000, max_scramble = 10, kwargs...)
+	p1 = try 
+		plot_rewards(log.(output.error_history), nsmooth, npoints)
+		catch
+			try
+				plot_rewards(log.(output.error_history.errors), nsmooth, npoints)
+				catch
+				plot_rewards(log.(output.episode_history.errors), nsmooth, npoints)
+			end
+	end
+
+	π = form_reversible_policy(output)
+
+	tbl = get_scramble_statistics(π, 1, max_scramble; kwargs...) |> DataFrame
+
+	@htl("""
+		 <div style = "display: flex;">
+		 <div style = "width: 70%;">
+		 $p1
+	     </div>
+		 $tbl
+		 </div>
+		 """)
+end
+  ╠═╡ =#
+
+# ╔═╡ a3555ab8-63b0-451f-a91d-995d7d8632bf
+#=╠═╡
+display_reversible_solution(reversible_linear_mc_solution)
+  ╠═╡ =#
+
+# ╔═╡ af9571f9-9d82-4563-83b1-d3dc23668b6c
+#=╠═╡
+display_reversible_solution(reversible_fcann_mc_solution; ntrials = 100)
+  ╠═╡ =#
+
+# ╔═╡ 51105316-c191-44a5-b4f3-703f30efebad
+#=╠═╡
+display_reversible_solution(reversible_linear_td_solution)
+  ╠═╡ =#
+
+# ╔═╡ 42106894-5ae2-4a1e-a26e-0e8e7085d035
+#=╠═╡
+display_reversible_solution(reversible_fcann_td_solution)
+  ╠═╡ =#
+
+# ╔═╡ 639b2d17-59c9-4605-a394-8fce6dc5449b
+const solved_cube_bits = solved_cube_values |> Map(value2onehot) |> foldxl(vcat)
+
+# ╔═╡ 7bb3fe7c-a8a5-41b0-b35c-2ca92a4d2eb0
+function make_value_data(states::AbstractVector)
+	l = length(states)
+	v = copy(solved_cube_bits)
+	X = zeros(Float32, l, 48*48)
+	for i in 1:l
+		s = states[i]
+		update_rubiks_feature!(v, s)
+		X[i, :] .= v
+	end
+	return X
+end
+
 # ╔═╡ eb5d2eac-5280-4269-8b2d-3c31226b4b2f
 const test_episode = runepisode(rubiks_cube_mdp; max_steps = 1_000)
-
-# ╔═╡ 6b410101-edb1-4814-8aa6-344d0c969e01
-md"""
-# Dependencies
-"""
 
 # ╔═╡ e956ffaa-01c3-4e44-8c9f-2298347fea03
 # ╠═╡ skip_as_script = true
@@ -4748,7 +4738,6 @@ render_pocket_cube(solved_pocket_cube)
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
@@ -4761,26 +4750,553 @@ PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
 BenchmarkTools = "~1.6.3"
-DataFrames = "~1.8.1"
 HypertextLiteral = "~0.9.5"
 LaTeXStrings = "~1.4.0"
 PlutoDevMacros = "~0.9.2"
-PlutoHooks = "~0.0.5"
-PlutoLinks = "~0.1.6"
+PlutoHooks = "~0.1.0"
+PlutoLinks = "~0.1.7"
 PlutoPlotly = "~0.6.5"
 PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.75"
+PlutoUI = "~0.7.79"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.2"
+julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "70bfae4c7dac084a83563779e88c9f1e32e2c856"
+project_hash = "52c6bc01b7f586dfa569877e2b46e0329fc7ed5f"
 
-[deps]
+[[deps.AbstractPlutoDingetjes]]
+deps = ["Pkg"]
+git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+uuid = "6e696c72-6542-2067-7265-42206c756150"
+version = "1.3.2"
+
+[[deps.AbstractTrees]]
+git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.3.4"
+
+[[deps.ArgTools]]
+uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
+version = "1.1.2"
+
+[[deps.Artifacts]]
+uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+version = "1.11.0"
+
+[[deps.Base64]]
+uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+version = "1.11.0"
+
+[[deps.BenchmarkTools]]
+deps = ["Compat", "JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "7fecfb1123b8d0232218e2da0c213004ff15358d"
+uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+version = "1.6.3"
+
+[[deps.CodeTracking]]
+deps = ["InteractiveUtils", "UUIDs"]
+git-tree-sha1 = "b7231a755812695b8046e8471ddc34c8268cbad5"
+uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
+version = "3.0.0"
+
+[[deps.ColorSchemes]]
+deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
+git-tree-sha1 = "b0fd3f56fa442f81e0a47815c92245acfaaa4e34"
+uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
+version = "3.31.0"
+
+[[deps.ColorTypes]]
+deps = ["FixedPointNumbers", "Random"]
+git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
+uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
+version = "0.11.5"
+
+[[deps.ColorVectorSpace]]
+deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
+git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
+uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
+version = "0.10.0"
+
+    [deps.ColorVectorSpace.extensions]
+    SpecialFunctionsExt = "SpecialFunctions"
+
+    [deps.ColorVectorSpace.weakdeps]
+    SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+
+[[deps.Colors]]
+deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
+git-tree-sha1 = "362a287c3aa50601b0bc359053d5c2468f0e7ce0"
+uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
+version = "0.12.11"
+
+[[deps.Compat]]
+deps = ["TOML", "UUIDs"]
+git-tree-sha1 = "9d8a54ce4b17aa5bdce0ea5c34bc5e7c340d16ad"
+uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
+version = "4.18.1"
+weakdeps = ["Dates", "LinearAlgebra"]
+
+    [deps.Compat.extensions]
+    CompatLinearAlgebraExt = "LinearAlgebra"
+
+[[deps.Compiler]]
+git-tree-sha1 = "382d79bfe72a406294faca39ef0c3cef6e6ce1f1"
+uuid = "807dbc54-b67e-4c79-8afb-eafe4df6f2e1"
+version = "0.1.1"
+
+[[deps.CompilerSupportLibraries_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
+version = "1.3.0+1"
+
+[[deps.Dates]]
+deps = ["Printf"]
+uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+version = "1.11.0"
+
+[[deps.DelimitedFiles]]
+deps = ["Mmap"]
+git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
+uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+version = "1.9.1"
+
+[[deps.DocStringExtensions]]
+git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
+uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+version = "0.9.5"
+
+[[deps.Downloads]]
+deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
+uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
+version = "1.7.0"
+
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "6522cfb3b8fe97bec632252263057996cbd3de20"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.18.0"
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
+    [deps.FileIO.weakdeps]
+    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+
+[[deps.FileWatching]]
+uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
+version = "1.11.0"
+
+[[deps.FixedPointNumbers]]
+deps = ["Statistics"]
+git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
+version = "0.8.5"
+
+[[deps.FlameGraphs]]
+deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
+git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
+uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
+version = "0.2.10"
+
+[[deps.HashArrayMappedTries]]
+git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
+uuid = "076d061b-32b6-4027-95e0-9a2c6f6d7e74"
+version = "0.2.0"
+
+[[deps.Hyperscript]]
+deps = ["Test"]
+git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
+uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
+version = "0.0.5"
+
+[[deps.HypertextLiteral]]
+deps = ["Tricks"]
+git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+version = "0.9.5"
+
+[[deps.IOCapture]]
+deps = ["Logging", "Random"]
+git-tree-sha1 = "0ee181ec08df7d7c911901ea38baf16f755114dc"
+uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
+version = "1.0.0"
+
+[[deps.IndirectArrays]]
+git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
+uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
+version = "1.0.0"
+
+[[deps.InteractiveUtils]]
+deps = ["Markdown"]
+uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+version = "1.11.0"
+
+[[deps.JSON]]
+deps = ["Dates", "Mmap", "Parsers", "Unicode"]
+git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
+uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+version = "0.21.4"
+
+[[deps.JuliaInterpreter]]
+deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
+git-tree-sha1 = "80580012d4ed5a3e8b18c7cd86cebe4b816d17a6"
+uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
+version = "0.10.9"
+
+[[deps.JuliaSyntaxHighlighting]]
+deps = ["StyledStrings"]
+uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
+version = "1.12.0"
+
+[[deps.LaTeXStrings]]
+git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
+uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+version = "1.4.0"
+
+[[deps.LeftChildRightSiblingTrees]]
+deps = ["AbstractTrees"]
+git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
+uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
+version = "0.1.3"
+
+[[deps.LibCURL]]
+deps = ["LibCURL_jll", "MozillaCACerts_jll"]
+uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
+version = "0.6.4"
+
+[[deps.LibCURL_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
+uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+version = "8.15.0+0"
+
+[[deps.LibGit2]]
+deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
+uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+version = "1.11.0"
+
+[[deps.LibGit2_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll"]
+uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+version = "1.9.0+0"
+
+[[deps.LibSSH2_jll]]
+deps = ["Artifacts", "Libdl", "OpenSSL_jll"]
+uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
+version = "1.11.3+1"
+
+[[deps.Libdl]]
+uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+version = "1.11.0"
+
+[[deps.LinearAlgebra]]
+deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
+uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+version = "1.12.0"
+
+[[deps.Logging]]
+uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+version = "1.11.0"
+
+[[deps.LoweredCodeUtils]]
+deps = ["CodeTracking", "Compiler", "JuliaInterpreter"]
+git-tree-sha1 = "65ae3db6ab0e5b1b5f217043c558d9d1d33cc88d"
+uuid = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
+version = "3.5.0"
+
+[[deps.MIMEs]]
+git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
+uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
+version = "1.1.0"
+
+[[deps.MacroTools]]
+git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
+uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+version = "0.5.16"
+
+[[deps.Markdown]]
+deps = ["Base64", "JuliaSyntaxHighlighting", "StyledStrings"]
+uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+version = "1.11.0"
+
+[[deps.Mmap]]
+uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+version = "1.11.0"
+
+[[deps.MozillaCACerts_jll]]
+uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
+version = "2025.11.4"
+
+[[deps.NetworkOptions]]
+uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
+version = "1.3.0"
+
+[[deps.OpenBLAS_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
+uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
+version = "0.3.29+0"
+
+[[deps.OpenSSL_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
+version = "3.5.4+0"
+
+[[deps.OrderedCollections]]
+git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
+uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
+version = "1.8.1"
+
+[[deps.Parameters]]
+deps = ["OrderedCollections", "UnPack"]
+git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+version = "0.12.3"
+
+[[deps.Parsers]]
+deps = ["Dates", "PrecompileTools", "UUIDs"]
+git-tree-sha1 = "7d2f8f21da5db6a806faf7b9b292296da42b2810"
+uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
+version = "2.8.3"
+
+[[deps.Pkg]]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+version = "1.12.1"
+weakdeps = ["REPL"]
+
+    [deps.Pkg.extensions]
+    REPLExt = "REPL"
+
+[[deps.PlotlyBase]]
+deps = ["ColorSchemes", "Colors", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
+git-tree-sha1 = "6256ab3ee24ef079b3afa310593817e069925eeb"
+uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
+version = "0.8.23"
+
+    [deps.PlotlyBase.extensions]
+    DataFramesExt = "DataFrames"
+    DistributionsExt = "Distributions"
+    IJuliaExt = "IJulia"
+    JSON3Ext = "JSON3"
+
+    [deps.PlotlyBase.weakdeps]
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+    IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
+    JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+
+[[deps.PlutoDevMacros]]
+deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
+git-tree-sha1 = "709c36a806ec0af91840184f3052bb3c6cc60915"
+uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
+version = "0.9.2"
+
+[[deps.PlutoHooks]]
+deps = ["InteractiveUtils", "Markdown", "UUIDs"]
+git-tree-sha1 = "844a829c8dc9fd0fe62eced22bc2d0dfd66a3f51"
+uuid = "0ff47ea0-7a50-410d-8455-4348d5de0774"
+version = "0.1.0"
+
+[[deps.PlutoLinks]]
+deps = ["FileWatching", "InteractiveUtils", "Markdown", "PlutoHooks", "Revise", "UUIDs"]
+git-tree-sha1 = "10c258e189b8d097c1404ed59f6c171281a39b85"
+uuid = "0ff47ea0-7a50-410d-8455-4348d5de0420"
+version = "0.1.7"
+
+[[deps.PlutoPlotly]]
+deps = ["AbstractPlutoDingetjes", "Artifacts", "ColorSchemes", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "PrecompileTools", "Reexport", "ScopedValues", "Scratch", "TOML"]
+git-tree-sha1 = "8acd04abc9a636ef57004f4c2e6f3f6ed4611099"
+uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
+version = "0.6.5"
+
+    [deps.PlutoPlotly.extensions]
+    PlotlyKaleidoExt = "PlotlyKaleido"
+    UnitfulExt = "Unitful"
+
+    [deps.PlutoPlotly.weakdeps]
+    PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+
+[[deps.PlutoProfile]]
+deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
+git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
+uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
+version = "0.4.0"
+
+[[deps.PlutoUI]]
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
+git-tree-sha1 = "3ac7038a98ef6977d44adeadc73cc6f596c08109"
+uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+version = "0.7.79"
+
+[[deps.PrecompileTools]]
+deps = ["Preferences"]
+git-tree-sha1 = "07a921781cab75691315adc645096ed5e370cb77"
+uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+version = "1.3.3"
+
+[[deps.Preferences]]
+deps = ["TOML"]
+git-tree-sha1 = "522f093a29b31a93e34eaea17ba055d850edea28"
+uuid = "21216c6a-2e73-6563-6e65-726566657250"
+version = "1.5.1"
+
+[[deps.Printf]]
+deps = ["Unicode"]
+uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+version = "1.11.0"
+
+[[deps.Profile]]
+deps = ["StyledStrings"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+version = "1.11.0"
+
+[[deps.ProfileCanvas]]
+deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
+version = "0.1.0"
+
+[[deps.REPL]]
+deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
+uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+version = "1.11.0"
+
+[[deps.Random]]
+deps = ["SHA"]
+uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+version = "1.11.0"
+
+[[deps.Reexport]]
+git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+uuid = "189a3867-3050-52da-a836-e630ba90ab69"
+version = "1.2.2"
+
+[[deps.Requires]]
+deps = ["UUIDs"]
+git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
+uuid = "ae029012-a4dd-5104-9daa-d747884805df"
+version = "1.3.1"
+
+[[deps.Revise]]
+deps = ["CodeTracking", "FileWatching", "InteractiveUtils", "JuliaInterpreter", "LibGit2", "LoweredCodeUtils", "OrderedCollections", "Preferences", "REPL", "UUIDs"]
+git-tree-sha1 = "14d1bfb0a30317edc77e11094607ace3c800f193"
+uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
+version = "3.13.2"
+
+    [deps.Revise.extensions]
+    DistributedExt = "Distributed"
+
+    [deps.Revise.weakdeps]
+    Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+
+[[deps.SHA]]
+uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+version = "0.7.0"
+
+[[deps.ScopedValues]]
+deps = ["HashArrayMappedTries", "Logging"]
+git-tree-sha1 = "c3b2323466378a2ba15bea4b2f73b081e022f473"
+uuid = "7e506255-f358-4e82-b7e4-beb19740aa63"
+version = "1.5.0"
+
+[[deps.Scratch]]
+deps = ["Dates"]
+git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
+uuid = "6c6a2e73-6563-6170-7368-637461726353"
+version = "1.3.0"
+
+[[deps.Serialization]]
+uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+version = "1.11.0"
+
+[[deps.Sockets]]
+uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
+version = "1.11.0"
+
+[[deps.Statistics]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+version = "1.11.1"
+
+    [deps.Statistics.extensions]
+    SparseArraysExt = ["SparseArrays"]
+
+    [deps.Statistics.weakdeps]
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StyledStrings]]
+uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
+version = "1.11.0"
+
+[[deps.TOML]]
+deps = ["Dates"]
+uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+version = "1.0.3"
+
+[[deps.Tar]]
+deps = ["ArgTools", "SHA"]
+uuid = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
+version = "1.10.0"
+
+[[deps.TensorCore]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
+uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
+version = "0.1.1"
+
+[[deps.Test]]
+deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
+uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+version = "1.11.0"
+
+[[deps.Tricks]]
+git-tree-sha1 = "311349fd1c93a31f783f977a71e8b062a57d4101"
+uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
+version = "0.1.13"
+
+[[deps.URIs]]
+git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
+uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
+version = "1.6.1"
+
+[[deps.UUIDs]]
+deps = ["Random", "SHA"]
+uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+version = "1.11.0"
+
+[[deps.UnPack]]
+git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
+version = "1.0.2"
+
+[[deps.Unicode]]
+uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+version = "1.11.0"
+
+[[deps.Zlib_jll]]
+deps = ["Libdl"]
+uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
+version = "1.3.1+2"
+
+[[deps.libblastrampoline_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
+version = "5.15.0+0"
+
+[[deps.nghttp2_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
+version = "1.64.0+1"
+
+[[deps.p7zip_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
+uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
+version = "17.7.0+0"
 """
 
 # ╔═╡ Cell order:

@@ -4,7 +4,9 @@ using Reexport, PrecompileTools
 
 import PlutoDevMacros
 
-@reexport using ApproximationUtils
+include(joinpath(@__DIR__, "TabularRL.jl", "src", "TabularRL.jl"))
+
+@reexport using .TabularRL, NVIDIALibraries, FCANN, TailRec, Transducers, SparseArrays, LinearAlgebra, Statistics, Random, StatsBase, StaticArrays, Distributions, SpecialFunctions
 
 include(joinpath(@__DIR__, "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 

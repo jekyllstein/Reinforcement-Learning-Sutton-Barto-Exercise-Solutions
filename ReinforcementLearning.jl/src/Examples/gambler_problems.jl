@@ -17,16 +17,24 @@ macro bind(def, element)
 end
 
 # ╔═╡ 06fb52ee-11a5-11f0-25ac-4de96725b478
-using PlutoDevMacros, LinearAlgebra, Random, Statistics
-
-# ╔═╡ feb1e01e-1b21-405f-bac0-62821dbc0709
-PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
+using PlutoDevMacros
 
 # ╔═╡ 20e60ae4-f59c-49b4-a258-21bdbfe28608
 begin 
 	using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
 	TableOfContents()
 end
+
+# ╔═╡ cfa767c3-1499-4429-9981-3d9cc2f10aa0
+@bind coin_args PlutoUI.combine() do Child
+md"""
+### Winning Total: $(Child(Slider(10:100, default = 10, show_value=true)))
+### Probability of Heads: $(Child(Slider(0f0:0.01f0:1f0, default = 0.5f0, show_value=true)))
+"""
+end
+
+# ╔═╡ feb1e01e-1b21-405f-bac0-62821dbc0709
+@fromparent import *
 
 # ╔═╡ 3bf5ba2d-5a9d-4847-a503-2b96a06494a9
 function create_gambler_mrp(s0::Integer, sgoal::Integer, p::Float32)
@@ -48,6 +56,9 @@ function create_gambler_mrp(s0::Integer, sgoal::Integer, p::Float32)
 	TabularMRP(states, ptf, () -> s0)
 end
 
+# ╔═╡ c6f51dfe-4880-4cfa-9875-bc2fea4f4a70
+const mrp = create_gambler_mrp(50, 100, 0.5f0)
+
 # ╔═╡ 71939b3c-ead5-4abe-a49e-772b13829d83
 function analyze_gambler_problem(s0, sgoal, p)
 	mrp = create_gambler_mrp(s0, sgoal, p)
@@ -57,19 +68,8 @@ function analyze_gambler_problem(s0, sgoal, p)
 	plot([ref_trace, value_trace], Layout(yaxis_range = [0, 1], xaxis_range = [.5, sgoal-0.5], yaxis_tickvals = 0:0.1:1, xaxis_title = "Dollars Held", yaxis_title = "Chance of Winning", showlegend=false, height = 800))
 end
 
-# ╔═╡ cfa767c3-1499-4429-9981-3d9cc2f10aa0
-@bind coin_args PlutoUI.combine() do Child
-md"""
-### Winning Total: $(Child(Slider(10:100, default = 10, show_value=true)))
-### Probability of Heads: $(Child(Slider(0f0:0.01f0:1f0, default = 0.5f0, show_value=true)))
-"""
-end
-
 # ╔═╡ 8ff3e440-6a64-46d6-8a4c-c29230179f62
 analyze_gambler_problem(50, coin_args...)
-
-# ╔═╡ c6f51dfe-4880-4cfa-9875-bc2fea4f4a70
-const mrp = create_gambler_mrp(50, 100, 0.5f0)
 
 # ╔═╡ 04952055-27f2-4046-9212-830c74209631
 mrp_evaluation(mrp, 1f0)
@@ -93,13 +93,10 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 BenchmarkTools = "~1.6.3"
@@ -117,7 +114,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "c3a9213c828f64b36418fc7d51eb1269070009b6"
+project_hash = "a2b4dde1df121602b0c87cfaa70ec3edcb7352f1"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]

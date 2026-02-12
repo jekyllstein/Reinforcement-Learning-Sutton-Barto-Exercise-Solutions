@@ -2,6 +2,12 @@ module ApproximationUtils
 
 using Reexport 
 
-@reexport using TabularRL, SparseArrays, LinearAlgebra, TailRec, Transducers, Statistics, FCANN, NVIDIALibraries
+include(joinpath(@__DIR__, "..", "..", "TabularRL.jl", "src", "TabularRL.jl"))
+
+@reexport using .TabularRL
+
+@reexport using NVIDIALibraries
+
+@reexport using TailRec, FCANN, Transducers, SparseArrays, LinearAlgebra, Statistics, Random, StatsBase, StaticArrays
 
 end # module ApproximationUtils

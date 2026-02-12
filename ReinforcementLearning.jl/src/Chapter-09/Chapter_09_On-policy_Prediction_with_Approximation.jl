@@ -1,14 +1,11 @@
 ### A Pluto.jl notebook ###
-# v0.20.20
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
 
 # ╔═╡ 40567b7a-6926-4416-8bff-95083e022f92
 using PlutoDevMacros
-
-# ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
-@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
 
 # ╔═╡ db8dd224-abf1-4a65-b8bb-e2da6ab43f7e
 # ╠═╡ skip_as_script = true
@@ -460,310 +457,6 @@ begin
 	update_params_with_gradient!(::Nothing, α::T, ::Nothing) where T<:Real = return nothing
 end
 
-# ╔═╡ 42a7918f-8e9d-45ae-9e40-1254dde9f06f
-begin
-	#general linear approximation
-	"""
-	    linear_value_function(features, params) -> Real
-	
-	Computes the linear value function for given features and parameters.
-	
-	This function supports multiple feature representations through dispatch:
-	- Dense feature vectors (dot product)
-	- Sparse binary features (sum of active feature weights)  
-	- State aggregation features (direct parameter lookup)
-	
-	# Arguments
-	- `features`: Feature representation, see Methods section for supported types
-	- `params::Vector{T}`: Parameter vector where T<:Real
-	
-	# See Also
-	[`update_params_with_gradient!`](@ref)
-	
-	# Methods
-	
-	## Dense Features
-	```julia
-	linear_value_function(x::Vector{T}, w::Vector{T}) where T<:Real
-	```
-	Computes dot product of dense feature vector with parameters.
-	- `x::Vector{T}`: Dense feature vector
-	- `w::Vector{T}`: Parameter vector (must match length of x)
-	
-	### Examples
-	```julia-repl
-	julia> dense_features = [0.5, 1.2, -0.3]
-	3-element Vector{Float64}:
-	  0.5
-	  1.2
-	 -0.3
-	
-	julia> weights = [2.0, 1.5, 0.8]
-	3-element Vector{Float64}:
-	 2.0
-	 1.5
-	 0.8
-	
-	julia> linear_value_function(dense_features, weights)
-	2.56
-	```
-	
-	## Binary Features  
-	```julia
-	linear_value_function(binary_features::BinaryFeatureVector, params::Vector{T}) where T<:Real
-	```
-	Efficiently computes value for sparse binary features by summing weights of active features only.
-	- `binary_features::`[`BinaryFeatureVector{I,N}`](@ref BinaryFeatureVector): Sparse binary feature representation
-	- `params::Vector{T}`: Parameter vector of length N
-	
-	### Examples
-	```julia-repl
-	julia> binary_features = BinaryFeatureVector(10);
-	
-	julia> binary_features.active_features = [2, 5];
-	
-	julia> binary_features.num_features = 2;
-	
-	julia> params = [0.1, 0.3, 0.2, 0.4, 0.7, 0.1, 0.2, 0.3, 0.1, 0.5]
-	10-element Vector{Float64}:
-	 0.1
-	 0.3
-	 0.2
-	 0.4
-	 0.7
-	 0.1
-	 0.2
-	 0.3
-	 0.1
-	 0.5
-	
-	julia> linear_value_function(binary_features, params)
-	0.4
-	```
-	
-	## State Aggregation
-	```julia
-	linear_value_function(x::StateAggregationFeatureVector, params::Vector{T}) where T<:Real  
-	```
-	Direct parameter lookup for state aggregation features.
-	- `x::`[`StateAggregationFeatureVector{I,N}`](@ref StateAggregationFeatureVector): State aggregation with group index
-	- `params::Vector{T}`: Parameter vector of length N
-	
-	### Examples
-	```julia-repl
-	julia> state_agg = StateAggregationFeatureVector(8);
-	
-	julia> state_agg.group_index = 3;
-	
-	julia> params = rand(8)
-	8-element Vector{Float64}:
-	 0.123
-	 0.456
-	 0.789
-	 0.321
-	 0.654
-	 0.987
-	 0.147
-	 0.258
-	
-	julia> linear_value_function(state_agg, params)
-	0.789
-	```
-	
-	# Performance Notes
-	- Binary feature method uses `@simd` optimization for active feature summation
-	- State aggregation method provides O(1) lookup time
-	- All methods avoid memory allocation in the hot path
-	"""
-	linear_value_function(x::Vector{T}, w::Vector{T}) where {T<:Real} = dot(x, w)
-	
-	#binary features
-	function linear_value_function(binary_features::BinaryFeatureVector, params::Vector{T})::T where T<:Real
-		v = zero(T)
-		@inbounds @simd for i in 1:binary_features.num_features
-			j = binary_features.active_features[i]
-			v += params[j]
-		end
-		return v
-	end
-
-	#state-aggregation index (single feature only)
-	linear_value_function(x::StateAggregationFeatureVector, params::Vector{T}) where T<:Real = params[x.group_index]
-end
-
-# ╔═╡ 1f0b9d36-3592-47a0-b32a-a7e19b763e1b
-begin
-	#value_function is something that that takes only the feature vector and parameters to generate a state value estimation.  this function converts that into a function that can be called with only the state as an argument.  by default the arguments are designed to make the function thread safe so that any modified internal arguments are generated each time it is called.  It also returns a function to create an instance of the arguments in case the function needs to be used repeatedly on a single thread
-	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::P) where {V, P}
-		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::P = parameters, kwargs...)
-			update_feature_vector!(feature_vector, s)
-			value_function(feature_vector, parameters; kwargs...)
-		end
-	
-		#also return a method that acts on the feature vector itself which has already been updated
-		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
-
-		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters)
-		
-		return (v̂, form_kwargs)
-	end
-
-	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::FCANNParams) where V
-		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::FCANNParams = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
-			update_feature_vector!(feature_vector, s)
-			value_function(feature_vector, parameters; activations = activations, kwargs...)
-		end
-	
-		#also return a method that acts on the feature vector itself which has already been updated
-		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
-
-		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
-		
-		return (v̂, form_kwargs)
-	end
-end
-
-# ╔═╡ ba58242a-306a-4631-92b4-34bc9e354fae
-#the purpose of these functions is to unify the gradient monte carlo algorithm by having a common way to run and update episodes.  Since I want to be able to pass the first two return trajectory values in both cases, I need that trajectory to store the states and rewards as the first two values
-begin
-	"""
-	    create_episode_functions(mrp) -> (generate_episode, update_episode!)
-	    create_episode_functions(mdp, π) -> (generate_episode, update_episode!)
-	
-	Creates standardized episode generation functions for gradient Monte Carlo algorithms.
-	
-	Generates consistent episode function interfaces that return trajectories with states
-	and rewards as the first two elements, enabling unified gradient Monte Carlo estimation
-	across different problem types (MRPs and MDPs).
-	
-	# Methods
-	
-	## MRP Version
-	```julia
-	create_episode_functions(mrp::StateMRP) -> (generate_episode, update_episode!)
-	```
-	Creates episode functions for Markov Reward Process evaluation.
-	
-	- `mrp::`[`StateMRP`](@ref): Markov reward process to generate episodes from
-	
-	Returns trajectory format: `(states, rewards)`
-	
-	### Examples
-	```julia-repl
-	julia> mrp = StateMRP(transition_matrix, reward_vector);
-	
-	julia> gen_ep, update_ep! = create_episode_functions(mrp);
-	
-	julia> # Generate initial episode
-	       trajectory = gen_ep(max_steps=100);
-	
-	julia> trajectory[1]  # states
-	5-element Vector{Int64}:
-	 1
-	 3
-	 2
-	 4
-	 5
-	
-	julia> trajectory[2]  # rewards  
-	5-element Vector{Float64}:
-	 0.0
-	 1.0
-	 0.0
-	 0.0
-	 2.0
-	```
-	
-	## MDP Version  
-	```julia
-	create_episode_functions(mdp::StateMDP, π::Function) -> (generate_episode, update_episode!)
-	```
-	Creates episode functions for Markov Decision Process policy evaluation.
-	
-	- `mdp::`[`StateMDP`](@ref): Markov decision process to generate episodes from
-	- `π::Function`: Policy function for action selection
-	
-	Returns trajectory format: `(states, rewards, actions)`
-	
-	### Examples
-	```julia-repl
-	julia> mdp = StateMDP(transition_tensor, reward_matrix);
-	
-	julia> policy(s) = rand(1:num_actions);  # Random policy
-	
-	julia> gen_ep, update_ep! = create_episode_functions(mdp, policy);
-	
-	julia> # Generate initial episode
-	       trajectory = gen_ep(max_steps=50);
-	
-	julia> trajectory[1]  # states
-	3-element Vector{Int64}:
-	 1
-	 2
-	 3
-	
-	julia> trajectory[2]  # rewards (always second element)
-	3-element Vector{Float64}:
-	 0.5
-	 1.0
-	 0.0
-	
-	julia> trajectory[3]  # actions (MDP-specific)
-	3-element Vector{Int64}:
-	 2
-	 1
-	 3
-	```
-	
-	# Returned Functions
-	
-	## `generate_episode(; epkwargs...)`
-	Creates new episode trajectory. Passes keyword arguments to underlying `runepisode` function.
-	
-	## `update_episode!(trajectory; epkwargs...)`
-	Generates new episode reusing storage from previous trajectory. Returns `(new_trajectory, n_steps)`.
-	
-	# Design Purpose
-	Ensures consistent trajectory format where `trajectory[1]` contains states and `trajectory[2]` 
-	contains rewards, regardless of problem type. This standardization enables the same gradient
-	Monte Carlo functions to work with both MRPs and MDPs.
-	
-	# Performance Notes
-	- `update_episode!` reuses trajectory storage to minimize allocations
-	- Consistent return format eliminates dispatch overhead in Monte Carlo algorithms
-	- Compatible with any keyword arguments supported by underlying episode runners
-	
-	# See Also
-	[`gradient_monte_carlo_estimation!`](@ref), [`runepisode`](@ref), [`runepisode!`](@ref)
-	"""
-	function create_episode_functions(mrp::StateMRP)
-		function generate_episode(; epkwargs...) 
-			(states, rewards, sterm) = runepisode(mrp; epkwargs...)
-			(states, rewards)
-		end
-		
-		function update_episode!((states, rewards); epkwargs...)
-			(states, rewards, sterm, nsteps) = runepisode!((states, rewards), mrp; epkwargs...)
-			((states, rewards), nsteps)
-		end
-
-		return (generate_episode, update_episode!)
-	end
-
-	function create_episode_functions(mdp::StateMDP, π::Function)
-		function generate_episode(; epkwargs...) 
-			(states, actions, rewards, sterm) = runepisode(mdp; π = π, epkwargs...)
-			(states, rewards, actions)
-		end
-	
-		function update_episode!((states, rewards, actions); epkwargs...)
-			(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
-			((states, rewards, actions), nsteps)
-		end
-		return (generate_episode, update_episode!)
-	end
-end
-
 # ╔═╡ a77f9819-04b2-4785-8eb0-c7e9dba6cecc
 Base.length(::AbstractBinaryFeatures{I, N}) where {I<:Integer, N} = N
 
@@ -858,52 +551,6 @@ Returns `true` if state is beyond left boundary (s < 1) or right boundary (s > n
 - `num_states::Int64`: Number of valid states
 """
 randomwalk_isterm(s::Float32, num_states::Int64) = (s < 1) || (s > num_states)
-
-# ╔═╡ 6f3928a9-bcaa-44b5-8723-820142cbcfc3
-
-"""
-    create_continuous_random_walk(num_states::Int64) -> StateMRP
-
-Create a continuous-state random walk Markov Reward Process with terminal boundaries.
-
-Generates a random walk environment where an agent navigates a continuous state space
-with stochastic step sizes. The agent starts at the center position and takes random
-steps of varying magnitude (1-100 units) in either direction until reaching terminal
-boundaries that provide reward feedback.
-
-# Arguments
-- `num_states::Int64`: Defines the valid state range [1, num_states] with terminal regions beyond
-
-# Returns
-- [`StateMRP`](@ref): Markov reward process with continuous state transitions
-  - **State space**: Continuous values, valid range [1, num_states]
-  - **Initial state**: Center position at `num_states/2`
-  - **Transitions**: [`StateMRPTransitionSampler`](@ref) with stochastic step dynamics
-  - **Termination**: States outside [1, num_states] boundaries
-
-# Environment Dynamics
-- **Step size**: Uniform random integer from 1 to 100 units
-- **Direction**: Equal probability left (-) or right (+) movement
-- **Rewards**: -1 for left boundary crossing (s < 1), +1 for right boundary (s > num_states), 0 otherwise
-- **Termination**: Automatic episode end when boundaries are crossed
-
-# State Representation
-Unlike tabular random walks, this environment uses continuous Float32 states.
-
-# See Also
-[`make_random_walk_mrp`](@ref), [`StateMRP`](@ref), [`StateMRPTransitionSampler`](@ref), 
-[`randomwalk_step`](@ref), [`randomwalk_isterm`](@ref)
-"""
-function create_continuous_random_walk(num_states::Int64)
-	ptf = StateMRPTransitionSampler((s) -> randomwalk_step(s, num_states), 1f0)
-	init_state = ceil(Float32, num_states / 2)
-	StateMRP(ptf, () -> init_state, s -> randomwalk_isterm(s, num_states))
-end
-
-# ╔═╡ 2720329c-4c80-47cb-a3e3-d24fcec6ef43
-#=╠═╡
-const random_walk_state_mrp = create_continuous_random_walk(num_states)
-  ╠═╡ =#
 
 # ╔═╡ 2c6809f9-50ed-44b8-8f27-0a62e88d118c
 #=╠═╡
@@ -1071,31 +718,6 @@ Function approximation by state aggregation on the $num_states-state random walk
 md"""
 Our prediction objective will favor lower error on highly visited states than less requently visited ones.  Since the distribution of visited states as weighted towards the center, the error between the parameter estimated state value and the true state value is lower for states close to the center in a group.  That can be seen very clearly for group 1 where the right edge is far close to the blue line than the leftmost edge.  The leftmost state is the least likely to be visited and thus matters to least for minimizing prediction error.
 """
-
-# ╔═╡ 750eef6b-58c6-4428-a44b-25e244aaf1d8
-#=╠═╡
-function calculate_random_walk_state_distribution(;samples = 100_000)
-	state_counts = zeros(Int64, num_states)
-	function update_state_counts!(state_counts, states)
-		for s in states
-			state_counts[Integer(s)] += 1
-		end
-	end
-	
-	(states, rewards, sterm, numsteps) = runepisode(random_walk_state_mrp)
-	update_state_counts!(state_counts, view(states, 1:numsteps))
-	for _ in 1:samples
-		(states, rewards, sterm, num_steps) = runepisode!((states, rewards), random_walk_state_mrp)
-		update_state_counts!(state_counts, view(states, 1:num_steps))
-	end
-	state_distribution = state_counts ./ sum(state_counts)
-end
-  ╠═╡ =#
-
-# ╔═╡ 3a0d315b-b5f8-4387-9bb0-fd2a7038752e
-#=╠═╡
-const random_walk_state_distribution = calculate_random_walk_state_distribution()
-  ╠═╡ =#
 
 # ╔═╡ 75eceb07-f739-4009-8e92-b4742cedb548
 # ╠═╡ skip_as_script = true
@@ -1494,6 +1116,937 @@ Normalize a scalar state value to [0,1] range using linear scaling.
 """
 scale_state(s::T, min_value::T, range::T) where T<:Real = (s - min_value) / range
 
+# ╔═╡ c64b740a-ceeb-431c-9c71-6ab498fc4003
+begin
+	form_default_displacement_vector(s::Real) = 1
+	form_default_displacement_vector(s::NTuple{N, T}) where {N, T<:Real} = Tuple(i*2 + 1 for i in 0:N-1)
+end
+
+# ╔═╡ bed3b1f4-9b69-4009-9e0b-22e74d309fca
+begin
+	form_default_value_inds(s::Real) = 1
+	form_default_value_inds(s::NTuple{N, T}) where {N, T<:Real} = Tuple(1:N)
+	form_default_value_inds(s::NamedTuple) = keys(s)
+end
+
+# ╔═╡ ed20781e-c7d5-48c8-82bd-94d73478c13a
+begin
+	get_tile_size(S::T, num_tiles::Integer) where T<:Real = T(inv(num_tiles))
+	get_tile_size(S::NTuple{N, T}, num_tiles::NTuple{N, I}) where {T<:Real, I<:Integer, N} = Tuple(T(inv(x)) for x in num_tiles)
+end
+
+# ╔═╡ e6514762-31e0-4916-aa21-c280674c2fc1
+md"""
+### *Example: Visualizing 1-Dimensional Tile Coding*
+"""
+
+# ╔═╡ 84d9aac5-cf3b-402b-b222-9e8985a80b5b
+# ╠═╡ skip_as_script = true
+#=╠═╡
+@bind tile_coding_params PlutoUI.combine() do Child
+	md"""
+	Tile Size (% of $s_{max}$): $(Child(:tile_size, NumberField(0.01:0.01:.99, default = 0.3)))
+
+	Number of Tilings: $(Child(:num_tilings, NumberField(1:10, default = 2)))
+	
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ d17926d5-bcfa-4789-9609-59a69d87d194
+#=╠═╡
+md"""
+The following shows which feature is active for each tiling in the 1 dimensional space used for the random walk example.  The tile size as a percent of the size of the state space determines how many tiles there are for each tiling.  In this case, a tile size of $(tile_coding_params.tile_size) translates into $(ceil(Int64, inv(tile_coding_params.tile_size))) tiles.  Each of the $(tile_coding_params.num_tilings) tilings will have one of $(ceil(Int64, inv(tile_coding_params.tile_size))) features active corresponding to which tile the state falls into.  Note that in order to cover the entire state space for each tiling, the number of tiles must overshoot the state space.  By convention the tilings will move in the negative direction of each dimension so the edge tiles must extend beyond the state space enough to still cover the space even after the shifting.
+"""
+  ╠═╡ =#
+
+# ╔═╡ 8e12b92b-e56d-44f0-bf89-3248131b2245
+md"""
+### *Example: Tile Coding with Random Walk Example*
+
+Notice that TD learning in this case is also more stable at higher learning rates as the number of tilings increases
+"""
+
+# ╔═╡ 7e56131f-3afe-4997-a085-60f0d45a9d8d
+# ╠═╡ skip_as_script = true
+#=╠═╡
+@bind tile_coding_learning_params PlutoUI.combine() do Child
+	md"""
+	Tile Size (% of $s_{max}$): $(Child(:tile_size, NumberField(0.01f0:0.01f0:.99f0, default = 0.1f0)))
+
+	Number of Tilings: $(Child(:num_tilings, NumberField(1:100, default = 20)))
+	
+	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 1f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 6f-4)))
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ a4d9efaf-1e1e-4115-973f-570014c1fd06
+md"""
+> ### *Exercise 9.4* 
+> Suppose we believe that one of two state dimensions is more likely to have an effect on the value function than is the other, that generalization should be primarily across this dimension rather than along it.  What kind of tilings could be used to take advantage of this prior knowledge?
+
+We could use striped tilings such that the narrow width of the tile is in the direction of the important dimension and the elongated height of the tile is in the other direction.  That way states that have the same value of the important dimension would be treated similarly regardless of their value in the other dimension.  The most rapid changes in value would occur in the direction of the important dimension.
+"""
+
+# ╔═╡ 22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot([scatter(x = [a, a+2, a+2, a, a], y = [b, b, b+5, b+5, b], line_color = "blue", name = "", showlegend = false) for a in 0:2:8 for b in [0, 5]], Layout(width = 300, height = 300, margin = attr(t = 0, l = 0, r = 0, b = 0), xaxis_title = "Important Dimension", yaxis_title = "Unimportant Dimenson"))
+  ╠═╡ =#
+
+# ╔═╡ dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
+md"""
+### 9.5.5 Radial Basis Functions
+Requires much more computational complexity to tile coding without much advantage.  Also more fine tuning is required.
+"""
+
+# ╔═╡ 6beee5a8-c262-469e-9b1b-00b91e3b1b55
+md"""
+## 9.6 Selecting Step-Size Parameters Manually
+
+Consider the tabular case with constant step size averaging to compute state values.  If $\alpha = 1$ (zero weight is placed on the previous estimate), then the error for that state is reduced to zero for the sampled value of that state every step.  Similarly, $\alpha = \frac{1}{10}$ implies that about ten experiences are neeed to converge approximately to their mean value.  In general tabular estimation of a state with $\alpha = \frac{1}{\tau}$ will approach the mean of its targets about $\tau$ experiences with that state.
+
+With general function approximation there is not such a clear notion of *number* of experiences with a state; however a similar rule can be derived using feature vectors instead of states.  Suppose you wanted to learn in about $\tau$ experiences with substantially the same feature vector.  A good rule of thumb for the step-size parameter is then
+
+$\alpha \doteq \left ( \tau \mathbb{E} \left [\mathbf{x}^\top \mathbf{x} \right ] \right ) ^{-1}$
+
+where $\mathbf{x}$ is a random feature vector chosen from the same distribution as input vectors will be in the SGD.  This method words best if $\mathbf{x}^\top \mathbf{x}$ is a constant so the expected value plays no role.  Here the expected total weight on parameters that will be affected by an update replaces the value of one that was implied in the tabular case since in that case only values for individual states are updated.  In the approximation case, each feature vector represents a region of states and thus this update rule accounts for the other states that will all be affected by the update.  In the extreme case of state aggregation where each state gets its own group, then this update rule reduces to the same one from the tabular case since only one feature will be activated at a time.
+"""
+
+# ╔═╡ 858a6d4f-2241-43c3-9db0-ff9cec00c2c1
+md"""
+> ### *Exercise 9.5* 
+> Suppose you are using tile coding to transform a seven-dimensional continuous state space into binary feature vectors to estimate a state value function $\hat v(s,\mathbf{w}) \approx v_\pi(s)$.  You believe that the dimensions do not interact strongly, so you decide to use eight tilings of each dimension separately (stripe tilings), for $7 \times 8 = 56$ tilings. In addition, in case there are some pairwise interactions between the dimensions, you also take all ${7\choose2} = 21$ pairs of dimensions and tile each pair conjunctively with rectangular tiles. You make two tilings for each pair of dimensions, making a grand total of $21 \times 2 + 56 = 98$ tilings.  Given these feature vectors, you suspect that you still have to average out some noise, so you decide that you want learning to be gradual, taking about 10 presentations with the same feature vector before learning nears its asymptote. What step-size parameter should you use? Why?
+
+Each tiling will contribute one non-zero element to the feature vector.  With 98 tilings, we have 98 one values in each feature vector so the inner product in equation (9.19) would be $\mathbb{E}\left[\sum_{i=1}^{98} x_i^2 \right]=98$ so $\alpha=\frac{1}{10 \times 98}=\frac{1}{980} \approx 0.001$ 
+	"""
+
+# ╔═╡ be019186-33ad-4eb7-a218-9124ff40b6fb
+md"""
+> ### *Exercise 9.6* 
+> If $\tau=1$ and $\mathbf{x}(S_t)^\top \mathbf{x}(S_t) = \mathbb{E} [\mathbf{x}^\top \mathbf{x}]$, prove that (9.19) together with (9.7) and linear function approximation results in the error being reduced to zero in one update.
+"""
+
+# ╔═╡ b447a3a9-fe35-4457-886b-05c5862ad8e0
+md"""
+$$\alpha \doteq \left ( \tau \mathbb{E}\left [ \mathbf{x}^\top \mathbf{x} \right ] \right ) ^{-1} \tag{9.19}$$
+$$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ U_t - \hat v(S_t, \mathbf{w}_t) \right] \nabla \hat v(S_t, \mathbf{w}_t) \tag{9.7}$$
+
+Note that in the case of linear function approximation $\nabla \hat v(S_t, \mathbf{w}_t) = \mathbf{x}_t$ and $\hat v(S_t, \mathbf{w}_t) = \mathbf{x}_t^\top \mathbf{w}_t$ so (9.7) reduces to $\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ U_t - \mathbf{x}_t^\top \mathbf{w}_t \right] \mathbf{x}_t = \mathbf{w}_t(\mathbb{1} - \mathbf{x}_t ^\top \mathbf{x}_t) + \alpha U_t\mathbf{x}_t$ 
+
+For the error at the state $S_t$ to be zero after this update, $\mathbf{x}_t^\top \mathbf{w}_t = U_t$
+
+For a given time, the only parameter values that contribute to the value estimate are those for which $\mathbf{x}_t$ are 1.  For these indices, the contribution from the original weight vector is 0.  So $\mathbf{w}_{t+1} = \alpha U_t \mathbf{x}_t$ for indices that are updated, otherwise the values are unchanged from before.  So $\mathbf{x}_t^\top \mathbf{w}_{t+1} = \alpha U_t \mathbf{x}_t^\top \mathbf{x}_t$.  Using (9.19) with $\tau = 1$, the expected update is $\mathbb{E} [ \mathbf{x}_t \mathbf{w}_{t+1} ]  = \mathbb{E} [ \hat v(S_t, \mathbf{w}_{t+1})]= \mathbb{E} [U_t]$.  So the expected approximation value of the state at step t will be updated to equal the true expected value at that state.
+"""
+
+# ╔═╡ d7c1810a-8f20-4178-83ca-017d53e3e7e9
+md"""
+## 9.7 Nonlinear Function Approxmation: Artificial Neural Networks
+"""
+
+# ╔═╡ 82828e72-5d30-41b6-a1b6-f258c234b034
+md"""
+### *Neural Network Parameter Update Implementation*
+"""
+
+# ╔═╡ 2bc32d3d-193e-4cab-b13b-f7ed304af0f6
+md"""
+By default the NN gradient and forward pass assumes a dense vector or matrix for the input.  If we want to pass a sparse feature representation instead, we must extend the following methods to these custom datatypes:
+
+`gemv!('N', α::T, θ::Matrix{T}, x::Vector{T}, β::T, output::Vector{T})`
+
+`gemm!('N', 'T', α::T, θ::Matrix{T}, x::Matrix{T}, β::T, output::Matrix{T})`
+
+Here x contains the feature information and must work for something other than `Vector` or `Matrix` types
+"""
+
+# ╔═╡ 2b922137-3110-4f91-94b1-4707d197b429
+"""
+    scale_fcann_params!(params, scales) -> Nothing
+
+Apply inverse scaling factors to FCANN network parameters in-place.
+
+# Type Parameters
+- `T <: Real`: Numeric type for scaling factors
+
+# Arguments
+- `params::FCANNParams`: Network parameters containing weights and biases (modified in-place)
+- `scales::Vector{T}`: Scaling factors to apply inversely to each parameter group
+
+# Returns
+- `Nothing`: Function modifies `params` in-place by dividing each parameter group by corresponding scale factor
+"""
+function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
+	@inbounds for i in eachindex(scales)
+		for j in 1:2
+			params.weights[j][i] .*= scales[i]
+		end
+	end
+end
+
+# ╔═╡ c064a91d-7dd3-403b-8bc0-285014bc873c
+function check_bad_params(params::Array{T, N}) where {T<:Real, N}
+	any(isinf, params) && return true
+	any(isnan, params) && return true
+	return false
+end
+
+# ╔═╡ 5513f245-de2e-4cb5-b56a-abbe8261249a
+function check_bad_params(params::FCANNParams)
+	any(check_bad_params, params.weights[1]) && return true
+	any(check_bad_params, params.weights[2]) && return true
+	return false
+end
+
+# ╔═╡ b70fac93-ba6e-4234-86de-c131011b09a1
+Base.copy(params::FCANNParams) = deepcopy(params)
+
+# ╔═╡ 05d958e4-2f2e-46e0-a030-7ecd137fb4f0
+function Base.copy!(dst::FCANNParams{T}, src::FCANNParams{T}) where T<:Real
+	for i in eachindex(src.weights[1])
+		for j in 1:2
+			dst.weights[j][i] .= src.weights[j][i]
+		end
+	end
+end
+
+# ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
+md"""
+### *Nonlinear Function Approximation with Random Walk Example*
+"""
+
+# ╔═╡ 15b93928-98fb-47ed-ba46-e6ee785d46e5
+# ╠═╡ skip_as_script = true
+#=╠═╡
+#this ensures that the state range from 1 to 1000 is mapped to values with a mean 0 and variance of 1
+function update_random_walk_vector!(feature_vector::Vector{Float32}, s::Float32)
+	x1 = (s - 500f0) / sqrt(46295f0)
+	feature_vector[1] = x1
+end
+  ╠═╡ =#
+
+# ╔═╡ f5661feb-6dcd-4409-b2f1-b756253ef2e0
+md"""
+Comparing these two versions, we see that once the hidden layer size hits 1024 the gpu version becomes faster.  Also at a hidden layer size of 512 and a layer count of 10, the GPU version is faster.  The times are about even with a layer size of 256 and 100 layers.
+"""
+
+# ╔═╡ b1c84d59-3598-46a1-bc1a-fd691d14ab09
+md"""
+Notice again how TD learning is more stable at higher learning rates.  The neural network approximation with this few parameters benefits greatly from bootstrap estimation since all state estimates affect eachother.
+"""
+
+# ╔═╡ 420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
+# ╠═╡ skip_as_script = true
+#=╠═╡
+@bind nn_params PlutoUI.combine() do Child
+	md"""
+	Num Layers: $(Child(:num_layers, NumberField(1:10, default = 2)))
+	Layer Size: $(Child(:layer_size, NumberField(1:100, default = 4)))
+
+	Training Episodes: $(Child(:num_episodes, NumberField(1:100_000, default = 2000)))
+
+	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 4f-3)))
+
+	Select Input:: $(Child(:input_type, Select([:vector, :tiles, :state_aggregation])))  Use GPU: $(Child(:use_gpu, CheckBox(default = false)))
+	"""
+end |> confirm
+  ╠═╡ =#
+
+# ╔═╡ b22ef023-4e6a-4114-b3c2-bf91e16e9a43
+md"""
+## 9.8 Least-Squares TD
+
+All the methods we have discussed so far in this chapter have required computation per time step proportional to the number of parameters.  With more computation, however, one can do better.  In this section we present a method for linear function approximation that is arguably the best that can be done for this case.  As we established in Section 9.4 TD(0) with linear function approxmation converges assymptotically (for appropriate decreasing step sizes) to the TD fixed point:
+
+$\mathbf{w_{TD}} = \mathbf{A}^{-1}\mathbf{b}$
+
+where
+
+ $\mathbf{A} \doteq \mathbb{E}\left [ \mathbf{x}_t(\mathbf{x}_t - \gamma \mathbf{x}_{t+1} ) ^\top \right ]$ and $\mathbf{b} \doteq \mathbb{E} [ R_{t+1} \mathbf{x}_t ]$
+
+Instead of updating $\mathbf{w}$ incrementally we could use whatever data we have collected so far to compute estimates of $\mathbf{A}$ and $\mathbf{b}$ and then compute the TD fixed point directly.  *Least-Squares TD* or LSTD does this by forming the following estimates: 
+
+ $\widehat{\mathbf{A}}_t \doteq \sum_{k=0}^{t-1} \mathbf{x}_k (\mathbf{x}_k - \gamma \mathbf{x}_{k+1})^\top + \epsilon \mathbf{I}$ and $\widehat{\mathbf{b}}_t \doteq \sum_{k=0}^{t-1} R_{k+1} \mathbf{x}_k \tag{9.20}$
+
+where $\mathbf{I}$ is the identity matrix, and $\epsilon \mathbf{I}$, for some small $\epsilon \gt 0$, ensures that $\widehat{\mathbf{A}_t}$ is always invertible.  It might seem that these estimates should both be divided by $t$, and indeed they should; as defined here, these are really estimates of $t$ *times* $\mathbf{A}$ and $t$ *times* $\mathbf{b}$.  However, the extra $t$ factors cancel out when LSTD uses these estimates to estimate the TD fixed point as
+
+$\mathbf{w}_t \doteq \widehat{\mathbf{A}}_t^{-1} \widehat{\mathbf{b}}_t \tag{9.21}$
+
+This algorithm is the most data efficient form of linear TD(0), but it is also more expensive computationally.  Recall that semi-gradient TD(0) requires memory and per step computation that is only $O(d)$.  In contrast LSTD requires us to invert $\widehat{\mathbf{A}_t}$ which is $O(d^3)$ on top of the incremental updates to $\widehat{\mathbf{A}_t}$ requiring $O(d^2)$.  Fortunately, the matrix we are inverting is a sum of outer products and there is an $O(d^2)$ incremental update rule for that:
+
+$\begin{flalign}
+\widehat{\mathbf{A}}_t^{-1} &= \left ( \widehat{\mathbf{A}}_{t-1} + \mathbf{x}_{t-1} (\mathbf{x}_{t-1} - \gamma \mathbf{x}_{t})^\top \right )^{-1} \tag{from (9.20)} \\
+&= \widehat{\mathbf{A}}_{t-1} - \frac{\widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}(\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1}}{1 + (\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}} \tag{9.22}  
+\end{flalign}$
+
+for $t>0$, with $\widehat{\mathbf{A}}_0 \doteq \epsilon \mathbf{I}$.  Although the identity (9.22), known as *the Sherman-Morrison formula*, is superficially complicated, it involves only vector-matrix and vector-vector multiplications and thus is only $O(d^2)$.  Of course, $O(d^2)$ is still significantly more expensive than the $O(d)$ of semi-gradient TD.  Whether this greater data efficiency of LSTD is worth this computational expense depends on how large $d$ is, how important it is to learn quickly, and the expense of other parts of the system.  The fact that LSTD requires no step-size parameter is sometimes also touted, but the advantage of this is probably overstated since we still need to define $\epsilon$ which affects the sequences of inverses calculated.  Also if the target policy changes it may be undesireable that we keep all of the data, so we may need to use some step size parameter anyway to have old data decay.
+"""
+
+# ╔═╡ 32c054ee-a7ee-4705-87c3-fb1a4bd956ab
+md"""
+### *Least-Squares TD Implementation*
+"""
+
+# ╔═╡ 2463013a-efad-42a9-874d-a0ecbea9cb49
+md"""
+### *State Aggregation LSTD Implementation*
+"""
+
+# ╔═╡ e0e51e37-0217-4a76-b6e7-9b6e15429941
+"""
+    create_state_aggregation_feature_vector_update(assign_state_group) -> Function
+
+Create a state representation update function for state aggregation feature encoding.
+
+# Arguments
+- `assign_state_group::Function`: Function mapping states to group indices `state -> Integer`
+
+# Returns
+- `Function`: Update function with signature `update_state_representation!(state_representation, s) -> AbstractVector`
+
+# See Also
+[`tile_coding_feature_setup`](@ref), [`least_squares_td_estimation`](@ref), [`StateAggregationFeatureVector`](@ref)
+
+# Algorithm Details
+Creates a closure that encodes states as one-hot binary vectors based on state group assignments. The returned function:
+1. Calls `assign_state_group(s)` to determine the group index for state `s`
+2. Zeros the entire state representation vector
+3. Sets the corresponding group index to 1, creating a one-hot encoding
+4. Returns the modified vector
+
+This provides sparse binary feature representation where each state belongs to exactly one group, enabling efficient linear function approximation over aggregated state spaces.
+
+# Examples
+```julia-repl
+julia> # Create group assignment for 1D state space
+julia> assign_group(s) = clamp(ceil(Int, s * 10), 1, 10)  # 10 groups
+julia> update_features! = create_state_aggregation_feature_vector_update(assign_group)
+
+julia> # Use with LSTD estimation
+julia> result = least_squares_td_estimation(10, init_state, transition, isterm,
+           0.9f0, 1000, 20000, update_features!)
+
+julia> # Test feature encoding
+julia> features = zeros(Float32, 10)
+julia> update_features!(features, 0.35f0)
+julia> features
+10-element Vector{Float32}: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+```
+"""
+function create_state_aggregation_feature_vector_update(assign_state_group::Function)
+	function update_state_representation!(state_representation::AbstractVector{T}, s) where {T<:Real}
+		i = assign_state_group(s)
+		state_representation .= zero(T)
+		state_representation[i] = one(T)
+		return state_representation
+	end
+end
+
+# ╔═╡ 195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
+md"""
+### *Example: LSTD with Random Walk Example*
+"""
+
+# ╔═╡ 369e5b57-61ce-49e0-97e7-90901f82d37f
+md"""
+#### Least Squares TD with State Aggregation
+"""
+
+# ╔═╡ f1272708-4f99-484e-b861-cd50e4f20bc4
+md"""
+#### Least Squares TD with Linear Features
+"""
+
+# ╔═╡ 290200a3-7523-4e0f-bd3a-288626adaf29
+md"""
+## 9.9 Memory-based Function Approximation
+
+All of the methods discussed so far have been *parametric*.  That is to say they use an approximation function whos output depends on a list of parameters which are updated as part of the leaning process.  The parameter values determine the value estimate accross the entire state space and in general any parameter update could have an impact on some or all of the other state values.  If we need to compute the value of a state during the learning process, we simply apply the function approximation with the current list of parameters to that state.
+
+Memory-based function approxmation methods save training examples as memory as they arrive (or a subset of examples).  Whenever we need a state's value estimate, we query the memory to compute the value.  This is sometimes called *lazy learning* because nothing is done with data from examples until it is needed.  Memory baesd approaches are *nonparametric* methods since the estimation method is not limited to a class of functions determined ahead of time by the structure of the parameters and feature vectors.  
+
+One class of memory-based methods are *local-learning* methods that approximate a value function only locally in the neighborhood of the current query state.  These methods retrieve a set of training examples form memory whose states are judged to be the most relevant to the query state, where relevance usually depends on the distance between states.  
+
+The simplest example of the memory-based approach is the *nearest neighbor* method, which simply finds the example in memory whose state is closest to the query state and returns that example's value as the approximate value of the query state.  In other words, if the query state is $s$, and $s^\prime \rightarrow g$ is the example in memory in which $s^\prime$ is the closest state to $s$, then $g$ is returned as the approximate value of $s$.  Slightly more complicated are *weighted average* methods that retrieve a set of nearest neighbor examples and return a weighted average of their target values, where the weights generally decrease with increasing distance between their states and the query state.
+"""
+
+# ╔═╡ 53ed4517-7e1b-4b72-9844-b8e291382bca
+md"""
+### *Memory-based Database Implementation*
+
+Since the memory must store a value estimate for the visited states, these methods are best suited for Monte Carlo sampling since we can calculate these value estimates without needing an approximation function.  In other words, as described here, these memory methods are not suitable for bootstrapping.
+"""
+
+# ╔═╡ 34b78988-40f9-47e9-9c5a-7823de866b12
+md"""
+## 9.10 Kernel-based Function Approximation
+
+The memory based methods described above save a database of examples $s^\prime \rightarrow g$ and then query the database for an example state $s$.  The value estimate will be some weighted sum of samples from the database and the function that calculates the weights is called a *kernel function* or simply a *kernel*.  For example, the kernel could assign a weight based on a distance metric between states but in general the kernel need only satisfy $k: \mathcal{S} \times \mathcal{S} \rightarrow \mathbb{R}$ so that $k(s, s^\prime)$ is the weight given to data $s^\prime$ answering a query about $s$.
+
+Kernel functions numerically express how *relevant* knowledge about any state is to any other state.  As an example, consider the previous method of tile coding as a kernel function.  The relevance of states is determined by how many tiles it has in common with the query state and the stored value is shared among all examples in the same tile.  All of the linear methods discussed already can be described by a kernel function.
+
+*Kernel regression* is the memory-basd method that computes a kernel weighted average of the targets of *all* examples stored in memory, assigning the result to the query state.  If $\mathcal{D}$ is the set of stored examples, and $g(s^\prime)$ denotes the target for state $s^\prime$ in a stored example, then kernel regression approximates the target function, in this case a value function depending on $\mathcal{D}$, as
+
+$\hat v(s, \mathcal{D}) = \sum_{s^\prime \in \mathcal{D}} k(s, s^\prime) g(s^\prime)$
+
+The weighted average method described above is a special case in which $k(s, s^\prime)$ is non-zero only when $s$ and $s^\prime$ are close to one another so that the sum need not be computed over all of $\mathcal{D}$.  Considering the linear methods where states are represented by a feature vector $\mathbf{x}(s) = (x_1(s), x_2(s), \dots, x_d(s))^\top$.  These are equivalent to kernel regression where $k(s, s^\prime) = \mathbf{x}(s)^\top \mathbf{x}(s^\prime)$
+"""
+
+# ╔═╡ 356d22a7-44e3-4875-9f21-ad4e1201101d
+md"""
+### *Example: Kernel-based Function Approximation on Random Walk Example*
+"""
+
+# ╔═╡ 62b2437b-72df-4943-b898-ad38b6d2de99
+md"""
+### Distance Kernel Random Walk Approximation
+
+Note that a constant value is added to the distance in order to deal with the case of the query state matching a state in the memory.  In this case the distance is 0 so the kernel value is undefined.  Another way of dealing with this singularity is to simply assign the value in memory to that query state which in this example would simply use a single memory value for every estimate since all 1000 states are in the memory.
+"""
+
+# ╔═╡ d7ef7190-2031-470a-bc80-e96c93276387
+md"""
+### State Aggregation Kernel Random Walk Approximation
+
+Note that this estimate should match the linear function approximation result for the same number of groups
+"""
+
+# ╔═╡ b2d97ba3-0816-4138-ae03-62423b82f960
+#=╠═╡
+md"""
+Number of Groups for Kernel Appoximation: $(@bind kernel_num_groups Slider(1:num_states; show_value=true, default = 10))
+"""
+  ╠═╡ =#
+
+# ╔═╡ c04be604-804a-44c3-b2da-98729a5e7508
+md"""
+### Tile Coding Kernel Method
+"""
+
+# ╔═╡ 3e395c5f-2410-4abe-be61-b6345caa9e1c
+# ╠═╡ skip_as_script = true
+#=╠═╡
+@bind tile_coding_kernel_params PlutoUI.combine() do Child
+	md"""
+	Tile Size: $(Child(:tile_size, NumberField(0f0:0.001f0:1f0, default = 0.1f0)))
+
+	Number of Tilings: $(Child(:num_tilings, NumberField(1:100, default = 10)))
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 3be9fac4-17e6-4588-b4bc-2e7112e1bfbd
+#takes the dot product of the feature vector for a new state given an existing feature vector, the feature vector for the new state is never constructed
+function get_kernel_weight(feature_vector::AbstractVector{T}, active_features) where T<:Real
+	w = zero(T)
+	for i in active_features
+		w += feature_vector[i]
+	end
+	return w
+end
+
+# ╔═╡ 905b032d-5fa0-4a3c-9055-fec92fd5879e
+md"""
+## 9.11 Looking Deeper at On-policy Learning: Interest and Emphasis
+"""
+
+# ╔═╡ 1636120f-9065-45a8-a849-731842374d60
+md"""
+## 9.12 Summary
+"""
+
+# ╔═╡ 022bb60c-6af7-4dd6-8410-69c7974707e8
+md"""
+> ### *Exercise 9.7*
+> One of the simplest artificial neural networks consists of a single semi-linear unit with a logistic nonlinearity.  The need to handle approximate value functions of this form is common in games that end with either a win or a loss, in which case the value of a state can be interpreted as the probability of winning.  Derive the learning algorithm for this case, from (9.7), such that no gradient notation appears.
+"""
+
+# ╔═╡ bd7b5685-cb86-4efc-9491-0a2f61905b45
+logit(x::T) where T<:Real = (one(T) + exp(-x))^-1
+
+# ╔═╡ cf8ae04a-9931-447f-8e1d-5bd6415c6a51
+md"""
+The logistic function can be used to constrain the output of a linear approximator to between 0 and 1.  This is useful when the target values are probabilities.
+"""
+
+# ╔═╡ 42ec6c21-996d-4a6f-84fb-f8ac0fb8fd7b
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot(scatter(x = -10:0.01:10, y = logit.(-10:0.01:10)), Layout(xaxis_title = "Linear Output", yaxis_title = "Logistic Output", title = L"f(x) = 1 / (1 + e^{-x})"))
+  ╠═╡ =#
+
+# ╔═╡ 272c7e61-8e16-421e-9c5b-b8ee32814e6b
+md"""
+The logistic function is: 
+$f(x) = 1 / (1 + e^{-x})$
+
+(9.7) is:
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha [U_t - \hat v(S_t, \mathbf{w}_t)] \nabla \hat v(S_t, \mathbf{w}_t)$
+
+For a single semi-linear unit, $\hat v(S_t, \mathbf{w}_t) = f(\mathbf{w}_t ^\top \mathbf{x}_t)$ where $f$ is the logistic function and $\mathbf{x}_t$ is the feature vector of state $S_t$ with the same length as $\mathbf{w}_t$.  
+
+Also, using the definition of the logistic function:
+
+$\begin{flalign}
+f(x) &\doteq (1 + e^{-x})^{-1} \tag{1}\\
+f(x)^{-1} &= 1 + e^{-x} \\
+e^{-x} &= f(x)^{-1} - 1 \tag{2}\\
+\end{flalign}$
+
+Therefore, we can derive an expression for $f^\prime$ purely in terms of $f$:
+
+$\begin{flalign}
+f^\prime(x) &= -(1+e^{-x})^{-2}(-e^{-x}) \tag{chain rule} \\
+&= e^{-x}(1 + e^{-x})^{-2} \\
+&= f(x)^2 (f(x)^{-1} - 1) \tag{1 and 2}\\
+&= f(x) (1 - f(x)) \\
+\end{flalign}$
+
+Applying to (9.7) with the chain rule and using the fact that $\nabla \left ( \mathbf{w}_t ^\top \mathbf{x}_t \right ) = \mathbf{x}_t$ :
+
+$\begin{flalign}
+	\mathbf{w}_{t+1} &\doteq \mathbf{w}_t + \alpha [U_t - \hat v(S_t, \mathbf{w}_t)] \nabla \hat v(S_t, \mathbf{w}_t) \\
+
+	&= \mathbf{w}_t + \alpha [U_t - f(\mathbf{w}_t ^\top \mathbf{x}_t)] f(\mathbf{w}_t ^\top \mathbf{x}_t)(1-f(\mathbf{w}_t ^\top \mathbf{x}_t)) \mathbf{x}_t \\
+
+\end{flalign}$
+"""
+
+# ╔═╡ 76de6624-6be3-450e-85a8-83e91af53272
+md"""
+> ### *Exercise 9.8*
+> Arguably, the squared error used to derive (9.7) is inappropriate for the case treated in the preceding exercise, and the right error measure is the *cross-entropy loss*.  Repeat the derivation in Section 9.3, using the cross-entropy loss instead of the squared error in (9.4), all the way to an explicit form with no gradient or logarithm notation in it.  Is your final form more complex, or simpler, than you obtained in the preceding exercise?
+"""
+
+# ╔═╡ fa111767-96c2-44fe-8d26-29577f22b926
+md"""
+For a single output, the cross-entropy loss is 
+
+$$-y \log{\hat y} - (1 - y)\log(1 - \hat y)$$ where $\hat y = f(\mathbf{w}_t^{\top} \mathbf{x}_t)$ is the approximation and $y = U_t$.  
+"""
+
+# ╔═╡ 82b0fb07-3f10-4701-bf4d-e2e0189cee08
+md"""
+The error for each example is then: $-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t))$
+
+where $f(x) = 1/(1 + e^{-x})$ is the logistic function
+
+Our goal is to minimize this error over $\mu(s)$ using stochastic gradient descent, so the parameter update will be:
+
+$\mathbf{w}_{t+1} \doteq \mathbf{w}_t - \alpha \nabla \left [-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ]$
+
+From the previous exercise we know that $f^\prime(x) = f(x)(1-f(x))$, so applying the chain rule to the gradient gives: 
+
+$\nabla \log(f(x)) = \nabla(x)f^\prime(x)/f(x) = (1 - f(x))\nabla(x)$
+
+$\nabla \log(1 - f(x)) = -\nabla(x)f(x)^\prime/(1 - f(x)) = -f(x)\nabla(x)$
+
+Using the fact that $\nabla(\mathbf{w}_t^{\top} \mathbf{x}_t) = \mathbf{x}_t$ So the parameter update rule can be simplified to:
+
+$\begin{flalign}
+\mathbf{w}_{t+1} &= \mathbf{w}_t - \alpha \nabla \left [-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ] \\
+&= \mathbf{w}_t - \alpha \left [ -U_t(1-f(\mathbf{w}_t^{\top} \mathbf{x}_t)))\nabla(\mathbf{w}_t^{\top} \mathbf{x}_t)) + (1 - U_t)f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \nabla(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ] \\
+&= \mathbf{w}_t - \alpha  \left [-U_t + U_tf(\mathbf{w}_t^{\top} \mathbf{x}_t) + f(\mathbf{w}_t^{\top} \mathbf{x}_t) - U_t f(\mathbf{w}_t^{\top} \mathbf{x}_t)  \right ] \mathbf{x}_t \\
+&= \mathbf{w}_t + \alpha  \left [U_t - f(\mathbf{w}_t^{\top} \mathbf{x}_t) \right ] \mathbf{x}_t \\
+\end{flalign}$
+
+This update rule is much simpler than the one in exercise 9.8 and is identical to the linear update rule with $\hat v = f(\mathbf{w}_t^{\top} \mathbf{x}_t)$ instead of $\hat v = \mathbf{w}_t^{\top} \mathbf{x}_t$
+"""
+
+# ╔═╡ 1a69bf65-7fa5-4ebd-b8e2-543a8e0dbf4f
+cross_entropy_loss(y, ŷ) = -y*log(ŷ) - (1-y)*log(1-ŷ)
+
+# ╔═╡ b4327edc-0677-4daf-a86d-1bcc908f2337
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot([scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(0, LinRange(0, 1, 1000)), name = "y is false"), scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(1, LinRange(0, 1, 1000)), name = "y is true")], Layout(yaxis_title = "Cross Entropy Loss", xaxis_title = L"\hat y", title = "Cross Entropy Loss for a Single Output where the Target Value is True or False"))
+  ╠═╡ =#
+
+# ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
+md"""
+# Dependencies
+"""
+
+# ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
+@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) import *
+
+# ╔═╡ 42a7918f-8e9d-45ae-9e40-1254dde9f06f
+begin
+	#general linear approximation
+	"""
+	    linear_value_function(features, params) -> Real
+	
+	Computes the linear value function for given features and parameters.
+	
+	This function supports multiple feature representations through dispatch:
+	- Dense feature vectors (dot product)
+	- Sparse binary features (sum of active feature weights)  
+	- State aggregation features (direct parameter lookup)
+	
+	# Arguments
+	- `features`: Feature representation, see Methods section for supported types
+	- `params::Vector{T}`: Parameter vector where T<:Real
+	
+	# See Also
+	[`update_params_with_gradient!`](@ref)
+	
+	# Methods
+	
+	## Dense Features
+	```julia
+	linear_value_function(x::Vector{T}, w::Vector{T}) where T<:Real
+	```
+	Computes dot product of dense feature vector with parameters.
+	- `x::Vector{T}`: Dense feature vector
+	- `w::Vector{T}`: Parameter vector (must match length of x)
+	
+	### Examples
+	```julia-repl
+	julia> dense_features = [0.5, 1.2, -0.3]
+	3-element Vector{Float64}:
+	  0.5
+	  1.2
+	 -0.3
+	
+	julia> weights = [2.0, 1.5, 0.8]
+	3-element Vector{Float64}:
+	 2.0
+	 1.5
+	 0.8
+	
+	julia> linear_value_function(dense_features, weights)
+	2.56
+	```
+	
+	## Binary Features  
+	```julia
+	linear_value_function(binary_features::BinaryFeatureVector, params::Vector{T}) where T<:Real
+	```
+	Efficiently computes value for sparse binary features by summing weights of active features only.
+	- `binary_features::`[`BinaryFeatureVector{I,N}`](@ref BinaryFeatureVector): Sparse binary feature representation
+	- `params::Vector{T}`: Parameter vector of length N
+	
+	### Examples
+	```julia-repl
+	julia> binary_features = BinaryFeatureVector(10);
+	
+	julia> binary_features.active_features = [2, 5];
+	
+	julia> binary_features.num_features = 2;
+	
+	julia> params = [0.1, 0.3, 0.2, 0.4, 0.7, 0.1, 0.2, 0.3, 0.1, 0.5]
+	10-element Vector{Float64}:
+	 0.1
+	 0.3
+	 0.2
+	 0.4
+	 0.7
+	 0.1
+	 0.2
+	 0.3
+	 0.1
+	 0.5
+	
+	julia> linear_value_function(binary_features, params)
+	0.4
+	```
+	
+	## State Aggregation
+	```julia
+	linear_value_function(x::StateAggregationFeatureVector, params::Vector{T}) where T<:Real  
+	```
+	Direct parameter lookup for state aggregation features.
+	- `x::`[`StateAggregationFeatureVector{I,N}`](@ref StateAggregationFeatureVector): State aggregation with group index
+	- `params::Vector{T}`: Parameter vector of length N
+	
+	### Examples
+	```julia-repl
+	julia> state_agg = StateAggregationFeatureVector(8);
+	
+	julia> state_agg.group_index = 3;
+	
+	julia> params = rand(8)
+	8-element Vector{Float64}:
+	 0.123
+	 0.456
+	 0.789
+	 0.321
+	 0.654
+	 0.987
+	 0.147
+	 0.258
+	
+	julia> linear_value_function(state_agg, params)
+	0.789
+	```
+	
+	# Performance Notes
+	- Binary feature method uses `@simd` optimization for active feature summation
+	- State aggregation method provides O(1) lookup time
+	- All methods avoid memory allocation in the hot path
+	"""
+	linear_value_function(x::Vector{T}, w::Vector{T}) where {T<:Real} = dot(x, w)
+	
+	#binary features
+	function linear_value_function(binary_features::BinaryFeatureVector, params::Vector{T})::T where T<:Real
+		v = zero(T)
+		@inbounds @simd for i in 1:binary_features.num_features
+			j = binary_features.active_features[i]
+			v += params[j]
+		end
+		return v
+	end
+
+	#state-aggregation index (single feature only)
+	linear_value_function(x::StateAggregationFeatureVector, params::Vector{T}) where T<:Real = params[x.group_index]
+end
+
+# ╔═╡ 1f0b9d36-3592-47a0-b32a-a7e19b763e1b
+begin
+	#value_function is something that that takes only the feature vector and parameters to generate a state value estimation.  this function converts that into a function that can be called with only the state as an argument.  by default the arguments are designed to make the function thread safe so that any modified internal arguments are generated each time it is called.  It also returns a function to create an instance of the arguments in case the function needs to be used repeatedly on a single thread
+	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::P) where {V, P}
+		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::P = parameters, kwargs...)
+			update_feature_vector!(feature_vector, s)
+			value_function(feature_vector, parameters; kwargs...)
+		end
+	
+		#also return a method that acts on the feature vector itself which has already been updated
+		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
+
+		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters)
+		
+		return (v̂, form_kwargs)
+	end
+
+	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::FCANNParams) where V
+		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::FCANNParams = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+			update_feature_vector!(feature_vector, s)
+			value_function(feature_vector, parameters; activations = activations, kwargs...)
+		end
+	
+		#also return a method that acts on the feature vector itself which has already been updated
+		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
+
+		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+		
+		return (v̂, form_kwargs)
+	end
+end
+
+# ╔═╡ ba58242a-306a-4631-92b4-34bc9e354fae
+#the purpose of these functions is to unify the gradient monte carlo algorithm by having a common way to run and update episodes.  Since I want to be able to pass the first two return trajectory values in both cases, I need that trajectory to store the states and rewards as the first two values
+begin
+	"""
+	    create_episode_functions(mrp) -> (generate_episode, update_episode!)
+	    create_episode_functions(mdp, π) -> (generate_episode, update_episode!)
+	
+	Creates standardized episode generation functions for gradient Monte Carlo algorithms.
+	
+	Generates consistent episode function interfaces that return trajectories with states
+	and rewards as the first two elements, enabling unified gradient Monte Carlo estimation
+	across different problem types (MRPs and MDPs).
+	
+	# Methods
+	
+	## MRP Version
+	```julia
+	create_episode_functions(mrp::StateMRP) -> (generate_episode, update_episode!)
+	```
+	Creates episode functions for Markov Reward Process evaluation.
+	
+	- `mrp::`[`StateMRP`](@ref): Markov reward process to generate episodes from
+	
+	Returns trajectory format: `(states, rewards)`
+	
+	### Examples
+	```julia-repl
+	julia> mrp = StateMRP(transition_matrix, reward_vector);
+	
+	julia> gen_ep, update_ep! = create_episode_functions(mrp);
+	
+	julia> # Generate initial episode
+	       trajectory = gen_ep(max_steps=100);
+	
+	julia> trajectory[1]  # states
+	5-element Vector{Int64}:
+	 1
+	 3
+	 2
+	 4
+	 5
+	
+	julia> trajectory[2]  # rewards  
+	5-element Vector{Float64}:
+	 0.0
+	 1.0
+	 0.0
+	 0.0
+	 2.0
+	```
+	
+	## MDP Version  
+	```julia
+	create_episode_functions(mdp::StateMDP, π::Function) -> (generate_episode, update_episode!)
+	```
+	Creates episode functions for Markov Decision Process policy evaluation.
+	
+	- `mdp::`[`StateMDP`](@ref): Markov decision process to generate episodes from
+	- `π::Function`: Policy function for action selection
+	
+	Returns trajectory format: `(states, rewards, actions)`
+	
+	### Examples
+	```julia-repl
+	julia> mdp = StateMDP(transition_tensor, reward_matrix);
+	
+	julia> policy(s) = rand(1:num_actions);  # Random policy
+	
+	julia> gen_ep, update_ep! = create_episode_functions(mdp, policy);
+	
+	julia> # Generate initial episode
+	       trajectory = gen_ep(max_steps=50);
+	
+	julia> trajectory[1]  # states
+	3-element Vector{Int64}:
+	 1
+	 2
+	 3
+	
+	julia> trajectory[2]  # rewards (always second element)
+	3-element Vector{Float64}:
+	 0.5
+	 1.0
+	 0.0
+	
+	julia> trajectory[3]  # actions (MDP-specific)
+	3-element Vector{Int64}:
+	 2
+	 1
+	 3
+	```
+	
+	# Returned Functions
+	
+	## `generate_episode(; epkwargs...)`
+	Creates new episode trajectory. Passes keyword arguments to underlying `runepisode` function.
+	
+	## `update_episode!(trajectory; epkwargs...)`
+	Generates new episode reusing storage from previous trajectory. Returns `(new_trajectory, n_steps)`.
+	
+	# Design Purpose
+	Ensures consistent trajectory format where `trajectory[1]` contains states and `trajectory[2]` 
+	contains rewards, regardless of problem type. This standardization enables the same gradient
+	Monte Carlo functions to work with both MRPs and MDPs.
+	
+	# Performance Notes
+	- `update_episode!` reuses trajectory storage to minimize allocations
+	- Consistent return format eliminates dispatch overhead in Monte Carlo algorithms
+	- Compatible with any keyword arguments supported by underlying episode runners
+	
+	# See Also
+	[`gradient_monte_carlo_estimation!`](@ref), [`runepisode`](@ref), [`runepisode!`](@ref)
+	"""
+	function create_episode_functions(mrp::StateMRP)
+		function generate_episode(; epkwargs...) 
+			(states, rewards, sterm) = runepisode(mrp; epkwargs...)
+			(states, rewards)
+		end
+		
+		function update_episode!((states, rewards); epkwargs...)
+			(states, rewards, sterm, nsteps) = runepisode!((states, rewards), mrp; epkwargs...)
+			((states, rewards), nsteps)
+		end
+
+		return (generate_episode, update_episode!)
+	end
+
+	function create_episode_functions(mdp::StateMDP, π::Function)
+		function generate_episode(; epkwargs...) 
+			(states, actions, rewards, sterm) = runepisode(mdp; π = π, epkwargs...)
+			(states, rewards, actions)
+		end
+	
+		function update_episode!((states, rewards, actions); epkwargs...)
+			(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π, epkwargs...)
+			((states, rewards, actions), nsteps)
+		end
+		return (generate_episode, update_episode!)
+	end
+end
+
+# ╔═╡ 6f3928a9-bcaa-44b5-8723-820142cbcfc3
+
+"""
+    create_continuous_random_walk(num_states::Int64) -> StateMRP
+
+Create a continuous-state random walk Markov Reward Process with terminal boundaries.
+
+Generates a random walk environment where an agent navigates a continuous state space
+with stochastic step sizes. The agent starts at the center position and takes random
+steps of varying magnitude (1-100 units) in either direction until reaching terminal
+boundaries that provide reward feedback.
+
+# Arguments
+- `num_states::Int64`: Defines the valid state range [1, num_states] with terminal regions beyond
+
+# Returns
+- [`StateMRP`](@ref): Markov reward process with continuous state transitions
+  - **State space**: Continuous values, valid range [1, num_states]
+  - **Initial state**: Center position at `num_states/2`
+  - **Transitions**: [`StateMRPTransitionSampler`](@ref) with stochastic step dynamics
+  - **Termination**: States outside [1, num_states] boundaries
+
+# Environment Dynamics
+- **Step size**: Uniform random integer from 1 to 100 units
+- **Direction**: Equal probability left (-) or right (+) movement
+- **Rewards**: -1 for left boundary crossing (s < 1), +1 for right boundary (s > num_states), 0 otherwise
+- **Termination**: Automatic episode end when boundaries are crossed
+
+# State Representation
+Unlike tabular random walks, this environment uses continuous Float32 states.
+
+# See Also
+[`make_random_walk_mrp`](@ref), [`StateMRP`](@ref), [`StateMRPTransitionSampler`](@ref), 
+[`randomwalk_step`](@ref), [`randomwalk_isterm`](@ref)
+"""
+function create_continuous_random_walk(num_states::Int64)
+	ptf = StateMRPTransitionSampler((s) -> randomwalk_step(s, num_states), 1f0)
+	init_state = ceil(Float32, num_states / 2)
+	StateMRP(ptf, () -> init_state, s -> randomwalk_isterm(s, num_states))
+end
+
+# ╔═╡ 2720329c-4c80-47cb-a3e3-d24fcec6ef43
+#=╠═╡
+const random_walk_state_mrp = create_continuous_random_walk(num_states)
+  ╠═╡ =#
+
+# ╔═╡ 750eef6b-58c6-4428-a44b-25e244aaf1d8
+#=╠═╡
+function calculate_random_walk_state_distribution(;samples = 100_000)
+	state_counts = zeros(Int64, num_states)
+	function update_state_counts!(state_counts, states)
+		for s in states
+			state_counts[Integer(s)] += 1
+		end
+	end
+	
+	(states, rewards, sterm, numsteps) = runepisode(random_walk_state_mrp)
+	update_state_counts!(state_counts, view(states, 1:numsteps))
+	for _ in 1:samples
+		(states, rewards, sterm, num_steps) = runepisode!((states, rewards), random_walk_state_mrp)
+		update_state_counts!(state_counts, view(states, 1:num_steps))
+	end
+	state_distribution = state_counts ./ sum(state_counts)
+end
+  ╠═╡ =#
+
+# ╔═╡ 3a0d315b-b5f8-4387-9bb0-fd2a7038752e
+#=╠═╡
+const random_walk_state_distribution = calculate_random_walk_state_distribution()
+  ╠═╡ =#
+
 # ╔═╡ 35d6dd59-1fd3-4aad-b24f-82dd466bcb83
 begin
 	"""
@@ -1586,19 +2139,6 @@ begin
 		end
 		return x
 	end
-end
-
-# ╔═╡ c64b740a-ceeb-431c-9c71-6ab498fc4003
-begin
-	form_default_displacement_vector(s::Real) = 1
-	form_default_displacement_vector(s::NTuple{N, T}) where {N, T<:Real} = Tuple(i*2 + 1 for i in 0:N-1)
-end
-
-# ╔═╡ bed3b1f4-9b69-4009-9e0b-22e74d309fca
-begin
-	form_default_value_inds(s::Real) = 1
-	form_default_value_inds(s::NTuple{N, T}) where {N, T<:Real} = Tuple(1:N)
-	form_default_value_inds(s::NamedTuple) = keys(s)
 end
 
 # ╔═╡ bb81db16-7c4d-4e08-bf17-45147be2b0db
@@ -1727,43 +2267,12 @@ function tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F
 	(feature_vector = feature_vector, update_feature_vector! = update_feature_vector!, num_features = num_features, get_active_features = get_active_features, get_feature_vector = get_feature_vector)
 end
 
-# ╔═╡ ed20781e-c7d5-48c8-82bd-94d73478c13a
-begin
-	get_tile_size(S::T, num_tiles::Integer) where T<:Real = T(inv(num_tiles))
-	get_tile_size(S::NTuple{N, T}, num_tiles::NTuple{N, I}) where {T<:Real, I<:Integer, N} = Tuple(T(inv(x)) for x in num_tiles)
-end
-
 # ╔═╡ 3968fcf6-c7b6-42bc-a416-fdfcb270f92c
 tile_coding_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, min_value::S2, max_value::S2, num_tiles::Union{Int64, NTuple{N2, Int64}}, num_tilings::Integer; kwargs...) where {T<:Real, N, N2, S <: Union{T, NTuple{N, T}, NamedTuple}, S2 <: Union{T, NTuple{N2, T}}, A, P, F1<:Function, F2<:Function, F3<:Function} = tile_coding_feature_setup(problem, min_value, max_value, get_tile_size(min_value, num_tiles), num_tilings; kwargs...)
-
-# ╔═╡ e6514762-31e0-4916-aa21-c280674c2fc1
-md"""
-### *Example: Visualizing 1-Dimensional Tile Coding*
-"""
-
-# ╔═╡ 84d9aac5-cf3b-402b-b222-9e8985a80b5b
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@bind tile_coding_params PlutoUI.combine() do Child
-	md"""
-	Tile Size (% of $s_{max}$): $(Child(:tile_size, NumberField(0.01:0.01:.99, default = 0.3)))
-
-	Number of Tilings: $(Child(:num_tilings, NumberField(1:10, default = 2)))
-	
-	"""
-end |> confirm
-  ╠═╡ =#
 
 # ╔═╡ dda74c94-3574-4e7b-bab1-d106111d36d4
 #=╠═╡
 tile_coding_test = tile_coding_feature_setup(random_walk_state_mrp, 0f0, 1000f0, Float32(tile_coding_params.tile_size), tile_coding_params.num_tilings)
-  ╠═╡ =#
-
-# ╔═╡ d17926d5-bcfa-4789-9609-59a69d87d194
-#=╠═╡
-md"""
-The following shows which feature is active for each tiling in the 1 dimensional space used for the random walk example.  The tile size as a percent of the size of the state space determines how many tiles there are for each tiling.  In this case, a tile size of $(tile_coding_params.tile_size) translates into $(ceil(Int64, inv(tile_coding_params.tile_size))) tiles.  Each of the $(tile_coding_params.num_tilings) tilings will have one of $(ceil(Int64, inv(tile_coding_params.tile_size))) features active corresponding to which tile the state falls into.  Note that in order to cover the entire state space for each tiling, the number of tiles must overshoot the state space.  By convention the tilings will move in the negative direction of each dimension so the edge tiles must extend beyond the state space enough to still cover the space even after the shifting.
-"""
   ╠═╡ =#
 
 # ╔═╡ 71e7eef0-0304-4e26-8991-fa20da83df9a
@@ -1782,107 +2291,6 @@ plot(heatmap(
 	showscale=false), 
 	 Layout(xaxis = attr(title = "state", mirror = true, linecolor = "black"), yaxis = attr(title = "Active Features", linecolor="black", mirror = true), title = "Active Tiling Features In White"))
   ╠═╡ =#
-
-# ╔═╡ 8e12b92b-e56d-44f0-bf89-3248131b2245
-md"""
-### *Example: Tile Coding with Random Walk Example*
-
-Notice that TD learning in this case is also more stable at higher learning rates as the number of tilings increases
-"""
-
-# ╔═╡ 7e56131f-3afe-4997-a085-60f0d45a9d8d
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@bind tile_coding_learning_params PlutoUI.combine() do Child
-	md"""
-	Tile Size (% of $s_{max}$): $(Child(:tile_size, NumberField(0.01f0:0.01f0:.99f0, default = 0.1f0)))
-
-	Number of Tilings: $(Child(:num_tilings, NumberField(1:100, default = 20)))
-	
-	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 1f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 6f-4)))
-	"""
-end |> confirm
-  ╠═╡ =#
-
-# ╔═╡ a4d9efaf-1e1e-4115-973f-570014c1fd06
-md"""
-> ### *Exercise 9.4* 
-> Suppose we believe that one of two state dimensions is more likely to have an effect on the value function than is the other, that generalization should be primarily across this dimension rather than along it.  What kind of tilings could be used to take advantage of this prior knowledge?
-
-We could use striped tilings such that the narrow width of the tile is in the direction of the important dimension and the elongated height of the tile is in the other direction.  That way states that have the same value of the important dimension would be treated similarly regardless of their value in the other dimension.  The most rapid changes in value would occur in the direction of the important dimension.
-"""
-
-# ╔═╡ 22f6f2b1-745d-4ee5-8dfa-0fe2a61c2c54
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot([scatter(x = [a, a+2, a+2, a, a], y = [b, b, b+5, b+5, b], line_color = "blue", name = "", showlegend = false) for a in 0:2:8 for b in [0, 5]], Layout(width = 300, height = 300, margin = attr(t = 0, l = 0, r = 0, b = 0), xaxis_title = "Important Dimension", yaxis_title = "Unimportant Dimenson"))
-  ╠═╡ =#
-
-# ╔═╡ dfeead7c-65ab-4cb3-ac1c-a28a78e8448e
-md"""
-### 9.5.5 Radial Basis Functions
-Requires much more computational complexity to tile coding without much advantage.  Also more fine tuning is required.
-"""
-
-# ╔═╡ 6beee5a8-c262-469e-9b1b-00b91e3b1b55
-md"""
-## 9.6 Selecting Step-Size Parameters Manually
-
-Consider the tabular case with constant step size averaging to compute state values.  If $\alpha = 1$ (zero weight is placed on the previous estimate), then the error for that state is reduced to zero for the sampled value of that state every step.  Similarly, $\alpha = \frac{1}{10}$ implies that about ten experiences are neeed to converge approximately to their mean value.  In general tabular estimation of a state with $\alpha = \frac{1}{\tau}$ will approach the mean of its targets about $\tau$ experiences with that state.
-
-With general function approximation there is not such a clear notion of *number* of experiences with a state; however a similar rule can be derived using feature vectors instead of states.  Suppose you wanted to learn in about $\tau$ experiences with substantially the same feature vector.  A good rule of thumb for the step-size parameter is then
-
-$\alpha \doteq \left ( \tau \mathbb{E} \left [\mathbf{x}^\top \mathbf{x} \right ] \right ) ^{-1}$
-
-where $\mathbf{x}$ is a random feature vector chosen from the same distribution as input vectors will be in the SGD.  This method words best if $\mathbf{x}^\top \mathbf{x}$ is a constant so the expected value plays no role.  Here the expected total weight on parameters that will be affected by an update replaces the value of one that was implied in the tabular case since in that case only values for individual states are updated.  In the approximation case, each feature vector represents a region of states and thus this update rule accounts for the other states that will all be affected by the update.  In the extreme case of state aggregation where each state gets its own group, then this update rule reduces to the same one from the tabular case since only one feature will be activated at a time.
-"""
-
-# ╔═╡ 858a6d4f-2241-43c3-9db0-ff9cec00c2c1
-md"""
-> ### *Exercise 9.5* 
-> Suppose you are using tile coding to transform a seven-dimensional continuous state space into binary feature vectors to estimate a state value function $\hat v(s,\mathbf{w}) \approx v_\pi(s)$.  You believe that the dimensions do not interact strongly, so you decide to use eight tilings of each dimension separately (stripe tilings), for $7 \times 8 = 56$ tilings. In addition, in case there are some pairwise interactions between the dimensions, you also take all ${7\choose2} = 21$ pairs of dimensions and tile each pair conjunctively with rectangular tiles. You make two tilings for each pair of dimensions, making a grand total of $21 \times 2 + 56 = 98$ tilings.  Given these feature vectors, you suspect that you still have to average out some noise, so you decide that you want learning to be gradual, taking about 10 presentations with the same feature vector before learning nears its asymptote. What step-size parameter should you use? Why?
-
-Each tiling will contribute one non-zero element to the feature vector.  With 98 tilings, we have 98 one values in each feature vector so the inner product in equation (9.19) would be $\mathbb{E}\left[\sum_{i=1}^{98} x_i^2 \right]=98$ so $\alpha=\frac{1}{10 \times 98}=\frac{1}{980} \approx 0.001$ 
-	"""
-
-# ╔═╡ be019186-33ad-4eb7-a218-9124ff40b6fb
-md"""
-> ### *Exercise 9.6* 
-> If $\tau=1$ and $\mathbf{x}(S_t)^\top \mathbf{x}(S_t) = \mathbb{E} [\mathbf{x}^\top \mathbf{x}]$, prove that (9.19) together with (9.7) and linear function approximation results in the error being reduced to zero in one update.
-"""
-
-# ╔═╡ b447a3a9-fe35-4457-886b-05c5862ad8e0
-md"""
-$$\alpha \doteq \left ( \tau \mathbb{E}\left [ \mathbf{x}^\top \mathbf{x} \right ] \right ) ^{-1} \tag{9.19}$$
-$$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ U_t - \hat v(S_t, \mathbf{w}_t) \right] \nabla \hat v(S_t, \mathbf{w}_t) \tag{9.7}$$
-
-Note that in the case of linear function approximation $\nabla \hat v(S_t, \mathbf{w}_t) = \mathbf{x}_t$ and $\hat v(S_t, \mathbf{w}_t) = \mathbf{x}_t^\top \mathbf{w}_t$ so (9.7) reduces to $\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha \left [ U_t - \mathbf{x}_t^\top \mathbf{w}_t \right] \mathbf{x}_t = \mathbf{w}_t(\mathbb{1} - \mathbf{x}_t ^\top \mathbf{x}_t) + \alpha U_t\mathbf{x}_t$ 
-
-For the error at the state $S_t$ to be zero after this update, $\mathbf{x}_t^\top \mathbf{w}_t = U_t$
-
-For a given time, the only parameter values that contribute to the value estimate are those for which $\mathbf{x}_t$ are 1.  For these indices, the contribution from the original weight vector is 0.  So $\mathbf{w}_{t+1} = \alpha U_t \mathbf{x}_t$ for indices that are updated, otherwise the values are unchanged from before.  So $\mathbf{x}_t^\top \mathbf{w}_{t+1} = \alpha U_t \mathbf{x}_t^\top \mathbf{x}_t$.  Using (9.19) with $\tau = 1$, the expected update is $\mathbb{E} [ \mathbf{x}_t \mathbf{w}_{t+1} ]  = \mathbb{E} [ \hat v(S_t, \mathbf{w}_{t+1})]= \mathbb{E} [U_t]$.  So the expected approximation value of the state at step t will be updated to equal the true expected value at that state.
-"""
-
-# ╔═╡ d7c1810a-8f20-4178-83ca-017d53e3e7e9
-md"""
-## 9.7 Nonlinear Function Approxmation: Artificial Neural Networks
-"""
-
-# ╔═╡ 82828e72-5d30-41b6-a1b6-f258c234b034
-md"""
-### *Neural Network Parameter Update Implementation*
-"""
-
-# ╔═╡ 2bc32d3d-193e-4cab-b13b-f7ed304af0f6
-md"""
-By default the NN gradient and forward pass assumes a dense vector or matrix for the input.  If we want to pass a sparse feature representation instead, we must extend the following methods to these custom datatypes:
-
-`gemv!('N', α::T, θ::Matrix{T}, x::Vector{T}, β::T, output::Vector{T})`
-
-`gemm!('N', 'T', α::T, θ::Matrix{T}, x::Matrix{T}, β::T, output::Matrix{T})`
-
-Here x contains the feature information and must work for something other than `Vector` or `Matrix` types
-"""
 
 # ╔═╡ 0334d2ff-268d-4485-b460-89f82c4a99e1
 begin
@@ -2018,30 +2426,6 @@ function update_fcann_value_gradient!(∇v̂::FCANNParamsGPU, d_x::FCANN.CUDAArr
 	FCANN.nnCostFunction(params.weights..., d_x.size[1], output_size, hidden_layers, activations, tanh_grad_z, deltas, ∇v̂.weights..., d_x, output_index, l2, dropout; resLayers = params.reslayers, loss_type = OutputIndex(), activation_list = activation_list)
 end
 
-# ╔═╡ 2b922137-3110-4f91-94b1-4707d197b429
-"""
-    scale_fcann_params!(params, scales) -> Nothing
-
-Apply inverse scaling factors to FCANN network parameters in-place.
-
-# Type Parameters
-- `T <: Real`: Numeric type for scaling factors
-
-# Arguments
-- `params::FCANNParams`: Network parameters containing weights and biases (modified in-place)
-- `scales::Vector{T}`: Scaling factors to apply inversely to each parameter group
-
-# Returns
-- `Nothing`: Function modifies `params` in-place by dividing each parameter group by corresponding scale factor
-"""
-function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
-	@inbounds for i in eachindex(scales)
-		for j in 1:2
-			params.weights[j][i] .*= scales[i]
-		end
-	end
-end
-
 # ╔═╡ 1d43e61e-8428-4f50-8dc7-e322b1d256e8
 function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}) where T<:Real
 	@inbounds for i in eachindex(scales)
@@ -2053,20 +2437,6 @@ function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}) where T<
 			end
 		end
 	end
-end
-
-# ╔═╡ c064a91d-7dd3-403b-8bc0-285014bc873c
-function check_bad_params(params::Array{T, N}) where {T<:Real, N}
-	any(isinf, params) && return true
-	any(isnan, params) && return true
-	return false
-end
-
-# ╔═╡ 5513f245-de2e-4cb5-b56a-abbe8261249a
-function check_bad_params(params::FCANNParams)
-	any(check_bad_params, params.weights[1]) && return true
-	any(check_bad_params, params.weights[2]) && return true
-	return false
 end
 
 # ╔═╡ 322fa46d-125f-418b-90a2-6b8ddfc86b6d
@@ -3015,6 +3385,41 @@ function compare_cpu_gpu(input_size, hidden_layers, output_size, num_input)
 end
   ╠═╡ =#
 
+# ╔═╡ 6dab2f6e-2b9d-4823-aa4c-f13f37afd2b3
+function monte_carlo_episode_update!(state_values::Dict{S, T}, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S}
+	g = zero(T)
+	l = length(states)
+	ō = zero(T)
+	for i in l:-1:1
+		s = states[i]
+		g = γ * g + rewards[i]
+		ō += α * (one(T) - ō)
+		β = α / ō
+		v = haskey(state_values, s) ? state_values[s] : zero(T)
+		δ = g - v
+		v′ = v + β*δ
+		state_values[s] = v′
+	end
+end
+
+# ╔═╡ 1d7dec72-c356-4043-9cc5-e0842c423cac
+function monte_carlo_episode_update!(state_values::Dict{S, Tuple{T, T}}, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S}
+	g = zero(T)
+	l = length(states)
+	ō = zero(T)
+	for i in l:-1:1
+		s = states[i]
+		g = γ * g + rewards[i]
+		if haskey(state_values, s)
+			(v, n) = state_values[s]
+			n′ = n + one(T)
+			state_values[s] = ((v*n + g)/n′, n′)
+		else
+			state_values[s] = (g, one(T))
+		end
+	end
+end
+
 # ╔═╡ 00d522cd-a4e6-45a0-a90f-6875f1b0da1c
 function update_params_with_gradient!(params::FCANNParamsGPU, α::T, ∇::FCANNParamsGPU) where T<:Float32
 	tmp = [α]
@@ -3124,9 +3529,6 @@ function Base.copy(d_x::FCANN.CUDAArray)
 	FCANN.cuda_allocate(x)
 end
 
-# ╔═╡ b70fac93-ba6e-4234-86de-c131011b09a1
-Base.copy(params::FCANNParams) = deepcopy(params)
-
 # ╔═╡ bd3a43b8-5646-4acf-9e29-f6c0ff89ca73
 function Base.copy(params::FCANNParamsGPU)
 	θs = FCANN.host_allocate(params.weights[1])
@@ -3134,15 +3536,6 @@ function Base.copy(params::FCANNParamsGPU)
 	d_θs = FCANN.device_allocate(θs)
 	d_βs = FCANN.device_allocate(βs)
 	return (weights = (d_θs, d_βs), reslayers = params.reslayers)
-end
-
-# ╔═╡ 05d958e4-2f2e-46e0-a030-7ecd137fb4f0
-function Base.copy!(dst::FCANNParams{T}, src::FCANNParams{T}) where T<:Real
-	for i in eachindex(src.weights[1])
-		for j in 1:2
-			dst.weights[j][i] .= src.weights[j][i]
-		end
-	end
 end
 
 # ╔═╡ 16eff6bc-ce43-4d97-aa76-73df2ff76b29
@@ -4353,21 +4746,6 @@ function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, 
 	(;output..., parameters = params)
 end
 
-# ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
-md"""
-### *Nonlinear Function Approximation with Random Walk Example*
-"""
-
-# ╔═╡ 15b93928-98fb-47ed-ba46-e6ee785d46e5
-# ╠═╡ skip_as_script = true
-#=╠═╡
-#this ensures that the state range from 1 to 1000 is mapped to values with a mean 0 and variance of 1
-function update_random_walk_vector!(feature_vector::Vector{Float32}, s::Float32)
-	x1 = (s - 500f0) / sqrt(46295f0)
-	feature_vector[1] = x1
-end
-  ╠═╡ =#
-
 # ╔═╡ cfc5964b-3a23-48d9-b320-861fd4a43364
 #=╠═╡
 function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes::Integer, layers::Vector{Int64}, input_type::Symbol; kwargs...) where {T<:Real, S, P<:AbstractStateTransition{T}, F1<:Function, F2<:Function}
@@ -4382,11 +4760,6 @@ function run_random_walk_fcann_monte_carlo_estimation(mrp::StateMRP{T, S, P, F1,
 	gradient_monte_carlo_estimation_fcann(mrp, γ, num_episodes, x, f!, layers; calculate_error = calc_random_walk_ve, kwargs...)
 end
   ╠═╡ =#
-
-# ╔═╡ f5661feb-6dcd-4409-b2f1-b756253ef2e0
-md"""
-Comparing these two versions, we see that once the hidden layer size hits 1024 the gpu version becomes faster.  Also at a hidden layer size of 512 and a layer count of 10, the GPU version is faster.  The times are about even with a layer size of 256 and 100 layers.
-"""
 
 # ╔═╡ 00f30bd5-b904-4c95-89a3-ee39b877beae
 #=╠═╡
@@ -4441,67 +4814,10 @@ function show_random_walk_fcann_results(num_layers, layer_size, num_episodes, α
 end
   ╠═╡ =#
 
-# ╔═╡ b1c84d59-3598-46a1-bc1a-fd691d14ab09
-md"""
-Notice again how TD learning is more stable at higher learning rates.  The neural network approximation with this few parameters benefits greatly from bootstrap estimation since all state estimates affect eachother.
-"""
-
-# ╔═╡ 420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@bind nn_params PlutoUI.combine() do Child
-	md"""
-	Num Layers: $(Child(:num_layers, NumberField(1:10, default = 2)))
-	Layer Size: $(Child(:layer_size, NumberField(1:100, default = 4)))
-
-	Training Episodes: $(Child(:num_episodes, NumberField(1:100_000, default = 2000)))
-
-	Learning Rates: Monte Carlo $(Child(:α_mc, NumberField(0f0:1f-8:1f0, default = 2f-5))) TD(0) $(Child(:α_td, NumberField(0f0:1f-7:1f0, default = 4f-3)))
-
-	Select Input:: $(Child(:input_type, Select([:vector, :tiles, :state_aggregation])))  Use GPU: $(Child(:use_gpu, CheckBox(default = false)))
-	"""
-end |> confirm
-  ╠═╡ =#
-
 # ╔═╡ 40d07f16-b9ca-4782-bdd2-de15ec6b21e5
 #=╠═╡
 show_random_walk_fcann_results(nn_params...; nsmooth = 100)
   ╠═╡ =#
-
-# ╔═╡ b22ef023-4e6a-4114-b3c2-bf91e16e9a43
-md"""
-## 9.8 Least-Squares TD
-
-All the methods we have discussed so far in this chapter have required computation per time step proportional to the number of parameters.  With more computation, however, one can do better.  In this section we present a method for linear function approximation that is arguably the best that can be done for this case.  As we established in Section 9.4 TD(0) with linear function approxmation converges assymptotically (for appropriate decreasing step sizes) to the TD fixed point:
-
-$\mathbf{w_{TD}} = \mathbf{A}^{-1}\mathbf{b}$
-
-where
-
- $\mathbf{A} \doteq \mathbb{E}\left [ \mathbf{x}_t(\mathbf{x}_t - \gamma \mathbf{x}_{t+1} ) ^\top \right ]$ and $\mathbf{b} \doteq \mathbb{E} [ R_{t+1} \mathbf{x}_t ]$
-
-Instead of updating $\mathbf{w}$ incrementally we could use whatever data we have collected so far to compute estimates of $\mathbf{A}$ and $\mathbf{b}$ and then compute the TD fixed point directly.  *Least-Squares TD* or LSTD does this by forming the following estimates: 
-
- $\widehat{\mathbf{A}}_t \doteq \sum_{k=0}^{t-1} \mathbf{x}_k (\mathbf{x}_k - \gamma \mathbf{x}_{k+1})^\top + \epsilon \mathbf{I}$ and $\widehat{\mathbf{b}}_t \doteq \sum_{k=0}^{t-1} R_{k+1} \mathbf{x}_k \tag{9.20}$
-
-where $\mathbf{I}$ is the identity matrix, and $\epsilon \mathbf{I}$, for some small $\epsilon \gt 0$, ensures that $\widehat{\mathbf{A}_t}$ is always invertible.  It might seem that these estimates should both be divided by $t$, and indeed they should; as defined here, these are really estimates of $t$ *times* $\mathbf{A}$ and $t$ *times* $\mathbf{b}$.  However, the extra $t$ factors cancel out when LSTD uses these estimates to estimate the TD fixed point as
-
-$\mathbf{w}_t \doteq \widehat{\mathbf{A}}_t^{-1} \widehat{\mathbf{b}}_t \tag{9.21}$
-
-This algorithm is the most data efficient form of linear TD(0), but it is also more expensive computationally.  Recall that semi-gradient TD(0) requires memory and per step computation that is only $O(d)$.  In contrast LSTD requires us to invert $\widehat{\mathbf{A}_t}$ which is $O(d^3)$ on top of the incremental updates to $\widehat{\mathbf{A}_t}$ requiring $O(d^2)$.  Fortunately, the matrix we are inverting is a sum of outer products and there is an $O(d^2)$ incremental update rule for that:
-
-$\begin{flalign}
-\widehat{\mathbf{A}}_t^{-1} &= \left ( \widehat{\mathbf{A}}_{t-1} + \mathbf{x}_{t-1} (\mathbf{x}_{t-1} - \gamma \mathbf{x}_{t})^\top \right )^{-1} \tag{from (9.20)} \\
-&= \widehat{\mathbf{A}}_{t-1} - \frac{\widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}(\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1}}{1 + (\mathbf{x}_{t-1} - \gamma \mathbf{x}_t)^\top \widehat{\mathbf{A}}_{t-1}^{-1} \mathbf{x}_{t-1}} \tag{9.22}  
-\end{flalign}$
-
-for $t>0$, with $\widehat{\mathbf{A}}_0 \doteq \epsilon \mathbf{I}$.  Although the identity (9.22), known as *the Sherman-Morrison formula*, is superficially complicated, it involves only vector-matrix and vector-vector multiplications and thus is only $O(d^2)$.  Of course, $O(d^2)$ is still significantly more expensive than the $O(d)$ of semi-gradient TD.  Whether this greater data efficiency of LSTD is worth this computational expense depends on how large $d$ is, how important it is to learn quickly, and the expense of other parts of the system.  The fact that LSTD requires no step-size parameter is sometimes also touted, but the advantage of this is probably overstated since we still need to define $\epsilon$ which affects the sequences of inverses calculated.  Also if the target policy changes it may be undesireable that we keep all of the data, so we may need to use some step size parameter anyway to have old data decay.
-"""
-
-# ╔═╡ 32c054ee-a7ee-4705-87c3-fb1a4bd956ab
-md"""
-### *Least-Squares TD Implementation*
-"""
 
 # ╔═╡ a8d7e5f7-8509-4aa1-b4c6-669339cb173c
 begin
@@ -4668,166 +4984,6 @@ begin
 	least_squares_td_policy_estimation(mdp::StateMDP, d::Integer, π::Function, args...; kwargs...) = least_squares_td_estimation(d, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
 end
 
-# ╔═╡ 2463013a-efad-42a9-874d-a0ecbea9cb49
-md"""
-### *State Aggregation LSTD Implementation*
-"""
-
-# ╔═╡ e0e51e37-0217-4a76-b6e7-9b6e15429941
-"""
-    create_state_aggregation_feature_vector_update(assign_state_group) -> Function
-
-Create a state representation update function for state aggregation feature encoding.
-
-# Arguments
-- `assign_state_group::Function`: Function mapping states to group indices `state -> Integer`
-
-# Returns
-- `Function`: Update function with signature `update_state_representation!(state_representation, s) -> AbstractVector`
-
-# See Also
-[`tile_coding_feature_setup`](@ref), [`least_squares_td_estimation`](@ref), [`StateAggregationFeatureVector`](@ref)
-
-# Algorithm Details
-Creates a closure that encodes states as one-hot binary vectors based on state group assignments. The returned function:
-1. Calls `assign_state_group(s)` to determine the group index for state `s`
-2. Zeros the entire state representation vector
-3. Sets the corresponding group index to 1, creating a one-hot encoding
-4. Returns the modified vector
-
-This provides sparse binary feature representation where each state belongs to exactly one group, enabling efficient linear function approximation over aggregated state spaces.
-
-# Examples
-```julia-repl
-julia> # Create group assignment for 1D state space
-julia> assign_group(s) = clamp(ceil(Int, s * 10), 1, 10)  # 10 groups
-julia> update_features! = create_state_aggregation_feature_vector_update(assign_group)
-
-julia> # Use with LSTD estimation
-julia> result = least_squares_td_estimation(10, init_state, transition, isterm,
-           0.9f0, 1000, 20000, update_features!)
-
-julia> # Test feature encoding
-julia> features = zeros(Float32, 10)
-julia> update_features!(features, 0.35f0)
-julia> features
-10-element Vector{Float32}: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-```
-"""
-function create_state_aggregation_feature_vector_update(assign_state_group::Function)
-	function update_state_representation!(state_representation::AbstractVector{T}, s) where {T<:Real}
-		i = assign_state_group(s)
-		state_representation .= zero(T)
-		state_representation[i] = one(T)
-		return state_representation
-	end
-end
-
-# ╔═╡ 3aec99c3-ba2c-418f-b448-14eb9e8e423c
-"""
-    run_state_aggregation_least_squares_td_estimation(mrp, num_groups, assign_state_group, γ, max_episodes, max_steps; kwargs...) -> NamedTuple
-
-Perform LSTD value function estimation using state aggregation feature representation.
-
-# Arguments
-- `mrp::StateMRP`: Markov reward process defining the learning environment
-- `num_groups::Integer`: Number of state groups for aggregation
-- `assign_state_group::Function`: Function mapping states to group indices `state -> Integer`
-- `γ`: Discount factor (0 ≤ γ < 1)
-- `max_episodes::Integer`: Maximum number of episodes to run
-- `max_steps::Integer`: Maximum total steps across all episodes
-
-# Keyword Arguments
-- `kwargs...`: Additional arguments passed to [`least_squares_td_estimation`](@ref)
-
-# Returns
-- Same as [`least_squares_td_estimation`](@ref): NamedTuple with `parameters`, `value_estimate`, and `episode_errors`
-
-# See Also
-[`least_squares_td_estimation`](@ref), [`create_state_aggregation_feature_vector_update`](@ref), [`StateMRP`](@ref)
-
-# Algorithm Details
-1. Creates state aggregation feature update function via [`create_state_aggregation_feature_vector_update`](@ref)
-2. Delegates to [`least_squares_td_estimation`](@ref) with one-hot group encoding
-3. Returns LSTD results where each state group has an independent value estimate
-
-This convenience function automates the setup of state aggregation for LSTD learning, where continuous or large discrete state spaces are partitioned into manageable groups for efficient value function approximation.
-
-# Examples
-```julia-repl
-julia> # State aggregation for continuous random walk into 20 groups
-julia> assign_group(s) = clamp(ceil(Int, s * 20), 1, 20)
-julia> result = run_state_aggregation_least_squares_td_estimation(mrp, 20, assign_group,
-           0.95f0, 1500, 30000)
-
-julia> # Each group has independent value estimate
-julia> group_values = result.parameters
-20-element Vector{Float64}
-
-julia> # Evaluate states via group membership
-julia> v_estimate = result.value_estimate(0.6f0)  # Uses group assignment internally
--0.234f0
-```
-"""
-function run_state_aggregation_least_squares_td_estimation(mrp::StateMRP, num_groups::Integer, assign_state_group::Function, γ, max_episodes, max_steps; kwargs...)
-	update_feature_vector! = create_state_aggregation_feature_vector_update(assign_state_group)
-	least_squares_td_estimation(mrp, num_groups, γ, max_episodes, max_steps, update_feature_vector!; kwargs...)
-end
-
-# ╔═╡ 785e0e9e-8591-4df0-9282-b516cb87767e
-function run_state_aggregation_least_squares_td_policy_estimation(mdp::StateMDP, π::Function, num_groups::Integer, assign_state_group::Function, γ, max_episodes, max_steps; kwargs...)
-	update_feature_vector! = create_state_aggregation_feature_vector_update(assign_state_group)
-	least_squares_td_policy_estimation(mdp, num_groups, π, γ, max_episodes, max_steps, update_feature_vector!; kwargs...)
-end
-
-# ╔═╡ 195d2aa9-28c1-4b4a-9da5-c8ed3e20ed85
-md"""
-### *Example: LSTD with Random Walk Example*
-"""
-
-# ╔═╡ f10c643b-9205-4b18-841c-255a9354cf97
-#=╠═╡
-function state_aggregation_least_squares_td_randomwalk(num_episodes; num_groups = 10, ϵ = 1f-3, α = 1f-3)
-	group_assign = make_random_walk_group_assign(num_states, num_groups)
-
-	t0 = time()
-	(params, v, error) = run_state_aggregation_least_squares_td_estimation(random_walk_state_mrp, num_groups, group_assign, 1f0, num_episodes, typemax(Int64); calculate_error = (v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2, ϵ = ϵ)
-	t_lstd = round(time() - t0; sigdigits = 3)
-	t0 = time()
-	v̂_td, history_td = semi_gradient_td0_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α, calculate_error = calc_random_walk_ve)
-	err_history_td = history_td.errors
-	t_td = round(time() - t0; sigdigits = 3)
-	t1 = scatter(y = v(Float32.(1:1000)), name = "LSTD Estimation")
-	t2 = scatter(y = random_walk_v.value_function[2:end-1], name = "true value")
-	t3 = scatter(y = err_history_td)
-	p1 = plot([t1; t2])
-	p2 = plot_value_error([error, err_history_td], ["Least Squares TD with ϵ = $ϵ", "Semi-gradient TD with α = $α"], 10)
-	md"""
-	$p1
-	Execution times: 
-
-	Least Squares TD: $t_lstd seconds
-	Semi-gradient TD: $t_td seconds
-	$p2
-	"""
-end
-  ╠═╡ =#
-
-# ╔═╡ 369e5b57-61ce-49e0-97e7-90901f82d37f
-md"""
-#### Least Squares TD with State Aggregation
-"""
-
-# ╔═╡ 7c5ac88b-453b-40bd-98a4-534fc70c7c45
-#=╠═╡
-state_aggregation_least_squares_td_randomwalk(10000; ϵ = 1f-4, α = 1f-2)
-  ╠═╡ =#
-
-# ╔═╡ f1272708-4f99-484e-b861-cd50e4f20bc4
-md"""
-#### Least Squares TD with Linear Features
-"""
-
 # ╔═╡ 85a14a63-d084-4183-a9be-33455dd2ad33
 #=╠═╡
 function linear_compare_least_squares_td_randomwalk(num_episodes; order_number = 5, num_tilings = 10, tile_size = 0.05f0)
@@ -4885,59 +5041,94 @@ end
 linear_compare_least_squares_td_randomwalk(1000)
   ╠═╡ =#
 
-# ╔═╡ 290200a3-7523-4e0f-bd3a-288626adaf29
-md"""
-## 9.9 Memory-based Function Approximation
-
-All of the methods discussed so far have been *parametric*.  That is to say they use an approximation function whos output depends on a list of parameters which are updated as part of the leaning process.  The parameter values determine the value estimate accross the entire state space and in general any parameter update could have an impact on some or all of the other state values.  If we need to compute the value of a state during the learning process, we simply apply the function approximation with the current list of parameters to that state.
-
-Memory-based function approxmation methods save training examples as memory as they arrive (or a subset of examples).  Whenever we need a state's value estimate, we query the memory to compute the value.  This is sometimes called *lazy learning* because nothing is done with data from examples until it is needed.  Memory baesd approaches are *nonparametric* methods since the estimation method is not limited to a class of functions determined ahead of time by the structure of the parameters and feature vectors.  
-
-One class of memory-based methods are *local-learning* methods that approximate a value function only locally in the neighborhood of the current query state.  These methods retrieve a set of training examples form memory whose states are judged to be the most relevant to the query state, where relevance usually depends on the distance between states.  
-
-The simplest example of the memory-based approach is the *nearest neighbor* method, which simply finds the example in memory whose state is closest to the query state and returns that example's value as the approximate value of the query state.  In other words, if the query state is $s$, and $s^\prime \rightarrow g$ is the example in memory in which $s^\prime$ is the closest state to $s$, then $g$ is returned as the approximate value of $s$.  Slightly more complicated are *weighted average* methods that retrieve a set of nearest neighbor examples and return a weighted average of their target values, where the weights generally decrease with increasing distance between their states and the query state.
+# ╔═╡ 3aec99c3-ba2c-418f-b448-14eb9e8e423c
 """
+    run_state_aggregation_least_squares_td_estimation(mrp, num_groups, assign_state_group, γ, max_episodes, max_steps; kwargs...) -> NamedTuple
 
-# ╔═╡ 53ed4517-7e1b-4b72-9844-b8e291382bca
-md"""
-### *Memory-based Database Implementation*
+Perform LSTD value function estimation using state aggregation feature representation.
 
-Since the memory must store a value estimate for the visited states, these methods are best suited for Monte Carlo sampling since we can calculate these value estimates without needing an approximation function.  In other words, as described here, these memory methods are not suitable for bootstrapping.
+# Arguments
+- `mrp::StateMRP`: Markov reward process defining the learning environment
+- `num_groups::Integer`: Number of state groups for aggregation
+- `assign_state_group::Function`: Function mapping states to group indices `state -> Integer`
+- `γ`: Discount factor (0 ≤ γ < 1)
+- `max_episodes::Integer`: Maximum number of episodes to run
+- `max_steps::Integer`: Maximum total steps across all episodes
+
+# Keyword Arguments
+- `kwargs...`: Additional arguments passed to [`least_squares_td_estimation`](@ref)
+
+# Returns
+- Same as [`least_squares_td_estimation`](@ref): NamedTuple with `parameters`, `value_estimate`, and `episode_errors`
+
+# See Also
+[`least_squares_td_estimation`](@ref), [`create_state_aggregation_feature_vector_update`](@ref), [`StateMRP`](@ref)
+
+# Algorithm Details
+1. Creates state aggregation feature update function via [`create_state_aggregation_feature_vector_update`](@ref)
+2. Delegates to [`least_squares_td_estimation`](@ref) with one-hot group encoding
+3. Returns LSTD results where each state group has an independent value estimate
+
+This convenience function automates the setup of state aggregation for LSTD learning, where continuous or large discrete state spaces are partitioned into manageable groups for efficient value function approximation.
+
+# Examples
+```julia-repl
+julia> # State aggregation for continuous random walk into 20 groups
+julia> assign_group(s) = clamp(ceil(Int, s * 20), 1, 20)
+julia> result = run_state_aggregation_least_squares_td_estimation(mrp, 20, assign_group,
+           0.95f0, 1500, 30000)
+
+julia> # Each group has independent value estimate
+julia> group_values = result.parameters
+20-element Vector{Float64}
+
+julia> # Evaluate states via group membership
+julia> v_estimate = result.value_estimate(0.6f0)  # Uses group assignment internally
+-0.234f0
+```
 """
-
-# ╔═╡ 6dab2f6e-2b9d-4823-aa4c-f13f37afd2b3
-function monte_carlo_episode_update!(state_values::Dict{S, T}, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S}
-	g = zero(T)
-	l = length(states)
-	ō = zero(T)
-	for i in l:-1:1
-		s = states[i]
-		g = γ * g + rewards[i]
-		ō += α * (one(T) - ō)
-		β = α / ō
-		v = haskey(state_values, s) ? state_values[s] : zero(T)
-		δ = g - v
-		v′ = v + β*δ
-		state_values[s] = v′
-	end
+function run_state_aggregation_least_squares_td_estimation(mrp::StateMRP, num_groups::Integer, assign_state_group::Function, γ, max_episodes, max_steps; kwargs...)
+	update_feature_vector! = create_state_aggregation_feature_vector_update(assign_state_group)
+	least_squares_td_estimation(mrp, num_groups, γ, max_episodes, max_steps, update_feature_vector!; kwargs...)
 end
 
-# ╔═╡ 1d7dec72-c356-4043-9cc5-e0842c423cac
-function monte_carlo_episode_update!(state_values::Dict{S, Tuple{T, T}}, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T) where {T<:Real, S}
-	g = zero(T)
-	l = length(states)
-	ō = zero(T)
-	for i in l:-1:1
-		s = states[i]
-		g = γ * g + rewards[i]
-		if haskey(state_values, s)
-			(v, n) = state_values[s]
-			n′ = n + one(T)
-			state_values[s] = ((v*n + g)/n′, n′)
-		else
-			state_values[s] = (g, one(T))
-		end
-	end
+# ╔═╡ f10c643b-9205-4b18-841c-255a9354cf97
+#=╠═╡
+function state_aggregation_least_squares_td_randomwalk(num_episodes; num_groups = 10, ϵ = 1f-3, α = 1f-3)
+	group_assign = make_random_walk_group_assign(num_states, num_groups)
+
+	t0 = time()
+	(params, v, error) = run_state_aggregation_least_squares_td_estimation(random_walk_state_mrp, num_groups, group_assign, 1f0, num_episodes, typemax(Int64); calculate_error = (v̂, s) -> (v̂ - random_walk_v.value_function[Int64(s)])^2, ϵ = ϵ)
+	t_lstd = round(time() - t0; sigdigits = 3)
+	t0 = time()
+	v̂_td, history_td = semi_gradient_td0_estimation_state_aggregation(random_walk_state_mrp, 1f0, num_episodes, typemax(Int64), num_groups, random_walk_group_assign; α = α, calculate_error = calc_random_walk_ve)
+	err_history_td = history_td.errors
+	t_td = round(time() - t0; sigdigits = 3)
+	t1 = scatter(y = v(Float32.(1:1000)), name = "LSTD Estimation")
+	t2 = scatter(y = random_walk_v.value_function[2:end-1], name = "true value")
+	t3 = scatter(y = err_history_td)
+	p1 = plot([t1; t2])
+	p2 = plot_value_error([error, err_history_td], ["Least Squares TD with ϵ = $ϵ", "Semi-gradient TD with α = $α"], 10)
+	md"""
+	$p1
+	Execution times: 
+
+	Least Squares TD: $t_lstd seconds
+	Semi-gradient TD: $t_td seconds
+	$p2
+	"""
+end
+  ╠═╡ =#
+
+# ╔═╡ 7c5ac88b-453b-40bd-98a4-534fc70c7c45
+#=╠═╡
+state_aggregation_least_squares_td_randomwalk(10000; ϵ = 1f-4, α = 1f-2)
+  ╠═╡ =#
+
+# ╔═╡ 785e0e9e-8591-4df0-9282-b516cb87767e
+function run_state_aggregation_least_squares_td_policy_estimation(mdp::StateMDP, π::Function, num_groups::Integer, assign_state_group::Function, γ, max_episodes, max_steps; kwargs...)
+	update_feature_vector! = create_state_aggregation_feature_vector_update(assign_state_group)
+	least_squares_td_policy_estimation(mdp, num_groups, π, γ, max_episodes, max_steps, update_feature_vector!; kwargs...)
 end
 
 # ╔═╡ b56f36a5-884e-4f3e-90c1-0522e05f504d
@@ -4972,26 +5163,6 @@ function build_value_memory(mrp::StateMRP{T, S, P, F1, F2}, γ::T, num_episodes:
 	return (states = states, values = vals)
 end
 
-# ╔═╡ 34b78988-40f9-47e9-9c5a-7823de866b12
-md"""
-## 9.10 Kernel-based Function Approximation
-
-The memory based methods described above save a database of examples $s^\prime \rightarrow g$ and then query the database for an example state $s$.  The value estimate will be some weighted sum of samples from the database and the function that calculates the weights is called a *kernel function* or simply a *kernel*.  For example, the kernel could assign a weight based on a distance metric between states but in general the kernel need only satisfy $k: \mathcal{S} \times \mathcal{S} \rightarrow \mathbb{R}$ so that $k(s, s^\prime)$ is the weight given to data $s^\prime$ answering a query about $s$.
-
-Kernel functions numerically express how *relevant* knowledge about any state is to any other state.  As an example, consider the previous method of tile coding as a kernel function.  The relevance of states is determined by how many tiles it has in common with the query state and the stored value is shared among all examples in the same tile.  All of the linear methods discussed already can be described by a kernel function.
-
-*Kernel regression* is the memory-basd method that computes a kernel weighted average of the targets of *all* examples stored in memory, assigning the result to the query state.  If $\mathcal{D}$ is the set of stored examples, and $g(s^\prime)$ denotes the target for state $s^\prime$ in a stored example, then kernel regression approximates the target function, in this case a value function depending on $\mathcal{D}$, as
-
-$\hat v(s, \mathcal{D}) = \sum_{s^\prime \in \mathcal{D}} k(s, s^\prime) g(s^\prime)$
-
-The weighted average method described above is a special case in which $k(s, s^\prime)$ is non-zero only when $s$ and $s^\prime$ are close to one another so that the sum need not be computed over all of $\mathcal{D}$.  Considering the linear methods where states are represented by a feature vector $\mathbf{x}(s) = (x_1(s), x_2(s), \dots, x_d(s))^\top$.  These are equivalent to kernel regression where $k(s, s^\prime) = \mathbf{x}(s)^\top \mathbf{x}(s^\prime)$
-"""
-
-# ╔═╡ 356d22a7-44e3-4875-9f21-ad4e1201101d
-md"""
-### *Example: Kernel-based Function Approximation on Random Walk Example*
-"""
-
 # ╔═╡ fda4d6cc-5868-4319-81c2-7a20dd0a7e9e
 #=╠═╡
 const random_walk_memory = build_value_memory(random_walk_state_mrp, 1f0, 100_000; α = 1f-2)
@@ -5016,6 +5187,12 @@ function random_walk_distance_kernel_approximation(memory::@NamedTuple{states::V
 	end
 end
 
+# ╔═╡ c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
+# ╠═╡ skip_as_script = true
+#=╠═╡
+plot([scatter(x = 1:1000, y = random_walk_distance_kernel_approximation(random_walk_memory; distance = (s, s′) -> (s - s′)^2 + 1f1).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
+  ╠═╡ =#
+
 # ╔═╡ 7254644c-1c92-428f-ba68-bb92cf404802
 #=╠═╡
 function random_walk_aggregation_kernel_approximation(memory::@NamedTuple{states::Vector{Float32}, values::Vector{Float32}}; num_groups = 10)
@@ -5034,65 +5211,11 @@ function random_walk_aggregation_kernel_approximation(memory::@NamedTuple{states
 end
   ╠═╡ =#
 
-# ╔═╡ 62b2437b-72df-4943-b898-ad38b6d2de99
-md"""
-### Distance Kernel Random Walk Approximation
-
-Note that a constant value is added to the distance in order to deal with the case of the query state matching a state in the memory.  In this case the distance is 0 so the kernel value is undefined.  Another way of dealing with this singularity is to simply assign the value in memory to that query state which in this example would simply use a single memory value for every estimate since all 1000 states are in the memory.
-"""
-
-# ╔═╡ c7c2395b-a5e9-4730-ab6e-11ef1d7639ee
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot([scatter(x = 1:1000, y = random_walk_distance_kernel_approximation(random_walk_memory; distance = (s, s′) -> (s - s′)^2 + 1f1).(Float32.(1:1000)), name = "Distance Kernel-based Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
-  ╠═╡ =#
-
-# ╔═╡ d7ef7190-2031-470a-bc80-e96c93276387
-md"""
-### State Aggregation Kernel Random Walk Approximation
-
-Note that this estimate should match the linear function approximation result for the same number of groups
-"""
-
-# ╔═╡ b2d97ba3-0816-4138-ae03-62423b82f960
-#=╠═╡
-md"""
-Number of Groups for Kernel Appoximation: $(@bind kernel_num_groups Slider(1:num_states; show_value=true, default = 10))
-"""
-  ╠═╡ =#
-
 # ╔═╡ 9ca3a044-3884-44c4-ae41-1ca8b44ae1c7
 # ╠═╡ skip_as_script = true
 #=╠═╡
 plot([scatter(x = 1:1000, y = random_walk_aggregation_kernel_approximation(random_walk_memory; num_groups = kernel_num_groups).(Float32.(1:num_states)), name = "State Aggregation Kernel Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
-
-# ╔═╡ c04be604-804a-44c3-b2da-98729a5e7508
-md"""
-### Tile Coding Kernel Method
-"""
-
-# ╔═╡ 3e395c5f-2410-4abe-be61-b6345caa9e1c
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@bind tile_coding_kernel_params PlutoUI.combine() do Child
-	md"""
-	Tile Size: $(Child(:tile_size, NumberField(0f0:0.001f0:1f0, default = 0.1f0)))
-
-	Number of Tilings: $(Child(:num_tilings, NumberField(1:100, default = 10)))
-	"""
-end
-  ╠═╡ =#
-
-# ╔═╡ 3be9fac4-17e6-4588-b4bc-2e7112e1bfbd
-#takes the dot product of the feature vector for a new state given an existing feature vector, the feature vector for the new state is never constructed
-function get_kernel_weight(feature_vector::AbstractVector{T}, active_features) where T<:Real
-	w = zero(T)
-	for i in active_features
-		w += feature_vector[i]
-	end
-	return w
-end
 
 # ╔═╡ b2dc9155-8cae-4034-bb82-32ad41851fbd
 #=╠═╡
@@ -5118,129 +5241,6 @@ end
 #=╠═╡
 plot([scatter(x = 1:1000, y = random_walk_tile_coding_kernel_approximation(random_walk_memory; tile_coding_kernel_params...).(Float32.(1:num_states)), name = "Tile-Coding Kernel Approximation"), scatter(y = random_walk_v.value_function[2:end-1], name = "true value")], Layout(xaxis_title = "State", yaxis_title = "Value"))
   ╠═╡ =#
-
-# ╔═╡ 905b032d-5fa0-4a3c-9055-fec92fd5879e
-md"""
-## 9.11 Looking Deeper at On-policy Learning: Interest and Emphasis
-"""
-
-# ╔═╡ 1636120f-9065-45a8-a849-731842374d60
-md"""
-## 9.12 Summary
-"""
-
-# ╔═╡ 022bb60c-6af7-4dd6-8410-69c7974707e8
-md"""
-> ### *Exercise 9.7*
-> One of the simplest artificial neural networks consists of a single semi-linear unit with a logistic nonlinearity.  The need to handle approximate value functions of this form is common in games that end with either a win or a loss, in which case the value of a state can be interpreted as the probability of winning.  Derive the learning algorithm for this case, from (9.7), such that no gradient notation appears.
-"""
-
-# ╔═╡ bd7b5685-cb86-4efc-9491-0a2f61905b45
-logit(x::T) where T<:Real = (one(T) + exp(-x))^-1
-
-# ╔═╡ cf8ae04a-9931-447f-8e1d-5bd6415c6a51
-md"""
-The logistic function can be used to constrain the output of a linear approximator to between 0 and 1.  This is useful when the target values are probabilities.
-"""
-
-# ╔═╡ 42ec6c21-996d-4a6f-84fb-f8ac0fb8fd7b
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot(scatter(x = -10:0.01:10, y = logit.(-10:0.01:10)), Layout(xaxis_title = "Linear Output", yaxis_title = "Logistic Output", title = L"f(x) = 1 / (1 + e^{-x})"))
-  ╠═╡ =#
-
-# ╔═╡ 272c7e61-8e16-421e-9c5b-b8ee32814e6b
-md"""
-The logistic function is: 
-$f(x) = 1 / (1 + e^{-x})$
-
-(9.7) is:
-
-$\mathbf{w}_{t+1} \doteq \mathbf{w}_t + \alpha [U_t - \hat v(S_t, \mathbf{w}_t)] \nabla \hat v(S_t, \mathbf{w}_t)$
-
-For a single semi-linear unit, $\hat v(S_t, \mathbf{w}_t) = f(\mathbf{w}_t ^\top \mathbf{x}_t)$ where $f$ is the logistic function and $\mathbf{x}_t$ is the feature vector of state $S_t$ with the same length as $\mathbf{w}_t$.  
-
-Also, using the definition of the logistic function:
-
-$\begin{flalign}
-f(x) &\doteq (1 + e^{-x})^{-1} \tag{1}\\
-f(x)^{-1} &= 1 + e^{-x} \\
-e^{-x} &= f(x)^{-1} - 1 \tag{2}\\
-\end{flalign}$
-
-Therefore, we can derive an expression for $f^\prime$ purely in terms of $f$:
-
-$\begin{flalign}
-f^\prime(x) &= -(1+e^{-x})^{-2}(-e^{-x}) \tag{chain rule} \\
-&= e^{-x}(1 + e^{-x})^{-2} \\
-&= f(x)^2 (f(x)^{-1} - 1) \tag{1 and 2}\\
-&= f(x) (1 - f(x)) \\
-\end{flalign}$
-
-Applying to (9.7) with the chain rule and using the fact that $\nabla \left ( \mathbf{w}_t ^\top \mathbf{x}_t \right ) = \mathbf{x}_t$ :
-
-$\begin{flalign}
-	\mathbf{w}_{t+1} &\doteq \mathbf{w}_t + \alpha [U_t - \hat v(S_t, \mathbf{w}_t)] \nabla \hat v(S_t, \mathbf{w}_t) \\
-
-	&= \mathbf{w}_t + \alpha [U_t - f(\mathbf{w}_t ^\top \mathbf{x}_t)] f(\mathbf{w}_t ^\top \mathbf{x}_t)(1-f(\mathbf{w}_t ^\top \mathbf{x}_t)) \mathbf{x}_t \\
-
-\end{flalign}$
-"""
-
-# ╔═╡ 76de6624-6be3-450e-85a8-83e91af53272
-md"""
-> ### *Exercise 9.8*
-> Arguably, the squared error used to derive (9.7) is inappropriate for the case treated in the preceding exercise, and the right error measure is the *cross-entropy loss*.  Repeat the derivation in Section 9.3, using the cross-entropy loss instead of the squared error in (9.4), all the way to an explicit form with no gradient or logarithm notation in it.  Is your final form more complex, or simpler, than you obtained in the preceding exercise?
-"""
-
-# ╔═╡ fa111767-96c2-44fe-8d26-29577f22b926
-md"""
-For a single output, the cross-entropy loss is 
-
-$$-y \log{\hat y} - (1 - y)\log(1 - \hat y)$$ where $\hat y = f(\mathbf{w}_t^{\top} \mathbf{x}_t)$ is the approximation and $y = U_t$.  
-"""
-
-# ╔═╡ 82b0fb07-3f10-4701-bf4d-e2e0189cee08
-md"""
-The error for each example is then: $-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t))$
-
-where $f(x) = 1/(1 + e^{-x})$ is the logistic function
-
-Our goal is to minimize this error over $\mu(s)$ using stochastic gradient descent, so the parameter update will be:
-
-$\mathbf{w}_{t+1} \doteq \mathbf{w}_t - \alpha \nabla \left [-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ]$
-
-From the previous exercise we know that $f^\prime(x) = f(x)(1-f(x))$, so applying the chain rule to the gradient gives: 
-
-$\nabla \log(f(x)) = \nabla(x)f^\prime(x)/f(x) = (1 - f(x))\nabla(x)$
-
-$\nabla \log(1 - f(x)) = -\nabla(x)f(x)^\prime/(1 - f(x)) = -f(x)\nabla(x)$
-
-Using the fact that $\nabla(\mathbf{w}_t^{\top} \mathbf{x}_t) = \mathbf{x}_t$ So the parameter update rule can be simplified to:
-
-$\begin{flalign}
-\mathbf{w}_{t+1} &= \mathbf{w}_t - \alpha \nabla \left [-U_t \log(f(\mathbf{w}_t^{\top} \mathbf{x}_t)) - (1 - U_t) \log(1 - f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ] \\
-&= \mathbf{w}_t - \alpha \left [ -U_t(1-f(\mathbf{w}_t^{\top} \mathbf{x}_t)))\nabla(\mathbf{w}_t^{\top} \mathbf{x}_t)) + (1 - U_t)f(\mathbf{w}_t^{\top} \mathbf{x}_t)) \nabla(\mathbf{w}_t^{\top} \mathbf{x}_t)) \right ] \\
-&= \mathbf{w}_t - \alpha  \left [-U_t + U_tf(\mathbf{w}_t^{\top} \mathbf{x}_t) + f(\mathbf{w}_t^{\top} \mathbf{x}_t) - U_t f(\mathbf{w}_t^{\top} \mathbf{x}_t)  \right ] \mathbf{x}_t \\
-&= \mathbf{w}_t + \alpha  \left [U_t - f(\mathbf{w}_t^{\top} \mathbf{x}_t) \right ] \mathbf{x}_t \\
-\end{flalign}$
-
-This update rule is much simpler than the one in exercise 9.8 and is identical to the linear update rule with $\hat v = f(\mathbf{w}_t^{\top} \mathbf{x}_t)$ instead of $\hat v = \mathbf{w}_t^{\top} \mathbf{x}_t$
-"""
-
-# ╔═╡ 1a69bf65-7fa5-4ebd-b8e2-543a8e0dbf4f
-cross_entropy_loss(y, ŷ) = -y*log(ŷ) - (1-y)*log(1-ŷ)
-
-# ╔═╡ b4327edc-0677-4daf-a86d-1bcc908f2337
-# ╠═╡ skip_as_script = true
-#=╠═╡
-plot([scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(0, LinRange(0, 1, 1000)), name = "y is false"), scatter(x = LinRange(0, 1, 1000), y = cross_entropy_loss.(1, LinRange(0, 1, 1000)), name = "y is true")], Layout(yaxis_title = "Cross Entropy Loss", xaxis_title = L"\hat y", title = "Cross Entropy Loss for a Single Output where the Target Value is True or False"))
-  ╠═╡ =#
-
-# ╔═╡ 5464338c-904a-4a1b-8d47-6c79da550c71
-md"""
-# Dependencies
-"""
 
 # ╔═╡ c1488837-602d-4fbf-9d18-fba4a7fc8140
 # ╠═╡ skip_as_script = true
@@ -5284,7 +5284,7 @@ PlutoUI = "~0.7.73"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.1"
+julia_version = "1.12.4"
 manifest_format = "2.0"
 project_hash = "084af7dd664e968f475c81f81eadcc5be059fcbc"
 
@@ -5387,7 +5387,7 @@ version = "0.9.5"
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
-version = "1.6.0"
+version = "1.7.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
@@ -5486,7 +5486,7 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.11.1+1"
+version = "8.15.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -5537,7 +5537,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.5.20"
+version = "2025.11.4"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -5551,7 +5551,7 @@ version = "0.3.29+0"
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.1+0"
+version = "3.5.4+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
@@ -5573,7 +5573,7 @@ version = "2.8.3"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.0"
+version = "1.12.1"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -5779,9 +5779,9 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 version = "1.64.0+1"
 
 [[deps.p7zip_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.5.0+2"
+version = "17.7.0+0"
 """
 
 # ╔═╡ Cell order:

@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.20
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
@@ -7,24 +7,18 @@ using InteractiveUtils
 # ╔═╡ bd3ad49f-f076-46de-a159-b7cbffabe3dc
 using PlutoDevMacros
 
-# ╔═╡ 7153065a-6e9e-4a03-9369-fcf63f8c238e
-using StaticArrays, Random
-
-# ╔═╡ 8a581882-c97d-4a3b-873a-212024a529a9
-# ╠═╡ show_logs = false
-@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) using ApproximationUtils
-
 # ╔═╡ f6125f11-8719-4c10-be91-3fe981e2d921
 # ╠═╡ skip_as_script = true
 #=╠═╡
 begin
-	using PlutoUI, PlutoPlotly ,StatsBase, BenchmarkTools, PlutoProfile, HypertextLiteral, LaTeXStrings
+	using PlutoUI, PlutoPlotly , BenchmarkTools, PlutoProfile, HypertextLiteral, LaTeXStrings
 	TableOfContents()
 end
   ╠═╡ =#
 
 # ╔═╡ 062f756b-6640-4928-9216-c54316503944
 @only_in_nb begin
+	@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) import *
 	include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-10", "Chapter_10_On_policy_Control_with_Approximation.jl"))
 	include(joinpath(@__DIR__, "..", "Chapter-11", "Chapter_11_Off_policy_Methods_with_Approximation.jl"))
@@ -2458,12 +2452,16 @@ md"""
 setup_mountaincar_tiles(num_tiles::Integer, num_tilings::Integer) = tile_coding_feature_setup(MountainCarTask.mdp, (-1.2f0, -0.07f0), (0.5f0, 0.07f0), (1f0/num_tiles, 1f0/num_tiles), num_tilings)
 
 # ╔═╡ c35b4242-8477-468f-bd86-32cda00229a4
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function run_mountaincar_λ_linear(α, λ, algo; num_steps = 50_000, num_tiles = 10, num_tilings = 10, kwargs...)
 	tile_coding = setup_mountaincar_tiles(num_tiles, num_tilings)
 	algo(MountainCarTask.deterministic_mdp, 1f0, λ, typemax(Int64), num_steps, tile_coding.feature_vector, tile_coding.update_feature_vector!; α = α, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ cd0b96eb-150c-4441-ad79-8c0305213cbd
+#=╠═╡
 function run_mountaincar_λ_linear_trial(α, λ, algo; kwargs...)
 	output = run_mountaincar_λ_linear(α, λ, algo; kwargs...)
 	step_history = output.episode_steps
@@ -2471,6 +2469,7 @@ function run_mountaincar_λ_linear_trial(α, λ, algo; kwargs...)
 	l = length(step_history)
 	return step_history[end] / l
 end
+  ╠═╡ =#
 
 # ╔═╡ 4bd74da4-382b-47af-bfca-78b3318e2df7
 # ╠═╡ skip_as_script = true
@@ -3336,10 +3335,13 @@ md"""
 """
 
 # ╔═╡ ec0ba4b3-3af4-464e-916e-e34df1605c8e
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function run_cartpole_tilecoding(α, λ; algo::Function = sarsa_λ_linear, γ = 0.9f0, num_steps = 10_000, ϵ = 0.01f0, num_tiles = (8, 8, 8, 8), num_tilings = 8, kwargs...)
 	mdp, setup = setup_cartpole_problem(;num_tiles = num_tiles, num_tilings = num_tilings)
 	algo(mdp, γ, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!; α = α, ϵ = ϵ, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ 70f0a00c-86f5-4a03-8b95-1333afba30e7
 #=╠═╡
@@ -3451,13 +3453,17 @@ function normalized_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3
 end
 
 # ╔═╡ d9635e75-6e5c-41d2-b906-5025b58f9d0f
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function run_mountaincar_λ_fcann(α, λ, algo; num_steps = 50_000, layers = [16, 16], kwargs...)
 	mdp = MountainCarTask.deterministic_mdp
 	setup = normalized_feature_setup(mdp, identity, (-1.2f0, -0.07f0), (0.5f0, 0.07f0); range = 1.725f0)
 	algo(mdp, 1f0, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ e2ccff6e-6791-4338-8ec2-eef47f388bb1
+#=╠═╡
 function run_mountaincar_λ_fcann_trial(α, λ, algo; kwargs...)
 	output = run_mountaincar_λ_fcann(α, λ, algo; kwargs...)
 	step_history = output.episode_steps
@@ -3465,6 +3471,7 @@ function run_mountaincar_λ_fcann_trial(α, λ, algo; kwargs...)
 	l = length(step_history)
 	return step_history[end] / l
 end
+  ╠═╡ =#
 
 # ╔═╡ 48923864-c40c-45ca-907e-2c0c03587f2c
 # ╠═╡ skip_as_script = true
@@ -3497,6 +3504,8 @@ const mountaincar_fcann_λ_best = run_mountaincar_λ_fcann(8f-6, 0.99f0, dp_λ_f
   ╠═╡ =#
 
 # ╔═╡ 6ee6d7d0-9381-4413-a361-e836ac5240de
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function setup_cartpole_problem_fcann(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max = deg2rad(70f0), ẋ_max = 50f0, θ̇_max = 10f0, kwargs...)
 	init_θ() = rand([-0.02f0, 0.02f0])
 	mdp = create_cartpole_mdp(h = h, f = f, x_max = x_max, θ_max = θ_max, init_θ = init_θ, kwargs...)
@@ -3504,12 +3513,16 @@ function setup_cartpole_problem_fcann(;h = 4f-2, f = 300f0, x_max = 50f0, θ_max
 	setup = normalized_feature_setup(mdp, extract_values, (-x_max, -θ_max, -ẋ_max, -θ̇_max), (x_max, θ_max, ẋ_max, θ̇_max))
 	(mdp = mdp, setup = setup)
 end
+  ╠═╡ =#
 
 # ╔═╡ 834055ef-0bdc-4b4b-9c3f-ce7f43864ef7
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function run_cartpole_fcann(α, λ; algo::Function = sarsa_λ_fcann, γ = 0.9f0, num_steps = 10_000, ϵ = 0.01f0, layers = [4, 4], kwargs...)
 	mdp, setup = setup_cartpole_problem_fcann()
 	algo(mdp, γ, λ, typemax(Int64), num_steps, setup.feature_vector, setup.update_feature_vector!, layers; α = α, ϵ = ϵ, kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ 4b13b020-0dd2-45ff-adb5-d67cdd3a77f6
 #=╠═╡
@@ -3557,7 +3570,9 @@ end
   ╠═╡ =#
 
 # ╔═╡ d0e96989-c165-48d6-ba4b-4eab05fcb638
+#=╠═╡
 const cartpole_fcann_λ_best = run_cartpole_fcann(.14f0, 0.0f0; algo = dp_λ_fcann, layers = fill(4, 4), num_steps = 100_000)
+  ╠═╡ =#
 
 # ╔═╡ 993f8193-7488-415d-85d5-9a7a83f6bf71
 #=╠═╡
@@ -4364,9 +4379,6 @@ PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
-StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 BenchmarkTools = "~1.6.3"
@@ -4376,17 +4388,15 @@ PlutoDevMacros = "~0.9.1"
 PlutoPlotly = "~0.6.5"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.73"
-StaticArrays = "~1.9.15"
-StatsBase = "~0.34.7"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.1"
+julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "b9a830e646eb02d1bdf90c89ded62dd35e7c8982"
+project_hash = "3d1178c7404f262152d31e2855f70e2a3293599d"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -4398,12 +4408,6 @@ version = "1.3.2"
 git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
 uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 version = "0.3.4"
-
-[[deps.AliasTables]]
-deps = ["PtrArrays", "Random"]
-git-tree-sha1 = "9876e1e164b144ca45e9e3198d0b689cadfed9ff"
-uuid = "66dad0bd-aa9a-41b7-9441-69ab47430ed8"
-version = "1.1.3"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -4474,17 +4478,6 @@ deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.3.0+1"
 
-[[deps.DataAPI]]
-git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
-uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
-version = "1.16.0"
-
-[[deps.DataStructures]]
-deps = ["OrderedCollections"]
-git-tree-sha1 = "6c72198e6a101cccdd4c9731d3985e904ba26037"
-uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.19.1"
-
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -4504,7 +4497,7 @@ version = "0.9.5"
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
-version = "1.6.0"
+version = "1.7.0"
 
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
@@ -4567,11 +4560,6 @@ deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
 
-[[deps.IrrationalConstants]]
-git-tree-sha1 = "b2d91fe939cae05960e760110b328288867b5758"
-uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
-version = "0.2.6"
-
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
 git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
@@ -4608,7 +4596,7 @@ version = "0.6.4"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.11.1+1"
+version = "8.15.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -4634,22 +4622,6 @@ deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 version = "1.12.0"
 
-[[deps.LogExpFunctions]]
-deps = ["DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
-git-tree-sha1 = "13ca9e2586b89836fd20cccf56e57e2b9ae7f38f"
-uuid = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
-version = "0.3.29"
-
-    [deps.LogExpFunctions.extensions]
-    LogExpFunctionsChainRulesCoreExt = "ChainRulesCore"
-    LogExpFunctionsChangesOfVariablesExt = "ChangesOfVariables"
-    LogExpFunctionsInverseFunctionsExt = "InverseFunctions"
-
-    [deps.LogExpFunctions.weakdeps]
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-    ChangesOfVariables = "9e997f8a-9a97-42d5-a9f1-ce6bfc15e2c0"
-    InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
-
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
@@ -4669,19 +4641,13 @@ deps = ["Base64", "JuliaSyntaxHighlighting", "StyledStrings"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 version = "1.11.0"
 
-[[deps.Missings]]
-deps = ["DataAPI"]
-git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
-uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
-version = "1.2.0"
-
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.5.20"
+version = "2025.11.4"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -4695,7 +4661,7 @@ version = "0.3.29+0"
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.1+0"
+version = "3.5.4+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
@@ -4717,7 +4683,7 @@ version = "2.8.3"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.0"
+version = "1.12.1"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -4801,11 +4767,6 @@ git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 version = "0.1.0"
 
-[[deps.PtrArrays]]
-git-tree-sha1 = "1d36ef11a9aaf1e8b74dacc6a731dd1de8fd493d"
-uuid = "43287f4e-b6f4-7ad1-bb20-aadabca52c3d"
-version = "1.3.0"
-
 [[deps.REPL]]
 deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -4851,66 +4812,21 @@ version = "1.11.0"
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 version = "1.11.0"
 
-[[deps.SortingAlgorithms]]
-deps = ["DataStructures"]
-git-tree-sha1 = "64d974c2e6fdf07f8155b5b2ca2ffa9069b608d9"
-uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
-version = "1.2.2"
-
-[[deps.SparseArrays]]
-deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
-uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.12.0"
-
-[[deps.StaticArrays]]
-deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
-git-tree-sha1 = "b8693004b385c842357406e3af647701fe783f98"
-uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "1.9.15"
-
-    [deps.StaticArrays.extensions]
-    StaticArraysChainRulesCoreExt = "ChainRulesCore"
-    StaticArraysStatisticsExt = "Statistics"
-
-    [deps.StaticArrays.weakdeps]
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-    Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-
-[[deps.StaticArraysCore]]
-git-tree-sha1 = "6ab403037779dae8c514bad259f32a447262455a"
-uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
-version = "1.4.4"
-
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 version = "1.11.1"
-weakdeps = ["SparseArrays"]
 
     [deps.Statistics.extensions]
     SparseArraysExt = ["SparseArrays"]
 
-[[deps.StatsAPI]]
-deps = ["LinearAlgebra"]
-git-tree-sha1 = "9d72a13a3f4dd3795a195ac5a44d7d6ff5f552ff"
-uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
-version = "1.7.1"
-
-[[deps.StatsBase]]
-deps = ["AliasTables", "DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "a136f98cefaf3e2924a66bd75173d1c891ab7453"
-uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.34.7"
+    [deps.Statistics.weakdeps]
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 version = "1.11.0"
-
-[[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
-uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.8.3+2"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -4973,9 +4889,9 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 version = "1.64.0+1"
 
 [[deps.p7zip_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.5.0+2"
+version = "17.7.0+0"
 """
 
 # ╔═╡ Cell order:
@@ -5237,8 +5153,6 @@ version = "17.5.0+2"
 # ╟─0358288e-be4e-46c2-ac4c-16ace6f50187
 # ╟─2fb6e491-be69-44e8-ae2d-9cb13ec0b66f
 # ╠═bd3ad49f-f076-46de-a159-b7cbffabe3dc
-# ╠═7153065a-6e9e-4a03-9369-fcf63f8c238e
-# ╠═8a581882-c97d-4a3b-873a-212024a529a9
 # ╠═062f756b-6640-4928-9216-c54316503944
 # ╟─2394cac9-3349-4684-9f08-506e4fe77a0d
 # ╠═f6125f11-8719-4c10-be91-3fe981e2d921
