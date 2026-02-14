@@ -18,9 +18,9 @@ end
   ╠═╡ =#
 
 # ╔═╡ fa5fecfd-c039-4063-9acb-365a046e06f2
-begin
-	@only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) import *
-	@only_in_nb include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
+@only_in_nb begin
+	PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) import *
+	include(joinpath(@__DIR__, "..", "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 end
 
 # ╔═╡ 35d59eae-77fd-11ef-2790-35dd5a834060
@@ -5225,7 +5225,7 @@ PlutoUI = "~0.7.73"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.4"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "3d1178c7404f262152d31e2855f70e2a3293599d"
 
