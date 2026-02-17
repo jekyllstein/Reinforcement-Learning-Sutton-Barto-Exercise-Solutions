@@ -245,9 +245,13 @@ end;
 const LinearFeatureVector{I} = Union{C1, C2, C3} where {I <: Integer, T<:Real, C1 <: Vector{T}, N, C2 <: BinaryFeatureVector{I, N}, C3 <: StateAggregationFeatureVector{I, N}}
 
 # ╔═╡ f8bc8f92-a9c6-4b7b-9a8e-48fbb1f85e6c
-function update_state_aggregation_feature_vector!(x::StateAggregationFeatureVector{I, N}, group_index::I) where {N, I<:Integer}
-	x.group_index = group_index
-	return x
+begin
+	function update_state_aggregation_feature_vector!(x::StateAggregationFeatureVector{I, N}, group_index::I) where {N, I<:Integer}
+		x.group_index = group_index
+		return x
+	end
+
+	update_state_aggregation_feature_vector!(x::StateAggregationFeatureVector{I, N}, y::StateAggregationFeatureVector{I, N}) where {N, I<:Integer} = update_state_aggregation_feature_vector!(x, y.group_index)
 end
 
 # ╔═╡ a2ffaa35-ee82-47fd-878e-dd535caab109
@@ -3105,7 +3109,7 @@ begin
 				@inbounds @simd for j in 1:N
 					x = X[j]
 					i = x.group_index
-					output[j, k] += c1*θ[i, j]
+					output[j, k] += c1*θ[i, k]
 				end
 			end
 		elseif O2 == 'T'
@@ -3113,7 +3117,7 @@ begin
 				@inbounds @simd for j in 1:N
 					x = X[j]
 					i = x.group_index
-					output[j, k] += c1*θ[i, j]
+					output[j, k] += c1*θ[k, i]
 				end
 			end
 		else
@@ -5284,7 +5288,7 @@ PlutoUI = "~0.7.73"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
+julia_version = "1.12.4"
 manifest_format = "2.0"
 project_hash = "084af7dd664e968f475c81f81eadcc5be059fcbc"
 
@@ -5850,7 +5854,7 @@ version = "17.7.0+0"
 # ╠═214714a5-ad1e-4439-8567-9095d10411a6
 # ╠═49320a88-206e-4283-b3fc-a5d1ac41ddc4
 # ╟─3160e3ec-d1b9-47ea-ad10-3d6ea40cc0b5
-# ╠═701137fb-b497-47a5-9455-2f4b1c78a44e
+# ╟─701137fb-b497-47a5-9455-2f4b1c78a44e
 # ╟─6b339182-f81c-475c-bf28-d03b57eda76f
 # ╟─b6737cef-b6f9-4e40-82d8-bf887e17eb7c
 # ╟─3db9f60e-a823-4d78-bd16-e73cedffa755

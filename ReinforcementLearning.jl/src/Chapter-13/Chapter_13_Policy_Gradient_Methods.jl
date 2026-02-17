@@ -5520,7 +5520,7 @@ SpecialFunctions = "~2.6.1"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.4"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "447668db5d5fd58c56ed9ba62506acf50f89edf8"
 

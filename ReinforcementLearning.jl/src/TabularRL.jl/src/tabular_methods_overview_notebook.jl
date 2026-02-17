@@ -303,6 +303,11 @@ md"""
 const wind_values = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
   ╠═╡ =#
 
+# ╔═╡ 029fa9d4-29fa-4232-b4b9-7cc8460ef64f
+#=╠═╡
+wind_values
+  ╠═╡ =#
+
 # ╔═╡ 3b3decd0-bb00-4fd2-a8eb-a5b14aede950
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -6566,7 +6571,7 @@ Transducers = "~0.4.82"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
+julia_version = "1.12.3"
 manifest_format = "2.0"
 project_hash = "59035a539e89e066415f8db13aca9604cc27f694"
 
@@ -6968,7 +6973,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.11.4"
+version = "2025.5.20"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -7277,6 +7282,7 @@ version = "17.7.0+0"
 """
 
 # ╔═╡ Cell order:
+# ╠═029fa9d4-29fa-4232-b4b9-7cc8460ef64f
 # ╟─b6144c34-9f2b-4dc4-81cb-20e3a4cef298
 # ╟─5340f896-674d-4675-b53a-8e22b536a269
 # ╟─6a3e83b0-b4b4-4f4b-bd72-eb97df199465
