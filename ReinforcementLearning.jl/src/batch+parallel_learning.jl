@@ -23,27 +23,52 @@ md"""
 To address some of the problems created by combining Q-learning with approximation techniques, DQN attempts to use a target network and a replay buffer to mitigate the moving target value problem and break correlations between consecutive samples.  
 """
 
-# ╔═╡ 6664ce5b-7d2c-4ca9-9a72-d57b954e5cb1
-#start implementing DQN, requires using a FIFO buffer for examples and calculating gradients on the total loss function rather than individual outputs
+# ╔═╡ 05535cef-05f4-42a1-925c-ceb85bb6dfba
+md"""
+## Linear Approximation
+"""
 
-# ╔═╡ 1612bc22-21df-4b19-b976-f5db1efe5a14
-test_queue = CircularBuffer{Tuple{Int64, Float32}}(2)
+# ╔═╡ 78a997cb-146c-4cb5-b2ec-4bd1188909e6
+md"""
+## Non-linear Approximation
+"""
 
-# ╔═╡ 2f18651d-a1a0-4b72-a0bf-be7903737ce9
-push!(test_queue, (50, 1f0))
+# ╔═╡ 0fd4da20-cf83-4071-b8a1-4259cbba7d8c
+md"""
+## Tabular Problem
 
-# ╔═╡ 21f81c1e-da56-4f54-81fb-d729b36576d9
-test_queue[1]
+For a tabular problem we can form feature vectors that are state aggregation features which have a unique feature for every state.
+"""
 
-# ╔═╡ 0c0a7330-29bf-4326-8939-78b7e8b58d55
-#fill in batch_inds with a uniform sample across the buffer_size or the current step, whichever is smaller
-function update_batch_inds!(batch_inds::Vector{Int64}, step::Integer, buffer_size::Integer)
-end
+# ╔═╡ c7f4374c-3151-443b-9d6a-85581c3f2438
+md"""
+## Gridworld Example
+"""
 
-# ╔═╡ 576ff132-27d0-4a91-a955-e797fe6637c1
-#update target values using parameters, action_value computation function and batch_args which will vary depending on the type of network
-function update_targets!(targets::Vector{T}, batch_inds::Vector{Int64}, update_action_values!::Function, target_params::Q, batch_args...) where {T<:Real, Q}
-end
+# ╔═╡ 62bc710e-cd7e-43a5-bf9e-da024802358c
+md"""
+### Exact Solution
+"""
+
+# ╔═╡ 76bb3fb6-836b-42a7-8051-48e0856bedb3
+md"""
+### Approximation Methods
+
+With a problem this small, we can simply use parameters that isolate every state action pair; however, to test the effectiveness of algorithms that deal with non-linear functions and overfitting, we can also initialize a neural network that uses the state input as an (X, Y) coordinate.  In this case, we would normalize the X, Y position to a range such as -1 to 1 and use the pair of values as a dense input rather than the sparse input of length 70 where we one-hot encode the states.
+"""
+
+# ╔═╡ e4fd6d59-be28-4852-a2d2-6ddc1a40116d
+const gridworld_feature = zeros(Float32, 2)
+
+# ╔═╡ e8c3f789-7ede-4f6d-83ee-3050c9ef5840
+md"""
+### Q-learning Example
+"""
+
+# ╔═╡ 3c11234c-5ea5-4709-b84b-ae477fb8dc55
+md"""
+### DQN
+"""
 
 # ╔═╡ 33b59f50-07e1-11f1-9748-31081ab2ceaf
 md"""
@@ -53,61 +78,184 @@ md"""
 # ╔═╡ ad872f3c-7be0-4427-bd1d-5afe25b6e9fa
 @only_in_nb @fromparent import *
 
+# ╔═╡ 0c0a7330-29bf-4326-8939-78b7e8b58d55
+#fill in batch_inds with a uniform sample across the buffer_size or the current step, whichever is smaller
+function update_batch_inds!(batch_inds::Vector{Int64}, step::Integer, buffer_size::Integer)
+	l = min(buffer_size, step)
+	sample!(1:l, batch_inds; replace = false)
+end
+
 # ╔═╡ cf40f4b3-4495-4f26-a007-18c6589ed4cf
 begin
 	form_batch_action_value_args(mdp::StateMDP, feature_vector, parameters, batch_size::Integer) = ()
 
-	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::Vector{T}, parameters, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3}
+	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, parameters::FCANNParams{T}, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3}
 		num_actions = length(mdp.actions)
-		output_matrix = zeros(T, batch_size, num_actions)
-		feature_matrix = zeros(T, length(feature_vector), batch_size)
-		(feature_matrix, output_matrix, nothing)
-	end
-
-	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::Vector{T}, parameters::FCANNParams{T}, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3}
-		num_actions = length(mdp.actions)
-		output_matrix = zeros(T, batch_size, num_actions)
-		feature_matrix = zeros(T, length(feature_vector), batch_size)
 		activations = FCANN.form_activations(parameters.weights[1], batch_size)
-		(feature_matrix, output_matrix, activations)
+		(activations,)
 	end
 
 	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::Vector{T}, parameters::FCANNParamsGPU, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3}
 		num_actions = length(mdp.actions)
 		output_matrix = zeros(T, batch_size, num_actions)
 		gpu_output = FCANN.cuda_allocate(output_matrix)
-		feature_matrix = zeros(T, length(feature_vector), batch_size)
 		gpu_input = FCANN.cuda_allocate(feature_matrix)
 		activations = FCANN.form_activations(parameters.weights[1], batch_size)
-		(feature_matrix, gpu_input, output_matrix, gpu_output, activations)
+		(gpu_input, gpu_output, activations)
+	end
+end
+
+# ╔═╡ b3d7c539-d5a0-47fc-85bc-a62aafca8fa0
+begin
+	get_input_orientation(feature_matrix::Matrix{T}) where {T<:Real} = 'T'
+	get_input_orientation(feature_matrix::Vector{V}) where V<:AbstractBinaryFeatures = 'N'
+end
+
+# ╔═╡ 576ff132-27d0-4a91-a955-e797fe6637c1
+#update target values using parameters, action_value computation function and batch_args which will vary depending on the type of network
+begin
+	#linear function approximation with a dense feature vector
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real}
+		#update feature matrix with replay buffer
+		for i in eachindex(batch_inds)
+			(x, i_a, r, x′, terminated) = replay_buffer[batch_inds[i]]
+			update_feature_matrix!(feature_matrix, x′, i)
+			#populate target values with the reward 
+			targets[i] = r
+		end
+
+		#perform forward pass to fill in target values with function output times the discount rate plus the reward
+		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, target_params, zero(T), output_matrix)
+
+		#for non terminal states add to target discounted future function value
+		for i in eachindex(batch_inds)
+			(s, i_a, r, s′, terminated) = replay_buffer[batch_inds[i]]
+			if !terminated
+				targets[i] += γ * maximum(view(output_matrix, i, :))
+			end
+		end
 	end
 
-	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::V, parameters::FCANNParams{T}, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3, V<:AbstractBinaryFeatures}
-		num_actions = length(mdp.actions)
-		output_matrix = zeros(T, batch_size, num_actions)
-		feature_matrix = Vector{V}
-		activations = FCANN.form_activations(parameters.weights[1], batch_size)
-		(feature_matrix, output_matrix, activations)
+	#linear function approximation with a binary feature vector
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures}
+		#update feature matrix with replay buffer
+		for i in eachindex(batch_inds)
+			(x, i_a, r, x′, terminated) = replay_buffer[batch_inds[i]]
+			targets[i] = r
+			if !terminated
+				update_linear_action_values!(action_values, x′, target_params)
+				targets[i] += γ * maximum(action_values)
+			end
+		end
 	end
 
-	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::V, parameters, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3, V<:AbstractBinaryFeatures}
-		num_actions = length(mdp.actions)
-		output_matrix = zeros(T, batch_size, num_actions)
-		feature_matrix = Vector{V}
-		(feature_matrix, output_matrix, nothing)
+	#linear function approximation with a dense feature vector
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivations{T}) where {T<:Real}
+		#update feature matrix with replay buffer
+		for i in eachindex(batch_inds)
+			(x, i_a, r, x′, terminated) = replay_buffer[batch_inds[i]]
+			update_feature_matrix!(feature_matrix, x′, i)
+			#populate target values with the reward 
+			targets[i] = r
+		end
+
+		input_orientation = get_input_orientation(feature_matrix)
+
+		#perform forward pass to fill in target values with function output
+		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., feature_matrix, target_params.reslayers; input_orientation = input_orientation)
+		output_matrix .= activations[end]
+
+		#for non terminal states add to target discounted future function value
+		for i in eachindex(batch_inds)
+			(s, i_a, r, s′, terminated) = replay_buffer[batch_inds[i]]
+			if !terminated
+				targets[i] += γ * maximum(view(output_matrix, i, :))
+			end
+		end
+	end
+end
+
+# ╔═╡ a743f767-1ff6-4e1c-8c6f-88622d07c175
+begin
+	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_matrix::Matrix{T}) where {T<:Real}
+		#the feature matrix contains the feature vector of each example in a column, the i argument is the index of the example being used and i_a is the action index for that example
+		@inbounds @simd for j in 1:size(feature_matrix, 1)
+			∇q̂[j, i_a] += c * feature_matrix[j, i]
+		end
+	end
+
+	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{V}) where {T<:Real, V<:StateAggregationFeatureVector}
+		#the i argument is the index of the example being used and i_a is the action index for that example, only need to update term for the active feature in that action
+		i_s = feature_vectors[i].group_index
+		∇q̂[i_s, i_a] += c
+	end
+
+	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{V}) where {T<:Real, V<:BinaryFeatureVector}
+		#the i argument is the index of the example being used and i_a is the action index for that example, only need to update terms for active features in that action
+		x = feature_vectors[i]
+		@inbounds @simd for ind in 1:x.num_features
+			j = x.active_features[ind]
+			∇q̂[j, i_a] += c
+		end
+	end
+end
+
+# ╔═╡ f76f33f3-7cb3-4715-800c-9a0b2561f05b
+function ReinforcementLearning.update_linear_value_gradient!(∇q̂::Matrix{T}, value_params::Matrix{T}, targets::Vector{T}, output_indices::Vector{I}, feature_matrix, output_matrix::Matrix{T}) where {T<:Real, I<:Integer}
+	#reset gradient to 0
+	∇q̂ .= zero(T)
+
+	#initialize batch size in order to calculate constant for average
+	batch_size = length(targets)
+	c = T(2 / batch_size)
+
+	#get reference value using value params
+	LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, value_params, zero(T), output_matrix)
+
+	#accumulate gradient of loss function per example
+	for i in eachindex(targets)
+		q̂ = output_matrix[i, output_indices[i]]
+		δ = targets[i] - q̂
+		accumulate_linear_gradient!(∇q̂, c*δ, i, output_indices[i], feature_matrix)
+	end
+end
+
+# ╔═╡ f7a94436-b905-48b5-a0f3-ae26d0ecab5e
+#=╠═╡
+begin
+	function ReinforcementLearning.update_fcann_value_gradient!(∇q̂::FCANNParams{T}, value_params::FCANNParams{T}, targets::Vector{T}, output_indices::Vector{I}, feature_matrix, output_matrix::Matrix{T}, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivations{T}, activations::FCANNActivations{T}, deltas::FCANNActivations{T}, dropout::T, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool, I<:Integer}
+		FCANN.nnCostFunction(params.weights..., hidden_layers, x, targets, output_indices, l2, ∇v̂.weights..., tanh_grad_z, activations, deltas, dropout; resLayers = params.reslayers, loss_type = "sqErr", activation_list = activation_list, input_orientation = get_input_orientation(feature_matrix))
+	end
+end
+  ╠═╡ =#
+
+# ╔═╡ 2dd9b971-fa6e-4a55-8a82-b16739199fab
+begin
+	form_feature_matrix(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::Vector{T}, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3} = zeros(T, length(feature_vector), batch_size)
+
+	function form_feature_matrix(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::V, batch_size::Integer)  where {T<:Real, S, A, P, F1, F2, F3, V<:AbstractBinaryFeatures}
+		output = Vector{V}(undef, batch_size)
+		for i in 1:batch_size
+			output[i] = deepcopy(feature_vector)
+		end
+		return output
 	end
 end
 
 # ╔═╡ 3a4510e6-054b-40fe-989d-7ac8c86db757
-function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, kwargs...) where {Q, T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function}
+function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::V, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer = 100, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, kwargs...) where {Q, T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V}
 
 	#initialize memory
 	action_values = zeros(T, length(mdp.actions))
 	policy = copy(action_values)
-	replay_buffer = CircularBuffer{Tuple{S, Int64, T, S, Bool}}(buffer_size)
+	replay_buffer = CircularBuffer{Tuple{V, Int64, T, V, Bool}}(buffer_size)
 	targets = Vector{T}(undef, batch_size)
 	batch_inds = Vector{Int64}(undef, batch_size)
+	feature_matrix = form_feature_matrix(mdp, feature_vector, batch_size)
+	output_matrix = zeros(T, batch_size, length(mdp.actions))
 	batch_args = form_batch_action_value_args(mdp, feature_vector, value_params, batch_size)
+	output_inds = Vector{Int64}(undef, batch_size)
+	feature_vector2 = deepcopy(feature_vector)
 	
 	s = mdp.initialize_state()
 	update_feature_vector!(feature_vector, s)
@@ -130,8 +278,10 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 
 		#get next reward and state from transition and add it to the replay buffer, note that the buffer also stores whether the transition state s′ is terminal
 		(r, s′) = mdp.ptf(s, i_a)
+		update_feature_vector!(feature_vector2, s′)
 		terminated = mdp.isterm(s′)
-		push!(replay_buffer, (s, i_a, r, s′, terminated))
+		
+		push!(replay_buffer, (deepcopy(feature_vector), i_a, r, deepcopy(feature_vector2), terminated))
 
 		save_step_rewards && push!(step_rewards, r)
 
@@ -139,7 +289,9 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 
 		#if an episode terminates, initialize a new starting state and add information about the episode to the history
 		if terminated
+			# @info "episode terminated on step $step with reward $r"
 			s′ = mdp.initialize_state()
+			update_feature_vector!(feature_vector2, s′)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
@@ -147,31 +299,43 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 		end
 
 		#prepare next action selection from s′
-		update_feature_vector!(feature_vector, s′)
-		update_action_values!(action_values, feature_vector, value_params)
+		# update_feature_vector!(feature_vector, s′)
+		update_action_values!(action_values, feature_vector2, value_params)
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 		i_a′ = sample_action(policy)
+		#@info "action choice is $i_a′"
 
 		decay *= (step > decay_step)*α_decay + (step <= decay_step)
 
 		#only perform gradient parameter update once the replay buffer is large enough to fill up an entire batch
 		if step ≥ batch_size
 			update_batch_inds!(batch_inds, step, buffer_size)
+			# @info "batch inds are $batch_inds"
 			
-			update_targets!(targets, batch_inds, update_action_values!, target_params, batch_args...)
+			update_targets!(targets, γ, replay_buffer, batch_inds, target_params, feature_matrix, action_values, output_matrix, batch_args...)
+			# @info "target values are $targets"
+
+			#update feature matrix
+			for i in eachindex(batch_inds)
+				(x_k, i_a_k, _, _, _) = replay_buffer[batch_inds[i]]
+				update_feature_matrix!(feature_matrix, x_k, i)
+				output_inds[i] = i_a_k
+			end
 	
-			update_value_gradient!(∇q̂, value_params, replay_buffer, targets, batch_args...)
+			update_value_gradient!(∇q̂, value_params, targets, output_inds, feature_matrix, output_matrix, batch_args...)
 	
 			update_params_with_gradient!(value_params, α*decay, ∇q̂)
 
 			#on set interval update target params with current value params
 			if iszero(step % target_update_interval)
+				# @info "batch stuff: target = $targets, inds = $output_inds"
 				copy!(target_params, value_params)
 			end
 		end
 		
 		s = s′
+		feature_vector = deepcopy(feature_vector2)
 		i_a = i_a′
 		step += 1
 	end
@@ -179,6 +343,238 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, value_params)
 	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, final_parameters = deepcopy(value_params), form_kwargs = form_kwargs)
 end
+
+# ╔═╡ 830ba410-377a-423b-9e75-6884c8cbbbea
+dqn_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), value_params::Matrix{T} = initialize_linear_parameters(feature_vector,mdp, init_value), target_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = dqn!(value_params, target_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, copy(value_params), update_linear_value_gradient!; kwargs...) 
+
+# ╔═╡ 05fa2e5c-8633-4c43-89ba-09dd0c83cdfa
+function dqn(mdp::TabularMDP, γ::T, max_episodes::Integer, max_steps::Integer; kwargs...) where T<:Real 
+	state_mdp = StateMDP(mdp)
+	setup = state_aggregation_feature_setup(first(mdp.states), length(mdp.states), s -> mdp.state_index[s])
+	dqn_linear(state_mdp, γ, max_episodes, max_steps, setup...; kwargs...)
+end
+
+# ╔═╡ a3d54085-dbdc-4889-9313-efd1ece2150a
+const gridworld_mdp = make_stochastic_gridworld(;wind = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0])
+
+# ╔═╡ 8b141bcf-db3e-44d2-96de-c916f4018740
+#=╠═╡
+function plot_gridworld_value_function(v::Vector{T}) where T<:Real
+	zs = zeros(T, 7, 10)
+	xs = 1:10
+	ys = 1:7
+	for (i, s) in enumerate(gridworld_mdp.states)
+		if !iszero(v[i])
+			zs[s.y, s.x] = v[i]
+		else
+			zs[s.y, s.x] = NaN32
+		end
+	end
+	tr = heatmap(x = xs, y = ys, z = zs)
+	plot(tr, Layout(yaxis_scaleanchor = "x", xaxis_ticknames = 1:10, xaxis_tickvals = 1:10, width = 560))
+end
+  ╠═╡ =#
+
+# ╔═╡ 37a4303b-a4b9-423a-a5fa-3282c323f04b
+#=╠═╡
+function plot_gridworld_value_function(q̂::Function)
+	zs = zeros(Float32, 7, 10)
+	xs = 1:10
+	ys = 1:7
+	for (i, s) in enumerate(gridworld_mdp.states)
+		out = q̂(s)
+		zs[s.y, s.x] = out.maximizing_value
+	end
+	tr = heatmap(x = xs, y = ys, z = zs)
+	plot(tr, Layout(yaxis_scaleanchor = "x", xaxis_ticknames = 1:10, xaxis_tickvals = 1:10, width = 560))
+end
+  ╠═╡ =#
+
+# ╔═╡ de6aca47-7d2c-4c8c-8df9-c3e16e6dc2bd
+const gridworld_dqn = dqn(gridworld_mdp, 0.99f0, typemax(Int64), 40_000; α = 3f-4, ϵ = 0.01f0, buffer_size = 10_000, batch_size = 512, target_update_interval = 100)
+
+# ╔═╡ 696650a0-9e0f-45d0-a768-679b02688f06
+const gridworld_state_mdp = StateMDP(gridworld_mdp)
+
+# ╔═╡ 01697aad-517e-4e48-b543-92d2974990ef
+# ╠═╡ show_logs = false
+const gridworld_exact = value_iteration_v(gridworld_mdp, 0.99f0; save_history = false)
+
+# ╔═╡ 293ee629-3fb9-442d-be27-11e9c0545fae
+#=╠═╡
+plot_gridworld_value_function(gridworld_exact.final_value)
+  ╠═╡ =#
+
+# ╔═╡ 8705bc78-b419-4b30-8a1e-02398fd456b5
+begin
+	function eval_gridworld_final_policy(π::Matrix{T}; samples = 10_000) where T<:Real
+		out = [runepisode(gridworld_mdp; π = π)[5] for _ in 1:samples]
+		summarystats(out)
+	end
+
+	function eval_gridworld_final_policy(π::Function; samples = 10_000)
+		state_mdp = StateMDP(gridworld_mdp)
+		out = [runepisode(state_mdp; π = π)[5] for _ in 1:samples]
+		summarystats(out)
+	end
+end
+
+# ╔═╡ 2753435d-8ea2-4bab-9b06-cb0e36bcab99
+eval_gridworld_final_policy(gridworld_exact.optimal_policy)
+
+# ╔═╡ d1058fb3-cb03-4031-b089-ce5f077036a0
+eval_gridworld_final_policy(s -> gridworld_dqn.value_function(s).maximizing_action)
+
+# ╔═╡ 9a70941b-bf9e-4b3c-aef6-915f3e2019fe
+function update_gridworld_feature!(v::Vector{T}, s::GridworldState) where T<:Real
+	xmin = 1
+	xmax = 10
+	ymin = 1
+	ymax = 7
+	v[1] = 2*(((s.x - xmin) / (xmax - xmin)) - one(T)/2)
+	v[2] = 2*(((s.y - ymin) / (ymax - ymin)) - one(T)/2)
+	return v
+end
+
+# ╔═╡ 81058b8e-c80c-4a39-b33e-15b42d1225b8
+const gridworld_q = sarsa_λ(gridworld_mdp, 0.99f0, 0f0, typemax(Int64), 100_000; α = 3f-4, ϵ = 0.1f0)
+
+# ╔═╡ 4f222b09-00e0-48b9-bd3e-6b6ebfba5727
+eval_gridworld_final_policy(s -> gridworld_q.value_function(s).maximizing_action)
+
+# ╔═╡ ab6d36c1-5674-49f4-b291-f367840c9335
+const gridworld_q2 = sarsa_λ_linear(gridworld_state_mdp, 0.99f0, 0f0, typemax(Int64), 100_000, gridworld_feature, update_gridworld_feature!; α = 0.04f0, ϵ = 0.01f0, compute_value = compute_q_learning_value)
+
+# ╔═╡ 809132ad-fad8-4bc7-b8f4-1f98dbc8503c
+eval_gridworld_final_policy(s -> gridworld_q2.value_function(s).maximizing_action)
+
+# ╔═╡ b2096a04-74f8-4287-aad5-dc27752a21f7
+#=╠═╡
+plot_gridworld_value_function(gridworld_q2.value_function)
+  ╠═╡ =#
+
+# ╔═╡ b067424c-2b40-4d99-9dba-419af6fb2209
+#=╠═╡
+function eval_gridworld_returns(output::NamedTuple; total_steps = 100_000, interval = 100)
+	step_rewards = zeros(Float32, total_steps)
+	step_rewards[output.episode_steps] .= 1f0
+	[mean(view(step_rewards, i-interval+1:i)) for i in interval:interval:total_steps]
+end
+  ╠═╡ =#
+
+# ╔═╡ 281718b9-3123-479f-8847-37e48b6298f7
+#=╠═╡
+eval_gridworld_returns(gridworld_q2; interval = 1000) |> plot
+  ╠═╡ =#
+
+# ╔═╡ b1880149-4d45-4cfb-91cd-4c094ac5a1eb
+#=╠═╡
+function evaluate_gridworld_q_learning(γ, steps, α, ϵ; nruns = 100, kwargs...)
+	f(x) = sarsa_λ(gridworld_mdp, γ, 0f0, typemax(Int64), steps; α = α, ϵ = ϵ) |> v -> eval_gridworld_returns(v; total_steps = steps, kwargs...)
+	1:nruns |> Map(f) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+end
+  ╠═╡ =#
+
+# ╔═╡ daa89863-cb36-4a12-a699-646d8ba55904
+#=╠═╡
+plot([scatter(y = evaluate_gridworld_q_learning(0.99f0, 20_000, α, 0.01f0; nruns = 100, interval = 100), name = "α = $α") for α in [1f-2, 1f-3, 1f-4]], Layout(title = "Q-learning Gridworld Rewards"))
+  ╠═╡ =#
+
+# ╔═╡ c5e0bbaf-a04d-4940-b7ab-3317f9d513a9
+#=╠═╡
+function evaluate_gridworld_q_learning2(γ, steps, α, ϵ; nruns = 100, kwargs...)
+	f(x) = sarsa_λ_linear(gridworld_state_mdp, γ, 0f0, typemax(Int64), steps, gridworld_feature, update_gridworld_feature!; α = α, ϵ = ϵ) |> v -> eval_gridworld_returns(v; total_steps = steps, kwargs...)
+	1:nruns |> Map(f) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+end
+  ╠═╡ =#
+
+# ╔═╡ 7edf78dd-9dad-4726-8173-c95f3e4ed6ab
+#=╠═╡
+plot([scatter(y = evaluate_gridworld_q_learning2(0.99f0, 100_000, α, 0.1f0; nruns = 100, interval = 100), name = "α = $α") for α in [1f-2, 1f-3, 1f-4]], Layout(title = "Q-learning Gridworld Rewards"))
+  ╠═╡ =#
+
+# ╔═╡ d4a59bc4-2c2a-4966-8e1a-e336e26d4d40
+const gridworld_q3 = sarsa_λ_fcann(gridworld_state_mdp, 0.99f0, 0.5f0, typemax(Int64), 100_000, gridworld_feature, update_gridworld_feature!, [32, 32]; α = .15f0, ϵ = 0.05f0, reslayers = 1)
+
+# ╔═╡ 16bdaa3d-77b2-433b-8343-54af3a121e85
+eval_gridworld_final_policy(s -> gridworld_q3.value_function(s).maximizing_action)
+
+# ╔═╡ d437cfc2-6dfe-40a9-bb22-c90d25bebd25
+#=╠═╡
+plot_gridworld_value_function(gridworld_q3.value_function)
+  ╠═╡ =#
+
+# ╔═╡ 22744a27-614a-4317-a0ed-833bb0ef659c
+const gridworld_value_studies = setup_episodic_value_parameter_studies(gridworld_state_mdp, gridworld_feature, update_gridworld_feature!; use_steps = true, min_reward = 0f0)
+
+# ╔═╡ 95098580-9d74-41af-af28-c08c7dede5f4
+function display_study(study::NamedTuple)
+	results = study.results
+	DataFrame(begin
+		(;k..., value = results[k])
+	end
+	for k in keys(results))
+end
+
+# ╔═╡ 1a3493ac-966b-4260-8c06-0e60033ba41f
+begin
+	for α in 2f0 .^ (-15:-1)
+		gridworld_value_studies.sarsa_linear_study.update_results!(0.99f0, α, 0.0f0, 100_000; ϵ = 0.05f0, compute_value = compute_q_learning_value)
+	end
+	display_study(gridworld_value_studies.sarsa_linear_study) |> df -> sort(df, :value; rev=true)
+end
+
+# ╔═╡ f1130bab-babd-41e1-891c-00a2d846b39f
+begin
+	for α in 2f0 .^ (-9:-2)
+		gridworld_value_studies.sarsa_nonlinear_study.update_results!(0.99f0, α, 0.0f0, 100_000, 16, 4, 1; ϵ = 0.01f0, compute_value = compute_sarsa_value)
+	end
+	display_study(gridworld_value_studies.sarsa_nonlinear_study) |> df -> sort(df, :value; rev=true)
+end
+
+# ╔═╡ cd104c87-dd11-45a7-9ef5-ccecfdea3abd
+#=╠═╡
+function evaluate_gridworld_q_learning3(γ, steps, α, ϵ; nruns = 100, hidden_layers = [8, 8], λ = 0f0, kwargs...)
+	f(x) = sarsa_λ_fcann(gridworld_state_mdp, γ, λ, typemax(Int64), steps, gridworld_feature, update_gridworld_feature!, hidden_layers; α = α, ϵ = ϵ, compute_value = compute_q_learning_value) |> v -> eval_gridworld_returns(v; total_steps = steps, kwargs...)
+	1:nruns |> Map(f) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+end
+  ╠═╡ =#
+
+# ╔═╡ 55f2b6a8-52e7-47bd-82a1-40fa0ff11d98
+#=╠═╡
+plot([scatter(y = evaluate_gridworld_q_learning3(0.99f0, 100_000, α, 0.05f0; nruns = 40, interval = 100, λ = 0.0f0, hidden_layers = [32, 32]), name = "α = $α") for α in [.125f0]], Layout(title = "Q-learning Gridworld Rewards"))
+  ╠═╡ =#
+
+# ╔═╡ 1109fcd4-1706-4022-9422-f4e947f275af
+#=╠═╡
+function evaluate_gridworld_dqn(γ, steps, α, ϵ, buffer_size, batch_size, update_interval; nruns = 100, kwargs...)
+	f(x) = dqn(gridworld_mdp, γ, typemax(Int64), steps; α = α, ϵ = ϵ, buffer_size = buffer_size, batch_size = batch_size, target_update_interval = update_interval) |> v -> eval_gridworld_returns(v; total_steps = steps, kwargs...)
+	1:nruns |> Map(f) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+end
+  ╠═╡ =#
+
+# ╔═╡ b045eb8f-5911-4afe-b9aa-6bd291a2652c
+#=╠═╡
+plot([scatter(y = evaluate_gridworld_dqn(0.99f0, 20_000, 1f-4, 0.01f0, buffer_size, 512, 100; nruns = 100, interval = 100), name = "buffer size: $buffer_size") for buffer_size in [1000, 2000, 10_000]])
+  ╠═╡ =#
+
+# ╔═╡ 8621e3e0-f145-46a9-a08c-2f2327525e85
+#=╠═╡
+TableOfContents()
+  ╠═╡ =#
+
+# ╔═╡ ea607cf6-a263-4d44-9d72-dc9a5de055ad
+html"""
+	<style>
+		main {
+			margin: 0 auto;
+			max-width: min(1600px, 90%);
+	    	padding-left: max(10px, 5%);
+	    	padding-right: max(10px, 5%);
+			font-size: max(10px, min(24px, 2vw));
+		}
+	</style>
+	"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -203,7 +599,7 @@ PlutoUI = "~0.7.79"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.4"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "c7d214e40b00e5489998fe95c088b0dc2a5411f0"
 
@@ -711,18 +1107,65 @@ version = "17.7.0+0"
 
 # ╔═╡ Cell order:
 # ╟─78e8285e-5b98-420c-9fdc-cb943053a206
-# ╠═6664ce5b-7d2c-4ca9-9a72-d57b954e5cb1
-# ╠═1612bc22-21df-4b19-b976-f5db1efe5a14
-# ╠═2f18651d-a1a0-4b72-a0bf-be7903737ce9
-# ╠═21f81c1e-da56-4f54-81fb-d729b36576d9
 # ╠═0c0a7330-29bf-4326-8939-78b7e8b58d55
-# ╠═576ff132-27d0-4a91-a955-e797fe6637c1
 # ╠═cf40f4b3-4495-4f26-a007-18c6589ed4cf
+# ╠═b3d7c539-d5a0-47fc-85bc-a62aafca8fa0
+# ╠═576ff132-27d0-4a91-a955-e797fe6637c1
+# ╠═a743f767-1ff6-4e1c-8c6f-88622d07c175
+# ╠═f76f33f3-7cb3-4715-800c-9a0b2561f05b
+# ╠═f7a94436-b905-48b5-a0f3-ae26d0ecab5e
+# ╠═2dd9b971-fa6e-4a55-8a82-b16739199fab
 # ╠═3a4510e6-054b-40fe-989d-7ac8c86db757
+# ╟─05535cef-05f4-42a1-925c-ceb85bb6dfba
+# ╠═830ba410-377a-423b-9e75-6884c8cbbbea
+# ╟─78a997cb-146c-4cb5-b2ec-4bd1188909e6
+# ╟─0fd4da20-cf83-4071-b8a1-4259cbba7d8c
+# ╠═05fa2e5c-8633-4c43-89ba-09dd0c83cdfa
+# ╟─c7f4374c-3151-443b-9d6a-85581c3f2438
+# ╠═a3d54085-dbdc-4889-9313-efd1ece2150a
+# ╠═696650a0-9e0f-45d0-a768-679b02688f06
+# ╟─62bc710e-cd7e-43a5-bf9e-da024802358c
+# ╠═01697aad-517e-4e48-b543-92d2974990ef
+# ╠═293ee629-3fb9-442d-be27-11e9c0545fae
+# ╠═8b141bcf-db3e-44d2-96de-c916f4018740
+# ╠═8705bc78-b419-4b30-8a1e-02398fd456b5
+# ╠═2753435d-8ea2-4bab-9b06-cb0e36bcab99
+# ╟─76bb3fb6-836b-42a7-8051-48e0856bedb3
+# ╠═9a70941b-bf9e-4b3c-aef6-915f3e2019fe
+# ╠═e4fd6d59-be28-4852-a2d2-6ddc1a40116d
+# ╟─e8c3f789-7ede-4f6d-83ee-3050c9ef5840
+# ╠═81058b8e-c80c-4a39-b33e-15b42d1225b8
+# ╠═4f222b09-00e0-48b9-bd3e-6b6ebfba5727
+# ╠═ab6d36c1-5674-49f4-b291-f367840c9335
+# ╠═809132ad-fad8-4bc7-b8f4-1f98dbc8503c
+# ╠═b2096a04-74f8-4287-aad5-dc27752a21f7
+# ╠═281718b9-3123-479f-8847-37e48b6298f7
+# ╠═37a4303b-a4b9-423a-a5fa-3282c323f04b
+# ╠═b1880149-4d45-4cfb-91cd-4c094ac5a1eb
+# ╠═c5e0bbaf-a04d-4940-b7ab-3317f9d513a9
+# ╠═daa89863-cb36-4a12-a699-646d8ba55904
+# ╠═b067424c-2b40-4d99-9dba-419af6fb2209
+# ╠═7edf78dd-9dad-4726-8173-c95f3e4ed6ab
+# ╠═d4a59bc4-2c2a-4966-8e1a-e336e26d4d40
+# ╠═16bdaa3d-77b2-433b-8343-54af3a121e85
+# ╠═d437cfc2-6dfe-40a9-bb22-c90d25bebd25
+# ╠═22744a27-614a-4317-a0ed-833bb0ef659c
+# ╠═1a3493ac-966b-4260-8c06-0e60033ba41f
+# ╠═f1130bab-babd-41e1-891c-00a2d846b39f
+# ╠═95098580-9d74-41af-af28-c08c7dede5f4
+# ╠═cd104c87-dd11-45a7-9ef5-ccecfdea3abd
+# ╠═55f2b6a8-52e7-47bd-82a1-40fa0ff11d98
+# ╟─3c11234c-5ea5-4709-b84b-ae477fb8dc55
+# ╠═de6aca47-7d2c-4c8c-8df9-c3e16e6dc2bd
+# ╠═d1058fb3-cb03-4031-b089-ce5f077036a0
+# ╠═b045eb8f-5911-4afe-b9aa-6bd291a2652c
+# ╠═1109fcd4-1706-4022-9422-f4e947f275af
 # ╟─33b59f50-07e1-11f1-9748-31081ab2ceaf
 # ╠═a966b2b2-b3d9-4f28-9042-66167400f2cb
 # ╠═ad872f3c-7be0-4427-bd1d-5afe25b6e9fa
 # ╠═8b4b8bfa-9dfd-45c4-9ce0-8f4af97f9721
 # ╠═e6aefa92-94d5-487d-91ba-b9a4d1b3277c
+# ╠═8621e3e0-f145-46a9-a08c-2f2327525e85
+# ╠═ea607cf6-a263-4d44-9d72-dc9a5de055ad
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
