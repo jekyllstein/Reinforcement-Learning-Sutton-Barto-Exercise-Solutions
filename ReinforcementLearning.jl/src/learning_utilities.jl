@@ -48,12 +48,13 @@ For all parameter studies we judge the results based on a numerical score.  For 
 """
 
 # ╔═╡ 8cf192df-e554-41b6-b9d0-71a142766021
-function make_episodic_trial(algo::Function, minvalue::T) where T<:Real
+function make_episodic_trial(algo::Function, minvalue::T; use_steps::Bool = false) where T<:Real
 	function trial(args...; kwargs...)
 		output = algo(args...; kwargs...)
 		rewards = output.episode_rewards
 		isempty(rewards) && return minvalue
-		return Statistics.mean(rewards)
+		!use_steps && return Statistics.mean(rewards)
+		sum(rewards) / output.episode_steps[end]
 	end
 	return trial
 end
@@ -84,7 +85,7 @@ md"""
 """
 
 # ╔═╡ e932d0fd-5832-41eb-a2a3-13a89a1e8751
-function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	function sarsa_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
 			semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
@@ -92,7 +93,7 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 			sarsa_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
-	sarsa_linear_study = setup_parameter_study(make_episodic_trial(sarsa_train_linear, typemin(T)), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
+	sarsa_linear_study = setup_parameter_study(make_episodic_trial(sarsa_train_linear, min_reward; use_steps = use_steps), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
 
 	function sarsa_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
@@ -103,13 +104,14 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 		end
 	end
 	
-	sarsa_nonlinear_study = setup_parameter_study(make_episodic_trial(sarsa_train_nonlinear, typemin(T)), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
+	sarsa_nonlinear_study = setup_parameter_study(make_episodic_trial(sarsa_train_nonlinear, min_reward; use_steps = use_steps), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
 
 	function monte_carlo_linear(γ::T, α::T, num_episodoes::Integer; kwargs...) 
 		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		rewards = output.reward_history
-		isempty(rewards) && return typemin(T)
-		Statistics.mean(rewards)
+		isempty(rewards) && return min_reward
+		!use_steps && return Statistics.mean(rewards)
+		sum(rewards) / output.episode_steps[end]
 	end
 
 	monte_carlo_linear_study = setup_parameter_study(monte_carlo_linear, (:γ, :α, :num_episodes), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, max_steps = typemax(Int64), use_unfinished_episodes = true))
@@ -118,8 +120,10 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 		hidden_layers = fill(layer_size, num_layers)
 		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; reslayers = reslayers, α = α, kwargs...)
 		rewards = output.reward_history
-		isempty(rewards) && return typemin(T)
+		isempty(rewards) && return min_reward
 		Statistics.mean(rewards)
+		!use_steps && return Statistics.mean(rewards)
+		sum(rewards) / output.episode_steps[end]
 	end
 
 	monte_carlo_nonlinear_study = setup_parameter_study(monte_carlo_nonlinear, (:γ, :α, :num_episodes, :layer_size, :num_layers, :reslayers), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, max_steps = typemax(Int64), use_unfinished_episodes = true))
@@ -128,7 +132,7 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 end
 
 # ╔═╡ 742c8135-9aac-49f3-ac9a-8430aa4c2b41
-function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
 	sarsa_studies = setup_episodic_value_parameter_studies(mdp, feature_vector, update_feature_vector!)
 	!use_dp && return sarsa_studies
 	
@@ -139,7 +143,7 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 			dp_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
-	dp_linear_study = setup_parameter_study(make_episodic_trial(dp_train_linear, typemin(T)), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
+	dp_linear_study = setup_parameter_study(make_episodic_trial(dp_train_linear, min_reward; use_steps = use_steps), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
 
 	function dp_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
@@ -150,7 +154,7 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 		end
 	end
 	
-	dp_nonlinear_study = setup_parameter_study(make_episodic_trial(dp_train_nonlinear, typemin(T)), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), ϵ = one(T)/10, trace_type = AccumulatingTrace()))
+	dp_nonlinear_study = setup_parameter_study(make_episodic_trial(dp_train_nonlinear, min_reward; use_steps = use_steps), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), ϵ = one(T)/10, trace_type = AccumulatingTrace()))
 	
 	(;sarsa_studies..., dp_linear_study = dp_linear_study, dp_nonlinear_study = dp_nonlinear_study)
 end
