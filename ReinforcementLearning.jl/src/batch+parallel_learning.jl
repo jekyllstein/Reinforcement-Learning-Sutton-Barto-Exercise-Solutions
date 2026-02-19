@@ -23,6 +23,16 @@ md"""
 To address some of the problems created by combining Q-learning with approximation techniques, DQN attempts to use a target network and a replay buffer to mitigate the moving target value problem and break correlations between consecutive samples.  
 """
 
+# ╔═╡ 1b4c3482-165e-4c09-bbc2-c705e5ceb2fe
+#idea is to fill the first column of the output matrix with the maximum values in a single pass efficiently
+function maximize_output_matrix!(output_matrix)
+	for j in 2:size(output_matrix, 2)
+		@inbounds @simd for i in 1:size(output_matrix, 1)
+			output_matrix[i, 1] = max(output_matrix[i, 1], output_matrix[i, j])
+		end
+	end
+end
+
 # ╔═╡ 05535cef-05f4-42a1-925c-ceb85bb6dfba
 md"""
 ## Linear Approximation
@@ -127,11 +137,13 @@ begin
 		#perform forward pass to fill in target values with function output times the discount rate plus the reward
 		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, target_params, zero(T), output_matrix)
 
+		maximize_output_matrix!(output_matrix)
+
 		#for non terminal states add to target discounted future function value
 		for i in eachindex(batch_inds)
-			(s, i_a, r, s′, terminated) = replay_buffer[batch_inds[i]]
+			(_, _, _, _, terminated) = replay_buffer[batch_inds[i]]
 			if !terminated
-				targets[i] += γ * maximum(view(output_matrix, i, :))
+				targets[i] += γ * output_matrix[i, 1] # maximum(view(output_matrix, i, :))
 			end
 		end
 	end
@@ -163,13 +175,13 @@ begin
 
 		#perform forward pass to fill in target values with function output
 		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., feature_matrix, target_params.reslayers; input_orientation = input_orientation)
-		output_matrix .= activations[end]
+		maximize_output_matrix!(activations[end])
 
 		#for non terminal states add to target discounted future function value
 		for i in eachindex(batch_inds)
-			(s, i_a, r, s′, terminated) = replay_buffer[batch_inds[i]]
+			(_, _, _, _, terminated) = replay_buffer[batch_inds[i]]
 			if !terminated
-				targets[i] += γ * maximum(view(output_matrix, i, :))
+				targets[i] += γ * activations[end][i, 1] # maximum(view(output_matrix, i, :))
 			end
 		end
 	end
@@ -347,6 +359,111 @@ end
 # ╔═╡ 830ba410-377a-423b-9e75-6884c8cbbbea
 dqn_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), value_params::Matrix{T} = initialize_linear_parameters(feature_vector,mdp, init_value), target_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = dqn!(value_params, target_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, copy(value_params), update_linear_value_gradient!; kwargs...) 
 
+# ╔═╡ 6fe10947-cdc4-48c5-8fbe-942714640dca
+#=╠═╡
+function ReinforcementLearning.setup_fcann_action_value_arguments(params::FCANNParams{T}, batch_size::Integer, l2::T, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
+	input_length, hidden_layers, num_hidden = get_network_dimensions(params)
+	
+	#form activations for network
+	activations = FCANN.form_activations(params.weights[1], batch_size)
+	tanh_grad_z = deepcopy(activations)
+	deltas = deepcopy(activations)
+
+	scales = fill(one(T), length(params.weights[1]))
+	if use_μP
+		for i in eachindex(hidden_layers)
+			i′ = i + 1
+			scales[i′] /= size(params.weights[1][i′], 2)
+		end
+	end
+
+	function update_action_values!(action_values::Vector{T}, x, params; activations = activations, kwargs...) 
+		fcann_value_function!(activations, x, params)
+		action_values .= activations[end]
+		val, index = findmax(action_values)
+		isnan(val) && @warn "Got NaN action value inside $action_values"
+		isinf(val) && @warn "Got Inf action value inside $action_values"
+		return (val, index)
+	end
+	
+	function update_value_gradient!(∇q̂::FCANNParams{T}, params::FCANNParams{T}, targets::Vector{T}, output_inds::Vector{I}, feature_matrix, output_matrix::Matrix{T}) 
+		update_fcann_value_gradient!(∇q̂, feature_matrix, targets, output_inds, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list)
+		use_μP && scale_fcann_params!(∇q̂, scales)
+		return ∇q̂
+	end
+
+	if use_gpu && in(:GPU, backendList)
+		d_activations = FCANN.device_allocate(activations)
+		d_tanh_grad_z = FCANN.device_allocate(tanh_grad_z)
+		d_deltas = FCANN.device_allocate(deltas)
+		d_params = initialize_gpu_params(params)
+		d_gradient = initialize_gpu_params(params)
+		d_x = FCANN.cuda_allocate(zeros(T, input_length))
+		d_feature_matrix = FCANN.cuda_allocate(zeros(T, input_length, batch_size))
+		d_targets = FCANN.cuda_allocate(zeros(T, batch_size))
+		d_output_inds = FCANN.cuda_allocate(zeros(Int64, batch_size))
+
+		function update_action_values!(action_values::Vector{T}, d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations, kwargs...) 			
+			fcann_value_function!(activations, d_x, params)
+			FCANN.memcpy!(action_values, activations[end])
+			val, index = findmax(action_values)
+			isnan(val) && @warn "Got NaN action value inside $action_values"
+			isinf(val) && @warn "Got Inf action value inside $action_values"
+			return (val, index)
+		end
+
+		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; gpu_feature_vector::FCANN.CUDAArray = d_x, kwargs...) 			
+			FCANN.memcpy!(gpu_feature_vector, x)
+			update_action_values!(action_values, gpu_feature_vector, params; kwargs...)
+		end
+
+		function update_value_gradient!(∇q̂::FCANNParamsGPU, params::FCANNParamsGPU, d_targets::FCANN.CUDAArray, d_output_inds::FCANN.CUDAArray, d_feature_matrix::FCANN.CUDAArray) 
+			update_fcann_value_gradient!(∇q̂, d_feature_matrix, d_targets, d_output_inds, params, hidden_layers, l2, d_tanh_grad_z, d_activations, d_deltas, dropout, activation_list)
+			use_μP && scale_fcann_params!(∇q̂, scales)
+			return ∇q̂
+		end
+
+		function update_value_gradient!(∇q̂::FCANNParamsGPU, params::FCANNParamsGPU, targets::Vector{T}, output_inds::Vector{I}, feature_matrix::Matrix{T}, output_matrix::Matrix{T}) where {T<:Real, I<:Integer}
+			FCANN.memcpy!(d_feature_matrix, feature_matrix)
+			FCANN.memcpy!(d_targets, targets)
+			FCANN.memcpy!(d_output_inds, output_inds)
+			update_value_gradient!(∇q̂, params, d_targets, d_output_inds, d_feature_matrix)
+		end
+
+		function cleanup_vars()
+			FCANN.clear_gpu_data(d_gradient.weights[1])
+			FCANN.clear_gpu_data(d_gradient.weights[2])
+			FCANN.clear_gpu_data(d_params.weights[1])
+			FCANN.clear_gpu_data(d_params.weights[2])
+			FCANN.clear_gpu_data(d_deltas)
+			FCANN.clear_gpu_data(d_tanh_grad_z)
+			FCANN.clear_gpu_data([d_x])
+			FCANN.clear_gpu_data([d_feature_matrix])
+			FCANN.clear_gpu_data([d_targets])
+			FCANN.clear_gpu_data([d_output_inds])
+			FCANN.clear_gpu_data(d_activations)
+		end
+
+		gpu_args = (activations = d_activations, gradient = d_gradient, params = d_params, feature_vector = d_x, feature_matrix = d_feature_matrix, targets = d_targets, output_inds = d_output_inds, cleanup_vars = cleanup_vars)
+	else
+		gpu_args = ()
+	end
+
+	return (gradient = deepcopy(params), update_action_values! = update_action_values!, update_value_gradient! = update_value_gradient!, activations = activations, gpu_args = gpu_args)
+end
+  ╠═╡ =#
+
+# ╔═╡ d9437c04-d197-4b8c-b1ad-0029b3d77144
+#=╠═╡
+function dqn_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Int64 = 0, use_μP::Bool = true, value_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), target_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false) where T<:Real 
+	setup = setup_fcann_action_value_arguments(value_params, batch_size, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+	
+	!use_gpu && return dqn!(value_params, target_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
+
+	error("GPU gradients not yet implemented for DQN")
+end
+  ╠═╡ =#
+
 # ╔═╡ 05fa2e5c-8633-4c43-89ba-09dd0c83cdfa
 function dqn(mdp::TabularMDP, γ::T, max_episodes::Integer, max_steps::Integer; kwargs...) where T<:Real 
 	state_mdp = StateMDP(mdp)
@@ -393,6 +510,11 @@ end
 # ╔═╡ de6aca47-7d2c-4c8c-8df9-c3e16e6dc2bd
 const gridworld_dqn = dqn(gridworld_mdp, 0.99f0, typemax(Int64), 40_000; α = 3f-4, ϵ = 0.01f0, buffer_size = 10_000, batch_size = 512, target_update_interval = 100)
 
+# ╔═╡ 2eff323f-5265-4012-9042-b1f2402cf237
+#=╠═╡
+@plutoprofview dqn(gridworld_mdp, 0.99f0, typemax(Int64), 40_000; α = 3f-4, ϵ = 0.01f0, buffer_size = 10_000, batch_size = 512, target_update_interval = 100)
+  ╠═╡ =#
+
 # ╔═╡ 696650a0-9e0f-45d0-a768-679b02688f06
 const gridworld_state_mdp = StateMDP(gridworld_mdp)
 
@@ -435,6 +557,22 @@ function update_gridworld_feature!(v::Vector{T}, s::GridworldState) where T<:Rea
 	v[2] = 2*(((s.y - ymin) / (ymax - ymin)) - one(T)/2)
 	return v
 end
+
+# ╔═╡ 31eb8e01-380b-4553-90dc-22ffaea7aaac
+const gridworld_dqn2 = dqn_linear(gridworld_state_mdp, 0.99f0, typemax(Int64), 100_000, gridworld_feature, update_gridworld_feature!; α = 5f-3, ϵ = 0.01f0, buffer_size = 1_000, batch_size = 512, target_update_interval = 100)
+
+# ╔═╡ 4f88dd4e-4f18-4770-a6eb-1ad1094b92c5
+eval_gridworld_final_policy(s -> gridworld_dqn2.value_function(s).maximizing_action)
+
+# ╔═╡ 70093ded-4ebc-48aa-bcfd-48d492aa1c5e
+#=╠═╡
+plot_gridworld_value_function(gridworld_dqn2.value_function)
+  ╠═╡ =#
+
+# ╔═╡ fb181d16-de02-4821-99ba-f563de1127c2
+#=╠═╡
+@plutoprofview dqn_linear(gridworld_state_mdp, 0.99f0, typemax(Int64), 100_000, gridworld_feature, update_gridworld_feature!; α = 5f-3, ϵ = 0.01f0, buffer_size = 1_000, batch_size = 512, target_update_interval = 100)
+  ╠═╡ =#
 
 # ╔═╡ 81058b8e-c80c-4a39-b33e-15b42d1225b8
 const gridworld_q = sarsa_λ(gridworld_mdp, 0.99f0, 0f0, typemax(Int64), 100_000; α = 3f-4, ϵ = 0.1f0)
@@ -490,7 +628,7 @@ end
 
 # ╔═╡ 7edf78dd-9dad-4726-8173-c95f3e4ed6ab
 #=╠═╡
-plot([scatter(y = evaluate_gridworld_q_learning2(0.99f0, 100_000, α, 0.1f0; nruns = 100, interval = 100), name = "α = $α") for α in [1f-2, 1f-3, 1f-4]], Layout(title = "Q-learning Gridworld Rewards"))
+plot([scatter(y = evaluate_gridworld_q_learning2(0.99f0, 100_000, α, 0.1f0; nruns = 100, interval = 100), name = "α = $α") for α in [8f-2, 1f-2, 5f-3]], Layout(title = "Q-learning Gridworld Rewards"))
   ╠═╡ =#
 
 # ╔═╡ d4a59bc4-2c2a-4966-8e1a-e336e26d4d40
@@ -556,6 +694,19 @@ end
 # ╔═╡ b045eb8f-5911-4afe-b9aa-6bd291a2652c
 #=╠═╡
 plot([scatter(y = evaluate_gridworld_dqn(0.99f0, 20_000, 1f-4, 0.01f0, buffer_size, 512, 100; nruns = 100, interval = 100), name = "buffer size: $buffer_size") for buffer_size in [1000, 2000, 10_000]])
+  ╠═╡ =#
+
+# ╔═╡ 51a27e0e-14e5-4822-a255-bd63aac2a00e
+#=╠═╡
+function evaluate_gridworld_dqn_linear(γ, steps, α, ϵ, buffer_size, batch_size, update_interval; nruns = 100, kwargs...)
+	f(x) = dqn_linear(gridworld_state_mdp, γ, typemax(Int64), steps, gridworld_feature, update_gridworld_feature!; α = α, ϵ = ϵ, buffer_size = buffer_size, batch_size = batch_size, target_update_interval = update_interval) |> v -> eval_gridworld_returns(v; total_steps = steps, kwargs...)
+	1:nruns |> Map(f) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+end
+  ╠═╡ =#
+
+# ╔═╡ 305e3122-76f2-4f90-9120-db20d2e7255a
+#=╠═╡
+plot([scatter(y = evaluate_gridworld_dqn_linear(0.99f0, 100_000, 5f-3, 0.01f0, buffer_size, 512, 100; nruns = 100, interval = 100), name = "buffer size: $buffer_size") for buffer_size in [1000, 2000]])
   ╠═╡ =#
 
 # ╔═╡ 8621e3e0-f145-46a9-a08c-2f2327525e85
@@ -1110,6 +1261,7 @@ version = "17.7.0+0"
 # ╠═0c0a7330-29bf-4326-8939-78b7e8b58d55
 # ╠═cf40f4b3-4495-4f26-a007-18c6589ed4cf
 # ╠═b3d7c539-d5a0-47fc-85bc-a62aafca8fa0
+# ╠═1b4c3482-165e-4c09-bbc2-c705e5ceb2fe
 # ╠═576ff132-27d0-4a91-a955-e797fe6637c1
 # ╠═a743f767-1ff6-4e1c-8c6f-88622d07c175
 # ╠═f76f33f3-7cb3-4715-800c-9a0b2561f05b
@@ -1119,6 +1271,8 @@ version = "17.7.0+0"
 # ╟─05535cef-05f4-42a1-925c-ceb85bb6dfba
 # ╠═830ba410-377a-423b-9e75-6884c8cbbbea
 # ╟─78a997cb-146c-4cb5-b2ec-4bd1188909e6
+# ╠═6fe10947-cdc4-48c5-8fbe-942714640dca
+# ╠═d9437c04-d197-4b8c-b1ad-0029b3d77144
 # ╟─0fd4da20-cf83-4071-b8a1-4259cbba7d8c
 # ╠═05fa2e5c-8633-4c43-89ba-09dd0c83cdfa
 # ╟─c7f4374c-3151-443b-9d6a-85581c3f2438
@@ -1157,9 +1311,16 @@ version = "17.7.0+0"
 # ╠═55f2b6a8-52e7-47bd-82a1-40fa0ff11d98
 # ╟─3c11234c-5ea5-4709-b84b-ae477fb8dc55
 # ╠═de6aca47-7d2c-4c8c-8df9-c3e16e6dc2bd
+# ╠═2eff323f-5265-4012-9042-b1f2402cf237
 # ╠═d1058fb3-cb03-4031-b089-ce5f077036a0
 # ╠═b045eb8f-5911-4afe-b9aa-6bd291a2652c
 # ╠═1109fcd4-1706-4022-9422-f4e947f275af
+# ╠═51a27e0e-14e5-4822-a255-bd63aac2a00e
+# ╠═31eb8e01-380b-4553-90dc-22ffaea7aaac
+# ╠═fb181d16-de02-4821-99ba-f563de1127c2
+# ╠═4f88dd4e-4f18-4770-a6eb-1ad1094b92c5
+# ╠═70093ded-4ebc-48aa-bcfd-48d492aa1c5e
+# ╠═305e3122-76f2-4f90-9120-db20d2e7255a
 # ╟─33b59f50-07e1-11f1-9748-31081ab2ceaf
 # ╠═a966b2b2-b3d9-4f28-9042-66167400f2cb
 # ╠═ad872f3c-7be0-4427-bd1d-5afe25b6e9fa
