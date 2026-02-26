@@ -14,6 +14,7 @@ end
 
 top_path = "ReinforcementLearning.jl"
 Pkg.activate(top_path)
+Pkg.update()
 Pkg.instantiate()
 Pkg.precompile()
 
