@@ -102,6 +102,10 @@ export save_linear_value_parameters, load_linear_value_parameters, save_linear_p
 
 export setup_policy_linear_training, setup_value_linear_training, setup_policy_nonlinear_training, setup_value_nonlinear_training
 
+include(joinpath(@__DIR__, "batch+parallel_learning.jl"))
+
+export dqn!, dqn_linear, dqn_fcann, dqn, synchronous_actor_critic!, synchronous_actor_critic_linear, synchronous_actor_critic_fcann, synchronous_nstep_actor_critic!, synchronous_nstep_actor_critic_linear, synchronous_nstep_actor_critic_fcann
+
 @setup_workload begin
     γ = 0.9f0
     num_episodes = 10
