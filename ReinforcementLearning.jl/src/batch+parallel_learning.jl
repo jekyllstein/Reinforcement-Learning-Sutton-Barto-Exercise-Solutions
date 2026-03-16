@@ -432,7 +432,7 @@ begin
 			# if !terminated
 				# targets[i] += γ * activations[end][i, 1] # maximum(view(output_matrix, i, :))
 			# end
-			targets[i] += target_const[i] * activations[end][i, 1]
+			targets[i] += target_const[i] * output_matrix[i, 1]
 		end
 	end
 
