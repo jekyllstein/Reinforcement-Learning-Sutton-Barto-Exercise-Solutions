@@ -32,6 +32,11 @@ md"""
 To address some of the problems created by combining Q-learning with approximation techniques, DQN attempts to use a target network and a replay buffer to mitigate the moving target value problem and break correlations between consecutive samples.  
 """
 
+# ╔═╡ 789ac927-e8dd-424a-8a28-b3240d295523
+md"""
+## Utility Functions
+"""
+
 # ╔═╡ 1b4c3482-165e-4c09-bbc2-c705e5ceb2fe
 begin
 	#idea is to fill the first column of the output matrix with the maximum values in a single pass efficiently
@@ -57,6 +62,11 @@ end
 
 # ╔═╡ f9d3ee23-f39d-46e4-834e-86b8eee1ce50
 const FCANNActivationsBatch{T} = Vector{Matrix{T}} where T<:Float32
+
+# ╔═╡ ce90a48f-4111-4f33-9448-a04af33e6231
+md"""
+## Algorithm
+"""
 
 # ╔═╡ 05535cef-05f4-42a1-925c-ceb85bb6dfba
 md"""
@@ -394,7 +404,7 @@ begin
 			while !terminated && (k <= j+N)
 				(x, i_a, r, x′, terminated) = replay_buffer[k]
 				g += r * γ^(k-j)
-				k+1
+				k += 1
 			end
 			targets[i] = g
 			if !terminated
@@ -480,7 +490,7 @@ begin
 			while !terminated && (k <= j+N)
 				(x, i_a, r, x′, terminated) = replay_buffer[k]
 				g += r * γ^(k-j)
-				k+1
+				k += 1
 			end
 			targets[i] = g
 			if !terminated
@@ -1421,8 +1431,8 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 	batch_inds = Vector{Int64}(undef, batch_size)
 	feature_matrix = form_feature_matrix(mdp, feature_vector, batch_size)
 	output_matrix = zeros(T, batch_size, length(mdp.actions))
-	output_args = use_double_q ? (output_matrix,) : (output_matrix, copy(output_matrix))
-	param_args = use_double_q ? (target_params,) : (target_params, value_params)
+	output_args = !use_double_q ? (output_matrix,) : (output_matrix, copy(output_matrix))
+	param_args = !use_double_q ? (target_params,) : (target_params, value_params)
 	output_inds = Vector{Int64}(undef, batch_size)
 	feature_vector2 = deepcopy(feature_vector)
 	
@@ -2779,6 +2789,7 @@ version = "17.7.0+0"
 
 # ╔═╡ Cell order:
 # ╟─78e8285e-5b98-420c-9fdc-cb943053a206
+# ╟─789ac927-e8dd-424a-8a28-b3240d295523
 # ╠═0c0a7330-29bf-4326-8939-78b7e8b58d55
 # ╠═cf40f4b3-4495-4f26-a007-18c6589ed4cf
 # ╠═b3d7c539-d5a0-47fc-85bc-a62aafca8fa0
@@ -2793,6 +2804,7 @@ version = "17.7.0+0"
 # ╠═2dd9b971-fa6e-4a55-8a82-b16739199fab
 # ╠═1805574f-a668-477f-a6a9-e7ee29ce08bf
 # ╠═75ba6587-ebe0-4f54-89f6-a65ec26abd63
+# ╟─ce90a48f-4111-4f33-9448-a04af33e6231
 # ╠═3a4510e6-054b-40fe-989d-7ac8c86db757
 # ╟─05535cef-05f4-42a1-925c-ceb85bb6dfba
 # ╠═830ba410-377a-423b-9e75-6884c8cbbbea
