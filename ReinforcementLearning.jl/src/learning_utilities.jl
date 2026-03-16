@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -367,7 +367,7 @@ md"""
 """
 
 # ╔═╡ d2387c9d-aa6e-4eda-904a-101e5fdd3cae
-function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	function ac_train_linear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if all(iszero, (λ_θ, λ_w))
 			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
@@ -375,7 +375,7 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
 		end
 	end
-	ac_linear_study = setup_parameter_study(make_episodic_trial(ac_train_linear, typemin(T)), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
+	ac_linear_study = setup_parameter_study(make_episodic_trial(ac_train_linear, typemin(T); use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
 
 	function ac_train_nonlinear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
@@ -385,7 +385,7 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 			actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
 		end
 	end
-	ac_nonlinear_study = setup_parameter_study(make_episodic_trial(ac_train_nonlinear, typemin(T)), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
+	ac_nonlinear_study = setup_parameter_study(make_episodic_trial(ac_train_nonlinear, typemin(T); use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
 
 	function reinforce_linear(γ::T, α_θ::T, α_w::T, num_episodes::Integer; kwargs...) 
 		if iszero(α_w)
@@ -2349,7 +2349,7 @@ SpecialFunctions = "~2.6.1"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.4"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "5103146a1e4f5f9b56a6fa76af9aa4575175a2e5"
 

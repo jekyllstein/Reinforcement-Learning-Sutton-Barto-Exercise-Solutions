@@ -12,8 +12,8 @@ using PlutoDevMacros
 
 # ╔═╡ 624eef76-16a7-4556-a466-14341346f7a5
 begin
-	PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "NonTabularRL.jl")) begin 
-		using NonTabularRL
+	PlutoDevMacros.@fromparent begin 
+		using ReinforcementLearning
 		using >.Random, >.Statistics, >.LinearAlgebra, >.Transducers, >.StaticArrays, >.DataStructures
 	end
 	switch_device(3)
