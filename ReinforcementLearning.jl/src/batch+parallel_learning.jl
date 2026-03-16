@@ -351,7 +351,7 @@ end
 
 # ╔═╡ cb972f94-d22c-4d00-8c70-50daff8f697e
 #note that the first three arguments are modified inside this function
-function update_nstep_returns!(targets::Vector{T}, target_const::Vector{T}, feature_matrix::Matrix{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer) where T<:Real
+function update_nstep_returns!(targets::Vector{T}, target_const::Vector{T}, feature_matrix, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer) where T<:Real
 	for i in eachindex(batch_inds)
 		j = batch_inds[i]
 		(x, i_a, r, x′, terminated) = replay_buffer[j]
@@ -1583,12 +1583,12 @@ plot([scatter(y = evaluate_gridworld_dqn_linear(0.99f0, 100_000, 5f-3, 0.01f0, b
 
 # ╔═╡ 3eb1e4a2-bd61-4364-baa8-b9ef0ae68418
 #=╠═╡
-plot([scatter(y = evaluate_gridworld_dqn_linear(0.99f0, 100_000, α, 0.01f0, 1000, 512, 100; nruns = 100, interval = 100), name = "learning rate: $α") for α in [1f-3, 2f-3, 4f-3, 8f-3]])
+plot([scatter(y = evaluate_gridworld_dqn_linear(0.99f0, 100_000, α, 0.01f0, 1000, 512, 100; nruns = 100, interval = 100), name = "learning rate: $α") for α in [4f-3, 8f-3, 16f-3]])
   ╠═╡ =#
 
 # ╔═╡ 4dad43fe-11e9-4949-82c1-c87503c2162a
 #=╠═╡
-plot([scatter(y = evaluate_gridworld_dqn_linear(0.99f0, 100_000, α, 0.01f0, 1000, 512, 100; nruns = 100, interval = 100, use_double_q = true), name = "learning rate: $α") for α in [8f-3, 2f-2]])
+plot([scatter(y = evaluate_gridworld_dqn_linear(0.99f0, 100_000, α, 0.01f0, 1000, 512, 100; nruns = 100, interval = 100, use_double_q = true), name = "learning rate: $α") for α in [4f-3, 8f-3, 2f-2]])
   ╠═╡ =#
 
 # ╔═╡ 462af35e-dcbc-4f01-b0de-2e9193890b7c
