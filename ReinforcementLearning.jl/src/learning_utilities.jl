@@ -111,6 +111,7 @@ function check_reward_progress(output::NamedTuple; use_steps::Bool = false)
 	(!use_steps || isempty(output.episode_rewards)) && return check_reward_progress(output.episode_rewards)
 
 	l = length(output.episode_rewards)
+	l == 1 && return output.episode_rewards[1] / output.episode_steps[1]
 	episode_check = ceil(Int64, l/2)
 	sum(view(output.episode_rewards, episode_check:l)) / (output.episode_steps[l] - output.episode_steps[max(1, episode_check-1)])
 end
@@ -626,6 +627,7 @@ end
 function check_reward_progress(episode_rewards::Vector{T}) where T<:Real 
 	isempty(episode_rewards) && return typemin(T)
 	l = length(episode_rewards)
+	l == 1 && return episode_rewards[1]
 	episode_check = ceil(Int64, l/2)
 	Statistics.mean(view(episode_rewards, episode_check:l))
 end
