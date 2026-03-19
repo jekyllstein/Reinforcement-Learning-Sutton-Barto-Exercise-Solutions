@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -2299,37 +2299,50 @@ plot(heatmap(
 # ╔═╡ 0334d2ff-268d-4485-b460-89f82c4a99e1
 begin
 	import LinearAlgebra.BLAS.gemv!
-	function LinearAlgebra.BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::StateAggregationFeatureVector, c2::T, output::Array{T, N}) where {N, T<:Real}
+	function LinearAlgebra.BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::StateAggregationFeatureVector{I, F}, c2::T, output::Array{T, N}) where {N, T<:Real, I<:Integer, F}
+		if !isone(c2)
+			output .*= c2
+		end
 		j = x.group_index
 		if O == 'N'
+			@assert size(θ, 2) == F
+			@assert size(θ, 1) == size(output, 1)
 			@inbounds @simd for i in eachindex(output)
-				output[i] = c2*output[i] + θ[i, j]
+				output[i] += c1*θ[i, j]
 			end
 		elseif O == 'T'
+			@assert size(θ, 1) == F
+			@assert size(θ, 2) == size(output, 1)
 			@inbounds @simd for i in eachindex(output)
-				output[i] = c2*output[i] + θ[j, i]
+				output[i] += c1*θ[j, i]
 			end
 		else
 			error("Unknown orientation for matrix of $O")
 		end
 	end
 
-	function LinearAlgebra.BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::BinaryFeatureVector, c2::T, output::Array{T, N}) where {N, T<:Real}
+	function LinearAlgebra.BLAS.gemv!(O::Char, c1::T, θ::Matrix{T}, x::BinaryFeatureVector{I, F}, c2::T, output::Array{T, N}) where {N, T<:Real, I<:Integer, F}
 		l = x.num_features
 		inds = x.active_features
 		if !isone(c2) 
 			output .*= c2
 		end
 		if O == 'N'
-			for j in inds
+			@assert size(θ, 2) == F
+			@assert size(θ, 1) == size(output, 1)
+			for k in 1:l
+				j = inds[k]
 				@inbounds @simd for i in eachindex(output)
-					output[i] += θ[i, j]
+					output[i] += c1*θ[i, j]
 				end
 			end
 		elseif O == 'T'
+			@assert size(θ, 1) == F
+			@assert size(θ, 2) == size(output, 1)
 			for i in eachindex(output)
-				@inbounds @simd for j in inds
-					output[i] += θ[j, i]
+				@inbounds @simd for k in l
+					j = inds[k]
+					output[i] += c1*θ[j, i]
 				end
 			end
 		else
@@ -2478,6 +2491,7 @@ end
 
 # ╔═╡ 0f7ce70e-fb15-44e1-8f1b-dd082ae5911f
 function initialize_gpu_params(params::FCANNParams)
+	!in(:GPU, backendList) && error("GPU backend is not available")
 	d_θ = FCANN.device_allocate(params.weights[1])
 	d_β = FCANN.device_allocate(params.weights[2])
 	return (weights = (d_θ, d_β), reslayers = params.reslayers)
@@ -3098,13 +3112,16 @@ end
 # ╔═╡ 8e8add6f-99ab-4aa7-b236-87915c6be9c2
 begin
 	import LinearAlgebra.BLAS.gemm!
-	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, V<:StateAggregationFeatureVector}
+	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, I<:Integer, F, V<:StateAggregationFeatureVector{I, F}}
 		if !isone(c2) 
 			output .*= c2
 		end
 		N = length(X)
 		(M, O) = size(θ)
+		@assert size(output, 1) == N
 		if O2 == 'N'
+			@assert F == M
+			@assert size(output, 2) == O
 			for k in 1:O
 				@inbounds @simd for j in 1:N
 					x = X[j]
@@ -3113,6 +3130,8 @@ begin
 				end
 			end
 		elseif O2 == 'T'
+			@assert F == O
+			@assert size(output, 2) == M
 			for k in 1:M
 				@inbounds @simd for j in 1:N
 					x = X[j]
@@ -3126,27 +3145,31 @@ begin
 	end
 
 	#operation needed for backprop
-	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, V::Vector{T}, x::StateAggregationFeatureVector, c2::T, output::Matrix{T}) where {T<:Real}
+	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, V::Vector{T}, x::StateAggregationFeatureVector{I, F}, c2::T, output::Matrix{T}) where {T<:Real, I<:Integer, F}
 		if !isone(c2) 
 			output .*= c2
 		end
 		(M, N) = size(output)
+		@assert M == length(V)
+		@assert N == F
 		if (O1 == 'N') && (O2 == 'T')
 			@inbounds @simd for i in 1:M
 				output[i, x.group_index] += c1*V[i]
 			end
 		else
-			error("Unknown orientation for matrix of $O")
+			error("Unknown orientations of $O1 and $O2, only valid inputs are 'N' and 'T'")
 		end
 	end
 
-	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, V<:BinaryFeatureVector}
+	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, X::Vector{V}, θ::Matrix{T}, c2::T, output::Matrix{T}) where {T<:Real, I<:Integer, F, V<:BinaryFeatureVector{I, F}}
 		if !isone(c2)
 			output .*= c2
 		end
 		N = length(X) 
 		(M, O) = size(θ)
 		if O2 == 'N'
+			@assert M == F
+			@assert size(output) == (N, O)
 			for k in 1:O
 				for j in 1:N
 					x = X[j]
@@ -3157,6 +3180,8 @@ begin
 				end
 			end
 		elseif O2 == 'T'
+			@assert F == O
+			@assert size(output) == (N, M)
 			for k in 1:M
 				for j in 1:N
 					x = X[j]
@@ -3167,17 +3192,19 @@ begin
 				end
 			end
 		else
-			error("Unknown orientation for matrix of $O1")
+			error("Unknown orientation for matrix of $O2")
 		end
 	end
 
 	#operation needed for backprop
-	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, V::Vector{T}, x::BinaryFeatureVector, c2::T, output::Matrix{T}) where {T<:Real}
+	function LinearAlgebra.BLAS.gemm!(O1::Char, O2::Char, c1::T, V::Vector{T}, x::BinaryFeatureVector{I, F}, c2::T, output::Matrix{T}) where {T<:Real, I<:Integer, F}
 		if !isone(c2) 
 			output .*= c2
 		end
 		(M, N) = size(output)
 		if (O1 == 'N') && (O2 == 'T')
+			@assert F == N
+			@assert length(V) == M
 			for n in 1:x.num_features
 				j = x.active_features[n]
 				@inbounds @simd for i in 1:M
@@ -3185,8 +3212,80 @@ begin
 				end
 			end
 		else
-			error("Unknown orientation for matrix of $O")
+			error("Unknown orientation for second argument $x of $O2")
 		end
+	end
+
+	#needed for backprop with batch learning
+	function BLAS.gemm!(O1::Char, O2::Char, α::T, A::Matrix{T}, B::Vector{V}, c::T, C::Matrix{T}) where {T<:Real, I<:Integer, F, V<:BinaryFeatureVector{I, F}}
+		l = length(B)
+		if !isone(c)
+			C .*= c
+		end
+		@assert F == size(C, 2)
+		if O1 == 'T'
+			@assert size(A, 2) == size(C, 1)
+			@assert size(A, 1) == l
+			for l in 1:length(B)
+				x = B[l]
+				for i in 1:size(C, 1)
+					for j in 1:x.num_features
+						@inbounds @simd for k in 1:size(A, 1)
+							C[i, x.active_features[j]] += α*A[k, i]
+						end
+					end
+				end
+			end
+		elseif O1 == 'N'
+			@assert size(A, 1) == size(C, 1)
+			@assert size(A, 2) == l
+			for l in 1:length(B)
+				x = B[l]
+				for j in 1:x.num_features
+					for k in 1:size(A, 2)
+						@inbounds @simd for i in 1:size(C, 1)
+							C[i, x.active_features[j]] += α*A[i, k]
+						end
+					end
+				end
+			end
+		end
+		return C
+	end
+
+	#needed for backprop with batch learning
+	function BLAS.gemm!(O1::Char, O2::Char, α::T, A::Matrix{T}, B::Vector{V}, c::T, C::Matrix{T}) where {T<:Real, I<:Integer, F, V<:StateAggregationFeatureVector{I, F}}
+		l = length(B)
+		if !isone(c)
+			C .*= c
+		end
+		@assert F == size(C, 2)
+		if O1 == 'T'
+			@assert size(A, 2) == size(C, 1)
+			@assert size(A, 1) == l
+			for l in 1:length(B)
+				x = B[l]
+				for i in 1:size(C, 1)
+					j = x.group_index
+					for k in 1:size(A, 1)
+						C[i, j] += α*A[k, i]
+					end
+				end
+			end
+		elseif O1 == 'N'
+			@assert size(A, 1) == size(C, 1)
+			@assert size(A, 2) == l
+			for l in 1:length(B)
+				x = B[l]
+				for i in 1:size(C, 1)
+					j = x.group_index
+					for k in 1:size(A, 2)
+						C[i, j] += α*A[i, k]
+					end
+				end
+			end
+		end
+		return C
 	end
 end
 
@@ -5255,7 +5354,7 @@ html"""
 			margin: 0 auto;
 			max-width: min(1600px, 90%);
 	    	padding-left: max(10px, 5%);
-	    	padding-right: max(10px, 5%);
+	    	padding-right: max(10px, 10%);
 			font-size: max(10px, min(24px, 2vw));
 		}
 	</style>
@@ -5288,7 +5387,7 @@ PlutoUI = "~0.7.73"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.4"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "084af7dd664e968f475c81f81eadcc5be059fcbc"
 

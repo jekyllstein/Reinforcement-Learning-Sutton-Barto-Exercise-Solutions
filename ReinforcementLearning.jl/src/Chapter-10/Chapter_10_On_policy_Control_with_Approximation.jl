@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -5176,7 +5176,7 @@ html"""
 		margin: 0 auto;
 		max-width: min(1600px, 90%);
 		padding-left: max(10px, 5%);
-		padding-right: max(10px, 5%);
+		padding-right: max(10px, 10%);
 		font-size: max(10px, min(24px, 2vw));
 	}
 </style>
