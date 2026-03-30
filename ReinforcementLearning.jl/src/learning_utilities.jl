@@ -1635,7 +1635,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			α_w = α_w / 2
 			output1 = output2
 			@info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+			output2 = ac_sync_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; kwargs...)
 		end
 		@info "Completed rate decay training after $(round-1) rounds with performance $(output1.performance)"
 		return (;output1..., batch_episode_rewards = batch_episode_rewards)
@@ -2813,15 +2813,12 @@ html"""
   ╠═╡ =#
 
 # ╔═╡ 455f956d-6c92-46e8-90d4-d62167d455cb
-#=╠═╡
 function smooth_error(error_history, n)
 	l = length(error_history)
 	[mean(view(error_history, i-n:i)) for i in n+1:l]
 end
-  ╠═╡ =#
 
 # ╔═╡ 65068069-1374-4344-83e7-950a894957b9
-#=╠═╡
 begin
 	plot_rewards(rewards::AbstractVector{T}, nsmooth::Integer, npoints::Integer) where T<:Real = plot(smooth_error(rewards, nsmooth)[round.(Int64, LinRange(1, length(rewards) - nsmooth, npoints))])
 
@@ -2830,7 +2827,6 @@ begin
 		plot_rewards(newrewards, nsmooth, npoints)
 	end
 end
-  ╠═╡ =#
 
 # ╔═╡ ddd87cf8-b424-469d-900e-5c46057aa05f
 #=╠═╡
