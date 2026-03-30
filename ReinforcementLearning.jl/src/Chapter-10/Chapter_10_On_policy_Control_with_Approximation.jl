@@ -678,8 +678,8 @@ begin
 		update_state_values!(action_values, feature_matrix, parameters, activations)
 		action_values .= reward_values .+ γ .* action_values
 		maxq, imax = findmax(action_values)
-		isinf(maxq) && @warn "Infinite action value found in state $s out of $action_values"
-		isnan(maxq) && @warn "NaN action value found in state $s out of $action_values"
+		isinf(maxq) && error("Infinite action value found in state $s out of $action_values")
+		isnan(maxq) && error("NaN action value found in state $s out of $action_values")
 		return maxq, prod(Tuple(imax)) 
 	end
 
@@ -694,8 +694,8 @@ begin
 		update_state_values!(action_values, gpu_matrix, parameters, activations)
 		action_values .= reward_values .+ γ .* action_values
 		maxq, imax = findmax(action_values)
-		isinf(maxq) && @warn "Infinite action value found in state $s out of $action_values"
-		isnan(maxq) && @warn "NaN action value found in state $s out of $action_values"
+		isinf(maxq) && error("Infinite action value found in state $s out of $action_values")
+		isnan(maxq) && error("NaN action value found in state $s out of $action_values")
 		return maxq, prod(Tuple(imax))
 	end
 end
@@ -1360,8 +1360,8 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		fcann_value_function!(activations, x, params)
 		action_values .= activations[end]
 		val, index = findmax(action_values)
-		isnan(val) && @warn "Got NaN action value inside $action_values"
-		isinf(val) && @warn "Got Inf action value inside $action_values"
+		isnan(val) && error("Got NaN action value inside $action_values")
+		isinf(val) && error("Got Inf action value inside $action_values")
 		return (val, index)
 	end
 	
@@ -1375,8 +1375,8 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		update_value_gradient!(∇q̂, x, i_a, params)
 		action_values .= activations[end]
 		val, index = findmax(action_values)
-		isnan(val) && @warn "Got NaN action value inside $action_values"
-		isinf(val) && @warn "Got Inf action value inside $action_values"
+		isnan(val) && error("Got NaN action value inside $action_values")
+		isinf(val) && error("Got Inf action value inside $action_values")
 		return (val, index)
 	end
 
@@ -1392,8 +1392,8 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 			fcann_value_function!(activations, d_x, params)
 			FCANN.memcpy!(action_values, activations[end])
 			val, index = findmax(action_values)
-			isnan(val) && @warn "Got NaN action value inside $action_values"
-			isinf(val) && @warn "Got Inf action value inside $action_values"
+			isnan(val) && error("Got NaN action value inside $action_values")
+			isinf(val) && error("Got Inf action value inside $action_values")
 			return (val, index)
 		end
 
@@ -1417,8 +1417,8 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 			update_value_gradient!(∇q̂, x, i_a, params)
 			FCANN.memcpy!(action_values, d_activations[end])
 			val, index = findmax(action_values)
-			isnan(val) && @warn "Got NaN action value inside $action_values"
-			isinf(val) && @warn "Got Inf action value inside $action_values"
+			isnan(val) && error("Got NaN action value inside $action_values")
+			isinf(val) && error("Got Inf action value inside $action_values")
 			return (val, index)
 		end
 

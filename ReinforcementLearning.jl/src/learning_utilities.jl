@@ -354,7 +354,7 @@ end
 
 # ╔═╡ 742c8135-9aac-49f3-ac9a-8430aa4c2b41
 function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
-	sarsa_studies = setup_episodic_value_parameter_studies(mdp, feature_vector, update_feature_vector!)
+	sarsa_studies = setup_episodic_value_parameter_studies(mdp, feature_vector, update_feature_vector!, use_steps = use_steps, min_reward = min_reward)
 	!use_dp && return sarsa_studies
 	
 	function dp_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
@@ -904,7 +904,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 
 	function dqn_train_linear(γ::T, α::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), new_params::Bool = true, kwargs...)
 		new_params && reset_params(false)
-		dqn_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = linear_sarsa_params, kwargs...)
+		dqn_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, value_params = linear_sarsa_params, kwargs...)
 	end
 
 	function dqn_train_exhaustive(γ::T, α::T, trial_steps::Integer; new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)
@@ -1131,7 +1131,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 	function dqn_train_nonlinear(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), new_params::Bool = true, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, false; reset_params = new_params)
-		dqn_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, parameters = params, kwargs...)
+		dqn_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, value_params = params, kwargs...)
 	end
 
 	function dqn_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)

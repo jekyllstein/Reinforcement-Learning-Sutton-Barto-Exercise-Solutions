@@ -982,7 +982,7 @@ begin
 			dst = Ref{Float32}(0f0)
 			GC.@preserve dst begin
 				FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(value_activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
-				(isnan(dst.x) || isinf(dst.x)) && @warn "Bad value output of $(dst.x)"
+				(isnan(dst.x) || isinf(dst.x)) && error("Bad value output of $(dst.x)")
 				return dst.x
 			end
 		end

@@ -3387,7 +3387,7 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 			dst = Ref{Float32}(0f0)
 			GC.@preserve dst begin
 				FCANN.cudaMemcpy(Base.pointer_from_objref(dst), last(activations).ptr, sizeof(Float32), FCANN.cudaMemcpyDeviceToHost)
-				(isnan(dst.x) || isinf(dst.x)) && @warn "Bad value output of $(dst.x)"
+				(isnan(dst.x) || isinf(dst.x)) && error("Bad value output of $(dst.x)")
 				return dst.x
 			end
 		end
@@ -3408,7 +3408,7 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 					cpu_params = initialize_cpu_params(params)
 					badparams = check_bad_params(cpu_params)
 					badgrads = check_bad_params(initialize_cpu_params(∇v̂))
-					@warn "Bad value output of $(dst.x) from activations $activations and badparams = $badparams and badgrads = $badgrads"
+					error("Bad value output of $(dst.x) from activations $activations and badparams = $badparams and badgrads = $badgrads")
 				end
 				return dst.x
 			end
