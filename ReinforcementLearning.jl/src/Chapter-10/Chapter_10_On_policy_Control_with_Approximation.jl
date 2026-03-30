@@ -557,6 +557,13 @@ begin
 		return state_values
 	end
 
+	function update_state_values!(state_values::Array{T, N}, feature_matrix::Vector{V}, parameters::Vector{T}, activations) where {N, T<:Real, V<:AbstractBinaryFeatures}
+		@inbounds for i in eachindex(feature_matrix)
+			state_values[i] = linear_value_function(feature_matrix[i], parameters)
+		end
+		return state_values
+	end
+
 	#for non-linear approximation, use the forward pass function
 	function update_state_values!(state_values::Array{T, N}, feature_matrix::Matrix{T}, parameters::FCANNParams{T}, activations) where {N, T<:Real}
 		FCANN.forwardNOGRAD_base!(activations, parameters.weights..., feature_matrix, parameters.reslayers; input_orientation = 'T')

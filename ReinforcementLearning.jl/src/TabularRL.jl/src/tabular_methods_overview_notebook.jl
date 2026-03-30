@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -4412,7 +4412,7 @@ end
 # ╔═╡ eec3017b-6d02-49e6-aedf-9a494b426ec5
 begin
 	value_iteration_v(problem, γ::T; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real} = value_iteration(problem, γ, v_est; kwargs...)
-	value_iteration_v(problem::TabularMDP{T, S, A, P, F}; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(problem; init_value = init_value), kwargs...) where {T<:Real, S, A, P, F} = value_iteration(problem, v_est; kwargs...)
+	value_iteration_v(problem::TabularMDP{T, S, A, P, F}; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(problem; init_value = init_value), θ::T = one(T)/1_000_000, kwargs...) where {T<:Real, S, A, P, F} = value_iteration(problem, v_est; θ = θ, kwargs...) #note that for continuing problems the solution tolerance needs to be lower
 end
 
 # ╔═╡ 929c353b-f67c-49ff-85d3-0a27cafc59cf
@@ -6571,7 +6571,7 @@ Transducers = "~0.4.82"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.3"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "59035a539e89e066415f8db13aca9604cc27f694"
 
@@ -6973,7 +6973,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.5.20"
+version = "2025.11.4"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"

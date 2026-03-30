@@ -294,6 +294,11 @@ md"""
 # ╔═╡ ed81e0f8-8b92-484f-b66a-0a7fda1b8dd2
 #this environment does not do well with 1 step returns and actor critic methods, you can see reinforce performing much better in comparison.  Need to add n-step return option
 
+# ╔═╡ ee0405a4-a03c-4373-a270-475cda8de910
+md"""
+### N-step Method
+"""
+
 # ╔═╡ be9639f8-e987-4448-a961-0cafaaaf4980
 md"""
 The issue with doing n-step returns in batches is how to handle the end of an episode.  So normally we would start collecting the step data up to N times before updating the state from step 1 and then the actual gradient updates would lag the data collection.  Now let's say an episode in one of the environments terminates.  Then you would still do the updates for the returns up to the termination point where now you don't need to do bootstrap estimates and the other episodes that have not terminated just continue on with the lagged state updates.  But when you reach the end of environment that did terminate, now you need to initiate a new episode and you would be able to do updates yet since you first need to collect enough of the data.  So the step sequence will be out of sync.  I think the best way to handle this is to allow each environment to run for multiple steps if needed to produce a viable gradient update state to batch together with the others.  To perform these updates I need to save a buffer for each environment with the feature vector of the state to be updated as well as the corresponding nstep return values and the feature vector of the bootstrap state if necessary.  I still need to perform all the updates as a batch so for each environment and each gradient update step I need to accumulate two sets of feature vectors and the list of return values in a buffer with a way to track if the episode has terminated.  Also for the total number of steps, I need to modify it to total batch gradient update steps since some of the environments will need to take extra steps to catch up with the others when a new episode starts.
@@ -665,7 +670,7 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		end
 	end
 
-	function update_action_values!(action_values::Vector{T}, x, params; activations::FCANNActivations{T} = activations) 
+	function update_action_values!(action_values::Vector{T}, x, params; activations::FCANNActivations{T} = activations, kwargs...) 
 		fcann_value_function!(activations, x, params)
 		action_values .= activations[end]
 		val, index = findmax(action_values)
@@ -701,7 +706,7 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		gpu_feature_update! = setup_gpu_feature(zeros(T, input_length), update_feature_vector!)
 
 		#x is always going to come from the replay buffer and hence will be an ordinary vector
-		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations)		
+		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations, kwargs...)		
 			FCANN.memcpy!(d_x, x)
 			fcann_value_function!(d_activations, d_x, params)
 			FCANN.memcpy!(action_values, d_activations[end])
@@ -877,6 +882,11 @@ function update_gridworld_feature!(v::Vector{T}, s::GridworldState) where T<:Rea
 	return v
 end
 
+# ╔═╡ 22744a27-614a-4317-a0ed-833bb0ef659c
+#=╠═╡
+const gridworld_value_studies = setup_episodic_value_parameter_studies(gridworld_state_mdp, gridworld_feature, update_gridworld_feature!; use_steps = true, min_reward = 0f0)
+  ╠═╡ =#
+
 # ╔═╡ 81058b8e-c80c-4a39-b33e-15b42d1225b8
 #=╠═╡
 const gridworld_q = sarsa_λ(gridworld_mdp, 0.99f0, 0f0, typemax(Int64), 100_000; α = 3f-4, ϵ = 0.1f0)
@@ -960,11 +970,6 @@ eval_gridworld_final_policy(s -> gridworld_q3.value_function(s).maximizing_actio
 # ╔═╡ d437cfc2-6dfe-40a9-bb22-c90d25bebd25
 #=╠═╡
 plot_gridworld_value_function(gridworld_q3.value_function)
-  ╠═╡ =#
-
-# ╔═╡ 22744a27-614a-4317-a0ed-833bb0ef659c
-#=╠═╡
-const gridworld_value_studies = setup_episodic_value_parameter_studies(gridworld_state_mdp, gridworld_feature, update_gridworld_feature!; use_steps = true, min_reward = 0f0)
   ╠═╡ =#
 
 # ╔═╡ 95098580-9d74-41af-af28-c08c7dede5f4
@@ -1165,7 +1170,7 @@ begin
 		K, num_actions = size(π_dists)
 		π_dists .*= δs
 		∇lnπ .= zero(T)
-		c = one(T) / k
+		c = one(T) / K
 		@inbounds for i_a in 1:num_actions
 			@simd for k in 1:K
 				group_index = feature_vectors[k].group_index
@@ -1184,7 +1189,7 @@ begin
 		K, num_actions = size(π_dists)
 		π_dists .*= δs
 		∇lnπ .= zero(T)
-		c = one(T) / k
+		c = one(T) / K
 		@inbounds for k in 1:K
 			v = feature_vectors[k]
 			num_features = v.num_features
@@ -1248,7 +1253,15 @@ begin
 	end
 
 	function initialize_synchronous_features(x::AbstractBinaryFeatures{T}, num_env) where T<:Real
-		[copy(x) for _ in 1:num_env]
+		[deepcopy(x) for _ in 1:num_env]
+	end
+end
+
+# ╔═╡ 7f848bd1-e325-427d-8d68-8f7c2d1e7039
+function BLAS.gemm!(::Char, ::Char, α::T, X::Vector{V}, v::Vector{T}, β::T, output::Array{T, N}) where {T<:Real, N, V<:AbstractBinaryFeatures}
+	@assert length(X) == length(output)
+	for i in eachindex(X)
+		output[i] = β*output[i] + α*linear_value_function(X[i], v)
 	end
 end
 
@@ -1264,16 +1277,16 @@ begin
 		LinearAlgebra.BLAS.gemv!('N', c, feature_matrix, δs, zero(T), ∇v̂)
 	end
 
-	function accumulate_linear_gradient!(∇v̂::Matrix{T}, c::T, δs::Vector{T}, feature_vectors::Vector{V}) where {T<:Real, V<:StateAggregationFeatureVector}
+	function accumulate_linear_gradient!(∇v̂::Vector{T}, c::T, δs::Vector{T}, feature_vectors::Vector{V}) where {T<:Real, V<:StateAggregationFeatureVector}
 		∇v̂ .= zero(T)
-		for i in in eachindex(δs)
+		for i in eachindex(δs)
 			#the i argument is the index of the example being used. only need to update term for the active features in that state
 			i_s = feature_vectors[i].group_index
 			∇v̂[i_s] += c*δs[i]
 		end
 	end
 
-	function accumulate_linear_gradient!(∇v̂::Matrix{T}, c::T, δs::Vector{T}, feature_vectors::Vector{V}) where {T<:Real, V<:BinaryFeatureVector}
+	function accumulate_linear_gradient!(∇v̂::Vector{T}, c::T, δs::Vector{T}, feature_vectors::Vector{V}) where {T<:Real, V<:BinaryFeatureVector}
 		∇v̂ .= zero(T)
 		for i in eachindex(δs)
 			#the i argument is the index of the example being used. only need to update term for the active features in that state
@@ -1753,7 +1766,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 			batch_rewards[k] = r
 		end
 
-		avg_step_rewards[step] = r_avg
+		avg_step_rewards[step] = r_avg / num_env
 
 		#calculate state values for transition states
 		update_batch_state_values!(batch_state_values, feature_vectors2, value_params, value_args...)
@@ -1801,7 +1814,7 @@ synchronous_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, 
 
 # ╔═╡ 85a24ea7-411e-4d11-a83b-bddad52772df
 #=╠═╡
-const gridworld_sync_ac = synchronous_actor_critic_linear(gridworld_state_mdp, 0.99f0, 100_000, 64, gridworld_feature, update_gridworld_feature!; α_θ = 1f-4, α_w = 1f-1)
+const gridworld_sync_ac = synchronous_actor_critic_linear(gridworld_state_mdp, 0.99f0, 100_000, 1, gridworld_feature, update_gridworld_feature!; α_θ = 64f-2, α_w = 32f-2)
   ╠═╡ =#
 
 # ╔═╡ 0d045fdd-67e4-45d4-957e-c58b266dfe5e
@@ -1956,7 +1969,7 @@ end
 
 # ╔═╡ 89317d85-e18d-4940-9f1b-bf4f9fbf9880
 #=╠═╡
-const gridworld_sync_ac2 = synchronous_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 100_000, 16, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 8f-2, α_w = 1f-2)
+const gridworld_sync_ac2 = synchronous_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 1_000_000, 4, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 64f-2)
   ╠═╡ =#
 
 # ╔═╡ f411dc93-77df-49c6-a222-5985e8aea544
@@ -2165,9 +2178,15 @@ end
 # ╔═╡ b9792720-4b34-426e-a244-732b7ebce7a0
 synchronous_nstep_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = synchronous_nstep_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
 
+# ╔═╡ 0c7af119-461e-43ef-b899-0708ff088e45
+#=╠═╡
+
+@plutoprofview synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 10_000, 128, gridworld_feature, update_gridworld_feature!; α_θ = 16f-2, α_w =8f-2, N = 10)
+  ╠═╡ =#
+
 # ╔═╡ 04102d7f-b139-4923-8928-fe73d124e055
 #=╠═╡
-const gridworld_sync_nstep_ac = synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 100_000, 64, gridworld_feature, update_gridworld_feature!; α_θ = 16f-2, α_w =8f-2, N = 10)
+const gridworld_sync_nstep_ac = synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 1_000_000, 8, gridworld_feature, update_gridworld_feature!; α_θ = 2f-2, α_w = 6f-3, N = 20)
   ╠═╡ =#
 
 # ╔═╡ 670641ea-8600-41c0-af5c-48e3d6bc7a0a
@@ -2180,10 +2199,14 @@ plot(cumsum(gridworld_sync_nstep_ac.avg_step_rewards) ./ (1:length(gridworld_syn
 eval_gridworld_final_policy(gridworld_sync_nstep_ac.policy_sample_action)
   ╠═╡ =#
 
-# ╔═╡ 0c7af119-461e-43ef-b899-0708ff088e45
+# ╔═╡ d6228bca-6fe4-4d9c-a486-e13bac1b7c99
 #=╠═╡
+plot_gridworld_state_value_function(gridworld_sync_nstep_ac.value_function)
+  ╠═╡ =#
 
-@plutoprofview synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 10_000, 128, gridworld_feature, update_gridworld_feature!; α_θ = 16f-2, α_w =8f-2, N = 10)
+# ╔═╡ ce65c62a-c646-4208-8a8d-8c99e20bee17
+#=╠═╡
+plot_gridworld_policy_function(gridworld_sync_nstep_ac.policy_function)
   ╠═╡ =#
 
 # ╔═╡ 4e8a8484-8e2c-4d02-9f1b-2fdff77fde7c
@@ -2930,6 +2953,7 @@ version = "17.7.0+0"
 # ╠═aeb7304c-0f5f-4db9-b3c1-d19048fd4176
 # ╠═c0b907ca-9959-45d9-8cc1-343d71ef5dd8
 # ╠═e6f4574b-f28f-43b1-b8f9-7080ecacfb39
+# ╠═7f848bd1-e325-427d-8d68-8f7c2d1e7039
 # ╠═be468ef6-6e8f-4b9a-aa20-993102168ca6
 # ╠═7335116e-670c-45ea-ae23-015b69964e5b
 # ╠═a92a325e-4e3f-4c9f-8299-33b1a54cef10
@@ -2962,14 +2986,17 @@ version = "17.7.0+0"
 # ╠═ae0a282c-76ba-49a6-8a2b-02012c8dcda9
 # ╠═04bc310f-bbaf-4d0f-9d5b-6c79b47a74c7
 # ╠═1d5be8fa-e03e-4906-b772-25a1899275a6
+# ╟─ee0405a4-a03c-4373-a270-475cda8de910
 # ╟─be9639f8-e987-4448-a961-0cafaaaf4980
 # ╠═44c9104e-8586-4202-8edd-eaea0073842a
 # ╠═b9792720-4b34-426e-a244-732b7ebce7a0
 # ╠═4e8a8484-8e2c-4d02-9f1b-2fdff77fde7c
-# ╠═04102d7f-b139-4923-8928-fe73d124e055
 # ╠═0c7af119-461e-43ef-b899-0708ff088e45
+# ╠═04102d7f-b139-4923-8928-fe73d124e055
 # ╠═670641ea-8600-41c0-af5c-48e3d6bc7a0a
 # ╠═449125ea-7eb6-4bc3-b994-ea85bd7a68aa
+# ╠═d6228bca-6fe4-4d9c-a486-e13bac1b7c99
+# ╠═ce65c62a-c646-4208-8a8d-8c99e20bee17
 # ╠═631ead41-0bf5-4bc0-bbe6-d98ceb32ca20
 # ╠═6c60168b-b5d6-4146-a530-c343adba4f87
 # ╠═e716de3d-9673-4bd6-bed9-8ab1f65dcfa5

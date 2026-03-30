@@ -94,6 +94,19 @@ md"""
 #### Continuing Tests
 """
 
+# ╔═╡ b9b33b12-5467-467d-ba50-ab7447cb7a72
+md"""
+### Display Functions
+"""
+
+# ╔═╡ 8fc74267-92df-46fe-823a-3dfffe55cc08
+function display_study_results(results::Dict)
+	DataFrame(begin
+		(;k..., performance = results[k])
+	end
+	for k in keys(results)) |> df -> sort(df, :performance; rev = true)
+end
+
 # ╔═╡ 4c51ea7d-0ba3-45be-bb15-31103953e2b1
 md"""
 ## Exhaustive Training
@@ -106,15 +119,58 @@ md"""
 ### Episodic Training
 """
 
+# ╔═╡ 15ca4d50-b1a9-4bbe-8b68-c2e1e0fda420
+md"""
+#### Performance Evaluation
+"""
+
+# ╔═╡ f46a0dd1-475f-4b05-b03c-6478b7d96d98
+function check_reward_progress(batch_episode_rewards::Vector{V}; min_reward::T = typemin(T)) where {T<:Real, V <: Vector{T}} 
+	reward_sum = zero(T)
+	num_episodes = 0
+	# @info "Checking reward progress of $batch_episode_rewards"
+	for i in eachindex(batch_episode_rewards)
+		episode_rewards = batch_episode_rewards[i]
+		l = length(episode_rewards)
+		if l == 1
+			reward_sum += first(episode_rewards)
+			num_episodes += 1
+		elseif l > 1
+			episode_check = ceil(Int64, l/2)
+			reward_sum += sum(view(episode_rewards, episode_check:l))
+			num_episodes += (l - episode_check + 1)
+		end
+		# @info "with episode rewards $episode_rewards, have new reward sum of $reward_sum and episode count of $num_episodes" 
+	end
+
+	iszero(num_episodes) && return min_reward
+	return reward_sum / num_episodes
+end
+
 # ╔═╡ 32afa996-fe90-4d6f-b7b9-cce662abd99b
-function check_reward_progress(output::NamedTuple; use_steps::Bool = false)
-	(!use_steps || isempty(output.episode_rewards)) && return check_reward_progress(output.episode_rewards)
+function check_reward_progress(output::NamedTuple; use_steps::Bool = false, kwargs...)
+	(!use_steps || isempty(output.episode_rewards)) && return check_reward_progress(output.episode_rewards; kwargs...)
 
 	l = length(output.episode_rewards)
 	l == 1 && return output.episode_rewards[1] / output.episode_steps[1]
 	episode_check = ceil(Int64, l/2)
 	sum(view(output.episode_rewards, episode_check:l)) / (output.episode_steps[l] - output.episode_steps[max(1, episode_check-1)])
 end
+
+# ╔═╡ 13a0c955-b249-440c-90c3-6d5add987982
+md"""
+#### Linear Value Training
+"""
+
+# ╔═╡ 33e1c12b-05cb-4842-b894-8e6e7c001bdc
+md"""
+#### Non-Linear Value Training
+"""
+
+# ╔═╡ c3092d9d-b2d1-4c53-999f-5f0533b7db76
+md"""
+#### Linear Policy Training
+"""
 
 # ╔═╡ 857d4ddd-2b8c-4a45-ac72-81f5467d0e4c
 md"""
@@ -203,6 +259,30 @@ function make_episodic_trial(algo::Function, minvalue::T; use_steps::Bool = fals
 	return trial
 end
 
+# ╔═╡ afc78cd2-1b73-4280-9aec-df74a249185b
+function make_sync_episodic_trial(algo::Function, minvalue::T; use_steps::Bool = true) where T<:Real
+	function trial(args...; kwargs...)
+		output = algo(args...; kwargs...)
+		use_steps && return Statistics.mean(output.avg_step_rewards)
+		batch_rewards = output.batch_episode_rewards
+
+		reward_sum = zero(T)
+		num_episodes = 0
+		for i in eachindex(batch_rewards)
+			rewards = output.batch_episode_rewards[i]
+			if !isempty(rewards)
+				reward_sum += sum(rewards)
+				num_episodes += length(rewards)
+			end
+		end
+
+		iszero(num_episodes) && return minvalue
+
+		return reward_sum / num_episodes
+	end
+	return trial
+end
+
 # ╔═╡ c20fad45-4033-4c60-b7db-3d8c9148026f
 function make_continuing_trial(algo::Function)
 	function trial(args...; kwargs...)
@@ -257,7 +337,19 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 
 	monte_carlo_nonlinear_study = setup_parameter_study(monte_carlo_nonlinear, (:γ, :α, :num_episodes, :layer_size, :num_layers, :reslayers), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, max_steps = typemax(Int64), use_unfinished_episodes = true))
 
-	(sarsa_linear_study = sarsa_linear_study, sarsa_nonlinear_study = sarsa_nonlinear_study, monte_carlo_linear_study = monte_carlo_linear_study, monte_carlo_nonlinear_study = monte_carlo_nonlinear_study)
+	dqn_lin(γ::T, α::T, max_steps::Integer; max_episodes = typemax(Int64), kwargs...) = dqn_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+
+	dqn_linear_study = setup_parameter_study(make_episodic_trial(dqn_lin, min_reward; use_steps = use_steps), (:γ, :α, :max_steps), (max_episodes = typemax(Int64), ϵ = one(T) / 10, buffer_size = 10_000, batch_size = 512, target_update_interval = 100, use_double_q = true, N = 0))
+
+	function dqn_nonlinear(γ::T, α::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes = typemax(Int64), kwargs...)
+		hidden_layers = fill(layer_size, num_layers)
+		dqn_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
+	end
+
+	dqn_nonlinear_study = setup_parameter_study(make_episodic_trial(dqn_nonlinear, min_reward; use_steps = use_steps), (:γ, :α, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), ϵ = one(T) / 10, buffer_size = 10_000, batch_size = 512, target_update_interval = 100, use_double_q = true, N = 0))
+		
+
+	(sarsa_linear_study = sarsa_linear_study, sarsa_nonlinear_study = sarsa_nonlinear_study, monte_carlo_linear_study = monte_carlo_linear_study, monte_carlo_nonlinear_study = monte_carlo_nonlinear_study, dqn_linear_study = dqn_linear_study, dqn_nonlinear_study = dqn_nonlinear_study)
 end
 
 # ╔═╡ 742c8135-9aac-49f3-ac9a-8430aa4c2b41
@@ -342,6 +434,21 @@ episodic_value_studies.dp_nonlinear_study.update_results!(1f0, 1f-2, 0.5f0, 100_
 # ╔═╡ 30425ebb-2fe5-4624-a3c9-f5f332beca4d
 #=╠═╡
 episodic_value_studies.dp_nonlinear_study.update_results!(1f0, 1f-2, 0.0f0, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ bc181aaa-e30e-401a-af30-2af56e724e11
+#=╠═╡
+episodic_value_studies.dqn_linear_study.update_results!(1f0, 1f-2, 10_000; batch_size = 16)
+  ╠═╡ =#
+
+# ╔═╡ 1aa1fd25-b452-4ba1-8db6-7c41cacf8e36
+#=╠═╡
+episodic_value_studies.dqn_linear_study.update_results!(1f0, 1f-2, 10_000; batch_size = 16, N = 10)
+  ╠═╡ =#
+
+# ╔═╡ dd492f11-f2b8-44ab-b3c1-43a57ee67f67
+#=╠═╡
+episodic_value_studies.dqn_nonlinear_study.update_results!(1f0, 1f-2, 10_000, 16, 4, 1; batch_size = 16, N = 10)
   ╠═╡ =#
 
 # ╔═╡ 6d07d39f-80e5-4a06-8ba9-7d71fea29d69
@@ -469,7 +576,7 @@ continuing_value_studies.sarsa_nonlinear_study.update_results!(1f-2, 0.5f0, 1_00
   ╠═╡ =#
 
 # ╔═╡ d2387c9d-aa6e-4eda-904a-101e5fdd3cae
-function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	function ac_train_linear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if all(iszero, (λ_θ, λ_w))
 			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
@@ -477,7 +584,7 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
 		end
 	end
-	ac_linear_study = setup_parameter_study(make_episodic_trial(ac_train_linear, typemin(T); use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
+	ac_linear_study = setup_parameter_study(make_episodic_trial(ac_train_linear, min_reward; use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
 
 	function ac_train_nonlinear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
@@ -487,7 +594,7 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 			actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
 		end
 	end
-	ac_nonlinear_study = setup_parameter_study(make_episodic_trial(ac_train_nonlinear, typemin(T); use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
+	ac_nonlinear_study = setup_parameter_study(make_episodic_trial(ac_train_nonlinear, min_reward; use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
 
 	function reinforce_linear(γ::T, α_θ::T, α_w::T, num_episodes::Integer; kwargs...) 
 		if iszero(α_w)
@@ -497,7 +604,7 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 		end
 	end
 
-	reinforce_linear_study = setup_parameter_study(make_episodic_trial(reinforce_linear, typemin(T)), (:γ, :α_θ, :α_w, :num_episodes), (max_steps = typemax(Int64), use_unfinished_episodes = true))
+	reinforce_linear_study = setup_parameter_study(make_episodic_trial(reinforce_linear, min_reward), (:γ, :α_θ, :α_w, :num_episodes), (max_steps = typemax(Int64), use_unfinished_episodes = true))
 
 	function reinforce_nonlinear(γ::T, α_θ::T, α_w::T, num_episodes::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...) 
 		hidden_layers = fill(layer_size, num_layers)
@@ -508,9 +615,31 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 		end
 	end
 
-	reinforce_nonlinear_study = setup_parameter_study(make_episodic_trial(reinforce_nonlinear, typemin(T)), (:γ, :α_θ, :α_w, :num_episodes, :layer_size, :num_layers, :reslayers), (max_steps = typemax(Int64), use_unfinished_episodes = true))
+	reinforce_nonlinear_study = setup_parameter_study(make_episodic_trial(reinforce_nonlinear, min_reward), (:γ, :α_θ, :α_w, :num_episodes, :layer_size, :num_layers, :reslayers), (max_steps = typemax(Int64), use_unfinished_episodes = true))
 
-	(ac_linear_study = ac_linear_study, ac_nonlinear_study = ac_nonlinear_study, reinforce_linear_study = reinforce_linear_study, reinforce_nonlinear_study = reinforce_nonlinear_study)
+	function ac_sync_train_linear(γ::T, α_θ::T, α_w::T, max_steps::Integer; nstep::Integer = 0, num_env = 8, kwargs...)
+		output = if iszero(nstep)
+			synchronous_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+		else
+			synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, N = nstep, kwargs...)
+		end
+	end
+
+	ac_sync_linear_study = setup_parameter_study(make_sync_episodic_trial(ac_sync_train_linear, min_reward; use_steps = use_steps), (:γ, :α_θ, :α_w, :max_steps), (nstep = 0, num_env = 8))
+
+	function ac_sync_train_nonlinear(γ::T, α_θ::T, α_w::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; nstep::Integer = 0, num_env = 8, kwargs...)
+		hidden_layers = fill(layer_size, num_layers)
+		if iszero(nstep)
+			synchronous_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α_θ = α_θ, α_w = α_w, kwargs...)
+		else
+			synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α_θ = α_θ, α_w = α_w, N = nstep, kwargs...)
+		end
+	end
+
+	ac_sync_nonlinear_study = setup_parameter_study(make_sync_episodic_trial(ac_sync_train_nonlinear, min_reward; use_steps = use_steps), (:γ, :α_θ, :α_w, :max_steps, :layer_size, :num_layers, :reslayers), (nstep = 0, num_env = 8))
+	
+
+	(ac_linear_study = ac_linear_study, ac_nonlinear_study = ac_nonlinear_study, reinforce_linear_study = reinforce_linear_study, reinforce_nonlinear_study = reinforce_nonlinear_study, ac_sync_linear_study = ac_sync_linear_study, ac_sync_nonlinear_study = ac_sync_nonlinear_study)
 end
 
 # ╔═╡ b430a02b-d4a2-4167-b4b3-28cd604f1f08
@@ -551,6 +680,26 @@ episodic_policy_studies.ac_nonlinear_study.update_results!(1f0, 1f-2, 1f-2, 0.0f
 # ╔═╡ 1f4ae3a7-1877-46e7-b0e5-06df88086153
 #=╠═╡
 episodic_policy_studies.reinforce_nonlinear_study.update_results!(1f0, 1f-2, 1f-2, 100, 16, 4, 1; max_steps = 10_000)
+  ╠═╡ =#
+
+# ╔═╡ 3fc93526-555b-444c-8896-0f9ad220cdaa
+#=╠═╡
+episodic_policy_studies.ac_sync_linear_study.update_results!(1f0, 1f-2, 1f-2, 100_000)
+  ╠═╡ =#
+
+# ╔═╡ 4d2633d3-4ca4-432d-abe0-be52f56c3602
+#=╠═╡
+episodic_policy_studies.ac_sync_linear_study.update_results!(1f0, 1f-2, 1f-2, 100_000; nstep = 10)
+  ╠═╡ =#
+
+# ╔═╡ c02b21de-c482-4171-97db-259074eac512
+#=╠═╡
+episodic_policy_studies.ac_sync_nonlinear_study.update_results!(1f0, 1f-2, 1f-2, 100_000, 16, 4, 1)
+  ╠═╡ =#
+
+# ╔═╡ 2c918beb-313d-4dc9-8090-fca0e22dd7fd
+#=╠═╡
+episodic_policy_studies.ac_sync_nonlinear_study.update_results!(1f0, 1f-2, 1f-2, 100_000, 16, 4, 1; nstep = 10)
   ╠═╡ =#
 
 # ╔═╡ 2405bd06-0061-4856-a977-0302d911c760
@@ -602,10 +751,15 @@ continuing_policy_studies.ac_nonlinear_study.update_results!(1f-2, 1f-2, 0.5f0, 
 continuing_policy_studies.ac_nonlinear_study.update_results!(1f-2, 1f-2, 0.0f0, 0.0f0, 10_000, 16, 4, 1)
   ╠═╡ =#
 
+# ╔═╡ 03225f59-4e54-49cf-99bf-be6e96465d61
+#=╠═╡
+display_study_results(continuing_policy_studies.ac_linear_study.results)
+  ╠═╡ =#
+
 # ╔═╡ 3a938f27-b6fe-4411-8c41-5d1efaa8189c
-function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer; use_steps::Bool = false) where {T<:Real, S, A, P, F1, F2, F3}
+function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P, F1, F2, F3}
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = eval_steps)
-	!mdp.isterm(sterm) && return typemin(T)
+	!mdp.isterm(sterm) && return min_reward
 	reward_sum = sum(rewards)
 	episode_count = 1
 	step_count = nsteps
@@ -624,16 +778,26 @@ function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, 
 end
 
 # ╔═╡ a5b13027-c3b6-488e-82a1-2ee3be6c63be
-function check_reward_progress(episode_rewards::Vector{T}) where T<:Real 
-	isempty(episode_rewards) && return typemin(T)
+function check_reward_progress(episode_rewards::Vector{T}; min_reward::T = typemin(T)) where T<:Real 
+	isempty(episode_rewards) && return min_reward
 	l = length(episode_rewards)
 	l == 1 && return episode_rewards[1]
 	episode_check = ceil(Int64, l/2)
 	Statistics.mean(view(episode_rewards, episode_check:l))
 end
 
+# ╔═╡ e7a0def8-d818-460b-bbdb-45462009b242
+function check_sync_reward_progress(output::NamedTuple; use_steps::Bool = false, kwargs...)
+	# @info "Checking synchronous reward progress of $(output.batch_episode_rewards)"
+	!use_steps && return check_reward_progress(output.batch_episode_rewards; kwargs...)
+	
+	l = length(output.avg_step_rewards)
+	step_check = ceil(Int64, l / 2)
+	Statistics.mean(view(output.avg_step_rewards, step_check:l))
+end
+
 # ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
-function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function reset_params(use_dp::Bool)
 		if use_dp
@@ -666,14 +830,14 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		output1 = td_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, use_dp = use_dp, kwargs...)
 		π_kwargs = output1.form_kwargs()
 		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; π_kwargs...).maximizing_action
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
 		
 		@info "Baseline episode reward is $reward1, beginning first trial"
 		backup_params = copy(params)
 		output2 = td_train_linear(γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
-		reward2 = check_reward_progress(output2; use_steps = use_steps)
+		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 
 		if check_bad_params(params)
 			@info "First trial resulted in bad parameter values"
@@ -695,7 +859,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
 			output2 = td_train_linear(γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
-			reward2 = check_reward_progress(output2; use_steps = use_steps)
+			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 		end
 
 		if check_bad_params(params)
@@ -738,7 +902,91 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
+	function dqn_train_linear(γ::T, α::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), new_params::Bool = true, kwargs...)
+		new_params && reset_params(false)
+		dqn_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = linear_sarsa_params, kwargs...)
+	end
+
+	function dqn_train_exhaustive(γ::T, α::T, trial_steps::Integer; new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)
+		params = linear_sarsa_params
+		
+		@info "Starting exhaustive dqn training with γ = $γ, α = $α, and $trial_steps steps per trial"
+		output1 = dqn_train_linear(γ, zero(T), 0; new_params = new_params, kwargs...)
+		π_kwargs = output1.form_kwargs()
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; π_kwargs...).maximizing_action
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline episode reward is $reward1, beginning first trial"
+		backup_params = copy(params)
+		output2 = dqn_train_linear(γ, α, trial_steps; new_params = false, ϵ = ϵ, kwargs...)
+		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+
+		if check_bad_params(params)
+			@info "First trial resulted in bad parameter values"
+			params .= backup_params
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			params .= backup_params
+			return (;output1..., performance = reward1)
+		end
+
+		episode_rewards = output2.episode_rewards
+		while (reward2 > reward1) && !check_bad_params(params)
+			trial += 1
+			@info "On trial $trial, reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			backup_params .= params
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			
+			output2 = dqn_train_linear(γ, α, trial_steps; new_params = false, ϵ = ϵ, kwargs...)
+			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+		end
+
+		if check_bad_params(params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		params .= backup_params
+		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
+	end
+
+	function dqn_train_rate_decay(γ::T, α_init::T, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Beginning exhaustive dqn trials with learning rate $α_init"
+		output1 = dqn_train_exhaustive(γ, α_init, trial_steps; new_params = new_params, kwargs...)
+		episode_rewards = output1.episode_rewards
+
+		α = α_init / 2
+		@info "Reducing learning rate to $α for next set of trials"
+		output2 = dqn_train_exhaustive(γ, α, trial_steps; kwargs...)
+
+		if output2.performance ≤ output1.performance
+			@info "Second round performance of $(output2.performance) failed to improve reward"
+			@info "Completed rate decay training after 1 round with performance $(output1.performance)"
+			return output1
+		end
+
+		round = 2
+		while output2.performance > output1.performance
+			round += 1
+			α /= 2
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			@info "On round $round reducing learning rate to $α"
+			output2 = dqn_train_exhaustive(γ, α, trial_steps; kwargs...)
+		end
+		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_dqn = dqn_train_linear, train_dqn_exhaustive = dqn_train_exhaustive, train_dqn_rate_decay = dqn_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
 end
 
 # ╔═╡ aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
@@ -756,6 +1004,16 @@ episodic_linear_value_result = episodic_linear_value_test.train_rate_decay(1f0, 
 plot(-episodic_linear_value_result.episode_rewards, Layout(yaxis_type = "log"))
   ╠═╡ =#
 
+# ╔═╡ 03cf459d-6117-40d1-b9af-3d0cc28c8d0e
+#=╠═╡
+episodic_linear_value_dqn_result = episodic_linear_value_test.train_dqn_rate_decay(1f0, 1f-3, 1_000_000; new_params = true, ϵ = 0.1f0, batch_size = 16, N = 10)
+  ╠═╡ =#
+
+# ╔═╡ c0c4d5f5-199d-4b81-8fdc-6e04826f4106
+#=╠═╡
+plot(-episodic_linear_value_dqn_result.episode_rewards, Layout(yaxis_type = "log"))
+  ╠═╡ =#
+
 # ╔═╡ c68eab1e-b4f1-4fb5-8b3e-f23ad0df0be0
 function ReinforcementLearning.initialize_fcann_value_params(mdp::StateMDP, feature_vector, hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool)
 	if use_dp
@@ -767,7 +1025,7 @@ function ReinforcementLearning.initialize_fcann_value_params(mdp::StateMDP, feat
 end
 
 # ╔═╡ 98d94e3b-4ca5-4ff0-8409-9d748799931f
-function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers, use_dp = use_dp)
@@ -797,14 +1055,14 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		output1 = td_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, use_gpu = use_gpu, kwargs...)
 		π_kwargs = output1.form_kwargs()
 		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; use_gpu = use_gpu, π_kwargs...).maximizing_action
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
 		
 		@info "Baseline episode reward is $reward1, beginning first trial"
 		backup_params = copy(params)
 		output2 = td_train_nonlinear(hidden_layers, reslayers, γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, use_gpu = use_gpu, ϵ = ϵ, kwargs...)
-		reward2 = check_reward_progress(output2; use_steps = use_steps)
+		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 
 		if check_bad_params(params)
 			@info "First trial resulted in bad parameter values"
@@ -826,7 +1084,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
 			output2 = td_train_nonlinear(hidden_layers, reslayers, γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, use_gpu = use_gpu, ϵ = ϵ, kwargs...)
-			reward2 = check_reward_progress(output2; use_steps = use_steps)
+			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 		end
 
 		if check_bad_params(params)
@@ -871,7 +1129,93 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, parameters = fcann_parameters)	
+	function dqn_train_nonlinear(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), new_params::Bool = true, kwargs...)
+		params = initialize_params(hidden_layers, reslayers, false; reset_params = new_params)
+		dqn_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, parameters = params, kwargs...)
+	end
+
+	function dqn_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)
+		params = initialize_params(hidden_layers, reslayers, false; reset_params = new_params)
+		
+		@info "Starting exhaustive dqn training with γ = $γ, α = $α, and $trial_steps steps per trial"
+		output1 = dqn_train_nonlinear(hidden_layers, reslayers, γ, zero(T), 0; new_params = false, use_gpu = use_gpu, kwargs...)
+		π_kwargs = output1.form_kwargs()
+		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; use_gpu = use_gpu, π_kwargs...).maximizing_action
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline episode reward is $reward1, beginning first trial"
+		backup_params = copy(params)
+		output2 = dqn_train_nonlinear(hidden_layers, reslayers, γ, α, trial_steps; new_params = false, use_gpu = use_gpu, ϵ = ϵ, kwargs...)
+		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+
+		if check_bad_params(params)
+			@info "First trial resulted in bad parameter values"
+			copy!(params,  backup_params)
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			copy!(params, backup_params)
+			return (;output1..., performance = reward1)
+		end
+
+		episode_rewards = output2.episode_rewards
+		while (reward2 > reward1) && !check_bad_params(params)
+			trial += 1
+			@info "On trial $trial, reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			copy!(backup_params, params)
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			
+			output2 = dqn_train_nonlinear(hidden_layers, reslayers, γ, α, trial_steps; new_params = false, use_gpu = use_gpu, ϵ = ϵ, kwargs...)
+			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+		end
+
+		if check_bad_params(params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		copy!(params, backup_params)
+		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
+	end
+
+	function dqn_train_rate_decay(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α_init::T, trial_steps::Integer; new_params = false, kwargs...)
+		params = initialize_params(hidden_layers, reslayers, false; reset_params = new_params)
+		
+		@info "Beginning exhaustive trials with learning rate $α_init"
+		output1 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs...)
+		episode_rewards = output1.episode_rewards
+
+		α = α_init / 2
+		@info "Reducing learning rate to $α for next set of trials"
+		output2 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α, trial_steps; kwargs...)
+
+		if output2.performance ≤ output1.performance
+			@info "Second round performance of $(output2.performance) failed to improve reward"
+			@info "Completed rate decay training after 1 round with performance $(output1.performance)"
+			return output1
+		end
+
+		round = 2
+		while output2.performance > output1.performance
+			round += 1
+			α /= 2
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			@info "On round $round reducing learning rate to $α"
+			output2 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α, trial_steps; kwargs...)
+		end
+		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_dqn = dqn_train_nonlinear, train_dqn_exhaustive = dqn_train_exhaustive, train_dqn_rate_decay = dqn_train_rate_decay, parameters = fcann_parameters)	
 end
 
 # ╔═╡ 5443cd2e-78c8-4723-9093-df2840f59a33
@@ -882,6 +1226,11 @@ episodic_nonlinear_value_test = setup_episodic_value_nonlinear_training(episodic
 # ╔═╡ eabd4d6b-ce35-41ad-845d-aa1498003814
 #=╠═╡
 episodic_nonlinear_value_result = episodic_nonlinear_value_test.train_rate_decay(fill(16, 2), 1, 1f0, 1f-3, 0.99f0, 1_000_000; new_params = true, ϵ = 0.05f0, use_dp = false)
+  ╠═╡ =#
+
+# ╔═╡ 06591ad2-c80b-4af9-ae0f-b5f0a8625ddc
+#=╠═╡
+episodic_nonlinear_value_dqn_result = episodic_nonlinear_value_test.train_dqn_rate_decay(fill(16, 2), 1, 1f0, 1f-3, 1_000_000; new_params = true, ϵ = 0.05f0, N = 10, batch_size = 16)
   ╠═╡ =#
 
 # ╔═╡ 4abf9691-4817-4728-acac-1f72ba7a5a87
@@ -895,7 +1244,7 @@ episodic_nonlinear_value_result3 = episodic_nonlinear_value_test.train_rate_deca
   ╠═╡ =#
 
 # ╔═╡ 33aa329f-7a8b-4264-837e-19130773315f
-function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	
 	function reset_params()
 		linear_policy_params .= initialize_linear_parameters(feature_vector, mdp, zero(T))
@@ -916,7 +1265,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		output1 = ac_train_linear(γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π(s) = output1.policy_sample_action(s; π_kwargs...)
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
 		
@@ -924,7 +1273,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		backup_policy_params = copy(linear_policy_params)
 		backup_value_params = copy(linear_value_params)
 		output2 = ac_train_linear(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
-		reward2 = check_reward_progress(output2; use_steps = use_steps)
+		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 
 		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
 			@info "First trial performance resulted in bad parameter values"
@@ -949,7 +1298,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
 			output2 = ac_train_linear(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
-			reward2 = check_reward_progress(output2; use_steps = use_steps)
+			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 		end
 
 		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
@@ -989,7 +1338,93 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(train = ac_train_linear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, policy_params = linear_policy_params, value_params = linear_value_params)	
+	function ac_sync_train_linear(γ::T, α_θ::T, α_w::T, max_steps::Integer; new_params::Bool = true, num_env::Integer = 8, N::Integer = 0, kwargs...)
+		new_params && reset_params()
+		
+		iszero(N) && return synchronous_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+
+		synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, N = N, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+	end
+
+	function ac_sync_train_exhaustive(γ::T, α_θ::T, α_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, kwargs...)
+		@info "Starting exhaustive synchronous training with α_θ = $(α_θ), α_w = $(α_w), and $trial_steps steps per trial"
+		output1 = ac_sync_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, kwargs...)
+		π_kwargs = output1.form_policy_kwargs()
+		π(s) = output1.policy_sample_action(s; π_kwargs...)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline episode reward is $reward1, beginning first trial"
+		backup_policy_params = copy(linear_policy_params)
+		backup_value_params = copy(linear_value_params)
+		output2 = ac_sync_train_linear(γ, α_θ, α_w, trial_steps; kwargs..., new_params = false)
+		reward2 = check_sync_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+
+		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
+			@info "First trial performance resulted in bad parameter values"
+			linear_policy_params .= backup_policy_params
+			linear_value_params .= backup_value_params
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			linear_policy_params .= backup_policy_params
+			linear_value_params .= backup_value_params
+			return (;output1..., performance = reward1)
+		end
+
+		batch_episode_rewards = output2.batch_episode_rewards
+		while (reward2 > reward1) && !check_bad_params(linear_policy_params) && !check_bad_params(linear_value_params)
+			trial += 1
+			@info "On trial $trial, episode reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			backup_policy_params .= linear_policy_params
+			backup_value_params .= linear_value_params
+			batch_episode_rewards = [vcat(batch_episode_rewards[i], output1.batch_episode_rewards[i]) for i in eachindex(batch_episode_rewards)]
+			
+			output2 = ac_sync_train_linear(γ, α_θ, α_w, trial_steps; kwargs..., new_params = false)
+			reward2 = check_sync_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+		end
+
+		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		linear_policy_params .= backup_policy_params
+		linear_value_params .= backup_value_params
+		return (;output1..., batch_episode_rewards = batch_episode_rewards, performance = reward1)
+	end
+
+	function ac_sync_train_rate_decay(γ, α_θ_init, α_w_init, trial_steps::Integer; new_params = false, kwargs...)
+		@info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
+		output1 = ac_sync_train_exhaustive(γ, α_θ_init, α_w_init, trial_steps; new_params = new_params, kwargs...)
+		batch_episode_rewards = output1.batch_episode_rewards
+
+		α_θ = α_θ_init / 2
+		α_w = α_w_init / 2
+		@info "Reducing learning rates to $α_θ and $α_w for next set of trials"
+		output2 = ac_sync_train_exhaustive(γ, α_θ, α_w, trial_steps; kwargs...)
+
+		round = 2
+		while output2.performance > output1.performance
+			batch_episode_rewards = [vcat(batch_episode_rewards[i], output2.batch_episode_rewards[i]) for i in eachindex(batch_episode_rewards)]
+			round += 1
+			α_θ = α_θ / 2
+			α_w = α_w / 2
+			output1 = output2
+			@info "On round $round reducing learning rates to $α_θ and $α_w"
+			output2 = ac_sync_train_exhaustive(γ, α_θ, α_w, trial_steps; kwargs...)
+		end
+		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., batch_episode_rewards = batch_episode_rewards)
+	end
+
+	(train = ac_train_linear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, sync_train = ac_sync_train_linear, sync_train_exhaustive = ac_sync_train_exhaustive, sync_train_rate_decay = ac_sync_train_rate_decay, policy_params = linear_policy_params, value_params = linear_value_params)	
 end
 
 # ╔═╡ aeed95c6-1f66-4087-a491-faf928fd8f4c
@@ -1002,6 +1437,11 @@ episodic_linear_policy_test = setup_episodic_policy_linear_training(episodic_mdp
 episodic_linear_policy_result = episodic_linear_policy_test.train_rate_decay(1f0, 4f-3, 4f-3, 0.99f0, 0.99f0, 1_000_000; new_params = true)
   ╠═╡ =#
 
+# ╔═╡ 05162856-aefd-4a3a-959f-1053c01284b7
+#=╠═╡
+episodic_linear_policy_sync_result = episodic_linear_policy_test.sync_train_rate_decay(1f0, 8f-3, 4f-3, 1_000_000; new_params = true, N = 10, num_env = 4)
+  ╠═╡ =#
+
 # ╔═╡ 8e91e2c2-a5e6-4cce-8d62-d1568bae7e08
 function initialize_fcann_policy_params(mdp::StateMDP, feature_vector, hidden_layers::Vector{Int64}, reslayers::Integer)
 	policy_parameters = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, true)
@@ -1010,7 +1450,7 @@ function initialize_fcann_policy_params(mdp::StateMDP, feature_vector, hidden_la
 end
 
 # ╔═╡ ad63e185-0618-476c-931e-f69b5f24d2a1
-function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers)
@@ -1038,7 +1478,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		output1 = ac_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, use_gpu = use_gpu, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
 		
@@ -1046,7 +1486,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
 		output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
-		reward2 = check_reward_progress(output2; use_steps = use_steps)
+		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
 			@info "First trial performance resulted in bad parameter values"
@@ -1071,7 +1511,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
 			output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
-			reward2 = check_reward_progress(output2; use_steps = use_steps)
+			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 		end
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
@@ -1112,7 +1552,96 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(train = ac_train_nonlinear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, policy_params = fcann_policy_parameters, value_params = fcann_value_parameters)	
+	function ac_sync_train_nonlinear(hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, max_steps::Integer; num_env::Integer = 8, N::Integer = 0, new_params::Bool = true, kwargs...)
+		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
+		if iszero(N)
+			synchronous_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
+		else
+			synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, N = N, kwargs...)
+		end
+	end
+
+	function ac_sync_train_exhaustive(hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, use_steps::Bool = false, kwargs...)
+		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
+		@info "Starting exhaustive synchronous training with α_θ = $(α_θ), α_w = $(α_w), and $trial_steps steps per trial"
+		output1 = ac_sync_train_nonlinear(hidden_layers, reslayers, γ, 0f0, 0f0, 0; new_params = false, use_gpu = use_gpu, kwargs...)
+		π_kwargs = output1.form_policy_kwargs()
+		π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
+		reward1 = baseline_reward
+		trial = 0
+		
+		@info "Baseline episode reward is $reward1, beginning first trial"
+		backup_policy_params = copy(policy_params)
+		backup_value_params = copy(value_params)
+		output2 = ac_sync_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
+		reward2 = check_sync_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+
+		if check_bad_params(policy_params) || check_bad_params(value_params)
+			@info "First trial performance resulted in bad parameter values"
+			copy!(policy_params, backup_policy_params)
+			copy!(value_params, backup_value_params)
+			return (;output1..., performance = reward1)
+		elseif reward2 ≤ reward1
+			@info "First trial performance of $reward2 failed to improve reward"
+			copy!(policy_params, backup_policy_params)
+			copy!(value_params, backup_value_params)
+			return (;output1..., performance = reward1)
+		end
+
+		batch_episode_rewards = output2.batch_episode_rewards
+		while (reward2 > reward1) && !check_bad_params(policy_params) && !check_bad_params(value_params)
+			trial += 1
+			@info "On trial $trial, episode reward improved from $reward1 to $reward2"
+			output1 = output2
+			reward1 = reward2
+			copy!(backup_policy_params, policy_params)
+			copy!(backup_value_params, value_params)
+			batch_episode_rewards = [vcat(batch_episode_rewards[i], output1.batch_episode_rewards[i]) for i in eachindex(batch_episode_rewards)]
+			
+			output2 = ac_sync_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
+			reward2 = check_sync_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+		end
+
+		if check_bad_params(policy_params) || check_bad_params(value_params)
+			@info "Final trial resulted in bad parameter values"
+		else
+			@info "Final trial performance of $reward2 failed to improve reward"
+		end
+
+		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+
+		copy!(policy_params, backup_policy_params)
+		copy!(value_params, backup_value_params)
+		return (;output1..., batch_episode_rewards = batch_episode_rewards, performance = reward1)
+	end
+
+	function ac_sync_train_rate_decay(hidden_layers, reslayers, γ, α_θ_init, α_w_init, trial_steps::Integer; new_params = false, kwargs...)
+		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
+		@info "Beginning exhaustive synchronous trials with learning rates $(α_θ_init) and $(α_w_init)"
+		output1 = ac_sync_train_exhaustive(hidden_layers, reslayers, γ, α_θ_init, α_w_init, trial_steps; kwargs...)
+		batch_episode_rewards = output1.batch_episode_rewards
+
+		α_θ = α_θ_init / 2
+		α_w = α_w_init / 2
+		@info "Reducing learning rates to $α_θ and $α_w for next set of trials"
+		output2 = ac_sync_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; kwargs...)
+
+		round = 2
+		while output2.performance > output1.performance
+			batch_episode_rewards = [vcat(batch_episode_rewards[i], output2.batch_episode_rewards[i]) for i in eachindex(batch_episode_rewards)]
+			round += 1
+			α_θ = α_θ / 2
+			α_w = α_w / 2
+			output1 = output2
+			@info "On round $round reducing learning rates to $α_θ and $α_w"
+			output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+		end
+		@info "Completed rate decay training after $(round-1) rounds with performance $(output1.performance)"
+		return (;output1..., batch_episode_rewards = batch_episode_rewards)
+	end
+
+	(train = ac_train_nonlinear, train_exhaustive = ac_train_exhaustive, train_rate_decay = ac_train_rate_decay, sync_train = ac_sync_train_nonlinear, sync_train_exhaustive = ac_sync_train_exhaustive, sync_train_rate_decay = ac_sync_train_rate_decay, policy_params = fcann_policy_parameters, value_params = fcann_value_parameters)	
 end
 
 # ╔═╡ d7d58cdd-920e-47b4-8ef9-6b5623b85e7d
@@ -1122,7 +1651,7 @@ episodic_nonlinear_policy_test = setup_episodic_policy_nonlinear_training(episod
 
 # ╔═╡ 984158d0-7fb1-4eb1-b904-3bc6011501ad
 #=╠═╡
-episodic_nonlinear_policy_result = episodic_nonlinear_policy_test.train_rate_decay(fill(2, 2), 1, 1f0, 1f-3, 1f-3, 0.5f0, 0.5f0, 100_000; new_params = false)
+episodic_nonlinear_policy_result = episodic_nonlinear_policy_test.train_rate_decay(fill(4, 2), 1, 1f0, 1f-2, 1f-3, 0.99f0, 0.99f0, 1_000_000; new_params = false)
   ╠═╡ =#
 
 # ╔═╡ 001c295b-9fe6-4036-9fb6-337cff79687c
@@ -1133,6 +1662,16 @@ plot(episodic_nonlinear_policy_result.episode_rewards)
 # ╔═╡ 5d0cd43c-556b-445e-a32a-8806995b954f
 #=╠═╡
 episodic_nonlinear_policy_result2 = episodic_nonlinear_policy_test.train_rate_decay(fill(1024, 4), 1, 1f0, 1f-3, 1f-3, 0.5f0, 0.5f0, 100; new_params = false, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ b58b101f-c080-477d-8c4f-07a4aea257fe
+#=╠═╡
+episodic_nonlinear_sync_policy_result = episodic_nonlinear_policy_test.sync_train_rate_decay(fill(4, 2), 1, 1f0, 1f-2, 1f-2, 1_000_000; new_params = false, N = 1)
+  ╠═╡ =#
+
+# ╔═╡ 5dbc7d76-3a94-465d-a69b-31d0c1e16e86
+#=╠═╡
+runepisode(episodic_mdp; π = episodic_nonlinear_sync_policy_result.policy_sample_action, max_steps = 100_000)
   ╠═╡ =#
 
 # ╔═╡ 64c23666-9e34-4f95-9787-2d1593725bff
@@ -2298,6 +2837,11 @@ end
 plot_rewards(-episodic_nonlinear_value_result.episode_rewards, 100, 1000)
   ╠═╡ =#
 
+# ╔═╡ e27945c6-0dd6-4f8a-8f56-47a53b6f9087
+#=╠═╡
+plot_rewards(-episodic_nonlinear_value_dqn_result.episode_rewards, 100, 1000)
+  ╠═╡ =#
+
 # ╔═╡ e2161522-ec87-47ff-89a5-d683c64f75a1
 #=╠═╡
 plot_rewards(episodic_linear_policy_result.episode_rewards, 100, 1000)
@@ -3130,6 +3674,7 @@ version = "17.7.0+0"
 # ╟─6c56e883-d727-4caf-9dac-6dc2aeab102f
 # ╟─005259da-6f82-4bd6-ae52-a20f8c07ef00
 # ╠═8cf192df-e554-41b6-b9d0-71a142766021
+# ╠═afc78cd2-1b73-4280-9aec-df74a249185b
 # ╠═c20fad45-4033-4c60-b7db-3d8c9148026f
 # ╟─f43d6616-d28e-4799-a677-b00b5811b2c1
 # ╠═e68c46ff-06a4-47ab-b9ec-2b8d2b57d6af
@@ -3152,6 +3697,9 @@ version = "17.7.0+0"
 # ╠═c812e9c9-b6ab-4788-a5a7-d391d270f387
 # ╠═21344e9a-e0fa-4356-8947-b5310e6aa4e1
 # ╠═30425ebb-2fe5-4624-a3c9-f5f332beca4d
+# ╠═bc181aaa-e30e-401a-af30-2af56e724e11
+# ╠═1aa1fd25-b452-4ba1-8db6-7c41cacf8e36
+# ╠═dd492f11-f2b8-44ab-b3c1-43a57ee67f67
 # ╟─75b4c6da-80b7-4a34-bb15-f63ada17d5b4
 # ╠═5f9b180e-9201-45d5-92dd-5c0eb9de01e7
 # ╠═f578ab23-12cb-4f38-b76f-fef4189d31cc
@@ -3178,6 +3726,10 @@ version = "17.7.0+0"
 # ╠═ee241d93-653e-4254-a4e5-a03f98e2dd9e
 # ╠═0613b3e4-62d2-46bd-8d42-d782bece25ca
 # ╠═1f4ae3a7-1877-46e7-b0e5-06df88086153
+# ╠═3fc93526-555b-444c-8896-0f9ad220cdaa
+# ╠═4d2633d3-4ca4-432d-abe0-be52f56c3602
+# ╠═c02b21de-c482-4171-97db-259074eac512
+# ╠═2c918beb-313d-4dc9-8090-fca0e22dd7fd
 # ╟─d3fbd37e-ea13-4b8f-abe8-dfb5efa19415
 # ╠═2405bd06-0061-4856-a977-0302d911c760
 # ╟─afdcbf2d-cd4b-42f6-9b33-7cb5c9700c61
@@ -3186,14 +3738,23 @@ version = "17.7.0+0"
 # ╠═e2fcc077-9dbe-49fd-b1e0-d5cb43b20671
 # ╠═352a4649-f395-4cf3-9266-94bf393d8a7a
 # ╠═d00cdab9-e0b2-41a9-9cd1-080d844f8a57
+# ╟─b9b33b12-5467-467d-ba50-ab7447cb7a72
+# ╠═8fc74267-92df-46fe-823a-3dfffe55cc08
+# ╠═03225f59-4e54-49cf-99bf-be6e96465d61
 # ╟─4c51ea7d-0ba3-45be-bb15-31103953e2b1
 # ╟─bbced5a1-fe8b-402b-9dc5-6b37ebe07767
+# ╟─15ca4d50-b1a9-4bbe-8b68-c2e1e0fda420
 # ╠═3a938f27-b6fe-4411-8c41-5d1efaa8189c
 # ╠═a5b13027-c3b6-488e-82a1-2ee3be6c63be
+# ╠═f46a0dd1-475f-4b05-b03c-6478b7d96d98
 # ╠═32afa996-fe90-4d6f-b7b9-cce662abd99b
+# ╠═e7a0def8-d818-460b-bbdb-45462009b242
+# ╟─13a0c955-b249-440c-90c3-6d5add987982
 # ╠═0d583c27-134f-4651-89d9-63b599aa8c4f
+# ╟─33e1c12b-05cb-4842-b894-8e6e7c001bdc
 # ╠═c68eab1e-b4f1-4fb5-8b3e-f23ad0df0be0
 # ╠═98d94e3b-4ca5-4ff0-8409-9d748799931f
+# ╟─c3092d9d-b2d1-4c53-999f-5f0533b7db76
 # ╠═33aa329f-7a8b-4264-837e-19130773315f
 # ╠═8e91e2c2-a5e6-4cce-8d62-d1568bae7e08
 # ╠═ad63e185-0618-476c-931e-f69b5f24d2a1
@@ -3201,21 +3762,28 @@ version = "17.7.0+0"
 # ╠═aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
 # ╠═97bfe437-8cfb-4070-88e6-690647709b62
 # ╠═e7653fea-304b-4958-b9e6-9ebe86b91d6f
+# ╠═03cf459d-6117-40d1-b9af-3d0cc28c8d0e
+# ╠═c0c4d5f5-199d-4b81-8fdc-6e04826f4106
 # ╟─d9deac3f-208b-489d-b964-6d44c7e6379d
 # ╠═5443cd2e-78c8-4723-9093-df2840f59a33
 # ╠═eabd4d6b-ce35-41ad-845d-aa1498003814
 # ╠═ddd87cf8-b424-469d-900e-5c46057aa05f
+# ╠═06591ad2-c80b-4af9-ae0f-b5f0a8625ddc
+# ╠═e27945c6-0dd6-4f8a-8f56-47a53b6f9087
 # ╠═4abf9691-4817-4728-acac-1f72ba7a5a87
 # ╠═5d58a094-f8b9-49a5-8a04-b3aa11ae0726
 # ╟─f9c9ccb4-0291-461d-8016-8f13a9dc1c5d
 # ╠═aeed95c6-1f66-4087-a491-faf928fd8f4c
 # ╠═2fb66afd-5889-4866-8a93-e8903881de9d
 # ╠═e2161522-ec87-47ff-89a5-d683c64f75a1
+# ╠═05162856-aefd-4a3a-959f-1053c01284b7
 # ╟─d73cd76a-61eb-47b9-abd8-769f00601743
 # ╠═d7d58cdd-920e-47b4-8ef9-6b5623b85e7d
 # ╠═984158d0-7fb1-4eb1-b904-3bc6011501ad
 # ╠═001c295b-9fe6-4036-9fb6-337cff79687c
 # ╠═5d0cd43c-556b-445e-a32a-8806995b954f
+# ╠═b58b101f-c080-477d-8c4f-07a4aea257fe
+# ╠═5dbc7d76-3a94-465d-a69b-31d0c1e16e86
 # ╟─cebdb010-7e8d-4fb8-bf49-418181061ad4
 # ╠═64c23666-9e34-4f95-9787-2d1593725bff
 # ╠═9d244394-8523-4975-af85-f70cd0cfa430
