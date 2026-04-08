@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.24
 
 using Markdown
 using InteractiveUtils
@@ -3603,7 +3603,7 @@ html"""
 			margin: 0 auto;
 			max-width: min(1600px, 90%);
 			padding-left: max(10px, 5%);
-			padding-right: max(10px, 5%);
+			padding-right: max(200px, 5%);
 			font-size: max(10px, min(24px, 2vw));
 		}
 	</style>
@@ -4394,7 +4394,7 @@ PlutoUI = "~0.7.73"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.4"
+julia_version = "1.12.5"
 manifest_format = "2.0"
 project_hash = "3d1178c7404f262152d31e2855f70e2a3293599d"
 

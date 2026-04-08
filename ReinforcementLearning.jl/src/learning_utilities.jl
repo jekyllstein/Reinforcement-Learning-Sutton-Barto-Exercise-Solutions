@@ -2805,7 +2805,7 @@ html"""
 			margin: 0 auto;
 			max-width: min(1600px, 90%);
 			padding-left: max(10px, 5%);
-			padding-right: max(10px, 10%);
+			padding-right: max(200px, 5%);
 			font-size: max(10px, min(24px, 2vw));
 		}
 	</style>
@@ -2813,12 +2813,15 @@ html"""
   ╠═╡ =#
 
 # ╔═╡ 455f956d-6c92-46e8-90d4-d62167d455cb
+#=╠═╡
 function smooth_error(error_history, n)
 	l = length(error_history)
 	[mean(view(error_history, i-n:i)) for i in n+1:l]
 end
+  ╠═╡ =#
 
 # ╔═╡ 65068069-1374-4344-83e7-950a894957b9
+#=╠═╡
 begin
 	plot_rewards(rewards::AbstractVector{T}, nsmooth::Integer, npoints::Integer) where T<:Real = plot(smooth_error(rewards, nsmooth)[round.(Int64, LinRange(1, length(rewards) - nsmooth, npoints))])
 
@@ -2827,6 +2830,7 @@ begin
 		plot_rewards(newrewards, nsmooth, npoints)
 	end
 end
+  ╠═╡ =#
 
 # ╔═╡ ddd87cf8-b424-469d-900e-5c46057aa05f
 #=╠═╡

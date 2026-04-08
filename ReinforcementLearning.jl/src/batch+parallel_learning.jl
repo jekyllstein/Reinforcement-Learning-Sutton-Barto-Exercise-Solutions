@@ -131,15 +131,6 @@ md"""
 #### Tabular Q-Learning
 """
 
-# ╔═╡ b067424c-2b40-4d99-9dba-419af6fb2209
-#=╠═╡
-function eval_gridworld_returns(output::NamedTuple; total_steps = 100_000, interval = 100, kwargs...)
-	step_rewards = zeros(Float32, total_steps+1)
-	step_rewards[output.episode_steps] .= 1f0
-	[mean(view(step_rewards, i-interval+1:i)) for i in interval:interval:total_steps+1]
-end
-  ╠═╡ =#
-
 # ╔═╡ afa30291-a919-44da-83c9-97cd2a43c168
 md"""
 #### Q-Learning with Linear Approximation
@@ -904,6 +895,15 @@ const gridworld_q = sarsa_λ(gridworld_mdp, 0.99f0, 0f0, typemax(Int64), 100_000
 # ╔═╡ 4f222b09-00e0-48b9-bd3e-6b6ebfba5727
 #=╠═╡
 eval_gridworld_final_policy(s -> gridworld_q.value_function(s).maximizing_action)
+  ╠═╡ =#
+
+# ╔═╡ b067424c-2b40-4d99-9dba-419af6fb2209
+#=╠═╡
+function eval_gridworld_returns(output::NamedTuple; total_steps = 100_000, interval = 100, kwargs...)
+	step_rewards = zeros(Float32, total_steps+1)
+	step_rewards[output.episode_steps] .= 1f0
+	[mean(view(step_rewards, i-interval+1:i)) for i in interval:interval:total_steps+1]
+end
   ╠═╡ =#
 
 # ╔═╡ b1880149-4d45-4cfb-91cd-4c094ac5a1eb
@@ -2273,7 +2273,7 @@ html"""
 		margin: 0 auto;
 		max-width: min(1600px, 90%);
 		padding-left: max(10px, 5%);
-		padding-right: max(10px, 10%);
+		padding-right: max(200px, 5%);
 		font-size: max(10px, min(24px, 2vw));
 	}
 </style>
