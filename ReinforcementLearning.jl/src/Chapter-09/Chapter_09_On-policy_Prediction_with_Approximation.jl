@@ -2617,15 +2617,15 @@ begin
 	end
 
 	function update_binary_feature_vector!(x::BinaryFeatureVector{I, N}, y::BinaryFeatureVector{I, N}) where {I <: Integer, N}
-		l1, l2 = extrema((x.num_features, y.num_features))
-		
+		l1 = min(length(x.active_features), length(y.active_features))
+		l2 = min(y.num_features, l1)
 		#replace the features for the indices that have already been allocated
-		@inbounds @simd for i in 1:l1
+		@inbounds @simd for i in 1:min(y.num_features, l2)
 			x.active_features[i] = y.active_features[i]
 		end
 
-		#add any new indices required for x
-		for i in l1+1:l2
+		#add any new indices required for x, this will only trigger if y.active_features is the longer vector in which case we need to add elements to x
+		for i in l2+1:y.num_features
 			push!(x.active_features, y.active_features[i])
 		end
 		x.num_features = y.num_features

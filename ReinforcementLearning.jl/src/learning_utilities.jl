@@ -172,6 +172,11 @@ md"""
 #### Linear Policy Training
 """
 
+# ╔═╡ e4de1bb7-98d9-4bb4-9692-ea52a6c91bb0
+md"""
+#### Non-linear Policy Training
+"""
+
 # ╔═╡ 857d4ddd-2b8c-4a45-ac72-81f5467d0e4c
 md"""
 #### Value Function Linear Example
@@ -3756,6 +3761,7 @@ version = "17.7.0+0"
 # ╠═98d94e3b-4ca5-4ff0-8409-9d748799931f
 # ╟─c3092d9d-b2d1-4c53-999f-5f0533b7db76
 # ╠═33aa329f-7a8b-4264-837e-19130773315f
+# ╟─e4de1bb7-98d9-4bb4-9692-ea52a6c91bb0
 # ╠═8e91e2c2-a5e6-4cce-8d62-d1568bae7e08
 # ╠═ad63e185-0618-476c-931e-f69b5f24d2a1
 # ╟─857d4ddd-2b8c-4a45-ac72-81f5467d0e4c
