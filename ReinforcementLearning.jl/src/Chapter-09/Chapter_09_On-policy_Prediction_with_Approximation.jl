@@ -2620,7 +2620,7 @@ begin
 		l1 = min(length(x.active_features), length(y.active_features))
 		l2 = min(y.num_features, l1)
 		#replace the features for the indices that have already been allocated
-		@inbounds @simd for i in 1:min(y.num_features, l2)
+		@inbounds @simd for i in 1:l2
 			x.active_features[i] = y.active_features[i]
 		end
 
