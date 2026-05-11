@@ -379,7 +379,7 @@ end
 begin
 	#-------------------Single Q maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real}
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, γ, replay_buffer, batch_inds, N)
 
@@ -420,7 +420,7 @@ begin
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real}
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
@@ -442,7 +442,7 @@ begin
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real}
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, γ, replay_buffer, batch_inds, N)
 
@@ -464,7 +464,7 @@ begin
 
 	#-------------- Double Q Maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real}
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, γ, replay_buffer, batch_inds, N)
 
@@ -508,7 +508,7 @@ begin
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real}
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, γ, replay_buffer, batch_inds, N)
 
@@ -532,7 +532,7 @@ begin
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real}
+	function update_targets!(targets::Vector{T}, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
