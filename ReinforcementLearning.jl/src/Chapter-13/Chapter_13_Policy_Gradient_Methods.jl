@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.24
+# v0.20.25
 
 using Markdown
 using InteractiveUtils
@@ -800,23 +800,25 @@ end
 
 # ╔═╡ f7232174-8e39-46c4-9374-a39c3c05c3b9
 begin
-	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}) where T<:Real
-		maxq, i_a_max = update_linear_action_values!(policy, x, w)
+	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}; kwargs...) where T<:Real
+		maxq, i_a_max = update_linear_action_values!(policy, x, w; kwargs...)
 		soft_max!(policy)
 		return i_a_max
 	end
 
-	function update_policy_dist!(policy::Vector{T}, x, w::FCANNParams{T}, activations::FCANNActivations{T}) where {T<:Real}
+	function update_policy_dist!(policy::Vector{T}, x, w::FCANNParams{T}, activations::FCANNActivations{T}; is_valid_action::Function = i_a -> true) where {T<:Real}
 		fcann_value_function!(activations, x, w)
 		policy .= last(activations)
+		mask_invalid_actions!(policy, is_valid_action)
 		(maxq, i_a_max) = findmax(policy)
 		soft_max!(policy)
 		return i_a_max
 	end
 
-	function update_policy_dist!(policy::Vector{T}, x::FCANN.CUDAArray, w::FCANNParamsGPU, activations::FCANNActivationsGPU) where {T<:Real}
+	function update_policy_dist!(policy::Vector{T}, x::FCANN.CUDAArray, w::FCANNParamsGPU, activations::FCANNActivationsGPU; is_valid_action::Function = i_a -> true) where {T<:Real}
 		fcann_value_function!(activations, x, w)
 		FCANN.memcpy!(policy, last(activations))
+		mask_invalid_actions!(policy, is_valid_action)
 		(maxq, i_a_max) = findmax(policy)
 		soft_max!(policy)
 		return i_a_max
@@ -1010,8 +1012,8 @@ end
 # ╔═╡ 37ec6802-d4c2-4470-ad69-439d5a732f77
 begin
 	function form_policy_and_value_function(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, feature_vector::V, update_feature_vector!::Function, policy_parameters::P1, value_parameters::P2) where {T<:Real, S, A, PTF, F1, F2, F3, V, P1, P2}
-		function π!(policy::Vector{T}, x::V, params::P1, args...)
-			update_policy_dist!(policy, x, params, args...)
+		function π!(policy::Vector{T}, x::V, params::P1, args...; kwargs...)
+			update_policy_dist!(policy, x, params, args...; kwargs...)
 			return policy
 		end
 	
@@ -1021,7 +1023,7 @@ begin
 	
 		function π(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, policy_args = form_policy_args(policy_parameters), kwargs...) 
 			update_feature_vector!(feature_vector, s)
-			π!(policy, feature_vector, policy_parameters, policy_args...)
+			π!(policy, feature_vector, policy_parameters, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		end
 	
 		function π_sample(s::S; kwargs...) 
@@ -1031,7 +1033,7 @@ begin
 	
 		function policy_and_value(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, value_parameters::P2 = value_parameters, policy_args = form_policy_args(policy_parameters), kwargs...)
 			update_feature_vector!(feature_vector, s)
-			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args...)
+			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			v = v̂(feature_vector, value_parameters; kwargs...)
 			return (value = v, policy_dist = policy)
 		end
@@ -1050,20 +1052,20 @@ begin
 		v̂, form_value_kwargs = form_state_value_function(feature_vector, update_feature_vector!, value_parameters)
 
 
-		function π!(policy::Vector{T}, x, params, args...)
-			update_policy_dist!(policy, x, params, args...)
+		function π!(policy::Vector{T}, x, params, args...; kwargs...)
+			update_policy_dist!(policy, x, params, args...; kwargs...)
 			return policy
 		end
 		
 		function π(s::S, params::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
-			π!(policy, feature_vector, params, policy_args_cpu...)
+			π!(policy, feature_vector, params, policy_args_cpu...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		end
 
 		function π(s::S, params::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
 			FCANN.memcpy!(d_x, feature_vector)
-			π!(policy, d_x, params, policy_args_gpu...)
+			π!(policy, d_x, params, policy_args_gpu...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		end
 
 		function π(s::S; policy_parameters::FCANNParams{T} = cpu_policy_params, policy_parameters_gpu::FCANNParamsGPU = gpu_policy_params, use_gpu::Bool = false, policy_kwargs_cpu::NamedTuple = NamedTuple(), policy_kwargs_gpu::NamedTuple = NamedTuple(), kwargs...) 
@@ -1086,7 +1088,7 @@ begin
 
 		function policy_and_value(s::S, policy_parameters::FCANNParams{T}, value_parameters::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(policy_parameters), kwargs...)
 			update_feature_vector!(feature_vector, s)
-			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args_cpu...)
+			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args_cpu...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			v = v̂(feature_vector, value_parameters; kwargs...)
 			return (value = v, policy_dist = policy)
 		end
@@ -1094,7 +1096,7 @@ begin
 		function policy_and_value(s::S, policy_parameters::FCANNParamsGPU, value_parameters::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(policy_parameters), kwargs...)
 			update_feature_vector!(feature_vector, s)
 			FCANN.memcpy!(d_x, feature_vector)
-			update_policy_dist!(policy, d_x, policy_parameters, policy_args_gpu...)
+			update_policy_dist!(policy, d_x, policy_parameters, policy_args_gpu...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			v = v̂(d_x, value_parameters; kwargs...)
 			return (value = v, policy_dist = policy)
 		end
@@ -2623,7 +2625,7 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, value_param
 	policy_args = form_policy_args(policy_params)
 	function π_sample(s::S)
 		update_feature_vector!(feature_vector, s)
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args...)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		sample_action(policy)
 	end
 	
@@ -2677,7 +2679,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 	while (ep <= max_episodes) && (step <= max_steps)
 		
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args...)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 	
@@ -2734,7 +2736,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 	
 	for step in 1:num_steps
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args...)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 	
@@ -2889,7 +2891,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		update_trace_with_gradient!(z_w, ∇v̂, trace_type)
 		apply_dutch_trace!(z_w, -α_w*γ*λ_w, feature_vector, value_function, ∇v̂, trace_type)
 		
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args...)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 		update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 	
@@ -2958,7 +2960,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		update_trace_with_gradient!(z_w, ∇v̂, trace_type)
 		apply_dutch_trace!(z_w, -α_w*λ_w, feature_vector, value_function, ∇v̂, trace_type)
 		
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args...)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 		update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 		update_params_with_gradient!(z_θ, one(T), ∇lnπ)
@@ -5520,7 +5522,7 @@ SpecialFunctions = "~2.6.1"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
+julia_version = "1.12.6"
 manifest_format = "2.0"
 project_hash = "447668db5d5fd58c56ed9ba62506acf50f89edf8"
 

@@ -3889,12 +3889,34 @@ const mc_stochastic_gridworld = StateMDP(stochastic_gridworld)
 
 # ╔═╡ fc0d29f4-fd2e-45b0-ba19-f7552643efc7
 function make_random_policy_distribution(mdp::StateMDP{T, S, A, P, F1, F2, F3}) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function} 
-	v = ones(T, length(mdp.actions)) / length(mdp.actions) #uniform distribution over actions
-	π(s::S) = v
+	function π(s::S)
+		v = ones(T, length(mdp.actions))
+		num_valid = 0
+		@inbounds @simd for i_a in eachindex(v)
+			valid = mdp.is_valid_action(s, i_a)
+			v *= !valid
+			num_valid += valid
+		end
+		v ./= num_valid
+	end
 end
 
 # ╔═╡ 613f0911-155d-4dad-bf63-edcebcbd1ba8
-make_random_policy(mdp::StateMDP) = s -> rand(eachindex(mdp.actions))
+function make_random_policy(mdp::StateMDP) 
+	#sample a random valid action for each state
+	function π(s::S) where S
+		invalid_actions = Vector{Int64}()
+		@inbounds @simd for i_a in eachindex(mdp.actions)
+			if !mdp.is_valid_action(s, i_a)
+				push!(invalid_actions, i_a)
+			end
+		end 
+
+		isempty(invalid_actions) && return rand(eachindex(mdp.actions))
+		valid_action_inds = setdiff(eachindex(mdp.actions), invalid_actions)
+		rand(valid_action_inds)
+	end
+end
 
 # ╔═╡ 2f7afb63-22de-49af-b907-4aeb75dc9f2a
 begin

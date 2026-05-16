@@ -249,6 +249,33 @@ md"""
 In Chapter 9, we established functions for value and gradient computations given all of the feature vector types.  Now we must extend those functions to apply to action value estimates where the parameter space is larger and so are the gradients.  For linear approximation I will rely on the state representation only and simply multiply the parameter space by the number of actions.  Since the gradient update only applies to the features corresponding to the selected action, I only ever need to store a vector of gradients which will only update the column in the parameter matrix for that index.
 """
 
+# ╔═╡ 7a3b9c10-2d4f-4a11-b3e6-9e8f7a1b2c3d
+# Utility function for illegal action masking.
+# Sets action values for invalid actions to typemin(T) so they won't be selected
+# by argmax, ϵ-greedy, or softmax operations.
+begin
+	function mask_invalid_actions!(action_values::Vector{T}, is_valid_action::Function) where T<:Real
+		@inbounds @simd for i_a in eachindex(action_values)
+			valid = is_valid_action(i_a)
+			action_values[i_a] = valid * action_values[i_a] + !valid * typemin(T)
+		end
+		return action_values
+	end
+
+	mask_invalid_actions!(action_values::Vector{T}, mdp::StateMDP, s) where T<:Real = mask_invalid_actions!(action_values, i_a -> mdp.is_valid_action(s, i_a))
+
+	#action values are stored in a matrix where each row corresponds to a state and each column corresponds to an action.  This function will be used to mask out invalid actions for a given state by setting their values to typemin(T) so that they won't be selected by argmax, ϵ-greedy, or softmax operations.
+	function mask_invalid_actions!(action_values::Matrix{T}, states::Vector{S}, is_valid_action::Function) where {S, T<:Real}
+		for i_a in 1:size(action_values, 2)
+			@inbounds @simd for i in eachindex(states)
+				valid = is_valid_action(states[i], i_a)
+				action_values[i, i_a] = valid * action_values[i, i_a] + !valid * typemin(T)
+			end
+		end
+		return action_values
+	end
+end
+
 # ╔═╡ 9043a684-6f16-48d0-83d4-2e00f9b7dbc2
 """
     LinearActionValueGradient{I <: Integer, V <: LinearFeatureVector}
@@ -341,21 +368,26 @@ begin
 	- All methods update action-values in-place to minimize allocations
 	- Matrix layout optimized for column-wise access patterns (features × actions)
 	"""
-	function update_linear_action_values!(action_values::Vector{T}, x::Vector{T}, w::Matrix{T}) where T<:Real
+	function update_linear_action_values!(action_values::Vector{T}, x::Vector{T}, w::Matrix{T}; is_valid_action::Function = Returns(true)) where T<:Real
 		BLAS.gemv!('T', one(T), w, x, zero(T), action_values)
+		mask_invalid_actions!(action_values, is_valid_action)
 		return findmax(action_values)
 	end
 
-	function update_linear_action_values!(action_values::Vector{T}, x::BinaryFeatureVector, w::Matrix{T}) where T<:Real
+	function update_linear_action_values!(action_values::Vector{T}, x::BinaryFeatureVector, w::Matrix{T}; is_valid_action::Function = Returns(true)) where T<:Real
 		maxq = typemin(T)
 		i_a_max = 0
 		for i_a in eachindex(action_values)
-			q = zero(T)
-			@inbounds @simd for i in 1:x.num_features
-				j = x.active_features[i]
-				q += w[j, i_a]
+			if !is_valid_action(i_a)
+				q = typemin(T)
+			else
+				q = zero(T)
+				@inbounds @simd for i in 1:x.num_features
+					j = x.active_features[i]
+					q += w[j, i_a]
+				end
+				action_values[i_a] = q
 			end
-			action_values[i_a] = q
 			newmax = q > maxq
 			maxq = maxq*!newmax + newmax*q
 			i_a_max = i_a_max*!newmax + newmax*i_a
@@ -363,12 +395,16 @@ begin
 		return (maxq, i_a_max)
 	end
 
-	function update_linear_action_values!(action_values::Vector{T}, x::StateAggregationFeatureVector, w::Matrix{T}) where T<:Real
+	function update_linear_action_values!(action_values::Vector{T}, x::StateAggregationFeatureVector, w::Matrix{T}; is_valid_action::Function = Returns(true)) where T<:Real
 		maxq = typemin(T)
 		i_a_max = 0
 		i = x.group_index
 		for i_a in eachindex(action_values)
-			q = w[i, i_a]
+			q = if is_valid_action(i_a)
+				w[i, i_a]
+			else
+				typemin(T)
+			end
 			action_values[i_a] = q
 			newmax = q > maxq
 			maxq = maxq*!newmax + newmax*q
@@ -631,19 +667,23 @@ begin
 		maxq = typemin(T)
 		i_a_max = 0
 		for i_a in eachindex(action_values)
-			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-			v′ = zero(T) 
-			r_avg = zero(T)
-			for i in eachindex(probabilities)
-				s′ = states[i]
-				if !mdp.isterm(s′)
-					update_feature_vector!(feature_vector, s′)
-					v̂ = value_function(feature_vector, parameters; kwargs...)
-					v′ += probabilities[i] * v̂
+			q = if !mdp.is_valid_action(s, i_a)
+				typemin(T)
+			else
+				(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+				v′ = zero(T) 
+				r_avg = zero(T)
+				for i in eachindex(probabilities)
+					s′ = states[i]
+					if !mdp.isterm(s′)
+						update_feature_vector!(feature_vector, s′)
+						v̂ = value_function(feature_vector, parameters; kwargs...)
+						v′ += probabilities[i] * v̂
+					end
+					r_avg += probabilities[i]*rewards[i]
 				end
-				r_avg += probabilities[i]*rewards[i]
+				r_avg + γ*v′
 			end
-			q = r_avg + γ*v′
 			action_values[i_a] = q
 			newmax = q > maxq
 			maxq = newmax*q + !newmax*maxq
@@ -656,10 +696,14 @@ begin
 		maxq = typemin(T)
 		i_a_max = 0
 		for i_a in eachindex(action_values)
-			r, s′ = mdp.ptf(s, i_a)
-			update_feature_vector!(feature_vector, s′)
-			v̂ = value_function(feature_vector, parameters; kwargs...)
-			q = r + γ*v̂
+			q = if !mdp.is_valid_action(s, i_a)
+				typemin(T)
+			else
+				r, s′ = mdp.ptf(s, i_a)
+				update_feature_vector!(feature_vector, s′)
+				v̂ = value_function(feature_vector, parameters; kwargs...)
+				r + γ*v̂
+			end
 			action_values[i_a] = q
 			newmax = q > maxq
 			maxq = newmax*q + !newmax*maxq
@@ -670,10 +714,14 @@ begin
 
 	function update_action_values!(action_values::Array{T, N}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix, activations; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
 		for i_a in eachindex(action_values)
-			r, s′ = mdp.ptf.step(s, i_a)
-			update_feature_vector!(feature_vector, s′)
-			update_feature_matrix!(feature_matrix, feature_vector, i_a)
-			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
+			if mdp.is_valid_action(s, i_a)
+				r, s′ = mdp.ptf.step(s, i_a)
+				update_feature_vector!(feature_vector, s′)
+				update_feature_matrix!(feature_matrix, feature_vector, i_a)
+				reward_values[i_a] = r
+			else
+				reward_values[i_a] = typemin(T)
+			end
 		end
 		update_state_values!(action_values, feature_matrix, parameters, activations)
 		action_values .= reward_values .+ γ .* action_values
@@ -685,10 +733,14 @@ begin
 
 	function update_action_values!(action_values::Array{T, N}, s, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, parameters::FCANNParamsGPU, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, reward_values::Vector{T}, feature_matrix::Matrix{T}, gpu_matrix::FCANN.CUDAArray, activations; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
 		for i_a in eachindex(action_values)
-			r, s′ = mdp.ptf.step(s, i_a)
-			update_feature_vector!(feature_vector, s′)
-			update_feature_matrix!(feature_matrix, feature_vector, i_a)
-			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
+			if mdp.is_valid_action(s, i_a)
+				r, s′ = mdp.ptf.step(s, i_a)
+				update_feature_vector!(feature_vector, s′)
+				update_feature_matrix!(feature_matrix, feature_vector, i_a)
+				reward_values[i_a] = r
+			else
+				reward_values[i_a] = typemin(T)
+			end
 		end
 		FCANN.memcpy!(gpu_matrix, feature_matrix)
 		update_state_values!(action_values, gpu_matrix, parameters, activations)
@@ -801,7 +853,7 @@ begin
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
 		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters::W = parameters, kwargs...)
 			update_feature_vector!(feature_vector, s)
-			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
 
@@ -823,13 +875,13 @@ begin
 		end
 
 		function q̂(x::Vector{T}, parameters::FCANNParams{T}; action_values::Vector{T} = zeros(T, length(mdp.actions)), activations = FCANN.form_activations(cpu_params.weights[1]), kwargs...)
-			maxq, i_a_max = update_action_values!(action_values, x, cpu_params; activations = activations, kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, x, cpu_params; activations = activations, kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
 
 		function q̂(x::Vector{T}, parameters::FCANNParamsGPU; action_values::Vector{T} = zeros(T, length(mdp.actions)), activations = FCANN.form_activations(gpu_params.weights[1]), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(x), kwargs...)
 			FCANN.memcpy!(d_x, x)
-			maxq, i_a_max = update_action_values!(action_values, d_x, parameters; activations = activations, kwargs...)
+			maxq, i_a_max = update_action_values!(action_values, d_x, parameters; activations = activations, kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
 		end
 	
@@ -847,8 +899,8 @@ begin
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W}
 		function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, action_value_kwargs...)
 			update_feature_vector!(feature_vector, s)
-			update_action_values!(action_values1, feature_vector, parameters1; action_value_kwargs...)
-			update_action_values!(action_values2, feature_vector, parameters2; action_value_kwargs...)
+			update_action_values!(action_values1, feature_vector, parameters1; action_value_kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+			update_action_values!(action_values2, feature_vector, parameters2; action_value_kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			action_values1 .+= action_values2
 			action_values1 ./= 2
 			(maxq, i_a_max) = findmax(action_values1)
@@ -1011,6 +1063,7 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 		
 		update_feature_vector!(feature_vector, s′)
 		update_action_values!(action_values, feature_vector, parameters)
+		mask_invalid_actions!(action_values, mdp, s′)
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 		i_a′ = sample_action(policy)
@@ -1356,9 +1409,10 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		end
 	end
 
-	function update_action_values!(action_values::Vector{T}, x, params; activations = activations, kwargs...) 
+	function update_action_values!(action_values::Vector{T}, x, params; activations = activations, is_valid_action::Function = i_a -> true, kwargs...) 
 		fcann_value_function!(activations, x, params)
 		action_values .= activations[end]
+		mask_invalid_actions!(action_values, is_valid_action)
 		val, index = findmax(action_values)
 		isnan(val) && error("Got NaN action value inside $action_values")
 		isinf(val) && error("Got Inf action value inside $action_values")
@@ -1371,8 +1425,9 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		return ∇q̂
 	end
 
-	function update_value_gradient!(∇q̂::FCANNParams, action_values::Vector{T}, x, i_a::Integer, params::FCANNParams) 
+	function update_value_gradient!(∇q̂::FCANNParams, action_values::Vector{T}, x, i_a::Integer, params::FCANNParams; is_valid_action::Function = i_a -> true, kwargs...) 
 		update_value_gradient!(∇q̂, x, i_a, params)
+		mask_invalid_actions!(action_values, is_valid_action)
 		action_values .= activations[end]
 		val, index = findmax(action_values)
 		isnan(val) && error("Got NaN action value inside $action_values")
@@ -1388,18 +1443,19 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 		d_gradient = initialize_gpu_params(params)
 		d_x = FCANN.cuda_allocate(zeros(T, input_length))
 
-		function update_action_values!(action_values::Vector{T}, d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations, kwargs...) 			
+		function update_action_values!(action_values::Vector{T}, d_x::FCANN.CUDAArray, params::FCANNParamsGPU; activations::FCANNActivationsGPU = d_activations, is_valid_action::Function = i_a -> true, kwargs...) 			
 			fcann_value_function!(activations, d_x, params)
 			FCANN.memcpy!(action_values, activations[end])
+			mask_invalid_actions!(action_values, is_valid_action)
 			val, index = findmax(action_values)
 			isnan(val) && error("Got NaN action value inside $action_values")
 			isinf(val) && error("Got Inf action value inside $action_values")
 			return (val, index)
 		end
 
-		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; gpu_feature_vector::FCANN.CUDAArray = d_x, kwargs...) 			
+		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; gpu_feature_vector::FCANN.CUDAArray = d_x, is_valid_action::Function = i_a -> true, kwargs...) 			
 			FCANN.memcpy!(gpu_feature_vector, x)
-			update_action_values!(action_values, gpu_feature_vector, params; kwargs...)
+			update_action_values!(action_values, gpu_feature_vector, params; is_valid_action = is_valid_action, kwargs...)
 		end
 
 		function update_value_gradient!(∇q̂::FCANNParamsGPU, d_x::FCANN.CUDAArray, i_a::Integer, params::FCANNParamsGPU) 
@@ -1413,9 +1469,10 @@ function setup_fcann_action_value_arguments(params::FCANNParams{T}, l2::T, dropo
 			update_value_gradient!(∇q̂, d_x, i_a, params)
 		end
 
-		function update_value_gradient!(∇q̂::FCANNParamsGPU, action_values::Vector{T}, x, i_a::Integer, params::FCANNParamsGPU)
+		function update_value_gradient!(∇q̂::FCANNParamsGPU, action_values::Vector{T}, x, i_a::Integer, params::FCANNParamsGPU; is_valid_action::Function = i_a -> true, kwargs...)
 			update_value_gradient!(∇q̂, x, i_a, params)
 			FCANN.memcpy!(action_values, d_activations[end])
+			mask_invalid_actions!(action_values, is_valid_action)
 			val, index = findmax(action_values)
 			isnan(val) && error("Got NaN action value inside $action_values")
 			isinf(val) && error("Got Inf action value inside $action_values")
@@ -2383,7 +2440,9 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 	s = mdp.initialize_state()
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values1, feature_vector, parameters1)
+	mask_invalid_actions!(action_values1, mdp, s)
 	update_action_values!(action_values2, feature_vector, parameters2)
+	mask_invalid_actions!(action_values2, mdp, s)
 	policy .= action_values1 .+ action_values2
 	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 	i_a = sample_action(policy)
@@ -2426,9 +2485,8 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 		end
 
 		update_feature_vector!(feature_vector, s′)
-		(max_q1, i_a_max1) = update_action_values!(action_values1, feature_vector, parameters1)
-		(max_q2, i_a_max2) = update_action_values!(action_values2, feature_vector, parameters2)
-		
+		(max_q1, i_a_max1) = update_action_values!(action_values1, feature_vector, parameters1; is_valid_action = i_a -> mdp.isvalid(s′, i_a))
+		(max_q2, i_a_max2) = update_action_values!(action_values2, feature_vector, parameters2; is_valid_action = i_a -> mdp.isvalid(s′, i_a))
 
 		#use the action-values from the parameters not being updated and the hypothetical policy from the parameters being updated to compute the target value
 		action_values, i_a′ = if case1
@@ -2455,8 +2513,8 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 		update_params_with_gradient!(parameters, α*decay*δ, ∇q̂)
 
 		#these action values will be used to compute the state-action value for the next state using the updated parameters
-		update_action_values!(action_values1, feature_vector, parameters1)
-		update_action_values!(action_values2, feature_vector, parameters2)
+		update_action_values!(action_values1, feature_vector, parameters1; is_valid_action = i_a -> mdp.isvalid(s′, i_a))
+		update_action_values!(action_values2, feature_vector, parameters2; is_valid_action = i_a -> mdp.isvalid(s′, i_a))
 
 		#select next action using both sets of updated parameters
 		policy .= action_values1 .+ action_values2
@@ -2865,7 +2923,7 @@ function semi_gradient_differential_sarsa!(parameters::PR, mdp::StateMDP{T, S, A
 	
 	s = mdp.initialize_state()
 	update_feature_vector!(feature_vector, s)
-	update_action_values!(action_values, feature_vector, parameters)
+	update_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	policy .= action_values
 	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
 	i_a = sample_action(policy)
@@ -2891,7 +2949,7 @@ function semi_gradient_differential_sarsa!(parameters::PR, mdp::StateMDP{T, S, A
 		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
 		update_feature_vector!(feature_vector, s′)
-		q_max, i_a_max = update_action_values!(action_values, feature_vector, parameters)
+		q_max, i_a_max = update_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 		
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
@@ -3082,18 +3140,22 @@ function update_differential_action_values!(action_values::Array{T, N}, s, featu
 	maxq = typemin(T)
 	i_a_max = 0
 	for i_a in eachindex(action_values)
-		(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
-		v′ = zero(T) 
-		r_avg = zero(T)
-		for i in eachindex(probabilities)
-			s′ = states[i]
-			if !mdp.isterm(s′)
-				update_feature_vector!(feature_vector, s′)
-				v′ += probabilities[i] * value_function(feature_vector, parameters; kwargs...)
+		q = if !mdp.is_valid_action(s, i_a)
+			typemin(T)
+		else
+			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
+			v′ = zero(T) 
+			r_avg = zero(T)
+			for i in eachindex(probabilities)
+				s′ = states[i]
+				if !mdp.isterm(s′)
+					update_feature_vector!(feature_vector, s′)
+					v′ += probabilities[i] * value_function(feature_vector, parameters; kwargs...)
+				end
+				r_avg += probabilities[i]*rewards[i]
 			end
-			r_avg += probabilities[i]*rewards[i]
+			r_avg - R̄ + v′
 		end
-		q = r_avg - R̄ + v′
 		action_values[i_a] = q
 		newmax = q > maxq
 		maxq = newmax*q + !newmax*maxq
@@ -3106,10 +3168,14 @@ end
 		maxq = typemin(T)
 		i_a_max = 0
 		for i_a in eachindex(action_values)
-			r, s′ = mdp.ptf(s, i_a)
-			update_feature_vector!(feature_vector, s′)
-			v̂ = value_function(feature_vector, parameters; kwargs...)
-			q = r - R̄ + v̂
+			q = if !mdp.is_valid_action(s, i_a)
+				typemin(T)
+			else
+				r, s′ = mdp.ptf(s, i_a)
+				update_feature_vector!(feature_vector, s′)
+				v̂ = value_function(feature_vector, parameters; kwargs...)
+				r - R̄ + v̂
+			end
 			action_values[i_a] = q
 			newmax = q > maxq
 			maxq = newmax*q + !newmax*maxq
@@ -3120,10 +3186,14 @@ end
 
 	function update_differential_action_values!(action_values::Array{T, N}, s, feature_vector, update_feature_vector!::Function, value_function::Function, parameters, mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, reward_values::Vector{T}, feature_matrix, activations; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
 		for i_a in eachindex(action_values)
-			r, s′ = mdp.ptf.step(s, i_a)
-			update_feature_vector!(feature_vector, s′)
-			update_feature_matrix!(feature_matrix, feature_vector, i_a)
-			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
+			if mdp.is_valid_action(s, i_a)
+				r, s′ = mdp.ptf.step(s, i_a)
+				update_feature_vector!(feature_vector, s′)
+				update_feature_matrix!(feature_matrix, feature_vector, i_a)
+				reward_values[i_a] = r
+			else
+				reward_values[i_a] = typemin(T)
+			end
 		end
 		update_state_values!(action_values, feature_matrix, parameters, activations)
 		action_values .= reward_values .- R̄ .+ action_values
@@ -3135,10 +3205,14 @@ end
 
 	function update_differential_action_values!(action_values::Array{T, N}, s, feature_vector::Vector{T}, update_feature_vector!::Function, value_function::Function, parameters::FCANNParamsGPU, mdp::StateMDP{T, S, A, P, F1, F2, F3}, R̄::T, reward_values::Vector{T}, feature_matrix::Matrix{T}, gpu_matrix::FCANN.CUDAArray, activations; kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDeterministic, F1<:Function, F2<:Function, F3<:Function, N}
 		for i_a in eachindex(action_values)
-			r, s′ = mdp.ptf.step(s, i_a)
-			update_feature_vector!(feature_vector, s′)
-			update_feature_matrix!(feature_matrix, feature_vector, i_a)
-			reward_values[i_a] = r #populate action value vector with reward, will be added to the future state value later
+			if mdp.is_valid_action(s, i_a)
+				r, s′ = mdp.ptf.step(s, i_a)
+				update_feature_vector!(feature_vector, s′)
+				update_feature_matrix!(feature_matrix, feature_vector, i_a)
+				reward_values[i_a] = r
+			else
+				reward_values[i_a] = typemin(T)
+			end
 		end
 		FCANN.memcpy!(gpu_matrix, feature_matrix)
 		update_state_values!(action_values, gpu_matrix, parameters, activations)
@@ -4694,7 +4768,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 	
 	function π_ϵ_greedy(s)
 		update_feature_vector!(feature_vector, s)
-		update_action_values!(action_values, feature_vector, parameters)
+		update_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
 		sample_action(action_values)
 	end

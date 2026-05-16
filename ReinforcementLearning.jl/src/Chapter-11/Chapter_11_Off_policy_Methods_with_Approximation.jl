@@ -2462,7 +2462,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 	epstep = 1
 	
 	while (ep <= max_episodes) && (step <= max_steps)
-		(qmax, i_a_max) = update_linear_action_values!(action_values, state_representation1, parameters)
+		(qmax, i_a_max) = update_linear_action_values!(action_values, state_representation1, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		make_ϵ_greedy_policy!(policy; ϵ =  ϵ)
 		i_a = sample_action(policy)
 		v̂1 = action_values[i_a]
@@ -2472,7 +2472,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 			r
 		else
 			update_state_representation!(state_representation2, s′)
-			r + γ*update_linear_action_values!(action_values, state_representation2, parameters)[1]
+			r + γ*update_linear_action_values!(action_values, state_representation2, parameters; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))[1]
 		end
 
 		if !iszero(ρ)
