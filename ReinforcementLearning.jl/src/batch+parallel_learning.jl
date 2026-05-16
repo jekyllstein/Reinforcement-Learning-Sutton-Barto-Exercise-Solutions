@@ -380,14 +380,14 @@ end
 begin
 	#-------------------Single Q maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T})  where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T})  where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
 		#perform forward pass to fill in target values with function output
 		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, target_params, zero(T), output_matrix)
 
-		mask_invalid_actions!(output_matrix, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(output_matrix, state_list, is_valid_action)
 
 		maximize_output_matrix!(output_matrix)
 
@@ -402,7 +402,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, S}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -416,14 +416,14 @@ begin
 			end
 			targets[i] = g
 			if !terminated
-				update_linear_action_values!(action_values, x′, target_params; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
+				update_linear_action_values!(action_values, x′, target_params; is_valid_action = i_a -> is_valid_action(s′, i_a))
 				targets[i] += γ^(k-j) * maximum(action_values)
 			end
 		end
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
@@ -432,7 +432,7 @@ begin
 		#perform forward pass to fill in target values with function output
 		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., gpu_input, target_params.reslayers; input_orientation = input_orientation)
 		FCANN.memcpy!(output_matrix, activations[end])
-		mask_invalid_actions!(output_matrix, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(output_matrix, state_list, is_valid_action)
 		maximize_output_matrix!(output_matrix)
 
 		#for non terminal states add to target discounted future function value
@@ -446,7 +446,7 @@ begin
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -455,7 +455,7 @@ begin
 		#perform forward pass to fill in target values with function output
 		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., feature_matrix, target_params.reslayers; input_orientation = input_orientation)
 		output_matrix .= activations[end]
-		mask_invalid_actions!(output_matrix, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(output_matrix, state_list, is_valid_action)
 		maximize_output_matrix!(activations[end])
 
 		#for non terminal states add to target discounted future function value
@@ -470,7 +470,7 @@ begin
 
 	#-------------- Double Q Maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -478,8 +478,8 @@ begin
 		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, target_params, zero(T), target_output)
 		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, value_params, zero(T), value_output)
 
-		mask_invalid_actions!(target_output, state_list, mdp.is_valid_action)
-		mask_invalid_actions!(value_output, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(target_output, state_list, is_valid_action)
+		mask_invalid_actions!(value_output, state_list, is_valid_action)
 
 		maximize_output_matrix!(value_output, target_output)
 
@@ -494,7 +494,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S, V<:AbstractBinaryFeatures}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S, V<:AbstractBinaryFeatures}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -508,16 +508,16 @@ begin
 			end
 			targets[i] = g
 			if !terminated
-				update_linear_action_values!(action_values, x′, value_params; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
+				update_linear_action_values!(action_values, x′, value_params; is_valid_action = i_a -> is_valid_action(s′, i_a))
 				i_a_max = argmax(action_values)
-				update_linear_action_values!(action_values, x′, target_params; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
+				update_linear_action_values!(action_values, x′, target_params; is_valid_action = i_a -> is_valid_action(s′, i_a))
 				targets[i] += γ^(k-j) * action_values[i_a_max]
 			end
 		end
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -528,7 +528,7 @@ begin
 		target_output .= activations[end]
 		FCANN.forwardNOGRAD_base!(activations, value_params.weights..., feature_matrix, value_params.reslayers; input_orientation = input_orientation)
 		value_output .= activations[end]
-		mask_invalid_actions!(target_output, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(target_output, state_list, is_valid_action)
 		maximize_output_matrix!(value_output, target_output)
 
 		#for non terminal states add to target discounted future function value
@@ -542,7 +542,7 @@ begin
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp::StateMDP, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
@@ -553,8 +553,8 @@ begin
 		FCANN.memcpy!(target_output, activations[end])
 		FCANN.forwardNOGRAD_base!(activations, value_params.weights..., gpu_input, value_params.reslayers; input_orientation = input_orientation)
 		FCANN.memcpy!(value_output, activations[end])
-		mask_invalid_actions!(target_output, state_list, mdp.is_valid_action)
-		mask_invalid_actions!(value_output, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(target_output, state_list, is_valid_action)
+		mask_invalid_actions!(value_output, state_list, is_valid_action)
 		maximize_output_matrix!(value_output, target_output)
 
 		#for non terminal states add to target discounted future function value
@@ -1405,26 +1405,26 @@ end
 
 # ╔═╡ 05e4d2f6-bfc4-426e-866e-834d39666eb7
 begin
-	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::Matrix{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, mdp::StateMDP) where {T<:Real, S}
+	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::Matrix{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, is_valid_action::Function) where {T<:Real, S}
 		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), X, θ, zero(T), policy_matrix)
-		mask_invalid_actions!(policy_matrix, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 
-	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::FCANNParams{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, mdp::StateMDP, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::FCANNParams{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, is_valid_action::Function, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
 		FCANN.forwardNOGRAD_base!(activations, θ.weights..., X, θ.reslayers; input_orientation = 'T')
 		# update_state_values!(policy_matrix, X, θ, activations)
 		policy_matrix .= last(activations)
-		mask_invalid_actions!(policy_matrix, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 
-	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X::Matrix{T}, θ::FCANNParamsGPU, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, mdp::StateMDP, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X::Matrix{T}, θ::FCANNParamsGPU, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, is_valid_action::Function, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
 		FCANN.memcpy!(gpu_input, X)
 		FCANN.forwardNOGRAD_base!(activations, θ.weights..., gpu_input, θ.reslayers; input_orientation = 'T')
 		# update_state_values!(policy_matrix, X, θ, activations)
 		FCANN.memcpy!(policy_matrix, last(activations))
-		mask_invalid_actions!(policy_matrix, state_list, mdp.is_valid_action)
+		mask_invalid_actions!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 end
@@ -1444,7 +1444,7 @@ end
 
 # ╔═╡ be6065fa-83ba-41be-9e7c-8fff2646425b
 function Base.copy!(x1::Vector{V}, x2::Vector{V}) where V<:AbstractBinaryFeatures
-	for i in length(x1)
+	for i in 1:length(x1)
 		update_feature_vector!(x1[i], x2[i])
 	end
 end
@@ -1523,7 +1523,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 			update_batch_inds!(batch_inds, step, buffer_size, N)
 			# @info "batch inds are $batch_inds"
 			
-			update_targets!(targets, state_list, mdp, γ, replay_buffer, batch_inds, N, target_const, param_args..., feature_matrix, action_values, output_args..., target_args...)
+			update_targets!(targets, state_list, mdp.is_valid_action, γ, replay_buffer, batch_inds, N, target_const, param_args..., feature_matrix, action_values, output_args..., target_args...)
 			# @info "target values are $targets"
 
 			#update feature matrix
@@ -1755,7 +1755,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 	
 	for step in 1:max_steps
 		#for each environment update the policy distribution on a per row basis and then sample an action from each environment
-		update_batch_policy_dist!(policy_matrix, feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp, policy_args...)
+		update_batch_policy_dist!(policy_matrix, feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp.is_valid_action, policy_args...)
 		sample_batch_actions!(batch_actions, policy_matrix)
 
 		# @info "Current batch states: $batch_states"
@@ -2089,7 +2089,7 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 
 		#for each environment update the policy distribution on a per row basis and then sample an action from each environment
 		if !all(batch_ready) && !all(batch_terminal_check) #only envs that are NOT ready perform a step update so if all are ready we can just proceed straight to gradient updates
-			update_batch_policy_dist!(policy_matrix, current_feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp, policy_args...)
+			update_batch_policy_dist!(policy_matrix, current_feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp.is_valid_action, policy_args...)
 			sample_batch_actions!(batch_actions, policy_matrix)
 		end
 		
