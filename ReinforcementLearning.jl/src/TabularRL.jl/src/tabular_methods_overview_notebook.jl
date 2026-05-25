@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.24
+# v0.20.27
 
 using Markdown
 using InteractiveUtils
@@ -301,11 +301,6 @@ md"""
 # ╠═╡ skip_as_script = true
 #=╠═╡
 const wind_values = [0, 0, 0, 1, 1, 1, 2, 2, 1, 0]
-  ╠═╡ =#
-
-# ╔═╡ 029fa9d4-29fa-4232-b4b9-7cc8460ef64f
-#=╠═╡
-wind_values
   ╠═╡ =#
 
 # ╔═╡ 3b3decd0-bb00-4fd2-a8eb-a5b14aede950
@@ -1684,21 +1679,24 @@ end
 
 # ╔═╡ b7f5ed8b-32ac-483f-9178-e8cca531ccf5
 begin
-	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}; ϵ = one(T)/10) where {N, T<:Real}
+	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}; ϵ::T = one(T)/10, is_valid_action::Function = i_a -> true) where {N, T<:Real}
 		n = length(v)
 		maxv = maximum(v)
 		
 		nmax = zero(T)
+		num_valid = 0
 		@inbounds @simd for i in 1:n
-			x = T(v[i] ≈ maxv)
+			valid = is_valid_action(i)
+			num_valid += valid
+			x = valid*T(v[i] ≈ maxv)
 			v[i] = x
 			nmax += x
 		end
 	
 		f = (one(T) - ϵ) / nmax
-		p_all = ϵ / n
+		p_all = ϵ / num_valid
 		@inbounds @simd for i in 1:n
-			v[i] = v[i]*f + p_all
+			v[i] = is_valid_action(i)*(v[i]*f + p_all)
 		end
 		return v
 	end
@@ -1761,7 +1759,7 @@ begin
 	end
 
 	#making the greedy policy is just ϵ-greedy with ϵ = 0
-	make_greedy_policy!(a::Array{T, N}, args...) where {T<:Real, N} = make_ϵ_greedy_policy!(a, args...; ϵ = zero(T))
+	make_greedy_policy!(a::Array{T, N}, args...; kwargs...) where {T<:Real, N} = make_ϵ_greedy_policy!(a, args...; kwargs..., ϵ = zero(T))
 end
 
 # ╔═╡ f42ba03e-318e-495c-ac1e-1cda8f786334
@@ -3575,8 +3573,8 @@ begin
 	
 	struct StateMDPTransitionDistribution{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 		step::F
-		function StateMDPTransitionDistribution(step::F, s::S) where {F<:Function, S}
-			(rewards, states, probabilities) = step(s, 1)
+		function StateMDPTransitionDistribution(step::F, s::S; test_action_index::Integer = 1) where {F<:Function, S}
+			(rewards, states, probabilities) = step(s, test_action_index)
 			@assert length(rewards) == length(states) == length(probabilities) "The transition vectors do not have consistent lengths"
 			@assert promote_type(S, eltype(states)) != Any "There is no common type between the provided state $s and the transition state $s′"
 			@assert typeof(first(rewards)) == typeof(first(probabilities)) "The rewards and probabilities do not have the same numeric type"
@@ -3586,8 +3584,8 @@ begin
 
 	struct StateMDPTransitionDeterministic{T<:Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 	step::F
-		function StateMDPTransitionDeterministic(step::F, s::S) where {F<:Function, S}
-			(r, s′) = step(s, 1)
+		function StateMDPTransitionDeterministic(step::F, s::S; test_action_index::Integer = 1) where {F<:Function, S}
+			(r, s′) = step(s, test_action_index)
 			@assert promote_type(S, typeof(s′)) != Any "There is no common type between the provided state $s and the transition state $s′"
 			new{typeof(r), promote_type(S, typeof(s′)), F}(step)
 		end
@@ -3595,8 +3593,8 @@ begin
 			
 	struct StateMDPTransitionSampler{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 		step::F
-		function StateMDPTransitionSampler(step::F, s::S) where {F<:Function, S}
-			(r, s′) = step(s, 1)
+		function StateMDPTransitionSampler(step::F, s::S; test_action_index::Integer = 1) where {F<:Function, S}
+			(r, s′) = step(s, test_action_index)
 			@assert promote_type(S, typeof(s′)) != Any "There is no common type between the provided state $s and the transition state $s′"
 			new{typeof(r), promote_type(S, typeof(s′)), F}(step)
 		end
@@ -4887,8 +4885,8 @@ end
   ╠═╡ =#
 
 # ╔═╡ 99c64d18-c133-4ffe-9ea6-b39db610b478
-function average_stochastic_rollout(n::Integer, mdp::StateMDP, π, γ; kwargs...)
-	1:n |> Map(_ -> sample_rollout(mdp, π, 0.99f0; kwargs...)) |> foldxt(+) |> a -> a / n
+function average_stochastic_rollout(n::Integer, env, π, γ; kwargs...)
+	1:n |> Map(_ -> sample_rollout(env, π, γ; kwargs...)) |> foldxt(+) |> a -> a / n
 end
 
 # ╔═╡ 860d7ef6-90fe-4eea-8f71-9298c4151c82
@@ -5014,8 +5012,10 @@ When I have an MDP that produces a transition distribution, I should be able to 
 function update_action_values!(action_values::Vector{T}, s::S, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, V::Dict{S, Tuple{Vector{T}, Vector{T}}}; est_kwargs...) where {T<:Real, S, A, P<:StateMDPTransitionDistribution, F1, F2, F3}
 	action_visits = V[s][2]
 	for i_a in eachindex(action_values)
-		if iszero(action_visits[i_a])
-			action_values[i_a] = T(Inf)
+		if !mdp.is_valid_action(s, i_a)
+			action_values[i_a] = typemin(T)
+		elseif iszero(action_visits[i_a])
+			action_values[i_a] = typemax(T)
 		else
 			(rewards, states, probabilities) = mdp.ptf.step(s, i_a)
 			r_avg = dot(rewards, probabilities)
@@ -5437,10 +5437,12 @@ function monte_carlo_tree_search2(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, 
 		i_a_max = first(tree[s].visited_actions)
 		q_max = typemin(T)
 		for i_a in tree[s].visited_actions
-			q = compute_state_action_value(mdp.ptf.step, mdp.isterm, tree, s, i_a, γ)
-			if q >= q_max
-				q_max = q
-				i_a_max = i_a
+			if mdp.is_valid_action(s, i_a)
+				q = compute_state_action_value(mdp.ptf.step, mdp.isterm, tree, s, i_a, γ)
+				if q >= q_max
+					q_max = q
+					i_a_max = i_a
+				end
 			end
 		end
 		return i_a_max
@@ -5450,7 +5452,11 @@ function monte_carlo_tree_search2(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, 
 		out = Vector{NamedTuple}()
 		v_hold = fill(tree[s].min_value, length(mdp.actions))
 		for i_a in tree[s].visited_actions
-			values = compute_state_action_bonus_value(mdp.ptf.step, mdp.isterm, tree, s, i_a, γ, c)
+			values = if mdp.is_valid_action(s, i_a)
+				compute_state_action_bonus_value(mdp.ptf.step, mdp.isterm, tree, s, i_a, γ, c)
+			else
+				(q_max = zero(T), q_min = zero(T), visits = zero(T), bonus_value = zero(T), first_value = zero(T), min_value = zero(T), max_value = zero(T))
+			end
 			push!(out, (;action_index = i_a, values...))
 		end
 		return out
@@ -5520,7 +5526,7 @@ begin
 		c = one(T), 
 		visit_counts = Dict{S, SparseVector{T, Int64}}(), 
 		Q = Dict{S, SparseVector{T, Int64}}(),
-		update_tree_policy! = (v, s) -> make_greedy_policy!(v), 
+		update_tree_policy! = (v, s) -> make_greedy_policy!(v; is_valid_action = i_a -> mdp.is_valid_action(s, i_a)), 
 		v_hold = zeros(T, length(mdp.actions)),
 		apply_bonus! = apply_uct!,
 		make_step_kwargs = k -> NamedTuple(), #option to create mdp step arguments that depend on the simulation number, 
@@ -5552,7 +5558,7 @@ begin
 		for i in Q[s].nzind
 			v_hold[i] = Q[s][i]
 		end
-		make_greedy_policy!(v_hold)
+		make_greedy_policy!(v_hold; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		if sim_message
 			@info "Finished MCTS evaluation of state $s"
 		end
@@ -5603,7 +5609,7 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v
 	end
 
 	update_action_values!(action_values, s, mdp, γ, v_est, V; make_est_kwargs(1)...)
-	make_greedy_policy!(action_values)
+	make_greedy_policy!(action_values; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	if sim_message
 		@info "Finished MCTS evaluation of state $s"
 	end
@@ -5648,7 +5654,7 @@ function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, s
 		simulate!(visit_counts, Q, mdp, γ, π_dist!, pscale, topk, s, c, prior, v_hold, v_new, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed), compute_max_value, true, depth, vest)
 	end
 	v_hold .= Q[s]
-	make_greedy_policy!(v_hold)
+	make_greedy_policy!(v_hold; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	if sim_message
 		@info "Finished MCTS evaluation of state $s"
 	end
@@ -6583,10 +6589,10 @@ DataStructures = "~0.18.20"
 HypertextLiteral = "~0.9.5"
 PlutoPlotly = "~0.4.6"
 PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.59"
+PlutoUI = "~0.7.60"
 StaticArrays = "~1.9.7"
 StatsBase = "~0.34.3"
-Transducers = "~0.4.82"
+Transducers = "~0.4.84"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -7304,7 +7310,6 @@ version = "17.7.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═029fa9d4-29fa-4232-b4b9-7cc8460ef64f
 # ╟─b6144c34-9f2b-4dc4-81cb-20e3a4cef298
 # ╟─5340f896-674d-4675-b53a-8e22b536a269
 # ╟─6a3e83b0-b4b4-4f4b-bd72-eb97df199465
