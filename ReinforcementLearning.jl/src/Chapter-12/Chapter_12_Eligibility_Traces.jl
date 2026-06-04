@@ -1660,7 +1660,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, nu
 		update_params_with_gradient!(parameters, α*decay*δ, z)
 
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 
 		#take action and observe transition
@@ -1796,13 +1796,13 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	policy = copy(action_values)
-	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	i_a = sample_action(policy)
 	zero_trace!(z)
 	
 	
 	while (ep <= max_episodes) && (step <= max_steps)
-		update_value_gradient!(∇q̂, action_values, feature_vector, i_a, parameters)
+		update_value_gradient!(∇q̂, action_values, feature_vector, i_a, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		q̂ = action_values[i_a]
 
 		update_trace_with_gradient!(z, ∇q̂, trace_type)
@@ -1825,7 +1825,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 		update_feature_vector!(feature_vector, s′)
 		update_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 		i_a′ = sample_action(policy)
 
 		q̂′ = terminated ? zero(T) : compute_value(action_values, policy, i_a′)
@@ -1869,14 +1869,14 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feat
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	policy = copy(action_values)
-	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	i_a = sample_action(policy)
 	zero_trace!(z)
 	r̄ = zero(T)
 	
 	
 	for step in 1:num_steps
-		update_value_gradient!(∇q̂, action_values, feature_vector, i_a, parameters)
+		update_value_gradient!(∇q̂, action_values, feature_vector, i_a, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		q̂ = action_values[i_a]
 		
 		update_trace_with_gradient!(z, ∇q̂, trace_type)
@@ -1892,7 +1892,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feat
 		update_feature_vector!(feature_vector, s′)
 		update_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 		i_a′ = sample_action(policy)
 
 		q̂′ = compute_value(action_values, policy, i_a′)
@@ -2020,7 +2020,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ
 		update_params_with_gradient!(parameters, α*decay*δ, z)
 
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 
 		#take action and observe transition
@@ -2224,7 +2224,7 @@ begin
 		update_feature_vector!(feature_vector, s)
 		update_linear_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 		z .= zero(T)
 		q_old = zero(T)
@@ -2258,7 +2258,7 @@ begin
 				update_feature_vector!(feature_vector, s′)
 				update_linear_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 				policy .= action_values
-				make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+				make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 				i_a′ = sample_action(policy)
 				q′ = compute_value(action_values, policy, i_a′)
 			end
@@ -2316,7 +2316,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 	s = mdp.initialize_state()
 	target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, γ, action_value_args...)
 	policy .= action_values
-	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	i_a = sample_action(policy)
 	z .= zero(T)
 	v_old = zero(T)
@@ -2335,7 +2335,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 		
 		target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, γ, action_value_args...)
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 		
 		δ = target - v
@@ -2390,7 +2390,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 	s = mdp.initialize_state()
 	target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, r̄, action_value_args...)
 	policy .= action_values
-	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	i_a = sample_action(policy)
 	z .= zero(T)
 	v_old = zero(T)
@@ -2407,7 +2407,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 		average_reward_history[step] = r̄
 		target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, r̄, action_value_args...)
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 		i_a = sample_action(policy)
 		
 		δ = target - v

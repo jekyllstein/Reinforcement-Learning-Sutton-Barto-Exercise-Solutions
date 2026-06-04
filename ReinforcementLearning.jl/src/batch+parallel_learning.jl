@@ -1450,7 +1450,7 @@ function Base.copy!(x1::Vector{V}, x2::Vector{V}) where V<:AbstractBinaryFeature
 end
 
 # ╔═╡ 3a4510e6-054b-40fe-989d-7ac8c86db757
-function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::V, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function; target_args::Tuple = (), α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer = 100, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, use_double_q::Bool = false, N::Integer = 0, ∇q̂::Q = copy(value_params), kwargs...) where {Q, T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1<:Function, F2<:Function, F3<:Function, V}
+function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::V, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function; target_args::Tuple = (), α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer = 100, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, use_double_q::Bool = false, N::Integer = 0, ∇q̂::Q = copy(value_params), kwargs...) where {Q, T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V}
 
 	#initialize memory
 	action_values = zeros(T, length(mdp.actions))
@@ -1471,7 +1471,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, value_params; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	policy .= action_values
-	make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+	make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 	i_a = sample_action(policy)
 	
 	ep = 1
@@ -1512,7 +1512,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 		# update_feature_vector!(feature_vector, s′)
 		update_action_values!(action_values, feature_vector2, value_params; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
+		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
 		i_a′ = sample_action(policy)
 		#@info "action choice is $i_a′"
 

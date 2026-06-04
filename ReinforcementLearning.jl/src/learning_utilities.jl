@@ -828,13 +828,30 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		end
 	end
 
+	function extract_value_policy(output::NamedTuple, ϵ::T)
+		π_kwargs = output.form_kwargs()
+
+		function π(s::S)
+			if rand(T) < ϵ
+				valid_inds = Vector{Int64}()
+				for i_a in eachindex(mdp.actions)
+					if mdp.is_valid_action(s, i_a)
+						push!(valid_inds, i_a)
+					end
+				end
+				return rand(valid_inds)
+			else
+				return output.value_function(s; π_kwargs...).maximizing_action
+			end
+		end
+	end
+
 	function td_train_exhaustive(γ::T, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)
 		params = use_dp ? linear_dp_params : linear_sarsa_params
 		
 		@info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, use_dp = use_dp, kwargs...)
-		π_kwargs = output1.form_kwargs()
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; π_kwargs...).maximizing_action
+		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
@@ -917,8 +934,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		
 		@info "Starting exhaustive dqn training with γ = $γ, α = $α, and $trial_steps steps per trial"
 		output1 = dqn_train_linear(γ, zero(T), 0; new_params = new_params, kwargs...)
-		π_kwargs = output1.form_kwargs()
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; π_kwargs...).maximizing_action
+		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
@@ -1053,13 +1069,30 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		end
 	end
 
+	function extract_value_policy(output::NamedTuple, ϵ::T)
+		π_kwargs = output.form_kwargs()
+
+		function π(s::S)
+			if rand(T) < ϵ
+				valid_inds = Vector{Int64}()
+				for i_a in eachindex(mdp.actions)
+					if mdp.is_valid_action(s, i_a)
+						push!(valid_inds, i_a)
+					end
+				end
+				return rand(valid_inds)
+			else
+				return output.value_function(s; π_kwargs...).maximizing_action
+			end
+		end
+	end
+
 	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, λ::T, trial_steps::Integer; use_gpu::Bool = false, use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
 		@info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, use_gpu = use_gpu, kwargs...)
-		π_kwargs = output1.form_kwargs()
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; use_gpu = use_gpu, π_kwargs...).maximizing_action
+		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
@@ -1144,8 +1177,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		
 		@info "Starting exhaustive dqn training with γ = $γ, α = $α, and $trial_steps steps per trial"
 		output1 = dqn_train_nonlinear(hidden_layers, reslayers, γ, zero(T), 0; new_params = false, use_gpu = use_gpu, kwargs...)
-		π_kwargs = output1.form_kwargs()
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; use_gpu = use_gpu, π_kwargs...).maximizing_action
+		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
@@ -1711,13 +1743,28 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			f(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, trace_type = trace_type, kwargs...)
 		end
 	end
+	function extract_value_policy(output::NamedTuple, ϵ::T)
+		π_kwargs = output.form_kwargs()
 
+		function π(s::S)
+			if rand(T) < ϵ
+				valid_inds = Vector{Int64}()
+				for i_a in eachindex(mdp.actions)
+					if mdp.is_valid_action(s, i_a)
+						push!(valid_inds, i_a)
+					end
+				end
+				return rand(valid_inds)
+			else
+				return output.value_function(s; π_kwargs...).maximizing_action
+			end
+		end
+	end
 	function td_train_exhaustive(α::T, λ::T, trial_steps::Integer; new_params = false, use_dp = false, ϵ = one(T) / 10, kwargs...)
 		params = use_dp ? linear_dp_params : linear_sarsa_params
 		@info "Starting exhaustive training with α = $α and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_linear(zero(T), zero(T), 0; use_dp = use_dp, new_params = new_params, kwargs...)
-		π_kwargs = output1.form_kwargs()
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; π_kwargs...).maximizing_action
+		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
@@ -1821,14 +1868,31 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 			f(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, parameters = params, kwargs...)
 		end
 	end
+	
+	function extract_value_policy(output::NamedTuple, ϵ::T)
+		π_kwargs = output.form_kwargs()
+
+		function π(s::S)
+			if rand(T) < ϵ
+				valid_inds = Vector{Int64}()
+				for i_a in eachindex(mdp.actions)
+					if mdp.is_valid_action(s, i_a)
+						push!(valid_inds, i_a)
+					end
+				end
+				return rand(valid_inds)
+			else
+				return output.value_function(s; π_kwargs...).maximizing_action
+			end
+		end
+	end
 
 	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_gpu::Bool = false, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
 		@info "Starting exhaustive training with α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, use_gpu = use_gpu, kwargs...)
-		π_kwargs = output1.form_kwargs()
-		π(s) = rand(T) < ϵ ? rand(eachindex(mdp.actions)) : output1.value_function(s; use_gpu = use_gpu, π_kwargs...).maximizing_action
+		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
