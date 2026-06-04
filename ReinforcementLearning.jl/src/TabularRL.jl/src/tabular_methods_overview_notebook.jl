@@ -4824,11 +4824,15 @@ begin
 	function sample_rollout(s::S, i_a::Integer, mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, γ::T; max_steps::Integer = typemax(Int64), transition_kwargs...) where {T<:Real,S, A, P, F1, F2, F3}
 		step = 0
 		g = zero(T)
+		r, s′ = mdp.ptf(s, i_a; transition_kwargs...)
+		g += γ^step * r
+		s = s′
+		step += 1
 		while !mdp.isterm(s) && (step <= max_steps)
+			i_a = π(s)
 			r, s′ = mdp.ptf(s, i_a; transition_kwargs...)
 			g += γ^step * r
 			s = s′
-			i_a = π(s)
 			step += 1
 		end
 		return g
