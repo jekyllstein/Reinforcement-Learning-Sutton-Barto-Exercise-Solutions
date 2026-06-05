@@ -1681,13 +1681,17 @@ end
 begin
 	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}; ϵ::T = one(T)/10, is_valid_action::Function = i_a -> true) where {N, T<:Real}
 		n = length(v)
-		maxv = maximum(v)
-		
-		nmax = zero(T)
+		maxv = typemin(T)
 		num_valid = 0
 		@inbounds @simd for i in 1:n
 			valid = is_valid_action(i)
 			num_valid += valid
+			maxv = max(maxv, valid*v[i] + !valid*typemin(T))
+		end
+		
+		nmax = zero(T)
+		@inbounds @simd for i in 1:n
+			valid = is_valid_action(i)
 			x = valid*T(v[i] ≈ maxv)
 			v[i] = x
 			nmax += x
@@ -4926,6 +4930,7 @@ function simulate!(visit_counts, Q, mdp::StateMDP, γ::T, v_est::Function, s, de
 	
 	update_tree_policy!(v_hold, s)
 	i_a = sample_action(v_hold)
+
 	r, s′ = mdp.ptf(s, i_a; step_kwargs...)
 	q = r + γ*simulate!(visit_counts, Q, mdp, γ, v_est, s′, depth - 1, c, v_hold, v_new, update_tree_policy!, apply_bonus!, step_kwargs, est_kwargs)
 	
@@ -5524,7 +5529,7 @@ end
 # ╔═╡ 78eda243-db35-4eb4-8e97-e845dd3da064
 begin
 	#perform action selection within an mdp for a given state s, discount factor γ, and state value estimation function v_est.  v_est must be a function that takes the arguments (mdp, s, γ) and produces a reward of the same type as γ
-	function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, s::S; 
+	function monte_carlo_tree_search(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est::Function, s0::S; 
 		depth = 10, 
 		nsims = 100, 
 		c = one(T), 
@@ -5556,15 +5561,17 @@ begin
 					ETA: $(round(Int64, eta/60)) minutes"""
 				end
 			end
-			simulate!(visit_counts, Q, mdp, γ, v_est, s, depth, c, v_hold, v_new, update_tree_policy!, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed))
+			simulate!(visit_counts, Q, mdp, γ, v_est, s0, depth, c, v_hold, v_new, update_tree_policy!, apply_bonus!, make_step_kwargs(seed), make_est_kwargs(seed))
 		end
 	
-		for i in Q[s].nzind
-			v_hold[i] = Q[s][i]
+		# if actions are unvisited, they should not be candidates for final selection
+		v_hold .= typemin(T)
+		for i in visit_counts[s0].nzind
+			v_hold[i] = Q[s0][i]
 		end
-		make_greedy_policy!(v_hold; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+		make_greedy_policy!(v_hold; is_valid_action = i_a -> mdp.is_valid_action(s0, i_a))
 		if sim_message
-			@info "Finished MCTS evaluation of state $s"
+			@info "Finished MCTS evaluation of state $s0"
 		end
 		return sample_action(v_hold), visit_counts, Q
 	end
