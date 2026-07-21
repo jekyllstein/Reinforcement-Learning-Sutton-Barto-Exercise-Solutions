@@ -18,8 +18,8 @@ Pkg.activate(top_path)
 Pkg.resolve()
 Pkg.precompile()
 
-Pkg.activate("PlutoStartup")
-Pkg.resolve()
-Pkg.precompile()
+# Pkg.activate("PlutoStartup")
+# Pkg.resolve()
+# Pkg.precompile()
 
 mkpath(joinpath(@__DIR__, "setup_complete"))

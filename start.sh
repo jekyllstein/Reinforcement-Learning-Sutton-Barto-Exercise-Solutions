@@ -1,2 +1,2 @@
 # julia --startup-file no --threads auto -e 'using Pkg; !isdir(joinpath(@__DIR__, "setup_complete")) && include(joinpath(@__DIR__, "setup.jl")); Pkg.activate("PlutoStartup"); using PlutoStartup'
-julia --startup-file no --threads auto -e 'cd(joinpath(@__DIR__, "ReinforcementLearning.jl", "src")); using Pkg; temp_dir = mktempdir(); Pkg.activate(temp_dir); Pkg.add("Pluto"); using Pluto; Pluto.run(launch_browser = false);'
+julia --startup-file no --threads auto -e '!isdir(joinpath(@__DIR__, "setup_complete")) && include(joinpath(@__DIR__, "setup.jl")); cd(joinpath(@__DIR__, "ReinforcementLearning.jl", "src")); using Pkg; temp_dir = mktempdir(); Pkg.activate(temp_dir); Pkg.add("Pluto"); using Pluto; Pluto.run(launch_browser = false);'

@@ -19,14 +19,27 @@ If you view a notebook in your web browser, there will be instructions on how to
 
 ## Running Notebooks Locally
 
-To access all the notebooks there is a startup environment to conveniently set up Pluto and open a web browser to explore notebooks in any directory.  Follow the instructions below:
+To access all the notebooks there is a startup script that will finish instantiating the local packages and run Pluto in a temporary environment. Follow the instructions below:
 
 1. Clone this repository
-2. Open a terminal in the root folder of the repository and run julia with the following command: 
+2. Open a terminal in the root folder of the repository and run the following command: 
 
 ```shell
-julia --threads auto -e 'using Pkg; Pkg.a
-ctivate("PlutoStartup"); Pkg.instantiate(); using PlutoStartup'
+./start.sh
+```
+  You may need to change the file permissions on `start.sh` so that it can run as an executable.  If you see a response like `permission denied: ./start.sh` then try running `chmod +x start.sh` to fix the problem.
+  
+  Note that this assumes that the julia command is in your environmental variables.  If not, then `julia` inside the shell script can be replaced with the path to the executable or whatever symbolic link name you are using to access your julia installation. If you follow the installation instructions on the Julia homepage then it should already be set up to run this way.
+
+After executing `start.sh` you should see something that resembles the following in the terminal
+
+```shell
+[ Info: Loading...
+┌ Info:
+│ Go to http://localhost:1234/?secret=h8Ej8zIn in your browser to start writing ~ have fun!
+└
+┌ Info:
+│ Press Ctrl+C in this terminal to stop Pluto
 ```
 
-You can also run `./start.sh` which will execute the same command.  Note that this assumes that the julia command is in your environmental variables.  If not, then `julia` can be replaced with the path to the executable or whatever symbolic link name you are using to access your julia installation. If you follow the installation instructions on the Julia homepage then it should already be set up to run this way.
+You can then paste the link into the browser of your choice and have access to a web interface that let's you select and run Pluto notebooks contained in the repository.  For further instructions on navigating the Pluto web interface, see the links above to resources on `pluto.jl`
