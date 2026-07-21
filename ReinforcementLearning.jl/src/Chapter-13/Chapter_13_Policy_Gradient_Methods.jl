@@ -110,18 +110,34 @@ md"""
 """
 
 # ╔═╡ 33c99850-67cd-4754-94b9-6df97b238e27
-function soft_max!(x::AbstractVector{T}) where T<:Real
-	minx, maxx = extrema(x)
-	if minx == maxx
-		x .= one(T) / length(x)
-		return x
+function soft_max!(x::AbstractVector{T}; is_valid_action::Function = i -> true) where T<:Real
+	# Get extrema for valid actions only
+	minx = typemax(T)
+	maxx = typemin(T)
+	num_valid = 0
+	@inbounds @simd for i in eachindex(x)
+		val = x[i]
+		new_minx = min(minx, val)
+		new_maxx = max(maxx, val)
+		valid_action = is_valid_action(i)
+		minx = valid_action*new_minx + !valid_action*minx
+		maxx = valid_action*new_maxx + !valid_action*maxx
+		num_valid += valid_action
+		x[i] = valid_action*val + !valid_action*typemin(T) # Set invalid actions to -Inf for numerical stability in softmax calculation
 	end
+
+	@assert num_valid > 0 "No valid actions provided to soft_max!"
+	@assert !isnan(maxx) "All valid actions have NaN values: $x, cannot compute softmax!"
+	@assert !isnan(minx) "All valid actions have NaN values: $x, cannot compute softmax!"
+
 	s = zero(T)
 	@inbounds @simd for i in eachindex(x)
 		h = exp(x[i] - maxx)
 		s += h
 		x[i] = h
 	end
+
+	@assert s > 0 "Sum of exponentials is zero, cannot compute softmax!"
 	x ./= s
 end
 
@@ -801,26 +817,24 @@ end
 # ╔═╡ f7232174-8e39-46c4-9374-a39c3c05c3b9
 begin
 	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}; kwargs...) where T<:Real
-		maxq, i_a_max = update_linear_action_values!(policy, x, w; kwargs...)
-		soft_max!(policy)
+		maxq, i_a_max = update_linear_action_values!(policy, x, w)
+		soft_max!(policy; kwargs...)
 		return i_a_max
 	end
 
 	function update_policy_dist!(policy::Vector{T}, x, w::FCANNParams{T}, activations::FCANNActivations{T}; is_valid_action::Function = i_a -> true) where {T<:Real}
 		fcann_value_function!(activations, x, w)
 		policy .= last(activations)
-		mask_invalid_actions!(policy, is_valid_action)
+		soft_max!(policy; is_valid_action)
 		(maxq, i_a_max) = findmax(policy)
-		soft_max!(policy)
 		return i_a_max
 	end
 
 	function update_policy_dist!(policy::Vector{T}, x::FCANN.CUDAArray, w::FCANNParamsGPU, activations::FCANNActivationsGPU; is_valid_action::Function = i_a -> true) where {T<:Real}
 		fcann_value_function!(activations, x, w)
 		FCANN.memcpy!(policy, last(activations))
-		mask_invalid_actions!(policy, is_valid_action)
+		soft_max!(policy; is_valid_action)
 		(maxq, i_a_max) = findmax(policy)
-		soft_max!(policy)
 		return i_a_max
 	end
 end

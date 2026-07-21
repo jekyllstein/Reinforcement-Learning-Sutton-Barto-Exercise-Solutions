@@ -1031,7 +1031,7 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 	action_values = zeros(T, length(mdp.actions))
 	policy = copy(action_values)
 	
-	function check_valid_actions(s::S) where {S, F<:Function}
+	function check_valid_actions(s::S) where {S}
 		f(i_a::Integer) = mdp.is_valid_action(s, i_a)
 	end
 
