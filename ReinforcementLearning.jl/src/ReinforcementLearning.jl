@@ -96,6 +96,10 @@ include(joinpath(@__DIR__, "batch+parallel_learning.jl"))
 
 export dqn!, dqn_linear, dqn_fcann, dqn, synchronous_actor_critic!, synchronous_actor_critic_linear, synchronous_actor_critic_fcann, synchronous_nstep_actor_critic!, synchronous_nstep_actor_critic_linear, synchronous_nstep_actor_critic_fcann
 
+# include(joinpath(@__DIR__,  "GridCapture.jl"))
+
+# @reexport using .GridCapture
+
 include(joinpath(@__DIR__,  "learning_utilities.jl"))
 
 export setup_episodic_value_parameter_studies, setup_continuing_value_parameter_studies, setup_episodic_policy_parameter_studies, setup_continuing_policy_parameter_studies

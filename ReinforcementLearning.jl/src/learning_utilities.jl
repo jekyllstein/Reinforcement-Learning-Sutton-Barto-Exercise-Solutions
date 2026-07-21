@@ -1007,7 +1007,75 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_dqn = dqn_train_linear, train_dqn_exhaustive = dqn_train_exhaustive, train_dqn_rate_decay = dqn_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
+	function td_train_ϵ_decay(γ::T, α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
+		@info "Beginning epsilon decay td training with initial exploration parameter $ϵ_init"
+		output1 = td_train_rate_decay(γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+		episode_rewards = output1.episode_rewards
+
+		ϵ = ϵ_init / 2
+		@info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = td_train_rate_decay(γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+
+		if output2.performance ≤ output1.performance
+			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			return (;output1..., episode_rewards = episode_rewards)
+		end
+
+		round = 2
+		while output2.performance > output1.performance && (ϵ > ϵ_min)
+			round += 1
+			ϵ /= 2
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			@info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = td_train_rate_decay(γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		end
+
+		if output2.performance > output1.performance
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output2.episode_rewards)
+		end
+
+		@info "Completed ϵ decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	function dqn_train_ϵ_decay(γ::T, α_init::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
+		@info "Beginning epsilon decay dqn training with initial exploration parameter $ϵ_init"
+		output1 = dqn_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ_init)
+		episode_rewards = output1.episode_rewards
+
+		ϵ = ϵ_init / 2
+		@info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = dqn_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+
+		if output2.performance ≤ output1.performance
+			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			return (;output1..., episode_rewards = episode_rewards)
+		end
+
+		round = 2
+		while output2.performance > output1.performance && (ϵ > ϵ_min)
+			round += 1
+			ϵ /= 2
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			@info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = dqn_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+		end
+
+		if output2.performance > output1.performance
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output2.episode_rewards)
+		end
+
+		@info "Completed ϵ decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_ϵ_decay = td_train_ϵ_decay, train_dqn = dqn_train_linear, train_dqn_exhaustive = dqn_train_exhaustive, train_dqn_rate_decay = dqn_train_rate_decay, train_dqn_ϵ_decay = dqn_train_ϵ_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
 end
 
 # ╔═╡ aa1b2b58-66c8-4c43-b2d1-f2de6ff982ed
@@ -1252,7 +1320,75 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
-	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_dqn = dqn_train_nonlinear, train_dqn_exhaustive = dqn_train_exhaustive, train_dqn_rate_decay = dqn_train_rate_decay, parameters = fcann_parameters)	
+	function td_train_ϵ_decay(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
+		@info "Beginning epsilon decay nonlinear td training with initial exploration parameter $ϵ_init"
+		output1 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+		episode_rewards = output1.episode_rewards
+
+		ϵ = ϵ_init / 2
+		@info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+
+		if output2.performance ≤ output1.performance
+			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			return (;output1..., episode_rewards = episode_rewards)
+		end
+
+		round = 2
+		while output2.performance > output1.performance && (ϵ > ϵ_min)
+			round += 1
+			ϵ /= 2
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			@info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		end
+
+		if output2.performance > output1.performance
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output2.episode_rewards)
+		end
+
+		@info "Completed ϵ decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	function dqn_train_ϵ_decay(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α_init::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
+		@info "Beginning epsilon decay nonlinear dqn training with initial exploration parameter $ϵ_init"
+		output1 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs..., ϵ = ϵ_init)
+		episode_rewards = output1.episode_rewards
+
+		ϵ = ϵ_init / 2
+		@info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+
+		if output2.performance ≤ output1.performance
+			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			return (;output1..., episode_rewards = episode_rewards)
+		end
+
+		round = 2
+		while output2.performance > output1.performance && (ϵ > ϵ_min)
+			round += 1
+			ϵ /= 2
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
+			@info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+		end
+
+		if output2.performance > output1.performance
+			output1 = output2
+			episode_rewards = vcat(episode_rewards, output2.episode_rewards)
+		end
+
+		@info "Completed ϵ decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., episode_rewards = episode_rewards)
+	end
+
+	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_ϵ_decay = td_train_ϵ_decay, train_dqn = dqn_train_nonlinear, train_dqn_exhaustive = dqn_train_exhaustive, train_dqn_rate_decay = dqn_train_rate_decay, train_dqn_ϵ_decay = dqn_train_ϵ_decay, parameters = fcann_parameters)	
 end
 
 # ╔═╡ 5443cd2e-78c8-4723-9093-df2840f59a33
@@ -1831,7 +1967,41 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		return (;output1..., reward_history = reward_history)
 	end
 
-	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
+	function td_train_ϵ_decay(α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
+		@info "Beginning epsilon decay continuing td training with initial exploration parameter $ϵ_init"
+		output1 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+		reward_history = output1.reward_history
+
+		ϵ = ϵ_init / 2
+		@info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+
+		if output2.performance ≤ output1.performance
+			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			return (;output1..., reward_history = reward_history)
+		end
+
+		round = 2
+		while output2.performance > output1.performance && (ϵ > ϵ_min)
+			round += 1
+			ϵ /= 2
+			output1 = output2
+			reward_history = vcat(reward_history, output1.reward_history)
+			@info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		end
+
+		if output2.performance > output1.performance
+			output1 = output2
+			reward_history = vcat(reward_history, output2.reward_history)
+		end
+
+		@info "Completed ϵ decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., reward_history = reward_history)
+	end
+
+	(train = td_train_linear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_ϵ_decay = td_train_ϵ_decay, sarsa_params = linear_sarsa_params, dp_params = linear_dp_params)	
 end
 
 # ╔═╡ 1568bed2-f17e-4a28-8b26-6d5cca22d1ea
@@ -1967,7 +2137,41 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		return (;output1..., reward_history = reward_history)
 	end
 
-	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, parameters = fcann_parameters)	
+	function td_train_ϵ_decay(hidden_layers::Vector{Int64}, reslayers::Integer, α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
+		@info "Beginning epsilon decay continuing nonlinear td training with initial exploration parameter $ϵ_init"
+		output1 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+		reward_history = output1.reward_history
+
+		ϵ = ϵ_init / 2
+		@info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+
+		if output2.performance ≤ output1.performance
+			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			return (;output1..., reward_history = reward_history)
+		end
+
+		round = 2
+		while output2.performance > output1.performance && (ϵ > ϵ_min)
+			round += 1
+			ϵ /= 2
+			output1 = output2
+			reward_history = vcat(reward_history, output1.reward_history)
+			@info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		end
+
+		if output2.performance > output1.performance
+			output1 = output2
+			reward_history = vcat(reward_history, output2.reward_history)
+		end
+
+		@info "Completed ϵ decay training after $round rounds with performance $(output1.performance)"
+		return (;output1..., reward_history = reward_history)
+	end
+
+	(train = td_train_nonlinear, train_exhaustive = td_train_exhaustive, train_rate_decay = td_train_rate_decay, train_ϵ_decay = td_train_ϵ_decay, parameters = fcann_parameters)	
 end
 
 # ╔═╡ ed63609b-1b7d-4075-b71f-62f1205bb122
