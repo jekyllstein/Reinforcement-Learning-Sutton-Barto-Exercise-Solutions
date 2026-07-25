@@ -96,7 +96,7 @@ include(joinpath(@__DIR__, "batch+parallel_learning.jl"))
 
 export dqn!, dqn_linear, dqn_fcann, dqn, synchronous_actor_critic!, synchronous_actor_critic_linear, synchronous_actor_critic_fcann, synchronous_nstep_actor_critic!, synchronous_nstep_actor_critic_linear, synchronous_nstep_actor_critic_fcann
 
-# include(joinpath(@__DIR__,  "GridCapture.jl"))
+include(joinpath(@__DIR__,  "GridCapture.jl"))
 
 # @reexport using .GridCapture
 
@@ -111,6 +111,8 @@ export setup_episodic_value_linear_training, setup_continuing_value_linear_train
 export save_linear_value_parameters, load_linear_value_parameters, save_linear_policy_parameters, load_linear_policy_parameters, linear_value_parameters_save_check, linear_policy_parameters_save_check, save_nonlinear_value_parameters, load_nonlinear_value_parameters, save_nonlinear_policy_parameters, load_nonlinear_policy_parameters, nonlinear_value_parameters_save_check, nonlinear_policy_parameters_save_check
 
 export setup_policy_linear_training, setup_value_linear_training, setup_policy_nonlinear_training, setup_value_nonlinear_training
+
+include(joinpath(@__DIR__, "gumbel_mcts.jl"))
 
 @setup_workload begin
     γ = 0.9f0
