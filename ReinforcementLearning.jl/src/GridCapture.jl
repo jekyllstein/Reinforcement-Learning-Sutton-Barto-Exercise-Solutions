@@ -42,10 +42,11 @@ struct GameState{N,K}
     x_pieces::BitMatrix
     o_pieces::BitMatrix
     last_move::Tuple{Int,Int}
+    player_turn::Integer
 end
 
 # Create new empty game with no last move
-GameState(N::Integer, K::Integer) = GameState{N,K}(falses(N,N), falses(N,N), (0, 0))
+GameState(N::Integer, K::Integer) = GameState{N,K}(falses(N,N), falses(N,N), (0, 0), 1)
 
 # Necessary functions for dictionary lookup to work with GameState as keys
 Base.isequal(b1::GameState, b2::GameState) = false
@@ -121,18 +122,20 @@ function place_stone(state::GameState{N,K}, row::Int, col::Int) where {N,K}
         error("Invalid move at ($row, $col)")
     end
 
-    player = player_turn(state)
+    player = state.player_turn
     
     new_x = copy(state.x_pieces)
     new_o = copy(state.o_pieces)
     
     if player == 1
         new_x[row, col] = true
+        new_player = 2
     else
         new_o[row, col] = true
+        new_player = 1
     end
     
-    return GameState{N,K}(new_x, new_o, (row, col))
+    return GameState{N,K}(new_x, new_o, (row, col), new_player)
 end
 
 # ============================================
@@ -290,7 +293,7 @@ Returns:
 - `:ongoing` if game continues
 """
 function check_game_result(state::GameState{N,K}) where {N,K}
-    check_win(state) && return player_turn(state) == 1 ? :o_win : :x_win
+    check_win(state) && return state.player_turn == 1 ? :o_win : :x_win
    
     check_full(state) && return :draw
     return :ongoing
@@ -499,7 +502,7 @@ function to_canonical(state::GameState{N,K}) where {N,K}
         end
     end
     
-    return GameState{N,K}(best_x, best_o, state.last_move), best_sym
+    return GameState{N,K}(best_x, best_o, state.last_move, state.player_turn), best_sym
 end
 
 # ============================================
@@ -558,7 +561,7 @@ Returns a Vector of length N*N with probabilities for each action index.
 """
 function greedy_policy_distribution(state::GameState{N,K}; dist::Vector{T}=zeros(Float32, N*N)) where {N,K,T<:Real}
     
-    current_player = player_turn(state)
+    current_player = state.player_turn
     pieces = current_player == 1 ? state.x_pieces : state.o_pieces
     opp_pieces = current_player == 1 ? state.o_pieces : state.x_pieces
     
@@ -1490,7 +1493,7 @@ function html_board(state::GameState{N,K}; cell_size=60, show_status=true, polic
                 
                 # Add candidate move overlay for empty squares
                 if candidate_move !== nothing && (r, c) == candidate_move
-                    turn = player_turn(state)
+                    turn = state.player_turn
                     if turn == 1
                         print(html, """            <div class="gc-candidate-x"></div>
 """)
@@ -1529,7 +1532,7 @@ function html_board(state::GameState{N,K}; cell_size=60, show_status=true, polic
             status_text = "Draw"
             status_color = "#5d4037"
         else
-            turn = player_turn(state)
+            turn = state.player_turn
             player_text = turn == 1 ? "X" : "O"
             status_text = "$player_text's Turn"
             status_color = "#ffffff"
@@ -1558,7 +1561,7 @@ function html_board(state::GameState{N,K}; cell_size=60, show_status=true, polic
         # Candidate move legend
         if candidate_move !== nothing
             has_legend = true
-            turn = player_turn(state)
+            turn = state.player_turn
             print(legend_html, """                <div style="display: flex; align-items: center; gap: 4px;">
                     <div style="width: 14px; height: 14px; position: relative; display: flex; align-items: center; justify-content: center;">
                         <div style="position: absolute; width: 100%; height: 2px; background-color: #ff6f00; border-radius: 1px; transform: rotate(45deg); opacity: 0.85; filter: drop-shadow(0 0 2px #ffffff);"></div>
@@ -1676,13 +1679,4 @@ function find_winning_line(board::AbstractMatrix, K::Int)
     
     return winning_cells
 end
-
-# For GameState (alias to use with GameState directly)
-function html_board(x_pieces::AbstractArray, o_pieces::AbstractArray; kwargs...)
-    N = size(x_pieces, 1)
-    K = 5  # Default K value
-    state = GameState{N,K}(x_pieces, o_pieces)
-    return html_board(state; kwargs...)
-end
-
 end  # module GridCapture
