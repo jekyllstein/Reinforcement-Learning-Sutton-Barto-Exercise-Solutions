@@ -42,7 +42,7 @@ struct GameState{N,K}
     x_pieces::BitMatrix
     o_pieces::BitMatrix
     last_move::Tuple{Int,Int}
-    player_turn::Integer
+    player_turn::Int
 end
 
 # Create new empty game with no last move
