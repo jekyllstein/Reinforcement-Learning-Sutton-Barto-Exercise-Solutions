@@ -66,8 +66,10 @@ Uses bit operations for efficient validation.
 function player_turn(state::GameState{N,K}) where {N,K}
     # Validate: X and O should not overlap using efficient bitwise AND
     # any(x .& y) checks if any position has both X and O pieces
-    if any(state.x_pieces .& state.o_pieces)
-        error("Invalid game state: Pieces overlap")
+    @inbounds for (x, o) in zip(state.x_pieces.chunks, state.o_pieces.chunks)
+        if (x & o) != 0
+            error("Invalid game state: Pieces overlap")
+        end
     end
     
     # Use count(identity, ...) for BitMatrix - efficient without allocations
