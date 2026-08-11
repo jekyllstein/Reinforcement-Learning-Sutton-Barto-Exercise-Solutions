@@ -361,7 +361,7 @@ function sample_action(v::AbstractArray{T, N}) where {N, T<:Real}
 		maxv = max(g, maxv)
 		i_a += newmax*(i - i_a)
 	end
-	iszero(i_a) && @warn "sample_action did not find a valid index in the distribution.  This is likely due to a distribution with all zero probabilities."
+	iszero(i_a) && @warn "sample_action did not find a valid index in the distribution.  This is likely due to a distribution with all zero probabilities: $v"
 	return i_a
 	# sample(eachindex(v), weights(v))
 end
@@ -376,7 +376,7 @@ function sample_action(v::AbstractArray{B, N}) where {N, B<:Bool}
 		maxv = max(g, maxv)
 		i_a += newmax*(i - i_a)
 	end
-	iszero(i_a) && @warn "sample_action did not find a valid index in the distribution.  This is likely due to a distribution with all zero probabilities."
+	iszero(i_a) && @warn "sample_action did not find a valid index in the distribution.  This is likely due to a distribution with all zero probabilities: $v"
 	return i_a
 	# sample(eachindex(v), weights(v))
 end
@@ -5001,7 +5001,10 @@ function apply_uct!(action_values::Vector{T}, action_counts::Vector{T}, c::T) wh
 	#for normal UCB selection, unvisited states have an infinite bonus
 	@inbounds @fastmath @simd for i in eachindex(action_values)
 		#unvisited states will always produce a value of Inf
-		action_values[i] += c * uct(action_counts[i], ntot)
+		count = action_counts[i]
+		bonus = uct(count, ntot)
+		#when ntot is exactly 1, then the 0 visited actions can produce NaN values.  In this case just default to the infinite bonus without the calculation
+		action_values[i] += ifelse(iszero(count), typemax(T), c*bonus)
 	end
 	return action_values
 end
@@ -5067,6 +5070,7 @@ function simulate!(V::Dict, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, v_est:
 	apply_bonus!(action_values, action_visits, c)
 	
 	update_tree_policy!(action_values, s)
+
 	i_a = sample_action(action_values)
 	(rewards, states, probabilities) = mdp.ptf.step(s, i_a; step_kwargs...)
 	i_select = sample_action(probabilities)
