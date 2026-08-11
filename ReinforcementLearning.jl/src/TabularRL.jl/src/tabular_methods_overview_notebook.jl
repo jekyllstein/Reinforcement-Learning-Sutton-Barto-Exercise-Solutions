@@ -354,9 +354,12 @@ Samples an action index from a probability distribution represented by a vector.
 function sample_action(v::AbstractArray{T, N}) where {N, T<:Real} 
 	i_a = 0
 	maxv = typemin(T)
+	e = eps(T)
+	c = one(T) - 2*e
 	@inbounds @fastmath for i in eachindex(v)
 		x = v[i]
-		g = log(x) - log(-log(rand(T)))
+		u = e + rand(T) * c #avoid 0 and 1 for numerical stability
+		g = log(x) - log(-log(u))
 		newmax = (g > maxv)
 		maxv = max(g, maxv)
 		i_a += newmax*(i - i_a)
@@ -369,9 +372,12 @@ end
 function sample_action(v::AbstractArray{B, N}) where {N, B<:Bool} 
 	i_a = 0
 	maxv = -Inf
+	e = eps()
+	c = 1 - 2*e
 	@inbounds @fastmath for i in eachindex(v)
 		x = v[i]
-		g = log(x) - log(-log(rand()))
+		u = e + rand() * c #avoid 0 and 1 for numerical stability
+		g = log(x) - log(-log(u))
 		newmax = (g > maxv)
 		maxv = max(g, maxv)
 		i_a += newmax*(i - i_a)

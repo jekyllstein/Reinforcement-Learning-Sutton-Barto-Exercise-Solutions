@@ -240,17 +240,21 @@ md"""
 #sample a batch of actions from a matrix of probability distributions.  each row represents a separate environment with its own action distribution.  Fill the respective action selections in the vector `actions`
 function sample_batch_actions!(actions::Vector{I}, πs::Matrix{T}) where {T<:Real, I<:Integer} 
 	num_env, num_actions = size(πs)
-	actions .= one(I)
+	actions .= zero(I)
 	maxvs = fill(T(-Inf), num_env)
+	e = eps(T)
+	c = one(T) - 2*e
 	@inbounds @fastmath for i in 1:num_actions
 		@simd for k in 1:num_env
 			x = πs[k, i] 
-			g = log(x) - log(-log(rand(T)))
+			u = e + rand(T) * c #avoid 0 and 1 for numerical stability
+			g = log(x) - log(-log(u))
 			newmax = (g > maxvs[k])
 			maxvs[k] = max(g, maxvs[k])
 			actions[k] += newmax*(i - actions[k])
 		end
 	end
+	any(iszero, actions) && @warn "sample_batch_actions! produced zero actions for some environments with πs $πs"
 	return actions
 end
 
