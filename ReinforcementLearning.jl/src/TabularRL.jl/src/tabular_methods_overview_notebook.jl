@@ -352,29 +352,31 @@ begin
 Samples an action index from a probability distribution represented by a vector.
 """
 function sample_action(v::AbstractArray{T, N}) where {N, T<:Real} 
-	i_a = 1
-	maxv = T(-Inf)
-	@inbounds @fastmath @simd for i in eachindex(v)
+	i_a = 0
+	maxv = typemin(T)
+	@inbounds @fastmath for i in eachindex(v)
 		x = v[i]
 		g = log(x) - log(-log(rand(T)))
 		newmax = (g > maxv)
 		maxv = max(g, maxv)
 		i_a += newmax*(i - i_a)
 	end
+	iszero(i_a) && @warn "sample_action did not find a valid index in the distribution.  This is likely due to a distribution with all zero probabilities."
 	return i_a
 	# sample(eachindex(v), weights(v))
 end
 
 function sample_action(v::AbstractArray{B, N}) where {N, B<:Bool} 
-	i_a = 1
+	i_a = 0
 	maxv = -Inf
-	@inbounds @fastmath @simd for i in eachindex(v)
+	@inbounds @fastmath for i in eachindex(v)
 		x = v[i]
 		g = log(x) - log(-log(rand()))
 		newmax = (g > maxv)
 		maxv = max(g, maxv)
 		i_a += newmax*(i - i_a)
 	end
+	iszero(i_a) && @warn "sample_action did not find a valid index in the distribution.  This is likely due to a distribution with all zero probabilities."
 	return i_a
 	# sample(eachindex(v), weights(v))
 end
