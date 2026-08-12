@@ -46,7 +46,7 @@ struct GameState{N,K}
 end
 
 # Create new empty game with no last move
-GameState{N, K} where {N, K} = GameState{N,K}(falses(N,N), falses(N,N), (0, 0), 1)
+GameState{N, K}() where {N, K} = GameState{N,K}(falses(N,N), falses(N,N), (0, 0), 1)
 
 # Necessary functions for dictionary lookup to work with GameState as keys
 Base.isequal(b1::GameState, b2::GameState) = false
