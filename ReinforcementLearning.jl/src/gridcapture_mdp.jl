@@ -47,11 +47,11 @@ function make_gridcapture_mdp(
     # Determine initial state function based on agent player
     if agent_player == :x
         # Agent plays first as X
-        state_init = () -> GameState(N, K)
+        state_init = () -> GameState{N, K}()
     else
         # Agent plays second as O, opponent moves first
         state_init = () -> begin
-            s = GameState(N, K)
+            s = GameState{N, K}()
             opp_move, _ = opponent(s)
             place_stone(s, opp_move[1], opp_move[2])
         end
@@ -127,10 +127,10 @@ function make_gridcapture_mdp(
     all_actions = vec(GridCaptureAction[(r, c) for r in 1:N, c in 1:N])
     
     if agent_player == :x
-        state_init = () -> GameState(N, K)
+        state_init = () -> GameState{N, K}()
     else
         state_init = () -> begin
-            s = GameState(N, K)
+            s = GameState{N, K}()
             opp_move, _ = opponent_func(s)
             place_stone(s, opp_move[1], opp_move[2])
         end

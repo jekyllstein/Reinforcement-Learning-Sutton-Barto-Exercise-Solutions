@@ -16,8 +16,8 @@ begin
 		import *
 	end
 
-	include("GridCapture.jl")
-	using .GridCapture
+	# include("GridCapture.jl")
+	using .ReinforcementLearning.GridCapture
 
 	include("gumbel_mcts.jl")
 	using .GumbelMCTS
@@ -56,7 +56,7 @@ Adjust board size
 
 # ╔═╡ 9e6c8d1d-2152-4b45-a2b6-38e48a4f0b8e
 #=╠═╡
-board = GameState(board_N, 4)
+board = GameState{board_N, 4}()
   ╠═╡ =#
 
 # ╔═╡ 819d1840-27a9-4cba-993a-e028584ed147
@@ -320,10 +320,10 @@ function make_gridcapture_mdp(
     
     # Initial state function
     if agent_player == :x
-        state_init = () -> GameState(N, K)
+        state_init = () -> GameState{N, K}()
     else
         state_init = () -> begin
-            s = GameState(N, K)
+            s = GameState{N, K}()
             opp_move = opponent(s)
             place_stone(s, opp_move...)
         end
@@ -868,7 +868,7 @@ The visualizations below also introduce the way the game board is overlayed with
 
 # ╔═╡ 851ac26a-4f49-423a-9558-77d081b7791b
 #=╠═╡
-const greedy_8x4_game = play_gridcapture_game(GameState(8, 4), greedy_policy, random_policy)
+const greedy_8x4_game = play_gridcapture_game(GameState{8, 4}(), greedy_policy, random_policy)
   ╠═╡ =#
 
 # ╔═╡ 0edf174b-98c1-4328-a5b9-d2d82a2b99b9
@@ -1263,7 +1263,7 @@ const gumbel_mcts_search_test2 = gumbel_mcts_search(large_gridcapture_hard_mdp, 
 
 # ╔═╡ d2fbb761-6bf6-46db-b182-062ec9c10d8f
 #=╠═╡
-const gumbel_mcts_search_test2_branch_states = keys(gumbel_mcts_search_test2[2]) |> collect |> v -> filter(x -> !isequal(x, GameState(8, 4)), v)
+const gumbel_mcts_search_test2_branch_states = keys(gumbel_mcts_search_test2[2]) |> collect |> v -> filter(x -> !isequal(x, GameState{8, 4}()), v)
   ╠═╡ =#
 
 # ╔═╡ eb378857-c047-456f-bb8c-dddbb6b64882

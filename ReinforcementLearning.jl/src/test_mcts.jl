@@ -30,10 +30,10 @@ function make_gridcapture_mdp(
     
     # Initial state function
     if agent_player == :x
-        state_init = () -> GameState(N, K)
+        state_init = () -> GameState{N, K}()
     else
         state_init = () -> begin
-            s = GameState(N, K)
+            s = GameState{N, K}()
             opp_move, _ = opponent(s)
             place_stone(s, opp_move[1], opp_move[2])
         end
@@ -308,7 +308,7 @@ function test_neural_network_forward()
     feature_size = 2 * N * N
     
     # Create test state
-    state = GameState(N, 3)
+    state = GameState{N, 3}()
     features = state_to_features(state)
     
     # Test simple value function

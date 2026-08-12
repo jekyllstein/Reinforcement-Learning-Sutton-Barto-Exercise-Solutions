@@ -11,7 +11,7 @@ using .GridCapture
 # ============================================
 # Compile everything first
 # ============================================
-let s = GameState(3, 3)
+let s = GameState{3, 3}()
     s = place_stone(s, 1, 1)
     s = place_stone(s, 2, 2)
     check_win(s)
@@ -29,7 +29,7 @@ println("-"^80)
 
 for (label, N, K, n_stones) in [("3×3 K=3", 3, 3, 2), ("6×6 K=4", 6, 4, 8), ("9×9 K=5", 9, 5, 15)]
     # Build a mid-game state
-    state = GameState(N, K)
+    state = GameState{N, K}()
     rng = MersenneTwister(42)
     for _ in 1:min(n_stones, N*N-1)
         moves = collect(available_moves(state))
@@ -69,7 +69,7 @@ println("  PART 2: check_game_result (GameState dispatch: incremental via last_m
 println("-"^80)
 
 for (label, N, K, n_stones) in [("3×3 K=3", 3, 3, 3), ("6×6 K=4", 6, 4, 10), ("9×9 K=5", 9, 5, 20)]
-    state = GameState(N, K)
+    state = GameState{N, K}()
     rng = MersenneTwister(42)
     for _ in 1:min(n_stones, N*N-1)
         moves = collect(available_moves(state))
@@ -89,7 +89,7 @@ println("  PART 3: greedy_policy_distribution (no board copies)")
 println("-"^80)
 
 for (label, N, K, n_stones) in [("3×3 K=3", 3, 3, 2), ("6×6 K=4", 6, 4, 8), ("9×9 K=5", 9, 5, 15)]
-    state = GameState(N, K)
+    state = GameState{N, K}()
     rng = MersenneTwister(42)
     for _ in 1:min(n_stones, N*N-1)
         moves = collect(available_moves(state))
@@ -115,7 +115,7 @@ println("-"^80)
 
 function play_game(opp_level)
     N, K = 6, 4
-    state = GameState(N, K)
+    state = GameState{N, K}()
     opp = make_opponent(opp_level, K)
     rng = MersenneTwister(42)
     while !game_over(state)

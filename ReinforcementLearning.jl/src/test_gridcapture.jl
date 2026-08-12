@@ -16,7 +16,7 @@ function run_tests()
     # TEST 1: BASIC FUNCTIONALITY
     # ============================================
     println("\n--- Test 1: Basic Game Setup ---")
-    game = GameState(6, 4)
+    game = GameState{6, 4}()
     print_board(game)
     println("Valid moves: ", length(available_moves(game)))
 
@@ -44,14 +44,14 @@ function run_tests()
     # Test 5: Different K Values
     println("\n--- Test 5: Different K Values ---")
     for k in [3, 4, 5]
-        local_state = GameState(6, k)
+        local_state = GameState{6, k}()
         println("Board 6x6 with K=$k:")
         print_board(local_state)
     end
 
     # Test 6: Symmetry Operations
     println("\n--- Test 6: Symmetry Transformations ---")
-    state = GameState(4, 4)
+    state = GameState{4, 4}()
     state = place_stone(state, 1, 1)
     state = place_stone(state, 2, 2)
     print_board(state)
@@ -69,7 +69,7 @@ function run_tests()
         println("\nOpponent level: $level")
         opponent = make_opponent(level, 4)
         
-        state = GameState(6, 4)
+        state = GameState{6, 4}()
         print_board(state)
         
         for move_num in 1:5
@@ -88,7 +88,7 @@ function run_tests()
 
     # Test 8: Game Over Detection
     println("\n--- Test 8: Game Over Detection ---")
-    state = GameState(4, 4)
+    state = GameState{4, 4}()
     for c in 1:4
         state = place_stone(state, 1, c)
     end
@@ -99,7 +99,7 @@ function run_tests()
     # Test 9: Complete Random Game
     println("\n--- Test 9: Complete Random Game ---")
     seed!(42)
-    state = GameState(5, 4)
+    state = GameState{5, 4}()
     while !game_over(state)
         if player_turn(state) == 1
             move = rand(available_moves(state))
@@ -115,7 +115,7 @@ function run_tests()
 
     # Test 10: Large Board
     println("\n--- Test 10: Large Board (8x8) ---")
-    state = GameState(8, 4)
+    state = GameState{8, 4}()
     println("Board size: $(size(state.x_pieces))")
     println("Valid moves at start: ", length(available_moves(state)))
 
@@ -134,7 +134,7 @@ function run_tests()
     for level in [:random, :greedy, :positional]
         println("\nTesting $level distribution:")
         opp = make_opponent(level, 4)
-        state = GameState(6, 4)
+        state = GameState{6, 4}()
         
         # Get distribution
         if level == :random
@@ -162,7 +162,7 @@ function run_tests()
 
     # Test that policies match their distributions
     println("\n--- Test 11b: Policy-Distribution Consistency ---")
-    state = GameState(6, 4)
+    state = GameState{6, 4}()
 
     for level in [:random, :greedy, :positional]
         println("\nTesting $level policy vs distribution:")
@@ -199,7 +199,7 @@ function run_tests()
     println("\n--- Test 12: Value Functions ---")
 
     # Test value functions return expected values
-    state = GameState(4, 4)
+    state = GameState{4, 4}()
     for level in [:random, :greedy, :positional]
         if level == :random
             v = random_value(state)
@@ -212,7 +212,7 @@ function run_tests()
     end
 
     # Test value function on terminal states
-    terminal_x_win = GameState(4, 4)
+    terminal_x_win = GameState{4, 4}()
     terminal_x_win = place_stone(terminal_x_win, 1, 1)
     terminal_x_win = place_stone(terminal_x_win, 3, 1)
     terminal_x_win = place_stone(terminal_x_win, 1, 2)
@@ -222,7 +222,7 @@ function run_tests()
     println("Terminal X win value: $(positional_value(terminal_x_win)) (should be 1.0)")
 
     # Test value function on draw
-    terminal_draw = GameState(4, 4)
+    terminal_draw = GameState{4, 4}()
     for r in 1:4, c in 1:4
         if (r+c) % 2 == 0
             terminal_draw = place_stone(terminal_draw, r, c)
@@ -258,7 +258,7 @@ function run_tests()
         o_opp = make_opponent(o_strategy, K)
         
         for game_num in 1:n_games
-            state = GameState(K, K)
+            state = GameState{K, K}()
             
             while !game_over(state)
                 if player_turn(state) == 1
@@ -380,7 +380,7 @@ function run_tests()
 
     # Test rollout value function
     println("\nTesting rollout_value function:")
-    state = GameState(6, 4)
+    state = GameState{6, 4}()
 
     println("\nEmpty board, random vs random (10 rollouts):")
     v = rollout_value(state, :random, :random, 10, 4, 42)
@@ -405,7 +405,7 @@ function run_tests()
     println("\nTesting type stability...")
 
     # player_turn
-    state = GameState(4, 4)
+    state = GameState{4, 4}()
     @assert player_turn(state) == 1
     println("  player_turn: OK")
 
@@ -504,15 +504,15 @@ function run_tests()
 
     # Benchmark available_moves
     println("\nBenchmarking available_moves (6x6 board):")
-    @btime available_moves($state) setup=(state = GameState(6, 4))
+    @btime available_moves($state) setup=(state = GameState{6, 4}())
 
     # Benchmark place_stone
     println("\nBenchmarking place_stone:")
-    @btime place_stone($state, 1, 1) setup=(state = GameState(6, 4))
+    @btime place_stone($state, 1, 1) setup=(state = GameState{6, 4}())
 
     # Benchmark player_turn
     println("\nBenchmarking player_turn:")
-    @btime player_turn($state) setup=(state = GameState(6, 4))
+    @btime player_turn($state) setup=(state = GameState{6, 4}())
 
     # Benchmark check_win
     println("\nBenchmarking check_win:")
@@ -521,33 +521,33 @@ function run_tests()
 
     # Benchmark policy functions
     println("\nBenchmarking random_policy:")
-    @btime random_policy($state) setup=(state = GameState(6, 4))
+    @btime random_policy($state) setup=(state = GameState{6, 4}())
 
     println("\nBenchmarking greedy_policy:")
-    @btime greedy_policy($state) setup=(state = GameState(6, 4))
+    @btime greedy_policy($state) setup=(state = GameState{6, 4}())
 
     println("\nBenchmarking positional_policy:")
-    @btime positional_policy($state) setup=(state = GameState(6, 4))
+    @btime positional_policy($state) setup=(state = GameState{6, 4}())
 
     # Benchmark distribution functions
     println("\nBenchmarking random_distribution:")
-    @btime random_distribution($state) setup=(state = GameState(6, 4))
+    @btime random_distribution($state) setup=(state = GameState{6, 4}())
 
     println("\nBenchmarking greedy_distribution:")
-    @btime greedy_distribution($state) setup=(state = GameState(6, 4))
+    @btime greedy_distribution($state) setup=(state = GameState{6, 4}())
 
     println("\nBenchmarking positional_distribution:")
-    @btime positional_distribution($state) setup=(state = GameState(6, 4))
+    @btime positional_distribution($state) setup=(state = GameState{6, 4}())
 
     # Benchmark value functions
     println("\nBenchmarking random_value:")
-    @btime random_value($state) setup=(state = GameState(6, 4))
+    @btime random_value($state) setup=(state = GameState{6, 4}())
 
     println("\nBenchmarking greedy_value:")
-    @btime greedy_value($state) setup=(state = GameState(6, 4))
+    @btime greedy_value($state) setup=(state = GameState{6, 4}())
 
     println("\nBenchmarking positional_value:")
-    @btime positional_value($state) setup=(state = GameState(6, 4))
+    @btime positional_value($state) setup=(state = GameState{6, 4}())
 
     println("\n=== Allocation Benchmarks Completed ===\n")
 
