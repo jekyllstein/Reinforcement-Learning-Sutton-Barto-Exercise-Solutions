@@ -816,9 +816,9 @@ end
 
 # ╔═╡ f7232174-8e39-46c4-9374-a39c3c05c3b9
 begin
-	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}; kwargs...) where T<:Real
+	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}; is_valid_action::Function = i_a -> true) where T<:Real
 		maxq, i_a_max = update_linear_action_values!(policy, x, w)
-		soft_max!(policy; kwargs...)
+		soft_max!(policy; is_valid_action)
 		return i_a_max
 	end
 
@@ -1026,8 +1026,8 @@ end
 # ╔═╡ 37ec6802-d4c2-4470-ad69-439d5a732f77
 begin
 	function form_policy_and_value_function(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, feature_vector::V, update_feature_vector!::Function, policy_parameters::P1, value_parameters::P2) where {T<:Real, S, A, PTF, F1, F2, F3, V, P1, P2}
-		function π!(policy::Vector{T}, x::V, params::P1, args...; kwargs...)
-			update_policy_dist!(policy, x, params, args...; kwargs...)
+		function π!(policy::Vector{T}, x::V, params::P1, is_valid_action::Function, args...)
+			update_policy_dist!(policy, x, params, args...; is_valid_action)
 			return policy
 		end
 	
@@ -1037,12 +1037,12 @@ begin
 	
 		function π(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, policy_args = form_policy_args(policy_parameters), kwargs...) 
 			update_feature_vector!(feature_vector, s)
-			π!(policy, feature_vector, policy_parameters, policy_args...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+			is_valid_action(i_a) = mdp.is_valid_action(s, i_a)
+			π!(policy, feature_vector, policy_parameters, is_valid_action, policy_args...)
 		end
 	
-		function π_sample(s::S; kwargs...) 
-			policy = π(s; kwargs...)
-			sample_action(policy)
+		π_sample = let p = π
+			(s; kwargs...) -> sample_action(p(s; kwargs...))
 		end
 	
 		function policy_and_value(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, value_parameters::P2 = value_parameters, policy_args = form_policy_args(policy_parameters), kwargs...)
@@ -1066,20 +1066,22 @@ begin
 		v̂, form_value_kwargs = form_state_value_function(feature_vector, update_feature_vector!, value_parameters)
 
 
-		function π!(policy::Vector{T}, x, params, args...; kwargs...)
-			update_policy_dist!(policy, x, params, args...; kwargs...)
+		function π!(policy::Vector{T}, x, params, is_valid_action::Function, args...)
+			update_policy_dist!(policy, x, params, args...; is_valid_action)
 			return policy
 		end
 		
 		function π(s::S, params::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
-			π!(policy, feature_vector, params, policy_args_cpu...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+			is_valid_action(i_a) = mdp.is_valid_action(s, i_a)
+			π!(policy, feature_vector, params, is_valid_action, policy_args_cpu...)
 		end
 
 		function π(s::S, params::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
 			FCANN.memcpy!(d_x, feature_vector)
-			π!(policy, d_x, params, policy_args_gpu...; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+			is_valid_action(i_a) = mdp.is_valid_action(s, i_a)
+			π!(policy, d_x, params, is_valid_action, policy_args_gpu...)
 		end
 
 		function π(s::S; policy_parameters::FCANNParams{T} = cpu_policy_params, policy_parameters_gpu::FCANNParamsGPU = gpu_policy_params, use_gpu::Bool = false, policy_kwargs_cpu::NamedTuple = NamedTuple(), policy_kwargs_gpu::NamedTuple = NamedTuple(), kwargs...) 
@@ -1095,9 +1097,8 @@ begin
 
 		form_policy_kwargs() = (policy_kwargs_cpu = form_policy_kwargs_cpu(), policy_kwargs_gpu = form_policy_kwargs_gpu())
 
-		function π_sample(s::S; kwargs...) 
-			policy = π(s; kwargs...)
-			sample_action(policy)
+		π_sample = let p = π
+			(s; kwargs...) -> sample_action(p(s; kwargs...))
 		end
 
 		function policy_and_value(s::S, policy_parameters::FCANNParams{T}, value_parameters::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(policy_parameters), kwargs...)
