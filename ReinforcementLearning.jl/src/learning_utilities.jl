@@ -939,7 +939,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		params = linear_sarsa_params
 		
 		show_messages && @info "Starting exhaustive dqn training with γ = $γ, α = $α, and $trial_steps steps per trial"
-		output1 = dqn_train_linear(γ, zero(T), 0; new_params = new_params, kwargs...)
+		output1 = dqn_train_linear(γ, zero(T), 0; new_params, kwargs...)
 		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
@@ -969,7 +969,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			backup_params .= params
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
-			output2 = dqn_train_linear(γ, α, trial_steps; new_params = false, ϵ = ϵ, kwargs...)
+			output2 = dqn_train_linear(γ, α, trial_steps; new_params = false, ϵ = ϵ, show_messages = show_messages, kwargs...)
 			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 		end
 
@@ -992,7 +992,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 
 		α = α_init / 2
 		show_messages && @info "Reducing learning rate to $α for next set of trials"
-		output2 = dqn_train_exhaustive(γ, α, trial_steps; kwargs...)
+		output2 = dqn_train_exhaustive(γ, α, trial_steps; show_messages, kwargs...)
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Second round performance of $(output2.performance) failed to improve reward"
@@ -1007,7 +1007,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			show_messages && @info "On round $round reducing learning rate to $α"
-			output2 = dqn_train_exhaustive(γ, α, trial_steps; kwargs...)
+			output2 = dqn_train_exhaustive(γ, α, trial_steps; show_messages, kwargs...)
 		end
 		show_messages && @info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
@@ -1015,12 +1015,12 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 
 	function td_train_ϵ_decay(γ::T, α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Beginning epsilon decay td training with initial exploration parameter $ϵ_init"
-		output1 = td_train_rate_decay(γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+		output1 = td_train_rate_decay(γ, α_init, λ, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ_init)
 		episode_rewards = output1.episode_rewards
 
 		ϵ = ϵ_init / 2
 		show_messages && @info "Reducing exploration parameter to $ϵ for next set of trials"
-		output2 = td_train_rate_decay(γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		output2 = td_train_rate_decay(γ, α_init, λ, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
@@ -1035,7 +1035,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
-			output2 = td_train_rate_decay(γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+			output2 = td_train_rate_decay(γ, α_init, λ, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 		end
 
 		if output2.performance > output1.performance
@@ -1049,12 +1049,12 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 
 	function dqn_train_ϵ_decay(γ::T, α_init::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Beginning epsilon decay dqn training with initial exploration parameter $ϵ_init"
-		output1 = dqn_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ_init)
+		output1 = dqn_train_rate_decay(γ, α_init, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ_init)
 		episode_rewards = output1.episode_rewards
 
 		ϵ = ϵ_init / 2
 		show_messages && @info "Reducing exploration parameter to $ϵ for next set of trials"
-		output2 = dqn_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+		output2 = dqn_train_rate_decay(γ, α_init, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 
 		if output2.performance ≤ output1.performance
 			show_mesages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
@@ -1069,7 +1069,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
-			output2 = dqn_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+			output2 = dqn_train_rate_decay(γ, α_init, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 		end
 
 		if output2.performance > output1.performance
@@ -1215,12 +1215,12 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
 		show_messages && @info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(hidden_layers, reslayers, γ, α_init, λ, trial_steps; use_dp = use_dp, kwargs...)
+		output1 = td_train_exhaustive(hidden_layers, reslayers, γ, α_init, λ, trial_steps; use_dp, show_messages,kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α = α_init / 2
 		show_messages && @info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; use_dp = use_dp, kwargs...)
+		output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; use_dp, show_messages, kwargs...)
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Second round performance of $(output2.performance) failed to improve reward"
@@ -1235,7 +1235,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			show_messages && @info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; use_dp = use_dp, kwargs...)
+			output2 = td_train_exhaustive(hidden_layers, reslayers, γ, α, λ, trial_steps; use_dp, show_messages, kwargs...)
 		end
 		show_messages && @info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
@@ -1300,12 +1300,12 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		params = initialize_params(hidden_layers, reslayers, false; reset_params = new_params)
 		
 		show_messages && @info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs...)
+		output1 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α_init, trial_steps; show_messages, kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α = α_init / 2
 		show_messages && @info "Reducing learning rate to $α for next set of trials"
-		output2 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α, trial_steps; kwargs...)
+		output2 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α, trial_steps; show_messages, kwargs...)
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Second round performance of $(output2.performance) failed to improve reward"
@@ -1320,7 +1320,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			show_messages && @info "On round $round reducing learning rate to $α"
-			output2 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α, trial_steps; kwargs...)
+			output2 = dqn_train_exhaustive(hidden_layers, reslayers, γ, α, trial_steps; show_messages, kwargs...)
 		end
 		show_messages && @info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
@@ -1328,12 +1328,12 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 	function td_train_ϵ_decay(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Beginning epsilon decay nonlinear td training with initial exploration parameter $ϵ_init"
-		output1 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+		output1 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ_init)
 		episode_rewards = output1.episode_rewards
 
 		ϵ = ϵ_init / 2
 		show_messages && @info "Reducing exploration parameter to $ϵ for next set of trials"
-		output2 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		output2 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
@@ -1348,7 +1348,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
-			output2 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+			output2 = td_train_rate_decay(hidden_layers, reslayers, γ, α_init, λ, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 		end
 
 		if output2.performance > output1.performance
@@ -1362,12 +1362,12 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 	function dqn_train_ϵ_decay(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α_init::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Beginning epsilon decay nonlinear dqn training with initial exploration parameter $ϵ_init"
-		output1 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs..., ϵ = ϵ_init)
+		output1 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ_init)
 		episode_rewards = output1.episode_rewards
 
 		ϵ = ϵ_init / 2
 		show_messages && @info "Reducing exploration parameter to $ϵ for next set of trials"
-		output2 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+		output2 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
@@ -1382,7 +1382,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
-			output2 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+			output2 = dqn_train_rate_decay(hidden_layers, reslayers, γ, α_init, trial_steps; show_messages = show_messages, kwargs..., ϵ = ϵ)
 		end
 
 		if output2.performance > output1.performance
@@ -1495,13 +1495,13 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 
 	function ac_train_rate_decay(γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
-		output1 = ac_train_exhaustive(γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; new_params = new_params, kwargs...)
+		output1 = ac_train_exhaustive(γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; new_params, show_messages, kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α_θ = α_θ_init / 2
 		α_w = α_w_init / 2
 		show_messages && @info "Reducing learning rates to $α_θ and $α_w for next set of trials"
-		output2 = ac_train_exhaustive(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+		output2 = ac_train_exhaustive(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages, kwargs...)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -1511,7 +1511,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 			α_w = α_w / 2
 			output1 = output2
 			show_messages && @info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_train_exhaustive(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+			output2 = ac_train_exhaustive(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages, kwargs...)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
@@ -1527,7 +1527,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 
 	function ac_sync_train_exhaustive(γ::T, α_θ::T, α_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Starting exhaustive synchronous training with α_θ = $(α_θ), α_w = $(α_w), and $trial_steps steps per trial"
-		output1 = ac_sync_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, kwargs...)
+		output1 = ac_sync_train_linear(γ, zero(T), zero(T), 0; new_params kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π(s) = output1.policy_sample_action(s; π_kwargs...)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
@@ -1581,13 +1581,13 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 
 	function ac_sync_train_rate_decay(γ, α_θ_init, α_w_init, trial_steps::Integer; new_params = false, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
-		output1 = ac_sync_train_exhaustive(γ, α_θ_init, α_w_init, trial_steps; new_params = new_params, kwargs...)
+		output1 = ac_sync_train_exhaustive(γ, α_θ_init, α_w_init, trial_steps; new_params, show_messages, kwargs...)
 		batch_episode_rewards = output1.batch_episode_rewards
 
 		α_θ = α_θ_init / 2
 		α_w = α_w_init / 2
 		show_messages && @info "Reducing learning rates to $α_θ and $α_w for next set of trials"
-		output2 = ac_sync_train_exhaustive(γ, α_θ, α_w, trial_steps; kwargs...)
+		output2 = ac_sync_train_exhaustive(γ, α_θ, α_w, trial_steps; show_messages,kwargs...)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -1597,7 +1597,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 			α_w = α_w / 2
 			output1 = output2
 			show_messages && @info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_sync_train_exhaustive(γ, α_θ, α_w, trial_steps; kwargs...)
+			output2 = ac_sync_train_exhaustive(γ, α_θ, α_w, trial_steps; show_messages, kwargs...)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., batch_episode_rewards = batch_episode_rewards)
@@ -1709,13 +1709,13 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 	function ac_train_rate_decay(hidden_layers, reslayers, γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, show_messages = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		show_messages && @info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
-		output1 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; kwargs...)
+		output1 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; show_messages,kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α_θ = α_θ_init / 2
 		α_w = α_w_init / 2
 		show_messages && @info "Reducing learning rates to $α_θ and $α_w for next set of trials"
-		output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+		output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages, kwargs...)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -1725,7 +1725,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			α_w = α_w / 2
 			output1 = output2
 			show_messages && @info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+			output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages, kwargs...)
 		end
 		@info "Completed rate decay training after $(round-1) rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
@@ -1814,7 +1814,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			α_w = α_w / 2
 			output1 = output2
 			show_messages && @info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_sync_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; kwargs...)
+			output2 = ac_sync_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; show_messages, kwargs...)
 		end
 		@info "Completed rate decay training after $(round-1) rounds with performance $(output1.performance)"
 		return (;output1..., batch_episode_rewards = batch_episode_rewards)
