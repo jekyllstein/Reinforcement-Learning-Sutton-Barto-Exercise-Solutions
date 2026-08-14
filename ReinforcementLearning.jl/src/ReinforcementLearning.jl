@@ -98,7 +98,7 @@ export dqn!, dqn_linear, dqn_fcann, dqn, synchronous_actor_critic!, synchronous_
 
 include(joinpath(@__DIR__,  "GridCapture.jl"))
 
-# @reexport using .GridCapture
+@reexport using .GridCapture
 
 include(joinpath(@__DIR__,  "learning_utilities.jl"))
 

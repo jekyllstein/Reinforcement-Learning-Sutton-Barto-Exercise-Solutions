@@ -5,7 +5,7 @@ using Statistics: mean
 import ..TabularRL: sample_action
 
 # Counter for generating unique board IDs
-global _board_id_counter = 0
+_board_id_counter = 0
 
 # Function to get next unique board ID
 function next_board_id()

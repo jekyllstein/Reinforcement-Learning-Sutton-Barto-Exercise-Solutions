@@ -1,8 +1,14 @@
 ### A Pluto.jl notebook ###
-# v0.20.24
+# v1.0.3
 
 using Markdown
 using InteractiveUtils
+
+# ╔═╡ 86c55a6e-3dbd-4022-be30-1d32249afaea
+# ╠═╡ skip_as_script = true
+#=╠═╡
+using Revise
+  ╠═╡ =#
 
 # ╔═╡ ddc38332-503c-4732-9432-8b998dfca6e5
 using PlutoDevMacros, Base.Threads, Distributions, DataFrames, SpecialFunctions
@@ -846,17 +852,17 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		end
 	end
 
-	function td_train_exhaustive(γ::T, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)
+	function td_train_exhaustive(γ::T, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
 		params = use_dp ? linear_dp_params : linear_sarsa_params
 		
-		@info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
+		show_messages && @info "Starting exhaustive training with γ = $γ, α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, use_dp = use_dp, kwargs...)
 		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline episode reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_params = copy(params)
 		output2 = td_train_linear(γ, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
@@ -866,7 +872,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		end
@@ -874,7 +880,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		episode_rewards = output2.episode_rewards
 		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
-			@info "On trial $trial, reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			backup_params .= params
@@ -887,27 +893,27 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		if check_bad_params(params)
 			@info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		params .= backup_params
 		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
 	end
 
-	function td_train_rate_decay(γ::T, α_init::T, λ::T, trial_steps::Integer; new_params = false, kwargs...)
-		@info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(γ, α_init, λ, trial_steps; new_params = new_params, kwargs...)
+	function td_train_rate_decay(γ::T, α_init::T, λ::T, trial_steps::Integer; new_params = false, show_messages = true, kwargs...)
+		show_messages && @info "Beginning exhaustive trials with learning rate $α_init"
+		output1 = td_train_exhaustive(γ, α_init, λ, trial_steps; new_params, show_messages, kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α = α_init / 2
-		@info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(γ, α, λ, trial_steps; kwargs...)
+		show_messages && @info "Reducing learning rate to $α for next set of trials"
+		output2 = td_train_exhaustive(γ, α, λ, trial_steps; show_messages, kwargs...)
 
 		if output2.performance ≤ output1.performance
-			@info "Second round performance of $(output2.performance) failed to improve reward"
-			@info "Completed rate decay training after 1 round with performance $(output1.performance)"
+			show_messages && @info "Second round performance of $(output2.performance) failed to improve reward"
+			show_messages && @info "Completed rate decay training after 1 round with performance $(output1.performance)"
 			return output1
 		end
 
@@ -917,10 +923,10 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			α /= 2
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
-			@info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(γ, α, λ, trial_steps; kwargs...)
+			show_messages && @info "On round $round reducing learning rate to $α"
+			output2 = td_train_exhaustive(γ, α, λ, trial_steps; show_messages, kwargs...)
 		end
-		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		show_messages && @info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
@@ -929,27 +935,27 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		dqn_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, value_params = linear_sarsa_params, kwargs...)
 	end
 
-	function dqn_train_exhaustive(γ::T, α::T, trial_steps::Integer; new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, kwargs...)
+	function dqn_train_exhaustive(γ::T, α::T, trial_steps::Integer; new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
 		params = linear_sarsa_params
 		
-		@info "Starting exhaustive dqn training with γ = $γ, α = $α, and $trial_steps steps per trial"
+		show_messages && @info "Starting exhaustive dqn training with γ = $γ, α = $α, and $trial_steps steps per trial"
 		output1 = dqn_train_linear(γ, zero(T), 0; new_params = new_params, kwargs...)
 		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline episode reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_params = copy(params)
 		output2 = dqn_train_linear(γ, α, trial_steps; new_params = false, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
 
 		if check_bad_params(params)
-			@info "First trial resulted in bad parameter values"
+			show_messages && @info "First trial resulted in bad parameter values"
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		end
@@ -957,7 +963,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		episode_rewards = output2.episode_rewards
 		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
-			@info "On trial $trial, reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			backup_params .= params
@@ -968,29 +974,29 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		end
 
 		if check_bad_params(params)
-			@info "Final trial resulted in bad parameter values"
+			show_messages && @info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		params .= backup_params
 		return (;output1..., episode_rewards = episode_rewards, performance = reward1)
 	end
 
-	function dqn_train_rate_decay(γ::T, α_init::T, trial_steps::Integer; new_params = false, kwargs...)
-		@info "Beginning exhaustive dqn trials with learning rate $α_init"
-		output1 = dqn_train_exhaustive(γ, α_init, trial_steps; new_params = new_params, kwargs...)
+	function dqn_train_rate_decay(γ::T, α_init::T, trial_steps::Integer; new_params = false, show_messages = true, kwargs...)
+		show_messages && @info "Beginning exhaustive dqn trials with learning rate $α_init"
+		output1 = dqn_train_exhaustive(γ, α_init, trial_steps; new_params, show_messages, kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α = α_init / 2
-		@info "Reducing learning rate to $α for next set of trials"
+		show_messages && @info "Reducing learning rate to $α for next set of trials"
 		output2 = dqn_train_exhaustive(γ, α, trial_steps; kwargs...)
 
 		if output2.performance ≤ output1.performance
-			@info "Second round performance of $(output2.performance) failed to improve reward"
-			@info "Completed rate decay training after 1 round with performance $(output1.performance)"
+			show_messages && @info "Second round performance of $(output2.performance) failed to improve reward"
+			show_messages && @info "Completed rate decay training after 1 round with performance $(output1.performance)"
 			return output1
 		end
 
@@ -1000,10 +1006,10 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			α /= 2
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
-			@info "On round $round reducing learning rate to $α"
+			show_messages && @info "On round $round reducing learning rate to $α"
 			output2 = dqn_train_exhaustive(γ, α, trial_steps; kwargs...)
 		end
-		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		show_messages && @info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards = episode_rewards)
 	end
 
@@ -1433,8 +1439,8 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		end
 	end
 
-	function ac_train_exhaustive(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, kwargs...)
-		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
+	function ac_train_exhaustive(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, show_messages = true, kwargs...)
+		show_messages &&@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_linear(γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π(s) = output1.policy_sample_action(s; π_kwargs...)
@@ -1442,7 +1448,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline episode reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_policy_params = copy(linear_policy_params)
 		backup_value_params = copy(linear_value_params)
 		output2 = ac_train_linear(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
@@ -1454,7 +1460,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 			linear_value_params .= backup_value_params
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			linear_policy_params .= backup_policy_params
 			linear_value_params .= backup_value_params
 			return (;output1..., performance = reward1)
@@ -1463,7 +1469,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		episode_rewards = output2.episode_rewards
 		while (reward2 > reward1) && !check_bad_params(linear_policy_params) && !check_bad_params(linear_value_params)
 			trial += 1
-			@info "On trial $trial, episode reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, episode reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			backup_policy_params .= linear_policy_params
@@ -1477,10 +1483,10 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
 			@info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		linear_policy_params .= backup_policy_params
 		linear_value_params .= backup_value_params
@@ -1519,8 +1525,8 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, N = N, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 	end
 
-	function ac_sync_train_exhaustive(γ::T, α_θ::T, α_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, kwargs...)
-		@info "Starting exhaustive synchronous training with α_θ = $(α_θ), α_w = $(α_w), and $trial_steps steps per trial"
+	function ac_sync_train_exhaustive(γ::T, α_θ::T, α_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
+		show_messages && @info "Starting exhaustive synchronous training with α_θ = $(α_θ), α_w = $(α_w), and $trial_steps steps per trial"
 		output1 = ac_sync_train_linear(γ, zero(T), zero(T), 0; new_params = new_params, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π(s) = output1.policy_sample_action(s; π_kwargs...)
@@ -1528,7 +1534,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline episode reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_policy_params = copy(linear_policy_params)
 		backup_value_params = copy(linear_value_params)
 		output2 = ac_sync_train_linear(γ, α_θ, α_w, trial_steps; kwargs..., new_params = false)
@@ -1540,7 +1546,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 			linear_value_params .= backup_value_params
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			linear_policy_params .= backup_policy_params
 			linear_value_params .= backup_value_params
 			return (;output1..., performance = reward1)
@@ -1549,7 +1555,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		batch_episode_rewards = output2.batch_episode_rewards
 		while (reward2 > reward1) && !check_bad_params(linear_policy_params) && !check_bad_params(linear_value_params)
 			trial += 1
-			@info "On trial $trial, episode reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, episode reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			backup_policy_params .= linear_policy_params
@@ -1563,10 +1569,10 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
 			@info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		linear_policy_params .= backup_policy_params
 		linear_value_params .= backup_value_params
@@ -3153,6 +3159,7 @@ PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [compat]
@@ -3166,6 +3173,7 @@ PlutoPlotly = "~0.6.5"
 PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.71"
 ProgressLogging = "~0.1.5"
+Revise = "~3.12.0"
 SpecialFunctions = "~2.6.1"
 """
 
@@ -3173,9 +3181,9 @@ SpecialFunctions = "~2.6.1"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
+julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "5103146a1e4f5f9b56a6fa76af9aa4575175a2e5"
+project_hash = "425c73ca3bd712f972749b7649481090a049f161"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
@@ -3255,6 +3263,11 @@ weakdeps = ["Dates", "LinearAlgebra"]
 
     [deps.Compat.extensions]
     CompatLinearAlgebraExt = "LinearAlgebra"
+
+[[deps.Compiler]]
+git-tree-sha1 = "382d79bfe72a406294faca39ef0c3cef6e6ce1f1"
+uuid = "807dbc54-b67e-4c79-8afb-eafe4df6f2e1"
+version = "0.1.1"
 
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -3525,6 +3538,12 @@ version = "0.3.29"
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
 
+[[deps.LoweredCodeUtils]]
+deps = ["CodeTracking", "Compiler", "JuliaInterpreter"]
+git-tree-sha1 = "e24491cb83551e44a69b9106c50666dea9d953ab"
+uuid = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
+version = "3.4.4"
+
 [[deps.MIMEs]]
 git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
@@ -3744,6 +3763,18 @@ deps = ["UUIDs"]
 git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
+
+[[deps.Revise]]
+deps = ["CodeTracking", "FileWatching", "JuliaInterpreter", "LibGit2", "LoweredCodeUtils", "OrderedCollections", "REPL", "Requires", "UUIDs", "Unicode"]
+git-tree-sha1 = "b7e5b731326a99431517b0b4c1f3902e842103a2"
+uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
+version = "3.12.0"
+
+    [deps.Revise.extensions]
+    DistributedExt = "Distributed"
+
+    [deps.Revise.weakdeps]
+    Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[deps.Rmath]]
 deps = ["Random", "Rmath_jll"]
@@ -4141,6 +4172,7 @@ version = "17.7.0+0"
 # ╠═e33457c9-3be3-4301-9a72-c5889bef0b99
 # ╠═dd258176-523e-4ffe-b108-a0ebf941bde9
 # ╟─6245ffaa-acb4-11f0-3a8d-47ce889cb225
+# ╠═86c55a6e-3dbd-4022-be30-1d32249afaea
 # ╠═ddc38332-503c-4732-9432-8b998dfca6e5
 # ╠═c9e47c3f-333e-49e8-be88-dda128cc8418
 # ╠═3a2fa0dd-1da7-41cf-bc4a-d9dbc774dc09
