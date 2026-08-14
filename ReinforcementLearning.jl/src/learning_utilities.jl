@@ -1527,7 +1527,7 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 
 	function ac_sync_train_exhaustive(γ::T, α_θ::T, α_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
 		show_messages && @info "Starting exhaustive synchronous training with α_θ = $(α_θ), α_w = $(α_w), and $trial_steps steps per trial"
-		output1 = ac_sync_train_linear(γ, zero(T), zero(T), 0; new_params kwargs...)
+		output1 = ac_sync_train_linear(γ, zero(T), zero(T), 0; new_params, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π(s) = output1.policy_sample_action(s; π_kwargs...)
 		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
