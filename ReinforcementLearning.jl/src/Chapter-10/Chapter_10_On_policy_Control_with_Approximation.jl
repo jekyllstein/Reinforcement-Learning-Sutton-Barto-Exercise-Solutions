@@ -866,6 +866,19 @@ begin
 		return q̂, form_kwargs
 	end
 
+	#required to make the FCANN version of the value function thread safe, otherwise the action value update function will use the activations used during training which is maintained in place and not suitable for multi threaded use
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W<:FCANNParams{T}}
+		function q̂(s::S; action_values::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters::W = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+			update_feature_vector!(feature_vector, s)
+			maxq, i_a_max = update_action_values!(action_values, feature_vector, parameters; activations = activations, kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+			(action_values = action_values, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+
+		form_kwargs() = form_action_value_kwargs(mdp, feature_vector, parameters)
+	
+		return q̂, form_kwargs
+	end
+
 	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::Vector{T}, parameters::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, W<:FCANNParamsGPU}
 		cpu_params = initialize_cpu_params(parameters)
 		gpu_params = initialize_gpu_params(cpu_params)
@@ -905,6 +918,23 @@ begin
 			update_feature_vector!(feature_vector, s)
 			update_action_values!(action_values1, feature_vector, parameters1; action_value_kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			update_action_values!(action_values2, feature_vector, parameters2; action_value_kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+			action_values1 .+= action_values2
+			action_values1 ./= 2
+			(maxq, i_a_max) = findmax(action_values1)
+				
+			(action_values = action_values1, maximizing_action = i_a_max, maximizing_value = maxq)
+		end
+
+		form_kwargs() = form_action_value_kwargs(mdp, feature_vector, parameters1, parameters2)
+
+		return q̂, form_kwargs
+	end	
+
+	function form_value_function(mdp::StateMDP{T, S, A, P, F1, F2, F3}, update_feature_vector!::Function, update_action_values!::Function, feature_vector::V, parameters1::W, parameters2::W) where {T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V, W <: FCANNParams{T}}
+		function q̂(s::S; action_values1::Vector{T} = zeros(T, length(mdp.actions)), action_values2::Vector{T} = zeros(T, length(mdp.actions)), feature_vector::V = deepcopy(feature_vector), parameters1::W = parameters1, parameters2::W = parameters2, activations = FCANN.form_activations(parameters1.weights[1]), action_value_kwargs...)
+			update_feature_vector!(feature_vector, s)
+			update_action_values!(action_values1, feature_vector, parameters1; activations = activations, action_value_kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+			update_action_values!(action_values2, feature_vector, parameters2; activations = activations, action_value_kwargs..., is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
 			action_values1 .+= action_values2
 			action_values1 ./= 2
 			(maxq, i_a_max) = findmax(action_values1)
