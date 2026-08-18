@@ -52,7 +52,7 @@ GameState{N, K}() where {N, K} = GameState{N,K}(falses(N,N), falses(N,N), (0, 0)
 Base.isequal(b1::GameState, b2::GameState) = false
 Base.isequal(b1::GameState{N, K}, b2::GameState{N, K}) where {N, K} = (isequal(b1.x_pieces, b2.x_pieces) && isequal(b1.o_pieces, b2.o_pieces))
 
-Base.hash(b::GameState, h::UInt) = hash(b.x_pieces, h) + hash(b.o_pieces, h) + hash(b.last_move, h)
+Base.hash(b::GameState, h::UInt) = hash(b.x_pieces, h) + hash(b.o_pieces, h)
 
 # ============================================
 # MOVE FUNCTIONS
