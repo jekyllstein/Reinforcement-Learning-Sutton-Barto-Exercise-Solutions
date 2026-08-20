@@ -114,6 +114,30 @@ export setup_policy_linear_training, setup_value_linear_training, setup_policy_n
 
 include(joinpath(@__DIR__, "gumbel_mcts.jl"))
 
+function Base.copy(v::StateAggregationFeatureVector{I, N}) where {I<:Integer, N}
+    new_v = StateAggregationFeatureVector(N)
+    new_v.group_index = v.group_index
+    return new_v
+end
+
+function Base.copy!(dst::StateAggregationFeatureVector{I, N}, src::StateAggregationFeatureVector{I, N}) where {I<:Integer, N}
+    dst.group_index = src.group_index
+    return dst
+end
+
+function Base.copy(v::BinaryFeatureVector{I, N}) where {I<:Integer, N}
+    new_v = BinaryFeatureVector(N)
+    new_v.active_features = v.active_features 
+    new_v.num_features = v.num_features
+    return new_v
+end
+
+function Base.copy!(dst::BinaryFeatureVector{I, N}, src::BinaryFeatureVector{I, N}) where {I<:Integer, N}
+    dst.active_features = src.active_features
+    dst.num_features = src.num_features
+    return dst
+end
+
 @setup_workload begin
     γ = 0.9f0
     num_episodes = 10
