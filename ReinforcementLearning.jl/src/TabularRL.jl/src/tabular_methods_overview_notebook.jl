@@ -502,12 +502,9 @@ end
 
 # ╔═╡ 4715ba1d-ebda-4716-b768-8cc05cb8bcea
 begin
-	find_available_actions(ptf::TabularDeterministicTransition{T, 2}) where T<:Real = BitMatrix(ptf.state_transition_map .!= 0)
-
-	function find_available_actions(ptf::TabularStochasticTransition{T, 2}) where T<:Real
-		check_distribution(d) = sum(d) != 0
-		BitMatrix(check_distribution.(ptf.state_transition_map))
-	end
+	find_available_actions(m::Array{<: Integer, N}) where N = BitMatrix(m .!= 0)
+	find_available_actions(m::Array{SparseVector{T, Int64}, N}) where {N, T<:Real} = BitMatrix(map(x -> sum(x) != 0, m))
+	find_available_actions(ptf::AbstractTabularTransition{T, N}) where {T<:Real, N} = find_available_actions(ptf.state_transition_map)
 end
 
 # ╔═╡ 43c6bb95-81a1-4988-878c-df376e3f7caa
@@ -995,7 +992,12 @@ begin
 	# Description
 	This function creates a random policy for a tabular Markov Decision Process (MDP). The policy is represented as a matrix `π`, where each row corresponds to an action and each column corresponds to a state. Each element `π[i, j]` denotes the probability of taking the action represented by index `i` in the state represented by index `j`. In the random policy, each action in each state has an equal probability of being selected.
 	"""
-	make_random_policy(mdp::TabularMDP{T, S, A, P, F}) where {T <: Real, S, A, P, F} = ones(T, length(mdp.actions), length(mdp.states)) ./ length(mdp.actions)
+	function make_random_policy(mdp::TabularMDP{T, S, A, P, F}) where {T <: Real, S, A, P, F} 
+		mdp.available_actions
+		policy = ones(T, length(mdp.actions), length(mdp.states)) .* mdp.available_actions
+		policy ./= sum(policy, dims = 1)
+		return policy
+	end
 	
 	#if we have a transition distribution, that alone is enough to form a random policy
 	make_random_policy(ptf::TabularTransitionDistribution{T, 2}) where {T<:Real} = ones(T, size(ptf.state_transition_map)...) ./ size(ptf.state_transition_map, 1)
