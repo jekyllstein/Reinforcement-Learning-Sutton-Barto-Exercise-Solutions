@@ -503,7 +503,7 @@ end
 # ╔═╡ 4715ba1d-ebda-4716-b768-8cc05cb8bcea
 begin
 	find_available_actions(m::Array{<: Integer, N}) where N = BitMatrix(m .!= 0)
-	find_available_actions(m::Array{SparseVector{T, Int64}, N}) where {N, T<:Real} = BitMatrix(map(x -> sum(x) != 0, m))
+	find_available_actions(m::Array{SparseVector{T, Int64}, N}) where {N, T<:Real} = BitArray(map(x -> sum(x) != 0, m))
 	find_available_actions(ptf::AbstractTabularTransition{T, N}) where {T<:Real, N} = find_available_actions(ptf.state_transition_map)
 end
 
