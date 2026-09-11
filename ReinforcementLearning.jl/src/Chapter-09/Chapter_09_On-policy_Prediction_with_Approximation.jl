@@ -437,11 +437,27 @@ begin
 	end
 
 	function update_params_with_gradient!(params::FCANNParams{T}, α::T, ∇::FCANNParams{T}) where T<:Float32
-		for i in eachindex(first(params.weights))
-			for j in 1:2
-				update_params_with_gradient!(params.weights[j][i], α, ∇.weights[j][i])
-			end
+		params_w = params.weights[1]
+		grad_w = ∇.weights[1]
+		for (p, d) in zip(params_w, grad_w)
+			update_params_with_gradient!(p, α, d)
 		end
+
+		params_b = params.weights[2]
+		grad_b = ∇.weights[2]
+		for (p, d) in zip(params_b, grad_b)
+			update_params_with_gradient!(p, α, d)
+		end
+
+		# for (p, d) in zip(params.weights, ∇.weights)
+		# 	for (x, y) in zip(p, d)
+		# 	# for i in eachindex(first(params.weights))
+		# 		# for j in 1:2
+		# 			# update_params_with_gradient!(params.weights[j][i], α, ∇.weights[j][i])
+		# 			update_params_with_gradient!(x, α, y)
+		# 		# end
+		# 	end
+		# end
 		return params
 	end
 
@@ -1282,11 +1298,20 @@ Apply inverse scaling factors to FCANN network parameters in-place.
 - `Nothing`: Function modifies `params` in-place by dividing each parameter group by corresponding scale factor
 """
 function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
-	@inbounds for i in eachindex(scales)
-		for j in 1:2
-			params.weights[j][i] .*= scales[i]
-		end
+	params_w = params.weights[1]
+	for (p, s) in zip(params_w, scales)
+		p .*= s
 	end
+	params_b = params.weights[2]
+	for (p, s) in zip(params_b, scales)
+		p .*= s
+	end
+	# @inbounds for i in eachindex(scales)
+
+	# 	for j in 1:2
+	# 		params.weights[j][i] .*= scales[i]
+	# 	end
+	# end
 end
 
 # ╔═╡ c064a91d-7dd3-403b-8bc0-285014bc873c
@@ -3351,6 +3376,10 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 	tanh_grad_z = deepcopy(activations)
 	deltas = deepcopy(activations)
 
+	final_activation = last(activations)
+
+	l = length(activations)
+
 	scales = fill(one(T), length(params.weights[1]))
 	if use_μP
 		for i in eachindex(hidden_layers)
@@ -3359,16 +3388,19 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 		end
 	end
 
-	function value_function(x, params::FCANNParams; activations::FCANNActivations = activations, kwargs...) 			
+	function value_function(x, params::FCANNParams{T}; activations::FCANNActivations{T} = activations, kwargs...) 			
 		fcann_value_function!(activations, x, params)
-		return first(last(activations))
+		# return first(last(activations))
+		return activations[end][1]
 	end
 	
-	function update_value_gradient!(∇v̂::FCANNParams, x, params::FCANNParams) 
+	function update_value_gradient!(∇v̂::FCANNParams{T}, x, params::FCANNParams{T}) 
 		update_fcann_value_gradient!(∇v̂, x, 1, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list)
 		use_μP && scale_fcann_params!(∇v̂, scales)
-		return first(last(activations))
+		return final_activation[1]
 	end
+
+	# update_value_gradient!(∇v̂::FCANNParams{T}, x, params::FCANNParams{T}) = update_value_gradient!(∇v̂, x, params, Val(l))
 
 	if use_gpu && in(:GPU, backendList)
 		d_activations = FCANN.device_allocate(activations)

@@ -4945,7 +4945,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 99c64d18-c133-4ffe-9ea6-b39db610b478
-function average_stochastic_rollout(n::Integer, args::Vararg{Any, M}; kwargs...) where {T<:Real, M}
+function average_stochastic_rollout(n::Integer, args::Vararg{Any, M}; kwargs...) where M
 	1:n |> Map(_ -> sample_rollout(args...; kwargs...)) |> foldxt(+) |> a -> a / n
 end
 

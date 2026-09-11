@@ -105,7 +105,24 @@ md"""
 """
 
 # ╔═╡ d7052ba5-f0ef-4350-befc-0b2458af8c60
+md"""
+# Non-Tabular Methods
+"""
 
+# ╔═╡ 04b6f612-c5aa-49a0-ac83-702f21c17774
+md"""
+## Test Environments
+"""
+
+# ╔═╡ 3076c786-db6d-4573-99fe-35540ee171c5
+md"""
+## Feature Vector Setup
+"""
+
+# ╔═╡ b3da9525-bf8e-4761-a518-ce0e7292aaee
+md"""
+## On-policy Prediction with Approximation
+"""
 
 # ╔═╡ 28c9bd5d-2a46-4df4-9b80-3d6e4c6f2530
 md"""
@@ -117,6 +134,18 @@ md"""
 
 # ╔═╡ 15ffc73e-f883-48b7-bb95-ae2428c7839e
 const mdp_deterministic = make_deterministic_gridworld(;wind = wind_values)
+
+# ╔═╡ d6f3f0d7-c58e-4101-a70f-7977c60c1821
+const dense_feature_setup = let
+	feature_vector = zeros(Float32, length(mdp_deterministic.states))
+	function update_feature_vector!(v::Vector{T}, s) where T<:Real
+		v .= zero(T)
+		idx = mdp_deterministic.state_index[s]
+		v[idx] = one(T)
+		return v
+	end
+	(;feature_vector, update_feature_vector!)
+end
 
 # ╔═╡ 88cb461d-d332-4f8a-ac39-6c00defb17a2
 const mdp_stochastic = make_stochastic_gridworld(;wind = wind_values)
@@ -517,6 +546,83 @@ monte_carlo_tree_search(state_mdp_deterministic, 0.99f0, state_mdp_deterministic
 begin
 	@profview monte_carlo_tree_search(state_mdp_deterministic, 0.99f0, state_mdp_deterministic.initialize_state(); nsims = 10)
 	@profview monte_carlo_tree_search(state_mdp_deterministic, 0.99f0, state_mdp_deterministic.initialize_state(); nsims = 1_000)
+end
+  ╠═╡ =#
+
+# ╔═╡ 889a5212-5336-4ccf-ab3b-693759e1afb3
+const mountaincar_mdp = MountainCarTask.deterministic_mdp
+
+# ╔═╡ 57a307b5-2aed-48e9-90e2-d3d7550231d9
+mountaincar_π = make_random_policy(mountaincar_mdp)
+
+# ╔═╡ 54a0a47f-7dd8-47f8-8f55-86540bb05d3d
+const sparse_feature_setup = state_aggregation_feature_setup(state_mdp_deterministic.initialize_state(), length(mdp_deterministic.states), s -> mdp_deterministic.state_index[s])
+
+# ╔═╡ 51e3970d-87da-4be9-a452-faaff294465b
+const mountaincar_features = let
+	setup = setup_mountaincar_tiles(10, 5)
+	(;feature_vector = setup.feature_vector, update_feature_vector! = setup.update_feature_vector!)
+end
+
+# ╔═╡ fbb60ce0-6fc3-4278-bf46-9dca5a30a6dd
+#=╠═╡
+begin
+	@profview gradient_monte_carlo_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 1, sparse_feature_setup...)
+	@profview gradient_monte_carlo_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 100, sparse_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ f7acbbcd-134a-47e4-b17f-39c402bb601d
+#=╠═╡
+begin
+	@profview gradient_monte_carlo_policy_estimation_linear(mountaincar_mdp, mountaincar_π, 0.99f0, 1, mountaincar_features...)
+	@profview gradient_monte_carlo_policy_estimation_linear(mountaincar_mdp, mountaincar_π, 0.99f0, 100, mountaincar_features...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 0867de49-1960-4cf1-9f1d-409ad0e05793
+semi_gradient_td0_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 1_000_000, sparse_feature_setup...)
+
+# ╔═╡ 2f3ebcbb-e82b-4ab2-88a4-24ed6fb2a448
+semi_gradient_td0_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 500_000, dense_feature_setup...)
+
+# ╔═╡ c953683e-fc9b-4eea-bf17-f24566ee99f9
+#=╠═╡
+begin
+	@profview semi_gradient_td0_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 1, sparse_feature_setup...)
+	@profview semi_gradient_td0_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 1_000_000, sparse_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ a4abe5ca-8f5f-473a-a7f4-8710e3ce7ec1
+#=╠═╡
+begin
+	@profview semi_gradient_td0_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 1, dense_feature_setup...)
+	@profview semi_gradient_td0_policy_estimation_linear(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 500_000, dense_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ e5be5928-e5b8-4690-acb3-fe5855634e5d
+#=╠═╡
+begin
+	@profview semi_gradient_td0_policy_estimation_fcann(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 1, dense_feature_setup..., [64, 64])
+	@profview semi_gradient_td0_policy_estimation_fcann(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 100_000, dense_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 91c8ed60-9c3a-4a17-9883-d31bf6314c60
+#=╠═╡
+begin
+	@profview semi_gradient_td0_policy_estimation_fcann(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 1, sparse_feature_setup..., [64, 64])
+	@profview semi_gradient_td0_policy_estimation_fcann(state_mdp_deterministic, state_mdp_π, 0.99f0, 1000, 100_000, sparse_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 8eb6c31a-8500-4d69-907a-5daa741fbb29
+#=╠═╡
+begin
+	@profview semi_gradient_td0_policy_estimation_fcann(mountaincar_mdp, mountaincar_π, 0.99f0, 1000, 1, mountaincar_features..., [64, 64])
+	@profview semi_gradient_td0_policy_estimation_fcann(mountaincar_mdp, mountaincar_π, 0.99f0, 1000, 100_000, mountaincar_features..., [64, 64])
 end
   ╠═╡ =#
 
@@ -1162,7 +1268,24 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═84d72414-f1a4-4701-be6d-4342e22461ae
 # ╠═1de02aeb-e36d-4357-adba-3e069c61ebfa
 # ╠═003928c2-99d6-40df-9067-79bc51ec80b5
-# ╠═d7052ba5-f0ef-4350-befc-0b2458af8c60
+# ╟─d7052ba5-f0ef-4350-befc-0b2458af8c60
+# ╟─04b6f612-c5aa-49a0-ac83-702f21c17774
+# ╠═889a5212-5336-4ccf-ab3b-693759e1afb3
+# ╠═57a307b5-2aed-48e9-90e2-d3d7550231d9
+# ╟─3076c786-db6d-4573-99fe-35540ee171c5
+# ╠═54a0a47f-7dd8-47f8-8f55-86540bb05d3d
+# ╠═d6f3f0d7-c58e-4101-a70f-7977c60c1821
+# ╠═51e3970d-87da-4be9-a452-faaff294465b
+# ╟─b3da9525-bf8e-4761-a518-ce0e7292aaee
+# ╠═fbb60ce0-6fc3-4278-bf46-9dca5a30a6dd
+# ╠═f7acbbcd-134a-47e4-b17f-39c402bb601d
+# ╠═0867de49-1960-4cf1-9f1d-409ad0e05793
+# ╠═2f3ebcbb-e82b-4ab2-88a4-24ed6fb2a448
+# ╠═c953683e-fc9b-4eea-bf17-f24566ee99f9
+# ╠═a4abe5ca-8f5f-473a-a7f4-8710e3ce7ec1
+# ╠═e5be5928-e5b8-4690-acb3-fe5855634e5d
+# ╠═91c8ed60-9c3a-4a17-9883-d31bf6314c60
+# ╠═8eb6c31a-8500-4d69-907a-5daa741fbb29
 # ╟─28c9bd5d-2a46-4df4-9b80-3d6e4c6f2530
 # ╠═ba851c42-8bb0-11f1-94f1-f50977498160
 # ╠═9f51bb2a-574f-4a89-bc8c-426ac2961f7c
