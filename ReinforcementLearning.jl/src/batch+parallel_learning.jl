@@ -637,7 +637,7 @@ begin
 	function form_feature_matrix(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::V, batch_size::Integer)  where {T<:Real, S, A, P, F1, F2, F3, V<:AbstractBinaryFeatures}
 		output = Vector{V}(undef, batch_size)
 		for i in 1:batch_size
-			output[i] = deepcopy(feature_vector)
+			output[i] = copy(feature_vector)
 		end
 		return output
 	end

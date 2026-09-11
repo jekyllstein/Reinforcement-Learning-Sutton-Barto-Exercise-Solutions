@@ -28,7 +28,7 @@ export monte_carlo_policy_prediction, monte_carlo_prediction, monte_carlo_policy
 export td0_policy_prediction, td0_prediction, td0_policy_prediction_v, td0_policy_prediction_q, generalized_sarsa!, sarsa, expected_sarsa, q_learning, double_expected_sarsa, double_q_learning
 
 #planning solution methods
-export monte_carlo_tree_search, sample_rollout, distribution_rollout, uct, apply_uct!, simulate!
+export monte_carlo_tree_search, sample_rollout, distribution_rollout, uct, apply_uct!, simulate!, average_stochastic_rollout
 
 #----------Gridworld Environment------------
 export GridworldState, GridworldAction, rook_actions, make_deterministic_gridworld, make_stochastic_gridworld
