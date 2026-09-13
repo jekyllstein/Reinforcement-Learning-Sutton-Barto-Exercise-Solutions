@@ -835,7 +835,7 @@ begin
 			reward_history[step] = r
 			average_reward_history[step] = r̄
 
-			mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+			isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 			
 			update_state_representation!(state_representation, s′)
 			v̂′ = estimate_value(state_representation, parameters)
@@ -852,7 +852,6 @@ begin
 			update_params_with_gradient!(parameters, α*δ, z)
 			s = s′
 			step += 1
-			epstep += 1
 		end
 
 		v̂, form_kwargs = form_state_value_function(estimate_value, update_state_representation!, state_representation, parameters)
@@ -863,7 +862,7 @@ begin
 	semi_gradient_TDλ!(parameters, mrp::StateMRP, args...; kwargs...) = semi_gradient_TDλ!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
 
 	#when evaluating an MDP, there is a policy and the transition uses it to select actions
-	semi_gradient_TDλ!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
+	semi_gradient_TDλ!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π(s)), mdp.isterm, args...; kwargs...)
 end
 
 # ╔═╡ 5e5fdcee-356e-46d4-a5b0-3c433aee989d
@@ -1417,7 +1416,7 @@ begin
 	true_online_TDλ!(parameters::Vector{T}, mrp::StateMRP, args...; kwargs...) where T<:Real = true_online_TDλ!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
 
 	#when evaluating an MDP, there is a policy and the transition uses it to select actions
-	true_online_TDλ!(parameters::Vector{T}, mdp::StateMDP, π::Function, args...; kwargs...) where {T<:Real} = true_online_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π), mdp.isterm, args...; kwargs...)
+	true_online_TDλ!(parameters::Vector{T}, mdp::StateMDP, π::Function, args...; kwargs...) where {T<:Real} = true_online_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π(s)), mdp.isterm, args...; kwargs...)
 end
 
 # ╔═╡ 34a28cfa-bf18-4dcf-8cf4-f6e9031d6fc2
@@ -1448,7 +1447,8 @@ begin
 
 	true_online_TDλ(mrp::TabularMRP, args...; kwargs...) = true_online_TDλ(mrp.states, mrp.initialize_state_index, i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
 
-	true_online_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = true_online_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, π), mdp.terminal_states, args...; kwargs...)
+	true_online_TDλ(mdp::TabularMDP, π::AbstractMatrix, args...; kwargs...) = true_online_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, sample_action(π, i_s)), mdp.terminal_states, args...; kwargs...)
+	true_online_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = true_online_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, π(mdp.states[i_s])), mdp.terminal_states, args...; kwargs...)
 end
 
 # ╔═╡ d9f89b2c-8df8-415a-a0a8-21744be88cec
@@ -1660,7 +1660,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, nu
 		update_params_with_gradient!(parameters, α*decay*δ, z)
 
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+		make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 		i_a = sample_action(policy)
 
 		#take action and observe transition
