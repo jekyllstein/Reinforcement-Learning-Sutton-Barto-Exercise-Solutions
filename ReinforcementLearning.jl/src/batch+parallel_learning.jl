@@ -391,7 +391,7 @@ begin
 		#perform forward pass to fill in target values with function output
 		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, target_params, zero(T), output_matrix)
 
-		mask_invalid_actions!(output_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(output_matrix, state_list, is_valid_action)
 
 		maximize_output_matrix!(output_matrix)
 
@@ -436,7 +436,7 @@ begin
 		#perform forward pass to fill in target values with function output
 		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., gpu_input, target_params.reslayers; input_orientation = input_orientation)
 		FCANN.memcpy!(output_matrix, activations[end])
-		mask_invalid_actions!(output_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(output_matrix, state_list, is_valid_action)
 		maximize_output_matrix!(output_matrix)
 
 		#for non terminal states add to target discounted future function value
@@ -459,7 +459,7 @@ begin
 		#perform forward pass to fill in target values with function output
 		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., feature_matrix, target_params.reslayers; input_orientation = input_orientation)
 		output_matrix .= activations[end]
-		mask_invalid_actions!(output_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(output_matrix, state_list, is_valid_action)
 		maximize_output_matrix!(activations[end])
 
 		#for non terminal states add to target discounted future function value
@@ -482,8 +482,8 @@ begin
 		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, target_params, zero(T), target_output)
 		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, value_params, zero(T), value_output)
 
-		mask_invalid_actions!(target_output, state_list, is_valid_action)
-		mask_invalid_actions!(value_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(target_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(value_output, state_list, is_valid_action)
 
 		maximize_output_matrix!(value_output, target_output)
 
@@ -532,7 +532,7 @@ begin
 		target_output .= activations[end]
 		FCANN.forwardNOGRAD_base!(activations, value_params.weights..., feature_matrix, value_params.reslayers; input_orientation = input_orientation)
 		value_output .= activations[end]
-		mask_invalid_actions!(target_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(target_output, state_list, is_valid_action)
 		maximize_output_matrix!(value_output, target_output)
 
 		#for non terminal states add to target discounted future function value
@@ -557,8 +557,8 @@ begin
 		FCANN.memcpy!(target_output, activations[end])
 		FCANN.forwardNOGRAD_base!(activations, value_params.weights..., gpu_input, value_params.reslayers; input_orientation = input_orientation)
 		FCANN.memcpy!(value_output, activations[end])
-		mask_invalid_actions!(target_output, state_list, is_valid_action)
-		mask_invalid_actions!(value_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(target_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(value_output, state_list, is_valid_action)
 		maximize_output_matrix!(value_output, target_output)
 
 		#for non terminal states add to target discounted future function value
@@ -686,10 +686,10 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		end
 	end
 
-	function update_action_values!(action_values::Vector{T}, x, params; activations::FCANNActivations{T} = activations, is_valid_action::Function = i_a -> true, kwargs...) 
+	function update_action_values!(action_values::Vector{T}, s, x, params; activations::FCANNActivations{T} = activations, is_valid_action = Returns(true), kwargs...) 
 		fcann_value_function!(activations, x, params)
 		action_values .= activations[end]
-		mask_invalid_actions!(action_values, is_valid_action)
+		mask_invalid_actions!(action_values, s, is_valid_action)
 		val, index = findmax(action_values)
 		isnan(val) && error("Got NaN action value inside $action_values")
 		isinf(val) && error("Got Inf action value inside $action_values")
@@ -723,11 +723,11 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		gpu_feature_update! = setup_gpu_feature(zeros(T, input_length), update_feature_vector!)
 
 		#x is always going to come from the replay buffer and hence will be an ordinary vector
-		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations, is_valid_action::Function = i_a -> true, kwargs...)		
+		function update_action_values!(action_values::Vector{T}, s, x::Vector{T}, params::FCANNParamsGPU; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations, is_valid_action = Returns(true), kwargs...)		
 			FCANN.memcpy!(d_x, x)
 			fcann_value_function!(d_activations, d_x, params)
 			FCANN.memcpy!(action_values, d_activations[end])
-			mask_invalid_actions!(action_values, is_valid_action)
+			mask_invalid_actions!(action_values, s, is_valid_action)
 			val, index = findmax(action_values)
 			isnan(val) && error("Got NaN action value inside $action_values")
 			isinf(val) && error("Got Inf action value inside $action_values")
@@ -1411,7 +1411,7 @@ end
 begin
 	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::Matrix{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, is_valid_action::Function) where {T<:Real, S}
 		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), X, θ, zero(T), policy_matrix)
-		mask_invalid_actions!(policy_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 
@@ -1419,7 +1419,7 @@ begin
 		FCANN.forwardNOGRAD_base!(activations, θ.weights..., X, θ.reslayers; input_orientation = 'T')
 		# update_state_values!(policy_matrix, X, θ, activations)
 		policy_matrix .= last(activations)
-		mask_invalid_actions!(policy_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 
@@ -1428,7 +1428,7 @@ begin
 		FCANN.forwardNOGRAD_base!(activations, θ.weights..., gpu_input, θ.reslayers; input_orientation = 'T')
 		# update_state_values!(policy_matrix, X, θ, activations)
 		FCANN.memcpy!(policy_matrix, last(activations))
-		mask_invalid_actions!(policy_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 end

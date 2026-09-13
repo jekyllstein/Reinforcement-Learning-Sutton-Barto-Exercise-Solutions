@@ -3653,7 +3653,8 @@ function gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector
 		δ = g - v̂
 		c = α*δ
 		update_params_with_gradient!(parameters, c, ∇v̂)
-		episode_error += calculate_error(g, v̂, s)
+		new_error::T = calculate_error(g, v̂, s)
+		episode_error += new_error
 	end
 	return episode_error / l
 end;

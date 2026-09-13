@@ -124,6 +124,31 @@ md"""
 ## On-policy Prediction with Approximation
 """
 
+# ╔═╡ 740834f5-5fa7-4a8f-9c8b-77e1bece4f0e
+md"""
+## On-policy Control with Approximation
+"""
+
+# ╔═╡ c63c0a29-5604-4d5f-a9e8-2733ea8c5865
+md"""
+### Semi-gradient Sarsa
+"""
+
+# ╔═╡ 9a84b6e7-aaf4-4c84-ba03-c6e9d1fecf7f
+md"""
+### Semi-gradient Double Sarsa
+"""
+
+# ╔═╡ 807e0eef-2811-4288-8a62-65119c35f093
+md"""
+### Semi-gradient DP
+"""
+
+# ╔═╡ b79ca0ac-6386-4f8f-b74a-811e53229eea
+md"""
+### Semi-gradient Differential Sarsa
+"""
+
 # ╔═╡ 28c9bd5d-2a46-4df4-9b80-3d6e4c6f2530
 md"""
 # Dependencies
@@ -170,30 +195,6 @@ repeated_run(policy_evaluation_v, 100, mdp_stochastic, mdp_π, 0.99f0)
 
 # ╔═╡ a741f0b6-a472-4f81-aeaa-1000251bf448
 repeated_run(policy_evaluation_v, 1, mdp_stochastic, mdp_π, 0.99f0; usethreads=true)
-
-# ╔═╡ c7240d75-ecd3-4edd-aa0a-636959cccc0a
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@code_warntype repeated_run(policy_evaluation_v, 1, mdp_deterministic, mdp_π, 0.99f0; usethreads=false)
-  ╠═╡ =#
-
-# ╔═╡ 74410f27-a0dd-4f0c-b45f-704737f3e4b7
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@code_warntype repeated_run(policy_evaluation_v, 1, mdp_stochastic, mdp_π, 0.99f0; usethreads=false)
-  ╠═╡ =#
-
-# ╔═╡ 2fb626a7-718e-4bd0-94b3-34b2b7302a57
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@code_warntype repeated_run(policy_evaluation_v, 1, mdp_deterministic, mdp_π, 0.99f0; usethreads=true)
-  ╠═╡ =#
-
-# ╔═╡ 6f44c4c8-3671-4e44-ac07-abff92e41b86
-# ╠═╡ skip_as_script = true
-#=╠═╡
-@code_warntype repeated_run(policy_evaluation_v, 1, mdp_stochastic, mdp_π, 0.99f0; usethreads=true)
-  ╠═╡ =#
 
 # ╔═╡ cf43f9bf-4e01-4eb7-8c71-d7be657ad746
 #=╠═╡
@@ -373,16 +374,16 @@ end
   ╠═╡ =#
 
 # ╔═╡ 0702027f-49dd-465c-9f40-b0ce52f6d8c4
-monte_carlo_control_ϵ_soft(mdp_deterministic, 0.99f0, 100_000)
+monte_carlo_control_ϵ_soft(mdp_deterministic, 0.99f0, 10_000)
 
 # ╔═╡ 8561fce9-c455-4253-a76c-a8c9845b53d5
-monte_carlo_control_ϵ_soft(mdp_stochastic, 0.99f0, 100_000)
+monte_carlo_control_ϵ_soft(mdp_stochastic, 0.99f0, 10_000)
 
 # ╔═╡ 84b4c5be-62ac-4c4b-9a7d-a61a8f7b7d87
 #=╠═╡
 begin
 	@profview monte_carlo_control_ϵ_soft(mdp_deterministic, 0.99f0, 1)
-	@profview monte_carlo_control_ϵ_soft(mdp_deterministic, 0.99f0, 100_000)
+	@profview monte_carlo_control_ϵ_soft(mdp_deterministic, 0.99f0, 10_000)
 end
   ╠═╡ =#
 
@@ -390,7 +391,7 @@ end
 #=╠═╡
 begin
 	@profview monte_carlo_control_ϵ_soft(mdp_stochastic, 0.99f0, 1)
-	@profview monte_carlo_control_ϵ_soft(mdp_stochastic, 0.99f0, 100_000)
+	@profview monte_carlo_control_ϵ_soft(mdp_stochastic, 0.99f0, 10_000)
 end
   ╠═╡ =#
 
@@ -555,6 +556,23 @@ const mountaincar_mdp = MountainCarTask.deterministic_mdp
 # ╔═╡ 57a307b5-2aed-48e9-90e2-d3d7550231d9
 mountaincar_π = make_random_policy(mountaincar_mdp)
 
+# ╔═╡ e20df14f-8eff-43f3-a4c2-8793ec788b82
+const access_control = create_access_control_task(10, [1f0, 2f0, 4f0, 8f0])
+
+# ╔═╡ 4f3909ba-96ae-43b9-bd6c-599e54e48b75
+const access_control_dense_setup = let
+	v_sparse = copy(access_control.setup.feature_vector)
+	v = zeros(Float32, length(access_control.setup.feature_vector))
+	function f!(v::Vector{T}, s) where T<:Real
+		access_control.setup.update_feature_vector!(v_sparse, s)
+		v .= zeros(T)
+		i = v_sparse.group_index
+		v[i] = one(T)
+		return v
+	end
+	(feature_vector = v, update_feature_vector! = f!)
+end
+
 # ╔═╡ 54a0a47f-7dd8-47f8-8f55-86540bb05d3d
 const sparse_feature_setup = state_aggregation_feature_setup(state_mdp_deterministic.initialize_state(), length(mdp_deterministic.states), s -> mdp_deterministic.state_index[s])
 
@@ -576,7 +594,15 @@ end
 #=╠═╡
 begin
 	@profview gradient_monte_carlo_policy_estimation_linear(mountaincar_mdp, mountaincar_π, 0.99f0, 1, mountaincar_features...)
-	@profview gradient_monte_carlo_policy_estimation_linear(mountaincar_mdp, mountaincar_π, 0.99f0, 100, mountaincar_features...)
+	@profview gradient_monte_carlo_policy_estimation_linear(mountaincar_mdp, mountaincar_π, 0.99f0, 10, mountaincar_features...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 357190d3-e84e-4e1b-8ff6-e6f303528584
+#=╠═╡
+begin
+	@profview gradient_monte_carlo_policy_estimation_fcann(mountaincar_mdp, mountaincar_π, 0.99f0, 1, mountaincar_features..., [64, 64])
+	@profview gradient_monte_carlo_policy_estimation_fcann(mountaincar_mdp, mountaincar_π, 0.99f0, 1, mountaincar_features..., [64, 64])
 end
   ╠═╡ =#
 
@@ -623,6 +649,248 @@ end
 begin
 	@profview semi_gradient_td0_policy_estimation_fcann(mountaincar_mdp, mountaincar_π, 0.99f0, 1000, 1, mountaincar_features..., [64, 64])
 	@profview semi_gradient_td0_policy_estimation_fcann(mountaincar_mdp, mountaincar_π, 0.99f0, 1000, 100_000, mountaincar_features..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ fc1175c7-9275-4b12-8718-c05d5d4634b4
+semi_gradient_sarsa_linear(mountaincar_mdp, 1f0, 1000, 1_000_000, mountaincar_features...)
+
+# ╔═╡ 678cda5d-66fa-4a1a-a115-41e16d5555d4
+semi_gradient_sarsa_linear(state_mdp_stochastic, 1f0, 1000, 1_000_000, sparse_feature_setup...)
+
+# ╔═╡ 147e3bd2-29f2-4a78-a3fd-4f3531afc3d5
+semi_gradient_sarsa_linear(state_mdp_stochastic, 1f0, 1000, 1_000_000, dense_feature_setup...)
+
+# ╔═╡ 21b5e82d-fdda-4caf-a1aa-222152b69f8b
+#=╠═╡
+begin
+	@profview semi_gradient_sarsa_linear(mountaincar_mdp, 1f0, 1000, 1, mountaincar_features...)
+	@profview semi_gradient_sarsa_linear(mountaincar_mdp, 1f0, 1000, 1_000_000, mountaincar_features...)
+end
+  ╠═╡ =#
+
+# ╔═╡ ac1e6eeb-fcd1-4bad-a46a-edc9a9d17c1f
+#=╠═╡
+begin
+	@profview semi_gradient_sarsa_linear(state_mdp_stochastic, 1f0, 1000, 1, sparse_feature_setup...)
+	@profview semi_gradient_sarsa_linear(state_mdp_stochastic, 1f0, typemax(Int64), 100_000, sparse_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ beafd867-c4c3-4b97-99a8-c8dc3d591341
+#=╠═╡
+begin
+	@profview semi_gradient_sarsa_linear(state_mdp_stochastic, 1f0, 1000, 1, dense_feature_setup...)
+	@profview semi_gradient_sarsa_linear(state_mdp_stochastic, 1f0, typemax(Int64), 1_000_000, dense_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ affba263-c895-4d8f-af32-2c561a884d49
+semi_gradient_sarsa_fcann(mountaincar_mdp, 1f0, 1000, 10_000, mountaincar_features..., [64, 64])
+
+# ╔═╡ 16ad1491-85db-4b1a-a451-421202d079b2
+semi_gradient_sarsa_fcann(state_mdp_stochastic, 1f0, 1000, 10_000, sparse_feature_setup..., [64, 64])
+
+# ╔═╡ 1a45053e-1732-4dbd-9682-d34f60579e74
+semi_gradient_sarsa_fcann(state_mdp_stochastic, 1f0, 1000, 10_000, dense_feature_setup..., [64, 64])
+
+# ╔═╡ 3b5d759c-8085-4912-9646-fe45087d3d9f
+#=╠═╡
+begin
+	@profview semi_gradient_sarsa_fcann(mountaincar_mdp, 1f0, 1000, 1, mountaincar_features..., [64, 64])
+	@profview semi_gradient_sarsa_fcann(mountaincar_mdp, 1f0, 1000, 100_000, mountaincar_features..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 4a290372-be64-4e45-a96a-01968b57aacf
+#=╠═╡
+begin
+	@profview semi_gradient_sarsa_fcann(state_mdp_stochastic, 1f0, 1000, 1, sparse_feature_setup..., [64, 64])
+	@profview semi_gradient_sarsa_fcann(state_mdp_stochastic, 1f0, 1000, 1000_000, sparse_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ c10aba9e-daf4-4767-9e14-51cd06ad5495
+#=╠═╡
+begin
+	@profview semi_gradient_sarsa_fcann(state_mdp_stochastic, 1f0, 1000, 1, dense_feature_setup..., [64, 64])
+	@profview semi_gradient_sarsa_fcann(state_mdp_stochastic, 1f0, typemax(Int64), 1000_000, dense_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ b00e0fe1-cdc2-4d28-946a-a7d256ab7f49
+semi_gradient_double_sarsa_linear(mountaincar_mdp, 1f0, 1000, 1_000_000, mountaincar_features...)
+
+# ╔═╡ 46b49f4a-1375-4286-a1a9-e86b4b8e2c63
+#=╠═╡
+begin
+	@profview semi_gradient_double_sarsa_linear(mountaincar_mdp, 1f0, 1000, 1, mountaincar_features...)
+	@profview semi_gradient_double_sarsa_linear(mountaincar_mdp, 1f0, 1000, 1_000_000, mountaincar_features...)
+end
+  ╠═╡ =#
+
+# ╔═╡ f7259f58-f9c2-43c7-8173-e01a2a2683b0
+semi_gradient_double_sarsa_fcann(mountaincar_mdp, 1f0, 1000, 10_000, mountaincar_features..., [64, 64])
+
+# ╔═╡ 185ec9b4-5c0f-4400-8ca6-623a24a975f5
+#=╠═╡
+begin
+	@profview semi_gradient_double_sarsa_fcann(mountaincar_mdp, 1f0, 1000, 1, mountaincar_features..., [64, 64])
+	@profview semi_gradient_double_sarsa_fcann(mountaincar_mdp, 1f0, 1000, 10_000, mountaincar_features..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ a7127d77-ca72-448d-aa8f-8e25eeee547a
+semi_gradient_double_sarsa_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 100_000, sparse_feature_setup...)
+
+# ╔═╡ 340ef2f9-889b-4e97-8bd5-66e6f1d174cd
+#=╠═╡
+begin
+	@profview semi_gradient_double_sarsa_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 1, sparse_feature_setup...)
+	@profview semi_gradient_double_sarsa_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 100_000, sparse_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 205a88eb-ff68-46f0-9f3c-650d9e83a401
+semi_gradient_double_sarsa_fcann(state_mdp_stochastic, 0.9f0, typemax(Int64), 10_000, sparse_feature_setup..., [64, 64])
+
+# ╔═╡ 109d913a-de49-4b2b-ab38-fa44b80ec178
+#=╠═╡
+begin
+	@profview semi_gradient_double_sarsa_fcann(state_mdp_stochastic, 0.9f0, typemax(Int64), 1, sparse_feature_setup..., [64, 64])
+	@profview semi_gradient_double_sarsa_fcann(state_mdp_stochastic, 0.9f0, typemax(Int64), 100_000, sparse_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ a08cca6f-71ba-4c27-bae3-7c361d6a7684
+semi_gradient_double_sarsa_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 100_000, dense_feature_setup...)
+
+# ╔═╡ 0ed2e466-10ec-4cb4-9c95-329e72da55aa
+#=╠═╡
+begin
+	@profview semi_gradient_double_sarsa_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 1, dense_feature_setup...)
+	@profview semi_gradient_double_sarsa_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 1_000_000, dense_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ e162133d-3c89-45fe-bd9f-c7f04df1038f
+semi_gradient_double_sarsa_fcann(state_mdp_stochastic, 0.9f0, typemax(Int64), 10_000, dense_feature_setup..., [64, 64])
+
+# ╔═╡ 81acfb57-9863-4f26-bc70-2181640fbc77
+#=╠═╡
+begin
+	@profview semi_gradient_double_sarsa_fcann(state_mdp_stochastic, 0.9f0, typemax(Int64), 1, dense_feature_setup..., [64, 64])
+	@profview semi_gradient_double_sarsa_fcann(state_mdp_stochastic, 0.9f0, typemax(Int64), 100_000, dense_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 17d49653-118b-4865-a9cc-197981889bee
+semi_gradient_dp_linear(mountaincar_mdp, 1f0, 1000, 1_000_000, mountaincar_features...)
+
+# ╔═╡ e6ec3fdf-e3a0-4d38-8791-0d99de9e23eb
+#=╠═╡
+begin
+	@profview semi_gradient_dp_linear(mountaincar_mdp, 1f0, 1000, 1, mountaincar_features...)
+	@profview semi_gradient_dp_linear(mountaincar_mdp, 1f0, 1000, 1_000_000, mountaincar_features...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 0c1eefae-b73b-4d2b-83f2-0a605072f363
+semi_gradient_dp_linear(state_mdp_stochastic, 0.9f0, 1000, 1_000_000, sparse_feature_setup...)
+
+# ╔═╡ cdb3b561-afaf-4a8e-8ee4-6b8ae8798de8
+#=╠═╡
+begin
+	@profview semi_gradient_dp_linear(state_mdp_stochastic, 0.9f0, 1000, 1, sparse_feature_setup...)
+	@profview semi_gradient_dp_linear(state_mdp_stochastic, 0.9f0, 1000, 1_000_000, sparse_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ e7c43fa3-af1b-46cf-abab-e34ff3637c8b
+semi_gradient_dp_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 100_000, dense_feature_setup...)
+
+# ╔═╡ 9eabf565-ba4d-4d7e-be25-626d7a7894c8
+#=╠═╡
+begin
+	@profview semi_gradient_dp_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 1, dense_feature_setup...)
+	@profview semi_gradient_dp_linear(state_mdp_stochastic, 0.9f0, typemax(Int64), 100_000, dense_feature_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ a855e694-f802-42e8-82d4-4a9b48e1e65b
+semi_gradient_dp_fcann(mountaincar_mdp, 1f0, 1000, 10_000, mountaincar_features..., [64, 64])
+
+# ╔═╡ a4462943-4187-4556-81a4-18a90e3373a7
+#=╠═╡
+begin
+	@profview semi_gradient_dp_fcann(mountaincar_mdp, 1f0, 1000, 1, mountaincar_features..., [64, 64])
+	@profview semi_gradient_dp_fcann(mountaincar_mdp, 1f0, 1000, 100_000, mountaincar_features..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 08408cc9-c964-49f3-9811-3399c463ca30
+semi_gradient_dp_fcann(state_mdp_stochastic, 0.9f0, 1000, 10_000, sparse_feature_setup..., [64, 64])
+
+# ╔═╡ 488bed89-cfd6-465f-9317-d9bb9a2123ba
+#=╠═╡
+begin
+	@profview semi_gradient_dp_fcann(state_mdp_stochastic, 0.9f0, 1000, 1, sparse_feature_setup..., [64, 64])
+	@profview semi_gradient_dp_fcann(state_mdp_stochastic, 0.9f0, 1000, 10_000, sparse_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 2281fc10-27b0-4cd4-bd1b-11545e96d1e6
+semi_gradient_dp_fcann(state_mdp_stochastic, 0.9f0, 1000, 10_000, dense_feature_setup..., [64, 64])
+
+# ╔═╡ d925e225-ce8b-46f0-97b3-2c267968cb34
+#=╠═╡
+begin
+	@profview semi_gradient_dp_fcann(state_mdp_stochastic, 0.9f0, 1000, 1, dense_feature_setup..., [64, 64])
+	@profview semi_gradient_dp_fcann(state_mdp_stochastic, 0.9f0, 1000, 100_000, dense_feature_setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 9e9c511a-b07a-4973-a0ff-147c5a5da73d
+semi_gradient_differential_sarsa_linear(access_control.mdp, 1_000_000, access_control.setup...)
+
+# ╔═╡ f9948d01-ce46-4911-bc6a-12a1728f769e
+#=╠═╡
+begin
+	@profview semi_gradient_differential_sarsa_linear(access_control.mdp, 1, access_control.setup...)
+	@profview semi_gradient_differential_sarsa_linear(access_control.mdp, 1_000_000, access_control.setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 2bc3a54d-e1da-45ef-b724-2fa0c97b9823
+semi_gradient_differential_sarsa_fcann(access_control.mdp, 100_000, access_control.setup..., [64, 64])
+
+# ╔═╡ 2dd2d7b0-11a4-439c-823e-dcd59cd6badc
+#=╠═╡
+begin
+	@profview semi_gradient_differential_sarsa_fcann(access_control.mdp, 1, access_control.setup..., [64, 64])
+	@profview semi_gradient_differential_sarsa_fcann(access_control.mdp, 100_000, access_control.setup..., [64, 64])
+end
+  ╠═╡ =#
+
+# ╔═╡ 9722bbc8-108b-4fc3-990c-84e1eeedcf24
+semi_gradient_differential_sarsa_linear(access_control.mdp, 1_000_000, access_control_dense_setup...)
+
+# ╔═╡ 4ba4e546-441b-4632-9d63-7a9010dc4ae6
+#=╠═╡
+begin
+	@profview semi_gradient_differential_sarsa_linear(access_control.mdp, 1, access_control_dense_setup...)
+	@profview semi_gradient_differential_sarsa_linear(access_control.mdp, 1_000_000, access_control_dense_setup...)
+end
+  ╠═╡ =#
+
+# ╔═╡ 87f35c6f-a9c4-4288-a5f4-f7a169c9df84
+semi_gradient_differential_sarsa_fcann(access_control.mdp, 100_000, access_control_dense_setup..., [64, 64])
+
+# ╔═╡ aefe689f-c043-4bf0-91f6-b5f5c23f11fa
+#=╠═╡
+begin
+	@profview semi_gradient_differential_sarsa_fcann(access_control.mdp, 1, access_control_dense_setup..., [64, 64])
+	@profview semi_gradient_differential_sarsa_fcann(access_control.mdp, 100_000, access_control_dense_setup..., [64, 64])
 end
   ╠═╡ =#
 
@@ -1195,10 +1463,6 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═731987c4-4335-4e39-827d-74d1b17351a1
 # ╠═ac3d9473-3734-49a0-9e01-360eb423a6f0
 # ╠═a741f0b6-a472-4f81-aeaa-1000251bf448
-# ╠═c7240d75-ecd3-4edd-aa0a-636959cccc0a
-# ╠═74410f27-a0dd-4f0c-b45f-704737f3e4b7
-# ╠═2fb626a7-718e-4bd0-94b3-34b2b7302a57
-# ╠═6f44c4c8-3671-4e44-ac07-abff92e41b86
 # ╠═cf43f9bf-4e01-4eb7-8c71-d7be657ad746
 # ╠═86bb7340-2df3-40b5-b5a8-ee6a0881cc98
 # ╠═a7569534-e573-45c9-b129-0b45940d9409
@@ -1272,6 +1536,8 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╟─04b6f612-c5aa-49a0-ac83-702f21c17774
 # ╠═889a5212-5336-4ccf-ab3b-693759e1afb3
 # ╠═57a307b5-2aed-48e9-90e2-d3d7550231d9
+# ╠═e20df14f-8eff-43f3-a4c2-8793ec788b82
+# ╠═4f3909ba-96ae-43b9-bd6c-599e54e48b75
 # ╟─3076c786-db6d-4573-99fe-35540ee171c5
 # ╠═54a0a47f-7dd8-47f8-8f55-86540bb05d3d
 # ╠═d6f3f0d7-c58e-4101-a70f-7977c60c1821
@@ -1279,6 +1545,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╟─b3da9525-bf8e-4761-a518-ce0e7292aaee
 # ╠═fbb60ce0-6fc3-4278-bf46-9dca5a30a6dd
 # ╠═f7acbbcd-134a-47e4-b17f-39c402bb601d
+# ╠═357190d3-e84e-4e1b-8ff6-e6f303528584
 # ╠═0867de49-1960-4cf1-9f1d-409ad0e05793
 # ╠═2f3ebcbb-e82b-4ab2-88a4-24ed6fb2a448
 # ╠═c953683e-fc9b-4eea-bf17-f24566ee99f9
@@ -1286,6 +1553,55 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═e5be5928-e5b8-4690-acb3-fe5855634e5d
 # ╠═91c8ed60-9c3a-4a17-9883-d31bf6314c60
 # ╠═8eb6c31a-8500-4d69-907a-5daa741fbb29
+# ╟─740834f5-5fa7-4a8f-9c8b-77e1bece4f0e
+# ╟─c63c0a29-5604-4d5f-a9e8-2733ea8c5865
+# ╠═fc1175c7-9275-4b12-8718-c05d5d4634b4
+# ╠═678cda5d-66fa-4a1a-a115-41e16d5555d4
+# ╠═147e3bd2-29f2-4a78-a3fd-4f3531afc3d5
+# ╠═21b5e82d-fdda-4caf-a1aa-222152b69f8b
+# ╠═ac1e6eeb-fcd1-4bad-a46a-edc9a9d17c1f
+# ╠═beafd867-c4c3-4b97-99a8-c8dc3d591341
+# ╠═affba263-c895-4d8f-af32-2c561a884d49
+# ╠═16ad1491-85db-4b1a-a451-421202d079b2
+# ╠═1a45053e-1732-4dbd-9682-d34f60579e74
+# ╠═3b5d759c-8085-4912-9646-fe45087d3d9f
+# ╠═4a290372-be64-4e45-a96a-01968b57aacf
+# ╠═c10aba9e-daf4-4767-9e14-51cd06ad5495
+# ╟─9a84b6e7-aaf4-4c84-ba03-c6e9d1fecf7f
+# ╠═b00e0fe1-cdc2-4d28-946a-a7d256ab7f49
+# ╠═46b49f4a-1375-4286-a1a9-e86b4b8e2c63
+# ╠═f7259f58-f9c2-43c7-8173-e01a2a2683b0
+# ╠═185ec9b4-5c0f-4400-8ca6-623a24a975f5
+# ╠═a7127d77-ca72-448d-aa8f-8e25eeee547a
+# ╠═340ef2f9-889b-4e97-8bd5-66e6f1d174cd
+# ╠═205a88eb-ff68-46f0-9f3c-650d9e83a401
+# ╠═109d913a-de49-4b2b-ab38-fa44b80ec178
+# ╠═a08cca6f-71ba-4c27-bae3-7c361d6a7684
+# ╠═0ed2e466-10ec-4cb4-9c95-329e72da55aa
+# ╠═e162133d-3c89-45fe-bd9f-c7f04df1038f
+# ╠═81acfb57-9863-4f26-bc70-2181640fbc77
+# ╟─807e0eef-2811-4288-8a62-65119c35f093
+# ╠═17d49653-118b-4865-a9cc-197981889bee
+# ╠═e6ec3fdf-e3a0-4d38-8791-0d99de9e23eb
+# ╠═0c1eefae-b73b-4d2b-83f2-0a605072f363
+# ╠═cdb3b561-afaf-4a8e-8ee4-6b8ae8798de8
+# ╠═e7c43fa3-af1b-46cf-abab-e34ff3637c8b
+# ╠═9eabf565-ba4d-4d7e-be25-626d7a7894c8
+# ╠═a855e694-f802-42e8-82d4-4a9b48e1e65b
+# ╠═a4462943-4187-4556-81a4-18a90e3373a7
+# ╠═08408cc9-c964-49f3-9811-3399c463ca30
+# ╠═488bed89-cfd6-465f-9317-d9bb9a2123ba
+# ╠═2281fc10-27b0-4cd4-bd1b-11545e96d1e6
+# ╠═d925e225-ce8b-46f0-97b3-2c267968cb34
+# ╟─b79ca0ac-6386-4f8f-b74a-811e53229eea
+# ╠═9e9c511a-b07a-4973-a0ff-147c5a5da73d
+# ╠═f9948d01-ce46-4911-bc6a-12a1728f769e
+# ╠═2bc3a54d-e1da-45ef-b724-2fa0c97b9823
+# ╠═2dd2d7b0-11a4-439c-823e-dcd59cd6badc
+# ╠═9722bbc8-108b-4fc3-990c-84e1eeedcf24
+# ╠═4ba4e546-441b-4632-9d63-7a9010dc4ae6
+# ╠═87f35c6f-a9c4-4288-a5f4-f7a169c9df84
+# ╠═aefe689f-c043-4bf0-91f6-b5f5c23f11fa
 # ╟─28c9bd5d-2a46-4df4-9b80-3d6e4c6f2530
 # ╠═ba851c42-8bb0-11f1-94f1-f50977498160
 # ╠═9f51bb2a-574f-4a89-bc8c-426ac2961f7c

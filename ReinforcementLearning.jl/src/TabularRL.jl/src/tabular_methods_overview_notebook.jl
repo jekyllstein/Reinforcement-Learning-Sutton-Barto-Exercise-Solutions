@@ -1690,7 +1690,7 @@ end
 
 # ╔═╡ b7f5ed8b-32ac-483f-9178-e8cca531ccf5
 begin
-	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}; ϵ::T = one(T)/10, is_valid_action::Function = i_a -> true) where {N, T<:Real}
+	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}; ϵ::T = one(T)/10, is_valid_action= i_a -> true) where {N, T<:Real}
 		n = length(v)
 		maxv = typemin(T)
 		num_valid = 0
@@ -1716,6 +1716,32 @@ begin
 		return v
 	end
 	
+	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}, s; ϵ::T = one(T)/10, is_valid_action= Returns(true)) where {N, T<:Real}
+		n = length(v)
+		maxv = typemin(T)
+		num_valid = 0
+		@inbounds @simd for i in 1:n
+			valid = is_valid_action(s, i)
+			num_valid += valid
+			maxv = max(maxv, valid*v[i] + !valid*typemin(T))
+		end
+		
+		nmax = zero(T)
+		@inbounds @simd for i in 1:n
+			valid = is_valid_action(s, i)
+			x = valid*T(v[i] ≈ maxv)
+			v[i] = x
+			nmax += x
+		end
+	
+		f = (one(T) - ϵ) / nmax
+		p_all = ϵ / num_valid
+		@inbounds @simd for i in 1:n
+			v[i] = is_valid_action(s, i)*(v[i]*f + p_all)
+		end
+		return v
+	end
+
 	#ϵ is a keyword argument so that it can generically set to 0 by default when using the greedy policy
 	function make_ϵ_greedy_policy!(π::Matrix{T}, i_s::Integer, maxq::T; ϵ = one(T)/10) where {T<:Real}
 		n = size(π, 1)
