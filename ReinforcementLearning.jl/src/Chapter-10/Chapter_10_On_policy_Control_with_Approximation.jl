@@ -376,6 +376,11 @@ begin
 		return findmax(action_values)
 	end
 
+	function update_linear_action_values!(action_values::Vector{T}, x::Vector{T}, w::Matrix{T}) where T<:Real
+		BLAS.gemv!('T', one(T), w, x, zero(T), action_values)
+		return action_values
+	end
+
 	function update_linear_action_values!(action_values::Vector{T}, x::BinaryFeatureVector, w::Matrix{T}, mdp, s) where T<:Real
 		maxq = typemin(T)
 		i_a_max = 0
@@ -397,6 +402,18 @@ begin
 		return (maxq, i_a_max)
 	end
 
+	function update_linear_action_values!(action_values::Vector{T}, x::BinaryFeatureVector, w::Matrix{T}) where T<:Real
+		for i_a in eachindex(action_values)
+			q = zero(T)
+			@inbounds @simd for i in 1:x.num_features
+				j = x.active_features[i]
+				q += w[j, i_a]
+			end
+			action_values[i_a] = q
+		end
+		return action_values
+	end
+
 	function update_linear_action_values!(action_values::Vector{T}, x::StateAggregationFeatureVector, w::Matrix{T}, mdp, s) where T<:Real
 		maxq = typemin(T)
 		i_a_max = 0
@@ -413,6 +430,15 @@ begin
 			i_a_max = i_a_max*!newmax + newmax*i_a
 		end
 		return (maxq, i_a_max)
+	end
+
+	function update_linear_action_values!(action_values::Vector{T}, x::StateAggregationFeatureVector, w::Matrix{T}) where T<:Real
+		i = x.group_index
+		for i_a in eachindex(action_values)
+			q = w[i, i_a]
+			action_values[i_a] = q
+		end
+		return action_values
 	end
 end
 

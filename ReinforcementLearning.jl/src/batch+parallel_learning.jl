@@ -238,10 +238,12 @@ md"""
 
 # ╔═╡ e6f4574b-f28f-43b1-b8f9-7080ecacfb39
 #sample a batch of actions from a matrix of probability distributions.  each row represents a separate environment with its own action distribution.  Fill the respective action selections in the vector `actions`
-function sample_batch_actions!(actions::Vector{I}, πs::Matrix{T}) where {T<:Real, I<:Integer} 
-	num_env, num_actions = size(πs)
+function sample_batch_actions!(actions::Vector{I}, πs::Matrix{T}, ::Val{num_env}) where {T<:Real, I<:Integer, num_env} 
+	num_actions = size(πs, 2)
 	actions .= zero(I)
-	maxvs = fill(T(-Inf), num_env)
+	# maxvs = fill(T(-Inf), num_env)
+	maxvs = MVector{num_env, T}(undef)
+	maxvs .= T(-Inf)
 	e = eps(T)
 	c = one(T) - 2*e
 	@inbounds @fastmath for i in 1:num_actions
@@ -384,14 +386,14 @@ end
 begin
 	#-------------------Single Q maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T})  where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T})  where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
 		#perform forward pass to fill in target values with function output
 		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, target_params, zero(T), output_matrix)
 
-		mask_invalid_actions_batch!(output_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(output_matrix, state_list, mdp.is_valid_action)
 
 		maximize_output_matrix!(output_matrix)
 
@@ -406,7 +408,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, S}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -420,14 +422,14 @@ begin
 			end
 			targets[i] = g
 			if !terminated
-				update_linear_action_values!(action_values, x′, target_params; is_valid_action = i_a -> is_valid_action(s′, i_a))
+				update_linear_action_values!(action_values, x′, target_params, mdp, s′)
 				targets[i] += γ^(k-j) * maximum(action_values)
 			end
 		end
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
@@ -436,7 +438,7 @@ begin
 		#perform forward pass to fill in target values with function output
 		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., gpu_input, target_params.reslayers; input_orientation = input_orientation)
 		FCANN.memcpy!(output_matrix, activations[end])
-		mask_invalid_actions_batch!(output_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(output_matrix, state_list, mdp.is_valid_action)
 		maximize_output_matrix!(output_matrix)
 
 		#for non terminal states add to target discounted future function value
@@ -450,7 +452,7 @@ begin
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -459,7 +461,7 @@ begin
 		#perform forward pass to fill in target values with function output
 		FCANN.forwardNOGRAD_base!(activations, target_params.weights..., feature_matrix, target_params.reslayers; input_orientation = input_orientation)
 		output_matrix .= activations[end]
-		mask_invalid_actions_batch!(output_matrix, state_list, is_valid_action)
+		mask_invalid_actions_batch!(output_matrix, state_list, mdp.is_valid_action)
 		maximize_output_matrix!(activations[end])
 
 		#for non terminal states add to target discounted future function value
@@ -474,7 +476,7 @@ begin
 
 	#-------------- Double Q Maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -482,8 +484,8 @@ begin
 		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, target_params, zero(T), target_output)
 		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, value_params, zero(T), value_output)
 
-		mask_invalid_actions_batch!(target_output, state_list, is_valid_action)
-		mask_invalid_actions_batch!(value_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(target_output, state_list, mdp.is_valid_action)
+		mask_invalid_actions_batch!(value_output, state_list, mdp.is_valid_action)
 
 		maximize_output_matrix!(value_output, target_output)
 
@@ -498,7 +500,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S, V<:AbstractBinaryFeatures}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S, V<:AbstractBinaryFeatures}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -512,16 +514,16 @@ begin
 			end
 			targets[i] = g
 			if !terminated
-				update_linear_action_values!(action_values, x′, value_params; is_valid_action = i_a -> is_valid_action(s′, i_a))
+				update_linear_action_values!(action_values, x′, value_params, mdp, s′)
 				i_a_max = argmax(action_values)
-				update_linear_action_values!(action_values, x′, target_params; is_valid_action = i_a -> is_valid_action(s′, i_a))
+				update_linear_action_values!(action_values, x′, target_params, mdp, s′)
 				targets[i] += γ^(k-j) * action_values[i_a_max]
 			end
 		end
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -532,7 +534,7 @@ begin
 		target_output .= activations[end]
 		FCANN.forwardNOGRAD_base!(activations, value_params.weights..., feature_matrix, value_params.reslayers; input_orientation = input_orientation)
 		value_output .= activations[end]
-		mask_invalid_actions_batch!(target_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(target_output, state_list, mdp.is_valid_action)
 		maximize_output_matrix!(value_output, target_output)
 
 		#for non terminal states add to target discounted future function value
@@ -546,7 +548,7 @@ begin
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action::Function, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, mdp, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
@@ -557,8 +559,8 @@ begin
 		FCANN.memcpy!(target_output, activations[end])
 		FCANN.forwardNOGRAD_base!(activations, value_params.weights..., gpu_input, value_params.reslayers; input_orientation = input_orientation)
 		FCANN.memcpy!(value_output, activations[end])
-		mask_invalid_actions_batch!(target_output, state_list, is_valid_action)
-		mask_invalid_actions_batch!(value_output, state_list, is_valid_action)
+		mask_invalid_actions_batch!(target_output, state_list, mdp.is_valid_action)
+		mask_invalid_actions_batch!(value_output, state_list, mdp.is_valid_action)
 		maximize_output_matrix!(value_output, target_output)
 
 		#for non terminal states add to target discounted future function value
@@ -673,8 +675,8 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 	#form activations for network
 	activations_batch = FCANN.form_activations(value_params.weights[1], batch_size)
 	activations = FCANN.form_activations(value_params.weights[1])
-	tanh_grad_z = deepcopy(activations_batch)
-	deltas = deepcopy(activations_batch)
+	tanh_grad_z = copy(activations_batch)
+	deltas = copy(activations_batch)
 	onesvec = ones(T, batch_size)
 
 	#note that the scales are multiplied by -1 to minimize loss in gradient update
@@ -686,10 +688,10 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		end
 	end
 
-	function update_action_values!(action_values::Vector{T}, s, x, params; activations::FCANNActivations{T} = activations, is_valid_action = Returns(true), kwargs...) 
+	function update_action_values!(action_values::Vector{T}, x, params, mdp, s; activations::FCANNActivations{T} = activations, kwargs...) 
 		fcann_value_function!(activations, x, params)
 		action_values .= activations[end]
-		mask_invalid_actions!(action_values, s, is_valid_action)
+		mask_invalid_actions!(action_values, s, mdp.is_valid_action)
 		val, index = findmax(action_values)
 		isnan(val) && error("Got NaN action value inside $action_values")
 		isinf(val) && error("Got Inf action value inside $action_values")
@@ -723,11 +725,11 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		gpu_feature_update! = setup_gpu_feature(zeros(T, input_length), update_feature_vector!)
 
 		#x is always going to come from the replay buffer and hence will be an ordinary vector
-		function update_action_values!(action_values::Vector{T}, s, x::Vector{T}, params::FCANNParamsGPU; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations, is_valid_action = Returns(true), kwargs...)		
+		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU, mdp, s; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations, kwargs...)		
 			FCANN.memcpy!(d_x, x)
 			fcann_value_function!(d_activations, d_x, params)
 			FCANN.memcpy!(action_values, d_activations[end])
-			mask_invalid_actions!(action_values, s, is_valid_action)
+			mask_invalid_actions!(action_values, s, mdp.is_valid_action)
 			val, index = findmax(action_values)
 			isnan(val) && error("Got NaN action value inside $action_values")
 			isinf(val) && error("Got Inf action value inside $action_values")
@@ -1271,7 +1273,7 @@ begin
 	end
 
 	function initialize_synchronous_features(x::AbstractBinaryFeatures{T}, num_env) where T<:Real
-		[deepcopy(x) for _ in 1:num_env]
+		[copy(x) for _ in 1:num_env]
 	end
 end
 
@@ -1468,14 +1470,14 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 	output_args = !use_double_q ? (output_matrix,) : (output_matrix, copy(output_matrix))
 	param_args = !use_double_q ? (target_params,) : (target_params, value_params)
 	output_inds = Vector{Int64}(undef, batch_size)
-	feature_vector2 = deepcopy(feature_vector)
+	feature_vector2 = copy(feature_vector)
 	state_list = Vector{S}(undef, batch_size)
 	
 	s = mdp.initialize_state()
 	update_feature_vector!(feature_vector, s)
-	update_action_values!(action_values, feature_vector, value_params; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+	update_action_values!(action_values, feature_vector, value_params, mdp, s)
 	policy .= action_values
-	make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+	make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 	i_a = sample_action(policy)
 	
 	ep = 1
@@ -1495,7 +1497,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 		update_feature_vector!(feature_vector2, s′)
 		terminated = mdp.isterm(s′)
 		
-		push!(replay_buffer, (deepcopy(feature_vector), i_a, r, deepcopy(feature_vector2), terminated, s′))
+		push!(replay_buffer, (copy(feature_vector), i_a, r, copy(feature_vector2), terminated, s′))
 
 		save_step_rewards && push!(step_rewards, r)
 
@@ -1514,9 +1516,9 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 
 		#prepare next action selection from s′
 		# update_feature_vector!(feature_vector, s′)
-		update_action_values!(action_values, feature_vector2, value_params; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
+		update_action_values!(action_values, feature_vector2, value_params, mdp, s′)
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
+		make_ϵ_greedy_policy!(policy, s′; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 		i_a′ = sample_action(policy)
 		#@info "action choice is $i_a′"
 
@@ -1527,7 +1529,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 			update_batch_inds!(batch_inds, step, buffer_size, N)
 			# @info "batch inds are $batch_inds"
 			
-			update_targets!(targets, state_list, mdp.is_valid_action, γ, replay_buffer, batch_inds, N, target_const, param_args..., feature_matrix, action_values, output_args..., target_args...)
+			update_targets!(targets, state_list, mdp, γ, replay_buffer, batch_inds, N, target_const, param_args..., feature_matrix, action_values, output_args..., target_args...)
 			# @info "target values are $targets"
 
 			#update feature matrix
@@ -1549,7 +1551,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 		end
 		
 		s = s′
-		feature_vector = deepcopy(feature_vector2)
+		feature_vector = copy(feature_vector2)
 		i_a = i_a′
 		step += 1
 	end
@@ -1557,7 +1559,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 	cleanup_gradient!(∇q̂)
 
 	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, value_params)
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, final_parameters = deepcopy(value_params), form_kwargs = form_kwargs)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, final_parameters = copy(value_params), form_kwargs = form_kwargs)
 end
 
 # ╔═╡ 830ba410-377a-423b-9e75-6884c8cbbbea
@@ -1668,7 +1670,7 @@ function dqn_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integ
 	FCANN.GPU2Host(value_params.weights, setup.gpu_args.value_params.weights)
 	FCANN.GPU2Host(target_params.weights, setup.gpu_args.target_params.weights)
 	setup.gpu_args.cleanup_vars()
-	return (;output..., final_parameters = deepcopy(value_params)) #note that dqn! will copy the gpu params which have been cleaned up so we need to replace this output in the named tuple with the parameters we transfered back to the host before cleaning up
+	return (;output..., final_parameters = copy(value_params)) #note that dqn! will copy the gpu params which have been cleaned up so we need to replace this output in the named tuple with the parameters we transfered back to the host before cleaning up
 end
 
 # ╔═╡ f0582c1f-7f6d-4f38-9051-fb5ef158612f
@@ -1725,7 +1727,7 @@ dqn_fcann(gridworld_state_mdp, 0.99f0, typemax(Int64), 100_000, gridworld_featur
   ╠═╡ =#
 
 # ╔═╡ c7994abc-e49d-4ccb-b09b-e68c14bb7d6f
-function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, ∇v̂::VP = deepcopy(value_params), ∇lnπ::PP = deepcopy(policy_params)) where {T<:Real, S, A, PTF, F1, F2, F3, VP, PP}
+function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, A, PTF, F1, F2, F3, VP, PP}
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
 	avg_step_rewards = zeros(T, max_steps)
@@ -1760,7 +1762,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 	for step in 1:max_steps
 		#for each environment update the policy distribution on a per row basis and then sample an action from each environment
 		update_batch_policy_dist!(policy_matrix, feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp.is_valid_action, policy_args...)
-		sample_batch_actions!(batch_actions, policy_matrix)
+		sample_batch_actions!(batch_actions, policy_matrix, Val(num_env))
 
 		# @info "Current batch states: $batch_states"
 		# @info "Using a policy matrix of $policy_matrix sampled the following actions: $batch_actions"
@@ -1831,7 +1833,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 
 	policy_and_value_components = form_policy_and_value_function(mdp, feature_vector, update_feature_vector!, policy_params, value_params)
 
-	return (;avg_step_rewards = avg_step_rewards, batch_episodes = batch_episodes, batch_episode_steps = batch_episode_steps, batch_episode_rewards = batch_episode_rewards, policy_parameters = deepcopy(policy_params), value_parameters = deepcopy(value_params), policy_and_value_components...)
+	return (;avg_step_rewards = avg_step_rewards, batch_episodes = batch_episodes, batch_episode_steps = batch_episode_steps, batch_episode_rewards = batch_episode_rewards, policy_parameters = copy(policy_params), value_parameters = copy(value_params), policy_and_value_components...)
 end
 
 # ╔═╡ 738241ce-0315-41d8-a67f-64c91479fe57
@@ -1863,8 +1865,8 @@ function setup_fcann_batch_policy_arguments(params::FCANNParams{T}, batch_size::
 	
 	#form activations for network
 	activations = FCANN.form_activations(params.weights[1], batch_size)
-	tanh_grad_z = deepcopy(activations)
-	deltas = deepcopy(activations)
+	tanh_grad_z = copy(activations)
+	deltas = copy(activations)
 	onesvec = ones(T, batch_size)
 	output = zeros(T, batch_size)
 
@@ -1921,8 +1923,8 @@ function setup_fcann_batch_value_arguments(policy_setup::NamedTuple, params::FCA
 	
 	#form activations for network
 	activations = FCANN.form_activations(params.weights[1], batch_size)
-	tanh_grad_z = deepcopy(activations)
-	deltas = deepcopy(activations)
+	tanh_grad_z = copy(activations)
+	deltas = copy(activations)
 	onesvec = ones(T, batch_size)
 	output = zeros(T, batch_size, 1)
 
@@ -1989,7 +1991,7 @@ function synchronous_actor_critic_fcann(mdp::StateMDP{T, S, A, PTF, F1, F2, F3},
 
 	value_setup.gpu_args.cleanup_vars()
 	policy_setup.gpu_args.cleanup_vars()
-	return (;output..., policy_parameters = deepcopy(policy_params), value_parameters = deepcopy(value_params))	#note that synchronous_actor_critic! will copy the gpu params which have been cleaned up so we need to replace this output in the named tuple with the parameters we transfered back to the host before cleaning up
+	return (;output..., policy_parameters = copy(policy_params), value_parameters = copy(value_params))	#note that synchronous_actor_critic! will copy the gpu params which have been cleaned up so we need to replace this output in the named tuple with the parameters we transfered back to the host before cleaning up
 end
 
 # ╔═╡ 89317d85-e18d-4940-9f1b-bf4f9fbf9880
@@ -2043,7 +2045,7 @@ eval_gridworld_final_policy(gridworld_ac_td2.policy_sample_action)
   ╠═╡ =#
 
 # ╔═╡ 44c9104e-8586-4202-8edd-eaea0073842a
-function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, N::Integer = 0, ∇v̂::VP = deepcopy(value_params), ∇lnπ::PP = deepcopy(policy_params)) where {T<:Real, S, A, PTF, F1, F2, F3, VP, PP}
+function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, N::Integer = 0, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, A, PTF, F1, F2, F3, VP, PP}
 
 	iszero(N) && return synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, value_args, value_gradient_args, policy_args, policy_gradient_args; α_w = α_w, α_θ = α_θ, ∇v̂ = ∇v̂, ∇lnπ = ∇lnπ)
 	
@@ -2094,7 +2096,7 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 		#for each environment update the policy distribution on a per row basis and then sample an action from each environment
 		if !all(batch_ready) && !all(batch_terminal_check) #only envs that are NOT ready perform a step update so if all are ready we can just proceed straight to gradient updates
 			update_batch_policy_dist!(policy_matrix, current_feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp.is_valid_action, policy_args...)
-			sample_batch_actions!(batch_actions, policy_matrix)
+			sample_batch_actions!(batch_actions, policy_matrix, Val(num_env))
 		end
 		
 		r_avg = zero(T) 
@@ -2257,7 +2259,7 @@ function synchronous_nstep_actor_critic_fcann(mdp::StateMDP{T, S, A, PTF, F1, F2
 
 	value_setup.gpu_args.cleanup_vars()
 	policy_setup.gpu_args.cleanup_vars()
-	return (;output..., policy_parameters = deepcopy(policy_params), value_parameters = deepcopy(value_params))	#note that synchronous_actor_critic! will copy the gpu params which have been cleaned up so we need to replace this output in the named tuple with the parameters we transfered back to the host before cleaning up
+	return (;output..., policy_parameters = copy(policy_params), value_parameters = copy(value_params))	#note that synchronous_actor_critic! will copy the gpu params which have been cleaned up so we need to replace this output in the named tuple with the parameters we transfered back to the host before cleaning up
 end
 
 # ╔═╡ 631ead41-0bf5-4bc0-bbe6-d98ceb32ca20

@@ -1297,14 +1297,14 @@ Apply inverse scaling factors to FCANN network parameters in-place.
 # Returns
 - `Nothing`: Function modifies `params` in-place by dividing each parameter group by corresponding scale factor
 """
-function scale_fcann_params!(params::FCANNParams, scales::Vector{T}) where T<:Real
+function scale_fcann_params!(params::FCANNParams, scales::Vector{T}; c::T = one(T)) where T<:Real
 	params_w = params.weights[1]
 	for (p, s) in zip(params_w, scales)
-		p .*= s
+		p .*= s*c
 	end
 	params_b = params.weights[2]
 	for (p, s) in zip(params_b, scales)
-		p .*= s
+		p .*= s*c
 	end
 	# @inbounds for i in eachindex(scales)
 
@@ -2469,9 +2469,9 @@ function update_fcann_value_gradient!(∇v̂::FCANNParamsGPU, d_x::FCANN.CUDAArr
 end
 
 # ╔═╡ 1d43e61e-8428-4f50-8dc7-e322b1d256e8
-function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}) where T<:Real
+function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}; c::T = one(T)) where T<:Real
 	@inbounds for i in eachindex(scales)
-		tmp = [scales[i]]
+		tmp = [c*scales[i]]
 		GC.@preserve tmp begin
 			ptr = pointer(tmp)
 			for j in 1:2

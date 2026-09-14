@@ -1890,7 +1890,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feat
 		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
 		update_feature_vector!(feature_vector, s′)
-		update_action_values!(action_values, s′, feature_vector, parameters; is_valid_action = mdp.is_valid_action)
+		update_action_values!(action_values, feature_vector, parameters, mdp, s′)
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy, s′; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 		i_a′ = sample_action(policy)
@@ -2222,9 +2222,9 @@ begin
 		#initialize episode
 		s = mdp.initialize_state()
 		update_feature_vector!(feature_vector, s)
-		update_linear_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+		update_linear_action_values!(action_values, feature_vector, parameters, mdp, s)
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+		make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 		i_a = sample_action(policy)
 		z .= zero(T)
 		q_old = zero(T)
@@ -2256,9 +2256,9 @@ begin
 				q′ = zero(T)
 			else
 				update_feature_vector!(feature_vector, s′)
-				update_linear_action_values!(action_values, feature_vector, parameters; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
+				update_linear_action_values!(action_values, feature_vector, parameters, mdp, s′)
 				policy .= action_values
-				make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))
+				make_ϵ_greedy_policy!(policy, s′; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 				i_a′ = sample_action(policy)
 				q′ = compute_value(action_values, policy, i_a′)
 			end
@@ -2272,8 +2272,8 @@ begin
 			if terminated
 				s = mdp.initialize_state()
 				update_feature_vector!(feature_vector, s)
-				update_linear_action_values!(action_values, feature_vector, parameters)
-				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
+				update_linear_action_values!(action_values, feature_vector, parameters, mdp, s)
+				make_ϵ_greedy_policy!(action_values, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 				policy .= action_values
 				i_a = sample_action(policy)
 				#reset eligibility vector to 0 at the start of a new episode
@@ -2390,7 +2390,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 	s = mdp.initialize_state()
 	target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, r̄, action_value_args...)
 	policy .= action_values
-	make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+	make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 	i_a = sample_action(policy)
 	z .= zero(T)
 	v_old = zero(T)
@@ -2407,7 +2407,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 		average_reward_history[step] = r̄
 		target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, r̄, action_value_args...)
 		policy .= action_values
-		make_ϵ_greedy_policy!(policy; ϵ = ϵ, is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+		make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 		i_a = sample_action(policy)
 		
 		δ = target - v
