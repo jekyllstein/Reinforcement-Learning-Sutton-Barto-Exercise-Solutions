@@ -8,10 +8,13 @@ using InteractiveUtils
 using PlutoDevMacros
 
 # ╔═╡ 8845bf98-b287-48c2-9af5-67a992e513dd
+# ╠═╡ skip_as_script = true
+#=╠═╡
 begin
 	using PlutoUI, PlutoPlotly, ProfileCanvas, BenchmarkTools, LaTeXStrings, HypertextLiteral
 	TableOfContents()
 end
+  ╠═╡ =#
 
 # ╔═╡ efef7b11-9ea4-4632-b696-9b524e1e7c67
 md"""
@@ -57,6 +60,101 @@ md"""
 # ╔═╡ da50ae43-506b-4428-b0ee-aa56d11bb4f0
 md"""
 ### Nonlinear Training
+"""
+
+# ╔═╡ bf5d0a2c-5f7a-4172-8ff4-a1b9c0f29a91
+md"""
+# Continuing Value Training
+"""
+
+# ╔═╡ 4ff2e16f-3cca-4749-8253-12b66e373b6d
+md"""
+## Linear Training
+"""
+
+# ╔═╡ d70867bf-2ccb-4877-96b9-8bccc1dbc7b3
+md"""
+### Setups
+"""
+
+# ╔═╡ db838dd8-7a59-434f-b473-86320277d08b
+md"""
+### Dense Features
+"""
+
+# ╔═╡ 11a977b5-b2c6-4999-a7f3-5b4cc98ba1e2
+md"""
+### Sparse Features
+"""
+
+# ╔═╡ 674ed54f-f4d0-4d01-85e9-9f6eca2f7ecc
+md"""
+### Binary Features
+"""
+
+# ╔═╡ cd20f90c-b98e-4427-bb99-5cb8721771db
+md"""
+## Nonlinear Training
+"""
+
+# ╔═╡ d83dddf4-abf5-4aa2-b979-9c04578638a5
+md"""
+### Dense Features
+"""
+
+# ╔═╡ 9c2fe4f9-3a76-4175-a1a7-dd24d2dc3477
+md"""
+### Sparse Features
+"""
+
+# ╔═╡ 310fb90a-52fe-45b8-bd10-564577300a6d
+md"""
+### Binary Features
+"""
+
+# ╔═╡ ac2e5ff3-cb46-472a-9115-e231846db5d2
+md"""
+# Continuing Policy Training
+"""
+
+# ╔═╡ 7597f4be-83c5-4b5f-a427-c38e3d09fbeb
+md"""
+## Linear Training
+"""
+
+# ╔═╡ f7d2463c-86d6-44ad-8366-c725161381e7
+md"""
+### Dense Features
+"""
+
+# ╔═╡ 7a6151d7-5055-4a4e-810a-1d169a6cc0c9
+md"""
+### Sparse Features
+"""
+
+# ╔═╡ bb01eff3-d860-4f93-be88-847233cf5081
+md"""
+### Binary Features
+"""
+
+# ╔═╡ e3a19a90-cf7b-43a2-8bc6-fa3bcb0ae6d1
+md"""
+## Nonlinear Training
+"""
+
+# ╔═╡ 69253b86-be71-4ab2-b83d-9dd4fa0e6f7e
+md"""
+### Dense Features
+"""
+
+# ╔═╡ 3d01ed1a-14b4-4a00-aae5-1f69d99fde36
+md"""
+### Sparse Features
+"""
+
+# ╔═╡ a9c15b2a-37b0-4aaf-8fac-3ccf8dd43f34
+md"""
+### Binary Features
 """
 
 # ╔═╡ 89db1701-8975-48ac-a210-21c7e1faee55
@@ -113,39 +211,340 @@ end
 const linear_value_dense_setup = setup_episodic_value_linear_training(state_mdp_stochastic, dense_feature_setup...)
 
 # ╔═╡ 1b9809c5-fbe8-40f8-9fea-67a6619fedf4
-@profview linear_value_dense_setup.train_ϵ_decay(0.9f0, 0.01f0, 0.5f0, 100_000; use_steps = true)
+#=╠═╡
+@profview linear_value_dense_setup.train_ϵ_decay(0.9f0, 0.01f0, 0.5f0, 100_000; use_steps = true, show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 5af68de4-46b6-4375-808d-0875b286070c
+#=╠═╡
+@profview linear_value_dense_setup.train_ϵ_decay(0.9f0, 0.01f0, 0.5f0, 100_000; use_steps = true, show_messages = false, use_dp = true)
+  ╠═╡ =#
 
 # ╔═╡ 51f7b0ef-692b-4e46-91ce-15eb14f148f1
+#=╠═╡
 @profview linear_value_dense_setup.train_dqn_ϵ_decay(0.9f0, 0.01f0, 10_000; use_steps = true, batch_size = 64, show_messages = false)
+  ╠═╡ =#
 
 # ╔═╡ 34f8c6c7-17fe-4bb3-9908-9536336f3a62
 const nonlinear_value_dense_setup = setup_episodic_value_nonlinear_training(state_mdp_stochastic, dense_feature_setup...)
 
 # ╔═╡ 54ac99fd-1bbb-43f6-8bce-5eaf1d89a585
+#=╠═╡
 @profview nonlinear_value_dense_setup.train_ϵ_decay([64, 64], 1, 0.9f0, 0.01f0, 0.5f0, 10_000; use_steps = true, show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 36d528c5-e6c5-45e0-9bb9-2163f71d7fc8
+#=╠═╡
+@profview nonlinear_value_dense_setup.train_ϵ_decay([64, 64], 1, 0.9f0, 0.01f0, 0.5f0, 10_000; use_steps = true, show_messages = false, use_dp = true)
+  ╠═╡ =#
 
 # ╔═╡ bcbf7017-e196-4ea1-8a9b-a5aab279f96d
-@profview nonlinear_value_dense_setup.train_dqn_ϵ_decay([64, 64], 1, 0.9f0, 0.01f0, 1_000; batch_size = 64, use_steps = true, show_messages = false, N = 10)
+#=╠═╡
+@profview nonlinear_value_dense_setup.train_dqn_ϵ_decay([64, 64], 1, 0.9f0, 0.01f0, 10_000; batch_size = 64, use_steps = true, show_messages = false, N = 10)
+  ╠═╡ =#
+
+# ╔═╡ 1b572db3-f442-4df8-bfc7-45314ff851af
+#=╠═╡
+@profview nonlinear_value_dense_setup.train_dqn_ϵ_decay([64, 64], 1, 0.9f0, 0.01f0, 100; α = 0.0001f0, batch_size = 64, use_steps = true, show_messages = false, N = 10, use_gpu = true)
+  ╠═╡ =#
 
 # ╔═╡ 0cb5288d-71ea-4e47-ab2a-d5a568c9c15c
 const linear_policy_dense_setup = setup_episodic_policy_linear_training(state_mdp_stochastic, dense_feature_setup...)
 
 # ╔═╡ 229cddb9-f38d-4e12-ac2b-3b593f46e283
+#=╠═╡
 @profview linear_policy_dense_setup.train_rate_decay(0.99f0, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 100_000; use_steps = true, show_messages = false)
+  ╠═╡ =#
 
 # ╔═╡ ff91023e-7f58-433c-ab6d-65f3ee49549f
+#=╠═╡
 @profview linear_policy_dense_setup.sync_train_rate_decay(0.99f0, 0.1f0, 0.1f0, 10_000; use_steps = true, show_messages = false, N = 10)
+  ╠═╡ =#
 
 # ╔═╡ 3b5782ee-b607-4959-bb9b-107a83f34639
 const nonlinear_policy_dense_setup = setup_episodic_policy_nonlinear_training(state_mdp_stochastic, dense_feature_setup...)
 
+# ╔═╡ 5ebac3c4-6be7-4a77-8e64-503629b02e04
+nonlinear_policy_dense_setup.train([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 100)
+
+# ╔═╡ 5728c42d-751c-4c41-b192-0f6323c6eb73
+nonlinear_policy_dense_setup.train([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 100; use_gpu = true)
+
+# ╔═╡ 1ee13ee1-9d9c-422c-9206-85dd7ae2a572
+nonlinear_policy_dense_setup.train_exhaustive([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 10_000; use_steps = true, show_messages = false)
+
+# ╔═╡ 744948ab-cebf-4091-bfb9-66ba74d563ce
+nonlinear_policy_dense_setup.train_exhaustive([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 10_000; use_steps = true, show_messages = false, use_gpu = true)
+
 # ╔═╡ aaf3c52e-356b-415d-a3ff-db43c235b322
+#=╠═╡
 @profview nonlinear_policy_dense_setup.train_rate_decay([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 0.0f0, 0.0f0, 10_000; use_steps = true, show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ f451a55d-e204-4f56-b356-2115ba83829b
+#=╠═╡
+@profview nonlinear_policy_dense_setup.train_rate_decay([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 1_000; use_steps = true, show_messages = false, use_gpu = true)
+  ╠═╡ =#
 
 # ╔═╡ 330c8c03-3371-4a49-8b88-bc924ca5f76f
-@profview nonlinear_policy_dense_setup.sync_train_rate_decay([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 10_000; use_steps = true, N = 10, show_messages = false)
+#=╠═╡
+@profview nonlinear_policy_dense_setup.sync_train_rate_decay([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 10_000; use_steps = true, N = 0, show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 8893550d-31b2-4df6-af66-17f97609041a
+#=╠═╡
+@profview nonlinear_policy_dense_setup.sync_train_rate_decay([64, 64], 1, 0.99f0, 0.1f0, 0.1f0, 1_000; use_steps = true, N = 0, show_messages = false, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ 70f6f0cf-8ee0-424b-a14e-f746bcb4e810
+const linear_value_cont_dense_setup = setup_continuing_value_linear_training(state_mdp_continuing, dense_feature_setup...)
+
+# ╔═╡ 1f65e88b-2060-4cbb-9cae-a5af73094495
+#=╠═╡
+@profview linear_value_cont_dense_setup.train_ϵ_decay(0.01f0, 0.5f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 63c69867-1060-4c50-8dfa-a25278ddbcda
+#=╠═╡
+@profview linear_value_cont_dense_setup.train_ϵ_decay(0.01f0, 0.0f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ f34e5443-7f7a-4461-a8e2-f61a30fcf3e3
+#=╠═╡
+@profview linear_value_cont_dense_setup.train_ϵ_decay(0.01f0, 0.5f0, 100_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 49037ef7-1273-44a7-881d-b1910015fd14
+#=╠═╡
+@profview linear_value_cont_dense_setup.train_ϵ_decay(0.01f0, 0.0f0, 100_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 8f2dd588-aac5-40d3-8e06-7040611fe867
+const linear_value_cont_sparse_setup = setup_continuing_value_linear_training(state_mdp_continuing, sparse_feature_setup...)
+
+# ╔═╡ 1d677cef-e362-4bd1-84ee-5aefa224feb7
+#=╠═╡
+@profview linear_value_cont_sparse_setup.train_ϵ_decay(0.01f0, 0.5f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 307302ec-4f13-4037-b26a-a34a11c1f8bb
+#=╠═╡
+@profview linear_value_cont_sparse_setup.train_ϵ_decay(0.01f0, 0.0f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 0ab5e09a-d6cc-46d5-ab9b-7c30f1ba102c
+#=╠═╡
+@profview linear_value_cont_sparse_setup.train_ϵ_decay(0.01f0, 0.5f0, 100_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 3ad842ea-fcb9-4f71-a8ea-78b03ad23a17
+#=╠═╡
+@profview linear_value_cont_sparse_setup.train_ϵ_decay(0.01f0, 0.0f0, 100_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ c1ace692-752a-477e-aa7d-badce258d8f8
+const linear_value_cont_mountaincar_setup = setup_continuing_value_linear_training(mountaincar_continuing, mountaincar_features...)
+
+# ╔═╡ 248b5206-13d0-4d3c-a78b-fbaeb7cc9bb9
+#=╠═╡
+@profview linear_value_cont_mountaincar_setup.train_ϵ_decay(0.01f0, 0.5f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 13ef47af-ce86-441e-a35d-85406ee50c7c
+#=╠═╡
+@profview linear_value_cont_mountaincar_setup.train_ϵ_decay(0.01f0, 0.0f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 271b3bf8-78d1-4247-b8de-3240e5f56561
+#=╠═╡
+@profview linear_value_cont_mountaincar_setup.train_ϵ_decay(0.01f0, 0.5f0, 100_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ f9dbdd26-db8a-4f6b-a99c-1ff74a82b8a4
+#=╠═╡
+@profview linear_value_cont_mountaincar_setup.train_ϵ_decay(0.01f0, 0.0f0, 100_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ af20c893-2849-4fb2-a1a7-ce52d77f118e
+const nonlinear_value_cont_dense_setup = setup_continuing_value_nonlinear_training(state_mdp_continuing, dense_feature_setup...)
+
+# ╔═╡ 0bf447f3-29b2-430e-bdc4-d371e2f96dbf
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 4dd66844-ece8-42b4-9661-58cfeb4249e1
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.5f0, 1_000; show_messages = false, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ 8ce8b762-a0d8-43fc-8dcb-e2adf73e3954
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.0f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ d9c95396-dc56-4edb-8f9b-dd98465708f4
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.0f0, 1_000; show_messages = false, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ c4b7255e-164e-4b5b-b96b-ac10cf8c92a3
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.5f0, 10_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 6d8378e5-8353-4ebb-9996-017e606ea904
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.5f0, 1_000; show_messages = false, use_dp = true, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ 0db68fb5-5d05-49b8-bdce-5a5c2d485cad
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.0f0, 10_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 100b2ed7-1959-4127-b98d-be0ef673080a
+#=╠═╡
+@profview nonlinear_value_cont_dense_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.0f0, 1_000; show_messages = false, use_dp = true, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ 40570db1-b5a6-4755-b113-1f895a1aa1e9
+const nonlinear_value_cont_sparse_setup = setup_continuing_value_nonlinear_training(state_mdp_continuing, sparse_feature_setup...)
+
+# ╔═╡ 6ebb572b-779d-4ca7-b413-9ad277dc984f
+#=╠═╡
+@profview nonlinear_value_cont_sparse_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ d5227717-3ee5-45ce-8d69-7db16b1adebd
+#=╠═╡
+@profview nonlinear_value_cont_sparse_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.0f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 52e51a05-7bc8-4913-a286-625da19e883b
+#=╠═╡
+@profview nonlinear_value_cont_sparse_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.5f0, 10_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 41233c64-e5f6-4f78-9935-bbfa88fd5316
+#=╠═╡
+@profview nonlinear_value_cont_sparse_setup.train_ϵ_decay([64, 64], 1, 0.01f0, 0.0f0, 10_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 8c993685-49d9-4044-b856-98bc7bb8864d
+const nonlinear_value_cont_mountaincar_setup = setup_continuing_value_nonlinear_training(mountaincar_continuing, mountaincar_features...)
+
+# ╔═╡ 9f57da50-d75c-47b1-8924-7580cda1c683
+#=╠═╡
+@profview nonlinear_value_cont_mountaincar_setup.train_ϵ_decay([64, 64], 1, 0.1f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ e9eda3fa-6b0b-4944-9100-45b08b76d4c4
+#=╠═╡
+@profview nonlinear_value_cont_mountaincar_setup.train_ϵ_decay([64, 64], 1, 0.1f0, 0.0f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ f6d9781b-0c27-4583-88db-d816a16ae947
+#=╠═╡
+@profview nonlinear_value_cont_mountaincar_setup.train_ϵ_decay([64, 64], 1, 0.1f0, 0.5f0, 10_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ 58037d00-0135-40a1-89b0-68e2c037994c
+#=╠═╡
+@profview nonlinear_value_cont_mountaincar_setup.train_ϵ_decay([64, 64], 1, 0.1f0, 0.0f0, 10_000; show_messages = false, use_dp = true)
+  ╠═╡ =#
+
+# ╔═╡ bf35cb9a-1dc9-4ce3-8e8b-335fb4718fb5
+const linear_policy_cont_dense_setup = setup_continuing_policy_linear_training(state_mdp_continuing, dense_feature_setup...)
+
+# ╔═╡ f4343e65-1cfb-4480-80ec-4f9721460671
+#=╠═╡
+@profview linear_policy_cont_dense_setup.train_rate_decay(0.1f0, 0.1f0, 0.5f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 334770f9-02fb-4598-8040-c268b055342b
+#=╠═╡
+@profview linear_policy_cont_dense_setup.train_rate_decay(0.1f0, 0.1f0, 0.0f0, 0.0f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ c9bf84ab-cc7b-4271-a51f-e9e32481d4b4
+const linear_policy_cont_sparse_setup = setup_continuing_policy_linear_training(state_mdp_continuing, sparse_feature_setup...)
+
+# ╔═╡ dabae945-a332-49de-9740-5b815208f03d
+#=╠═╡
+@profview linear_policy_cont_sparse_setup.train_rate_decay(0.1f0, 0.1f0, 0.5f0, 0.5f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 6c7ef221-e69a-4b02-ad37-5e59712e28ca
+#=╠═╡
+@profview linear_policy_cont_sparse_setup.train_rate_decay(0.1f0, 0.1f0, 0.0f0, 0.0f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 20855619-ee21-42ad-9ddb-6f5e78c58733
+const linear_policy_cont_mountaincar_setup = setup_continuing_policy_linear_training(mountaincar_continuing, mountaincar_features...)
+
+# ╔═╡ 41933441-41af-4d5d-8ee8-6209ed7e32f1
+#=╠═╡
+@profview linear_policy_cont_mountaincar_setup.train_rate_decay(0.001f0, 0.001f0, 0.5f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 633948df-412b-47eb-8ba3-09f630d3b809
+#=╠═╡
+@profview linear_policy_cont_mountaincar_setup.train_rate_decay(0.001f0, 0.001f0, 0.0f0, 0.0f0, 100_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 4b97a139-8ccb-4e29-9413-6406df018cc5
+const nonlinear_policy_cont_dense_setup = setup_continuing_policy_nonlinear_training(state_mdp_continuing, dense_feature_setup...)
+
+# ╔═╡ 3d5cf378-935e-4c44-af73-20af5c904ae2
+#=╠═╡
+@profview nonlinear_policy_cont_dense_setup.train_rate_decay([64, 64], 1, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 7255f430-45e2-4a5d-acb7-20c6df10435a
+#=╠═╡
+@profview nonlinear_policy_cont_dense_setup.train_rate_decay([64, 64], 1, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 10_000; show_messages = false, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ e08a2ffe-1770-4939-a53f-2ebc08d778fe
+#=╠═╡
+@profview nonlinear_policy_cont_dense_setup.train_rate_decay([64, 64], 1, 0.1f0, 0.1f0, 0.0f0, 0.0f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 9ded9f86-4de8-48d0-891f-0d08a11fcdd4
+#=╠═╡
+@profview nonlinear_policy_cont_dense_setup.train_rate_decay([64, 64], 1, 0.1f0, 0.1f0, 0.0f0, 0.0f0, 10_000; show_messages = false, use_gpu = true)
+  ╠═╡ =#
+
+# ╔═╡ a8713ec6-f6ca-4be8-ae83-c8b795a3248f
+const nonlinear_policy_cont_sparse_setup = setup_continuing_policy_nonlinear_training(state_mdp_continuing, sparse_feature_setup...)
+
+# ╔═╡ a9a960af-85c3-4c8b-a172-9d35ced9c68f
+#=╠═╡
+@profview nonlinear_policy_cont_sparse_setup.train_rate_decay([64, 64], 1, 0.1f0, 0.1f0, 0.5f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 6369c8a3-f773-47f5-bcf9-6e541b725beb
+#=╠═╡
+@profview nonlinear_policy_cont_sparse_setup.train_rate_decay([64, 64], 1, 0.1f0, 0.1f0, 0.0f0, 0.0f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ ad97387f-6579-46d8-9f3b-e4424bcd34db
+const nonlinear_policy_cont_mountaincar_setup = setup_continuing_policy_nonlinear_training(mountaincar_continuing, mountaincar_features...)
+
+# ╔═╡ e7bdf50e-19be-4cd2-95c5-2ad98a7f860d
+#=╠═╡
+@profview nonlinear_policy_cont_mountaincar_setup.train_rate_decay([64, 64], 1, 0.001f0, 0.001f0, 0.5f0, 0.5f0, 10_000; show_messages = false)
+  ╠═╡ =#
+
+# ╔═╡ 85fd7e7f-3f20-4a96-84fb-4f7f135571c2
+#=╠═╡
+@profview nonlinear_policy_cont_mountaincar_setup.train_rate_decay([64, 64], 1, 0.001f0, 0.001f0, 0.0f0, 0.0f0, 10_000; show_messages = false)
+  ╠═╡ =#
 
 # ╔═╡ c2a4aa42-0d6d-4b56-9fe9-11036ab6b844
+# ╠═╡ skip_as_script = true
+#=╠═╡
 html"""
 <style>
 	main {
@@ -157,6 +556,7 @@ html"""
 	}
 </style>
 """
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -723,7 +1123,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 """
 
 # ╔═╡ Cell order:
-# ╠═efef7b11-9ea4-4632-b696-9b524e1e7c67
+# ╟─efef7b11-9ea4-4632-b696-9b524e1e7c67
 # ╠═bf71e7e5-09e9-4e38-810f-6c9e09c5f8f3
 # ╠═a920905a-9780-4fa9-9c79-bc9868681f6f
 # ╠═cf22debd-f4e0-4149-bc3c-40c36b962f62
@@ -740,11 +1140,14 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╟─41928240-0422-4a65-860b-7d5388da9b30
 # ╠═ff72a08d-d980-4e2e-9b43-1ae45daee73b
 # ╠═1b9809c5-fbe8-40f8-9fea-67a6619fedf4
+# ╠═5af68de4-46b6-4375-808d-0875b286070c
 # ╠═51f7b0ef-692b-4e46-91ce-15eb14f148f1
 # ╟─f107a9f6-e871-4fa7-8245-2c478cb01210
 # ╠═34f8c6c7-17fe-4bb3-9908-9536336f3a62
 # ╠═54ac99fd-1bbb-43f6-8bce-5eaf1d89a585
+# ╠═36d528c5-e6c5-45e0-9bb9-2163f71d7fc8
 # ╠═bcbf7017-e196-4ea1-8a9b-a5aab279f96d
+# ╠═1b572db3-f442-4df8-bfc7-45314ff851af
 # ╟─26b6a884-e26d-4963-a611-9de373c73294
 # ╟─f7997044-51c5-4cd3-b3c9-316365061633
 # ╠═0cb5288d-71ea-4e47-ab2a-d5a568c9c15c
@@ -752,10 +1155,89 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═ff91023e-7f58-433c-ab6d-65f3ee49549f
 # ╟─da50ae43-506b-4428-b0ee-aa56d11bb4f0
 # ╠═3b5782ee-b607-4959-bb9b-107a83f34639
+# ╠═5ebac3c4-6be7-4a77-8e64-503629b02e04
+# ╠═5728c42d-751c-4c41-b192-0f6323c6eb73
+# ╠═1ee13ee1-9d9c-422c-9206-85dd7ae2a572
+# ╠═744948ab-cebf-4091-bfb9-66ba74d563ce
 # ╠═aaf3c52e-356b-415d-a3ff-db43c235b322
+# ╠═f451a55d-e204-4f56-b356-2115ba83829b
 # ╠═330c8c03-3371-4a49-8b88-bc924ca5f76f
+# ╠═8893550d-31b2-4df6-af66-17f97609041a
+# ╟─bf5d0a2c-5f7a-4172-8ff4-a1b9c0f29a91
+# ╟─4ff2e16f-3cca-4749-8253-12b66e373b6d
+# ╟─d70867bf-2ccb-4877-96b9-8bccc1dbc7b3
+# ╠═70f6f0cf-8ee0-424b-a14e-f746bcb4e810
+# ╠═8f2dd588-aac5-40d3-8e06-7040611fe867
+# ╠═c1ace692-752a-477e-aa7d-badce258d8f8
+# ╟─db838dd8-7a59-434f-b473-86320277d08b
+# ╠═1f65e88b-2060-4cbb-9cae-a5af73094495
+# ╠═63c69867-1060-4c50-8dfa-a25278ddbcda
+# ╠═f34e5443-7f7a-4461-a8e2-f61a30fcf3e3
+# ╠═49037ef7-1273-44a7-881d-b1910015fd14
+# ╠═11a977b5-b2c6-4999-a7f3-5b4cc98ba1e2
+# ╠═1d677cef-e362-4bd1-84ee-5aefa224feb7
+# ╠═307302ec-4f13-4037-b26a-a34a11c1f8bb
+# ╠═0ab5e09a-d6cc-46d5-ab9b-7c30f1ba102c
+# ╠═3ad842ea-fcb9-4f71-a8ea-78b03ad23a17
+# ╟─674ed54f-f4d0-4d01-85e9-9f6eca2f7ecc
+# ╠═248b5206-13d0-4d3c-a78b-fbaeb7cc9bb9
+# ╠═13ef47af-ce86-441e-a35d-85406ee50c7c
+# ╠═271b3bf8-78d1-4247-b8de-3240e5f56561
+# ╠═f9dbdd26-db8a-4f6b-a99c-1ff74a82b8a4
+# ╟─cd20f90c-b98e-4427-bb99-5cb8721771db
+# ╟─d83dddf4-abf5-4aa2-b979-9c04578638a5
+# ╠═af20c893-2849-4fb2-a1a7-ce52d77f118e
+# ╠═0bf447f3-29b2-430e-bdc4-d371e2f96dbf
+# ╠═4dd66844-ece8-42b4-9661-58cfeb4249e1
+# ╠═8ce8b762-a0d8-43fc-8dcb-e2adf73e3954
+# ╠═d9c95396-dc56-4edb-8f9b-dd98465708f4
+# ╠═c4b7255e-164e-4b5b-b96b-ac10cf8c92a3
+# ╠═6d8378e5-8353-4ebb-9996-017e606ea904
+# ╠═0db68fb5-5d05-49b8-bdce-5a5c2d485cad
+# ╠═100b2ed7-1959-4127-b98d-be0ef673080a
+# ╟─9c2fe4f9-3a76-4175-a1a7-dd24d2dc3477
+# ╠═40570db1-b5a6-4755-b113-1f895a1aa1e9
+# ╠═6ebb572b-779d-4ca7-b413-9ad277dc984f
+# ╠═d5227717-3ee5-45ce-8d69-7db16b1adebd
+# ╠═52e51a05-7bc8-4913-a286-625da19e883b
+# ╠═41233c64-e5f6-4f78-9935-bbfa88fd5316
+# ╟─310fb90a-52fe-45b8-bd10-564577300a6d
+# ╠═8c993685-49d9-4044-b856-98bc7bb8864d
+# ╠═9f57da50-d75c-47b1-8924-7580cda1c683
+# ╠═e9eda3fa-6b0b-4944-9100-45b08b76d4c4
+# ╠═f6d9781b-0c27-4583-88db-d816a16ae947
+# ╠═58037d00-0135-40a1-89b0-68e2c037994c
+# ╟─ac2e5ff3-cb46-472a-9115-e231846db5d2
+# ╟─7597f4be-83c5-4b5f-a427-c38e3d09fbeb
+# ╟─f7d2463c-86d6-44ad-8366-c725161381e7
+# ╠═bf35cb9a-1dc9-4ce3-8e8b-335fb4718fb5
+# ╠═f4343e65-1cfb-4480-80ec-4f9721460671
+# ╠═334770f9-02fb-4598-8040-c268b055342b
+# ╟─7a6151d7-5055-4a4e-810a-1d169a6cc0c9
+# ╠═c9bf84ab-cc7b-4271-a51f-e9e32481d4b4
+# ╠═dabae945-a332-49de-9740-5b815208f03d
+# ╠═6c7ef221-e69a-4b02-ad37-5e59712e28ca
+# ╟─bb01eff3-d860-4f93-be88-847233cf5081
+# ╠═20855619-ee21-42ad-9ddb-6f5e78c58733
+# ╠═41933441-41af-4d5d-8ee8-6209ed7e32f1
+# ╠═633948df-412b-47eb-8ba3-09f630d3b809
+# ╟─e3a19a90-cf7b-43a2-8bc6-fa3bcb0ae6d1
+# ╟─69253b86-be71-4ab2-b83d-9dd4fa0e6f7e
+# ╠═4b97a139-8ccb-4e29-9413-6406df018cc5
+# ╠═3d5cf378-935e-4c44-af73-20af5c904ae2
+# ╠═7255f430-45e2-4a5d-acb7-20c6df10435a
+# ╠═e08a2ffe-1770-4939-a53f-2ebc08d778fe
+# ╠═9ded9f86-4de8-48d0-891f-0d08a11fcdd4
+# ╟─3d01ed1a-14b4-4a00-aae5-1f69d99fde36
+# ╠═a8713ec6-f6ca-4be8-ae83-c8b795a3248f
+# ╠═a9a960af-85c3-4c8b-a172-9d35ced9c68f
+# ╠═6369c8a3-f773-47f5-bcf9-6e541b725beb
+# ╟─a9c15b2a-37b0-4aaf-8fac-3ccf8dd43f34
+# ╠═ad97387f-6579-46d8-9f3b-e4424bcd34db
+# ╠═e7bdf50e-19be-4cd2-95c5-2ad98a7f860d
+# ╠═85fd7e7f-3f20-4a96-84fb-4f7f135571c2
 # ╠═89db1701-8975-48ac-a210-21c7e1faee55
-# ╠═d0eb2a8e-b000-11f1-b0d1-918e6553d269
+# ╟─d0eb2a8e-b000-11f1-b0d1-918e6553d269
 # ╠═5106ddc1-b3bc-4688-b6fb-75441f3c67d5
 # ╠═32d1e371-bf66-4b84-bc53-de595cc9080e
 # ╠═8845bf98-b287-48c2-9af5-67a992e513dd

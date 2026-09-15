@@ -705,7 +705,7 @@ mutable struct LinearEligibilityVector{T <: Real, V <: LinearFeatureVector} <: A
 		l1 = length(feature_vector)
 		l2 = size(params, 1)
 		@assert l1 == l2 "Feature vector length of $l1 does not match expected input length from parameter matrix of $l2"
-		new{T, V}(deepcopy(feature_vector), 0, zeros(T, size(params, 2)))
+		new{T, V}(copy(feature_vector), 0, zeros(T, size(params, 2)))
 	end
 end
 
@@ -726,10 +726,10 @@ struct NonLinearEligibilityVector{T <: Real} <: AbstractEligibilityVector{T}
 		
 		#form activations for network
 		activations = FCANN.form_activations(params.weights[1])
-		tanh_grad_z = deepcopy(activations)
-		deltas = deepcopy(activations)
+		tanh_grad_z = copy(activations)
+		deltas = copy(activations)
 	
-		gradient = deepcopy(params)
+		gradient = copy(params)
 
 		scales = ones(T, length(params.weights[1]))
 		if use_μP
@@ -904,8 +904,8 @@ update_params_with_gradient!(::Nothing, α, ∇) = return nothing
 function setup_fcann_policy_arguments(params::FCANNParams{T}, input_length::Integer, hidden_layers::Vector{Int64}, reslayers::Integer, l2::T, dropout::T, use_μP::Bool, activation_list) where {T<:Real}
 	x = zeros(T, input_length)
 	activations = FCANN.form_activations(params[1])
-	tanh_grad_z = deepcopy(activations)
-	deltas = deepcopy(activations)
+	tanh_grad_z = copy(activations)
+	deltas = copy(activations)
 	scales = fill(one(T), length(params[1]))
 	if use_μP
 		for i in eachindex(hidden_layers)
@@ -914,7 +914,7 @@ function setup_fcann_policy_arguments(params::FCANNParams{T}, input_length::Inte
 		end
 	end	 
 
-	∇lnπ = deepcopy(params)
+	∇lnπ = copy(params)
 
 	update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales)
 	
@@ -970,7 +970,7 @@ begin
 	form_state_value_function(feature_vector::V, update_feature_vector!::Function, parameters::Vector{T}) where {V, T<:Real} = form_state_value_function(linear_value_function, update_feature_vector!, feature_vector, parameters)
 	
 	function form_state_value_function(feature_vector::V, update_feature_vector!::Function, parameters::FCANNParams{T}) where {V, T<:Real}
-		function v̂(s; feature_vector::V = deepcopy(feature_vector), value_parameters::FCANNParams = parameters, value_activations = FCANN.form_activations(value_parameters.weights[1]), kwargs...)
+		function v̂(s; feature_vector::V = copy(feature_vector), value_parameters::FCANNParams = parameters, value_activations = FCANN.form_activations(value_parameters.weights[1]), kwargs...)
 			update_feature_vector!(feature_vector, s)
 			fcann_value_function!(value_activations, feature_vector, value_parameters)
 			return first(last(value_activations))
@@ -982,7 +982,7 @@ begin
 			return first(last(value_activations))
 		end
 
-		form_kwargs() = (feature_vector = deepcopy(feature_vector), value_parameters = parameters, value_activations = FCANN.form_activations(parameters.weights[1]))
+		form_kwargs() = (feature_vector = copy(feature_vector), value_parameters = parameters, value_activations = FCANN.form_activations(parameters.weights[1]))
 		
 		return (v̂, form_kwargs)
 	end
@@ -1052,9 +1052,9 @@ begin
 	
 		v̂, form_value_kwargs = form_state_value_function(feature_vector, update_feature_vector!, value_parameters)
 	
-		form_policy_kwargs() = (feature_vector = deepcopy(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args = form_policy_args(policy_parameters))
+		form_policy_kwargs() = (feature_vector = copy(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args = form_policy_args(policy_parameters))
 	
-		function π(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, policy_args = form_policy_args(policy_parameters), kwargs...) 
+		function π(s::S; feature_vector::V = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, policy_args = form_policy_args(policy_parameters), kwargs...) 
 			update_feature_vector!(feature_vector, s)
 			π!(policy, feature_vector, policy_parameters, mdp, s, policy_args...)
 		end
@@ -1063,7 +1063,7 @@ begin
 			(s; kwargs...) -> sample_action(p(s; kwargs...))
 		end
 	
-		function policy_and_value(s::S; feature_vector::V = deepcopy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, value_parameters::P2 = value_parameters, policy_args = form_policy_args(policy_parameters), kwargs...)
+		function policy_and_value(s::S; feature_vector::V = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, value_parameters::P2 = value_parameters, policy_args = form_policy_args(policy_parameters), kwargs...)
 			update_feature_vector!(feature_vector, s)
 			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args..., mdp, s)
 			v = v̂(feature_vector, value_parameters; kwargs...)
@@ -1085,19 +1085,19 @@ begin
 
 
 		function π!(policy::Vector{T}, x, params, mdp, s, args::Vararg{Any})
-			update_policy_dist!(policy, x, params, mdp, s, args...)
+			update_policy_dist!(policy, x, params, args..., mdp, s)
 			return policy
 		end
 		
-		function π(s::S, params::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(params)) 
+		function π(s::S, params::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
-			π!(policy, feature_vector, params, mdp, s, policy_args_cpu...)
+			π!(policy, feature_vector, params, mdp, s, policy_args...)
 		end
 
-		function π(s::S, params::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(params)) 
+		function π(s::S, params::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
 			FCANN.memcpy!(d_x, feature_vector)
-			π!(policy, d_x, params, mdp, s, policy_args_gpu...)
+			π!(policy, d_x, params, mdp, s, policy_args...)
 		end
 
 		function π_cpu(s::S; policy_parameters::FCANNParams{T} = cpu_policy_params, kwargs...)
@@ -1115,8 +1115,8 @@ begin
 			π(s, Val(use_gpu); kwargs...)
 		end
 
-		form_policy_kwargs_cpu() = (feature_vector = copy(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(cpu_policy_params))
-		form_policy_kwargs_gpu() = (feature_vector = copy(feature_vector), d_x = FCANN.cuda_allocate(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args_gpu =form_policy_args(gpu_policy_params))
+		form_policy_kwargs_cpu() = (feature_vector = copy(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args = form_policy_args(cpu_policy_params))
+		form_policy_kwargs_gpu() = (feature_vector = copy(feature_vector), d_x = FCANN.cuda_allocate(feature_vector), policy = zeros(T, length(mdp.actions)), policy_args =form_policy_args(gpu_policy_params))
 
 		form_policy_kwargs() = (policy_kwargs_cpu = form_policy_kwargs_cpu(), policy_kwargs_gpu = form_policy_kwargs_gpu())
 
@@ -1175,7 +1175,7 @@ begin
 		scale = (policy_params.reslayers == 0) ? 1 : length(hidden_layers) / (policy_params.reslayers + 1) + 1
 		c = scale * last(hidden_layers)
 		f = use_μP ? one(T) / c : c^T(-0.5)
-		value_params = deepcopy(policy_params)
+		value_params = copy(policy_params)
 		for i in eachindex(hidden_layers)
 			for j in 1:2
 				value_params.weights[j][i] = policy_params.weights[j][i]
@@ -2812,10 +2812,10 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 end
 
 # ╔═╡ 57e5e12a-b722-4ea3-ab3b-e5711029e640
-one_step_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+one_step_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 78221df2-4029-43a6-a16e-70b4d6890d23
-one_step_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+one_step_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 7d63b960-3998-4f7b-8cbb-ccd49db9aeac
 #=╠═╡
@@ -3150,7 +3150,7 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 		end
 	end
 
-	π2(s; feature_vector = deepcopy(x), action_dist_params = copy(action_dist_params)) = π!(feature_vector, action_dist_params, s, policy_params)
+	π2(s; feature_vector = copy(x), action_dist_params = copy(action_dist_params)) = π!(feature_vector, action_dist_params, s, policy_params)
 	π_sample2(s; kwargs...) = action_sampler(π2(s; kwargs...))
 	function policy_and_value(s::S)
 		π!(x, action_dist_params, s, policy_params)
@@ -3162,7 +3162,7 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 end
 
 # ╔═╡ d8bac85f-3d77-4303-a2b6-2c1ccc040320
-reinforce_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, nothing, mdp, γ, num_episodes, feature_vector, update_feature_vector!, Returns(zero(T)), deepcopy(feature_vector), Returns(nothing), LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+reinforce_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, nothing, mdp, γ, num_episodes, feature_vector, update_feature_vector!, Returns(zero(T)), copy(feature_vector), Returns(nothing), LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ d037ea92-915c-4dc7-97c6-d006d92e088a
 #=╠═╡
@@ -3203,7 +3203,7 @@ reinforce_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, [1f0], Returns(n
 
 # ╔═╡ 1d36ae81-d3da-45c0-bbcf-0b6e0e80b091
 function reinforce_monte_carlo_control_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3} 
-	!use_gpu && return reinforce_with_baseline_monte_carlo_control!(policy_params, nothing, mdp, γ, num_episodes, feature_vector, update_feature_vector!, Returns(zero(T)), deepcopy(feature_vector), Returns(nothing), NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
+	!use_gpu && return reinforce_with_baseline_monte_carlo_control!(policy_params, nothing, mdp, γ, num_episodes, feature_vector, update_feature_vector!, Returns(zero(T)), copy(feature_vector), Returns(nothing), NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	!in(:GPU, backendList) && error("GPU backend is not available")
 	gpu_feature_update! = setup_gpu_feature(feature_vector, update_feature_vector!)
@@ -3228,7 +3228,7 @@ reinforce_monte_carlo_control_fcann(corridor_mdp, 1f0, 10, [1f0], Returns(nothin
   ╠═╡ =#
 
 # ╔═╡ a7c9ae69-f4b8-471c-ab97-90642f3c2bdb
-reinforce_with_baseline_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+reinforce_with_baseline_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ cbea5840-49d2-4e91-be9c-f5f15666d78a
 #=╠═╡
@@ -3629,9 +3629,9 @@ function form_state_and_policy_function_outputs(update_feature_vector!::Function
 	π_sample(s) = action_sampler(π(s))
 
 	v! = form_state_value_function(update_feature_vector!, value_function)
-	estimate_state_value(s; x = deepcopy(feature_vector)) = v!(x, s, value_params)
+	estimate_state_value(s; x = copy(feature_vector)) = v!(x, s, value_params)
 
-	function policy_and_value(s; x = deepcopy(feature_vector), action_dist_params = copy(action_dist_params))
+	function policy_and_value(s; x = copy(feature_vector), action_dist_params = copy(action_dist_params))
 		π!(x, action_dist_params, s, policy_params)
 		v̂ = value_function(x, value_params)
 		return (action_distribution_parameters = action_dist_params, state_value_estimate = v̂)
@@ -3642,7 +3642,7 @@ end
 
 # ╔═╡ b71145a4-2614-4f62-bfd2-7d5d1fecec56
 #version of reinforce for general function approximation
-function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value_params::P2, ∇v̂, mdp::ContinuousMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, update_action_distribution!::Function, action_dist_params::Vector{T}, action_sampler::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), z_θ::P1 = deepcopy(policy_params), z_w::P2 = deepcopy(value_params), save_step_rewards = false) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
+function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value_params::P2, ∇v̂, mdp::ContinuousMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, update_action_distribution!::Function, action_dist_params::Vector{T}, action_sampler::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_episodes::Integer, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, γ::T = one(T), z_θ::P1 = copy(policy_params), z_w::P2 = copy(value_params), save_step_rewards = false) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
 	step_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
@@ -3710,7 +3710,7 @@ end
 
 # ╔═╡ 4da20fd7-b897-4f26-bf2a-f08d66ddf90f
 #version of reinforce for general function approximation
-function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value_params::P2, ∇v̂, mdp::ContinuousMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, update_action_distribution!::Function, action_dist_params::Vector{T}, action_sampler::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄ = one(T)/10, z_θ::P1 = deepcopy(policy_params), z_w::P2 = deepcopy(value_params), save_step_rewards = false) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
+function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value_params::P2, ∇v̂, mdp::ContinuousMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, update_action_distribution!::Function, action_dist_params::Vector{T}, action_sampler::Function, update_eligibility_vector!::Function, x, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, max_steps::Integer; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄ = one(T)/10, z_θ::P1 = copy(policy_params), z_w::P2 = copy(value_params), save_step_rewards = false) where {P1, P2, T<:Real, S, A, PTF, F1, F2, F3}
 	step_rewards = Vector{T}()
 
 	#initialize variables
@@ -3764,7 +3764,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 end
 
 # ╔═╡ 05bfd818-bf4e-4bda-baa9-5ba647867097
-actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
 function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P, F1, F2, F3}
@@ -3791,7 +3791,7 @@ function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T, S, A, P, F1
 end
 
 # ╔═╡ 4bc22ad6-75f7-4dc9-8bfe-9f5a99eb67ef
-actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 3bccf6fc-6e5e-4f62-ad40-1ff0a3740728
 #=╠═╡

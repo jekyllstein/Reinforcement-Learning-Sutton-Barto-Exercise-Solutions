@@ -353,9 +353,9 @@ end
 function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	function sarsa_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
-			semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+			semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			sarsa_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
+			sarsa_λ_linear(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	sarsa_linear_study = setup_parameter_study(make_episodic_trial(sarsa_train_linear, min_reward; use_steps = use_steps), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
@@ -363,16 +363,16 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 	function sarsa_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_sarsa_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
+			semi_gradient_sarsa_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			sarsa_λ_fcann(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
+			sarsa_λ_fcann(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	
 	sarsa_nonlinear_study = setup_parameter_study(make_episodic_trial(sarsa_train_nonlinear, min_reward; use_steps = use_steps), (:γ, :α, :λ, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), compute_value = compute_sarsa_value, ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
 
 	function monte_carlo_linear(γ::T, α::T, num_episodoes::Integer; kwargs...) 
-		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		rewards = output.reward_history
 		isempty(rewards) && return min_reward
 		!use_steps && return Statistics.mean(rewards)
@@ -383,7 +383,7 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 
 	function monte_carlo_nonlinear(γ::T, α::T, num_episodoes::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...) 
 		hidden_layers = fill(layer_size, num_layers)
-		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; reslayers = reslayers, α = α, kwargs...)
+		output = gradient_monte_carlo_control_linear(mdp, γ, num_episodes, copy(feature_vector), update_feature_vector!; reslayers = reslayers, α = α, kwargs...)
 		rewards = output.reward_history
 		isempty(rewards) && return min_reward
 		Statistics.mean(rewards)
@@ -393,13 +393,13 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 
 	monte_carlo_nonlinear_study = setup_parameter_study(monte_carlo_nonlinear, (:γ, :α, :num_episodes, :layer_size, :num_layers, :reslayers), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, max_steps = typemax(Int64), use_unfinished_episodes = true))
 
-	dqn_lin(γ::T, α::T, max_steps::Integer; max_episodes = typemax(Int64), kwargs...) = dqn_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+	dqn_lin(γ::T, α::T, max_steps::Integer; max_episodes = typemax(Int64), kwargs...) = dqn_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
 
 	dqn_linear_study = setup_parameter_study(make_episodic_trial(dqn_lin, min_reward; use_steps = use_steps), (:γ, :α, :max_steps), (max_episodes = typemax(Int64), ϵ = one(T) / 10, buffer_size = 10_000, batch_size = 512, target_update_interval = 100, use_double_q = true, N = 0))
 
 	function dqn_nonlinear(γ::T, α::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes = typemax(Int64), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
-		dqn_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
+		dqn_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 	end
 
 	dqn_nonlinear_study = setup_parameter_study(make_episodic_trial(dqn_nonlinear, min_reward; use_steps = use_steps), (:γ, :α, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), ϵ = one(T) / 10, buffer_size = 10_000, batch_size = 512, target_update_interval = 100, use_double_q = true, N = 0))
@@ -415,9 +415,9 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 	
 	function dp_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
-			semi_gradient_dp_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+			semi_gradient_dp_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			dp_λ_linear(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
+			dp_λ_linear(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	dp_linear_study = setup_parameter_study(make_episodic_trial(dp_train_linear, min_reward; use_steps = use_steps), (:γ, :α, :λ, :max_steps), (max_episodes = typemax(Int64), ϵ = one(T) / 10, trace_type = AccumulatingTrace()))
@@ -425,9 +425,9 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 	function dp_train_nonlinear(γ::T, α::T, λ::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_dp_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
+			semi_gradient_dp_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			dp_λ_fcann(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
+			dp_λ_fcann(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	
@@ -531,9 +531,9 @@ episodic_value_studies.sarsa_nonlinear_study.update_results!(1f0, 1f-2, 0.5f0, 1
 function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	function sarsa_train_linear(α::T, λ::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
-			semi_gradient_differential_sarsa_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+			semi_gradient_differential_sarsa_linear(mdp, num_steps, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			sarsa_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
+			sarsa_λ_linear(mdp, λ, num_steps, copy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	sarsa_linear_study = setup_parameter_study(make_continuing_trial(sarsa_train_linear), (:α, :λ, :num_steps), (compute_value = compute_sarsa_value, ϵ = one(T) / 10, α_r̄ = one(T) / 100, trace_type = AccumulatingTrace(),))
@@ -541,9 +541,9 @@ function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, 
 	function sarsa_train_nonlinear(α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_differential_sarsa_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
+			semi_gradient_differential_sarsa_fcann(mdp, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			sarsa_λ_fcann(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
+			sarsa_λ_fcann(mdp, λ, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	
@@ -559,9 +559,9 @@ function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, 
 	
 	function dp_train_linear(α::T, λ::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
-			semi_gradient_differential_dp_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, kwargs...)
+			semi_gradient_differential_dp_linear(mdp, num_steps, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
 		else
-			dp_λ_linear(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
+			dp_λ_linear(mdp, λ, num_steps, copy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, kwargs...)
 		end
 	end
 	dp_linear_study = setup_parameter_study(make_continuing_trial(dp_train_linear), (:α, :λ, :num_steps), (ϵ = 0.1f0, α_r̄ = one(T) / 100, trace_type = AccumulatingTrace()))
@@ -569,9 +569,9 @@ function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, 
 	function dp_train_nonlinear(α::T, λ::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(λ)
-			semi_gradient_differential_dp_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
+			semi_gradient_differential_dp_fcann(mdp, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		else
-			dp_λ_fcann(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
+			dp_λ_fcann(mdp, λ, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, kwargs...)
 		end
 	end
 	
@@ -635,9 +635,9 @@ continuing_value_studies.sarsa_nonlinear_study.update_results!(1f-2, 0.5f0, 1_00
 function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	function ac_train_linear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
+			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
 		end
 	end
 	ac_linear_study = setup_parameter_study(make_episodic_trial(ac_train_linear, min_reward; use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
@@ -645,18 +645,18 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 	function ac_train_nonlinear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
+			one_step_actor_critic_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
+			actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
 		end
 	end
 	ac_nonlinear_study = setup_parameter_study(make_episodic_trial(ac_train_nonlinear, min_reward; use_steps = use_steps), (:γ, :α_θ, :α_w, :λ_θ, :λ_w, :max_steps, :layer_size, :num_layers, :reslayers), (max_episodes = typemax(Int64), trace_type = AccumulatingTrace()))
 
 	function reinforce_linear(γ::T, α_θ::T, α_w::T, num_episodes::Integer; kwargs...) 
 		if iszero(α_w)
-			reinforce_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, kwargs...)
+			reinforce_monte_carlo_control_linear(mdp, γ, num_episodes, copy(feature_vector), update_feature_vector!; α_θ = α_θ, kwargs...)
 		else
-			reinforce_with_baseline_monte_carlo_control_linear(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+			reinforce_with_baseline_monte_carlo_control_linear(mdp, γ, num_episodes, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
 		end
 	end
 
@@ -665,9 +665,9 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 	function reinforce_nonlinear(γ::T, α_θ::T, α_w::T, num_episodes::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; kwargs...) 
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(α_w)
-			reinforce_monte_carlo_control_fcann(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, reslayers = reslayers, kwargs...)
+			reinforce_monte_carlo_control_fcann(mdp, γ, num_episodes, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, reslayers = reslayers, kwargs...)
 		else
-			reinforce_with_baseline_monte_carlo_control_fcann(mdp, γ, num_episodes, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
+			reinforce_with_baseline_monte_carlo_control_fcann(mdp, γ, num_episodes, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
 		end
 	end
 
@@ -675,9 +675,9 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 
 	function ac_sync_train_linear(γ::T, α_θ::T, α_w::T, max_steps::Integer; nstep::Integer = 0, num_env = 8, kwargs...)
 		output = if iszero(nstep)
-			synchronous_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+			synchronous_actor_critic_linear(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
 		else
-			synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, N = nstep, kwargs...)
+			synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, N = nstep, kwargs...)
 		end
 	end
 
@@ -686,9 +686,9 @@ function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F
 	function ac_sync_train_nonlinear(γ::T, α_θ::T, α_w::T, max_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; nstep::Integer = 0, num_env = 8, kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if iszero(nstep)
-			synchronous_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α_θ = α_θ, α_w = α_w, kwargs...)
+			synchronous_actor_critic_fcann(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α_θ = α_θ, α_w = α_w, kwargs...)
 		else
-			synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α_θ = α_θ, α_w = α_w, N = nstep, kwargs...)
+			synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α_θ = α_θ, α_w = α_w, N = nstep, kwargs...)
 		end
 	end
 
@@ -762,9 +762,9 @@ episodic_policy_studies.ac_sync_nonlinear_study.update_results!(1f0, 1f-2, 1f-2,
 function setup_continuing_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
 	function ac_train_linear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
+			one_step_actor_critic_linear(mdp, num_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
+			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, kwargs...)
 		end
 	end
 	ac_linear_study = setup_parameter_study(make_continuing_trial(ac_train_linear), (:α_θ, :α_w, :λ_θ, :λ_w, :num_steps), (α_r̄ = one(T)/100, trace_type = AccumulatingTrace()))
@@ -772,9 +772,9 @@ function setup_continuing_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1,
 	function ac_train_nonlinear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer, layer_size::Integer, num_layers::Integer, reslayers::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		hidden_layers = fill(layer_size, num_layers)
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
+			one_step_actor_critic_fcann(mdp, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
+			actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, reslayers = reslayers, trace_type = trace_type, kwargs...)
 		end
 	end
 	ac_nonlinear_study = setup_parameter_study(make_continuing_trial(ac_train_nonlinear), (:α_θ, :α_w, :λ_θ, :λ_w, :num_steps, :layer_size, :num_layers, :reslayers), (α_r̄ = one(T)/100, trace_type = AccumulatingTrace()))
@@ -821,7 +821,7 @@ function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, 
 	step_count = nsteps
 	remaining_steps = eval_steps - nsteps
 	while remaining_steps > 0
-		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π, max_steps = remaining_steps)
+		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π, max_steps = remaining_steps)
 		if mdp.isterm(sterm) 
 			# reward_sum += sum(rewards[i] for i in 1:nsteps)
 			reward_sum += sum(view(rewards, 1:nsteps))
@@ -836,14 +836,14 @@ end
 
 # ╔═╡ 76a43eb8-9be3-4f66-806c-967dc945f5b6
 function evaluate_episodic_policy_performance(mdp::TabularMDP{T, S, A, P, F}, π::AbstractMatrix, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P, F}
-	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = eval_steps)
+	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π, max_steps = eval_steps)
 	!mdp.terminal_states[sterm] && return min_reward
 	reward_sum = sum(rewards)
 	episode_count = 1
 	step_count = nsteps
 	remaining_steps = eval_steps - nsteps
 	while remaining_steps > 0
-		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π, max_steps = remaining_steps)
+		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π, max_steps = remaining_steps)
 		if !mdp.terminal_states[sterm] 
 			# reward_sum += sum(rewards[i] for i in 1:nsteps)
 			reward_sum += sum(view(rewards, 1:nsteps))
@@ -1013,18 +1013,18 @@ function setup_episodic_training(mdp::TabularMDP{T, S, A, P, F}; q_values::Matri
 		return (;output1..., episode_rewards, episode_steps)
 	end
 
-	function td_train_ϵ_decay(γ::T, α_init::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = zero(T), kwargs...)
-		@info "Beginning epsilon decay td training with initial exploration parameter $ϵ_init"
-		output1 = td_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ_init)
+	function td_train_ϵ_decay(γ::T, α_init::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = zero(T), show_messages::Bool = true, kwargs...)
+		show_messages && @info "Beginning epsilon decay td training with initial exploration parameter $ϵ_init"
+		output1 = td_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ_init, show_messages)
 		episode_rewards = output1.episode_rewards
 		episode_steps = output1.episode_steps
 
 		ϵ = ϵ_init / 2
-		@info "Reducing exploration parameter to $ϵ for next set of trials"
-		output2 = td_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
+		show_messages && @info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = td_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ, show_messages)
 
 		if output2.performance ≤ output1.performance
-			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
 			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
 			return (;output1..., episode_rewards)
 		end
@@ -1037,7 +1037,7 @@ function setup_episodic_training(mdp::TabularMDP{T, S, A, P, F}; q_values::Matri
 			append!(episode_rewards, output1.episode_rewards)
 			append!(episode_steps, output1.episode_steps)
 			
-			@info "On round $round, reducing exploration parameter to $ϵ"
+			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
 			output2 = td_train_rate_decay(γ, α_init, trial_steps; kwargs..., ϵ = ϵ)
 		end
 
@@ -1100,10 +1100,10 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 		params = use_dp ? linear_dp_params : linear_sarsa_params
 		if iszero(λ)
 			f = use_dp ? semi_gradient_dp_linear : semi_gradient_sarsa_linear
-			f(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, kwargs...)
+			f(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, parameters = params, kwargs...)
 		else
 			f = use_dp ? dp_λ_linear : sarsa_λ_linear
-			f(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, parameters = params, kwargs...)
+			f(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, trace_type = trace_type, parameters = params, kwargs...)
 		end
 	end
 
@@ -1205,7 +1205,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 
 	function dqn_train_linear(γ::T, α::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), new_params::Bool = true, kwargs...)
 		new_params && reset_params(false)
-		dqn_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α = α, value_params = linear_sarsa_params, kwargs...)
+		dqn_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, value_params = linear_sarsa_params, kwargs...)
 	end
 
 	function dqn_train_exhaustive(γ::T, α::T, trial_steps::Integer; new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
@@ -1297,7 +1297,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
-			show_messages && @info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
 			return (;output1..., episode_rewards)
 		end
 
@@ -1307,7 +1307,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 			ϵ /= 2
 			output1 = output2
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
-			@info "On round $round, reducing exploration parameter to $ϵ"
+			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
 			output2 = td_train_rate_decay(γ, α_init, λ, trial_steps; kwargs..., ϵ, show_messages)
 		end
 
@@ -1331,7 +1331,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
-			show_messages && @info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
 			return (;output1..., episode_rewards)
 		end
 
@@ -1409,15 +1409,18 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		if iszero(λ)
 			f = use_dp ? semi_gradient_dp_fcann : semi_gradient_sarsa_fcann
-			f(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, parameters = params, kwargs...)
+			f(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, parameters = params, kwargs...)
 		else
 			f = use_dp ? dp_λ_fcann : sarsa_λ_fcann
-			f(mdp, γ, λ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, parameters = params, kwargs...)
+			f(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, parameters = params, kwargs...)
 		end
 	end
 
 	function extract_value_policy(output::NamedTuple, ϵ::T)
 		π_kwargs = output.form_kwargs()
+		v̂ = let v = output.value_function
+			(s; kwargs...) -> v(s; kwargs...)
+		end
 
 		function π(s::S)
 			if rand(T) < ϵ
@@ -1429,7 +1432,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 				end
 				return rand(valid_inds)
 			else
-				return output.value_function(s; π_kwargs...).maximizing_action
+				return v̂(s; π_kwargs...).maximizing_action
 			end
 		end
 	end
@@ -1516,7 +1519,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 	function dqn_train_nonlinear(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), new_params::Bool = true, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, false; reset_params = new_params)
-		dqn_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, value_params = params, kwargs...)
+		dqn_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, value_params = params, kwargs...)
 	end
 
 	function dqn_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, γ::T, α::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
@@ -1610,7 +1613,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
-			show_messages && @info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
 			return (;output1..., episode_rewards)
 		end
 
@@ -1644,7 +1647,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 
 		if output2.performance ≤ output1.performance
 			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
-			show_messages && @info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
+			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
 			return (;output1..., episode_rewards)
 		end
 
@@ -1706,9 +1709,9 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 	function ac_train_linear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes = typemax(Int64), trace_type = AccumulatingTrace(), new_params::Bool = true, kwargs...)
 		new_params && reset_params()
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+			actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 		end
 	end
 
@@ -1795,13 +1798,13 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 
 	function ac_sync_train_linear(::Val{N}, γ::T, α_θ::T, α_w::T, max_steps::Integer; new_params::Bool = true, num_env::Integer = 8, kwargs...) where N
 		new_params && reset_params()
-		synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, N = N, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+		synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, N = N, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 	end
 
 	function ac_sync_train_linear(::Val{0},γ::T, α_θ::T, α_w::T, max_steps::Integer; new_params::Bool = true, num_env::Integer = 8, kwargs...)
 		new_params && reset_params()
 		
-		synchronous_actor_critic_linear(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+		synchronous_actor_critic_linear(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 	end
 
 	ac_sync_train_linear(γ::T, α_θ::T, α_w::T, max_steps::Integer; N::Integer = 0, kwargs...) = ac_sync_train_linear(Val(N), γ, α_θ, α_w, max_steps; kwargs...)
@@ -1930,30 +1933,38 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 	function ac_train_nonlinear(hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes = typemax(Int64), trace_type = AccumulatingTrace(), new_params::Bool = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_fcann(mdp, γ, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
+			one_step_actor_critic_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
+			actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
 		end
 	end
 
 	function ac_train_exhaustive(hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, use_steps::Bool = false, show_messages::Bool = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		show_messages && @info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
-		output1 = ac_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, use_gpu = use_gpu, kwargs...)
-		π_kwargs = output1.form_policy_kwargs()
+		output1 = ac_train_nonlinear(hidden_layers, reslayers, γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = false, use_gpu, kwargs...)
+		π_kwargs_full = output1.form_policy_kwargs()
 		π = let p = output1.policy_sample_action
+			π_kwargs = if use_gpu
+				π_kwargs_full.policy_kwargs_gpu
+			else
+				π_kwargs_full
+			end
 			s -> p(s; use_gpu, π_kwargs...)
 		end
+		# π = let p = output1.policy_sample_action
+		# 	s -> p(s; use_gpu, π_kwargs...)
+		# end
 		# π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps, min_reward)
 		reward1 = baseline_reward
 		trial = 0
 		
 		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
-		output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
-		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+		output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu, kwargs..., new_params = false)
+		reward2 = check_reward_progress(output2; use_steps, min_reward)
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
 			@info "First trial performance resulted in bad parameter values"
@@ -1977,8 +1988,8 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			copy!(backup_value_params, value_params)
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
 			
-			output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
-			reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+			output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu, kwargs..., new_params = false)
+			reward2 = check_reward_progress(output2; use_steps, min_reward)
 		end
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
@@ -1997,13 +2008,13 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 	function ac_train_rate_decay(hidden_layers, reslayers, γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, show_messages::Bool = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		show_messages && @info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
-		output1 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; show_messages = show_messages, kwargs...)
+		output1 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; show_messages, kwargs...)
 		episode_rewards = output1.episode_rewards
 
 		α_θ = α_θ_init / 2
 		α_w = α_w_init / 2
 		show_messages && @info "Reducing learning rates to $α_θ and $α_w for next set of trials"
-		output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages = show_messages, kwargs...)
+		output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages, kwargs...)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -2013,7 +2024,7 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 			α_w = α_w / 2
 			output1 = output2
 			show_messages && @info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages = show_messages, kwargs...)
+			output2 = ac_train_exhaustive(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; show_messages, kwargs...)
 		end
 		@info "Completed rate decay training after $(round-1) rounds with performance $(output1.performance)"
 		return (;output1..., episode_rewards)
@@ -2021,12 +2032,12 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 
 	function ac_sync_train_nonlinear(::Val{0}, hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, max_steps::Integer; num_env::Integer = 8, new_params::Bool = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
-		synchronous_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
+		synchronous_actor_critic_fcann(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
 	end
 
 	function ac_sync_train_nonlinear(::Val{N}, hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, max_steps::Integer; num_env::Integer = 8, new_params::Bool = true, kwargs...) where N
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
-		synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, N = N, kwargs...)
+		synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, N = N, kwargs...)
 	end
 
 	ac_sync_train_nonlinear(hidden_layers, reslayers, γ::T, α_θ::T, α_w::T, max_steps::Integer; N::Integer = 0, kwargs...) = ac_sync_train_nonlinear(Val(N), hidden_layers, reslayers, γ, α_θ, α_w, max_steps; kwargs...)
@@ -2035,8 +2046,13 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		show_messages && @info "Starting exhaustive synchronous training with α_θ = $(α_θ), α_w = $(α_w), and $trial_steps steps per trial"
 		output1 = ac_sync_train_nonlinear(hidden_layers, reslayers, γ, 0f0, 0f0, 0; new_params = false, use_gpu = use_gpu, kwargs...)
-		π_kwargs = output1.form_policy_kwargs()
+		π_kwargs_full = output1.form_policy_kwargs()
 		π = let p = output1.policy_sample_action
+			π_kwargs = if use_gpu
+				π_kwargs_full.policy_kwargs_gpu
+			else
+				π_kwargs_full
+			end
 			s -> p(s; use_gpu, π_kwargs...)
 		end
 		# π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
@@ -2047,8 +2063,8 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
-		output2 = ac_sync_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
-		reward2 = check_sync_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+		output2 = ac_sync_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, trial_steps; use_gpu, kwargs..., new_params = false)
+		reward2 = check_sync_reward_progress(output2; use_steps, min_reward)
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
 			@info "First trial performance resulted in bad parameter values"
@@ -2173,10 +2189,10 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		params = use_dp ? linear_dp_params : linear_sarsa_params
 		if iszero(λ)
 			f = use_dp ? semi_gradient_differential_dp_linear : semi_gradient_differential_sarsa_linear
-			f(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, kwargs...)
+			f(mdp, num_steps, copy(feature_vector), update_feature_vector!; α = α, parameters = params, kwargs...)
 		else
 			f = use_dp ? dp_λ_linear : sarsa_λ_linear
-			f(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!; α = α, parameters = params, trace_type = trace_type, kwargs...)
+			f(mdp, λ, num_steps, copy(feature_vector), update_feature_vector!; α = α, parameters = params, trace_type = trace_type, kwargs...)
 		end
 	end
 	function extract_value_policy(output::NamedTuple, ϵ::T)
@@ -2184,28 +2200,41 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 
 		function π(s::S)
 			if rand(T) < ϵ
-				valid_inds = Vector{Int64}()
-				for i_a in eachindex(mdp.actions)
-					if mdp.is_valid_action(s, i_a)
-						push!(valid_inds, i_a)
-					end
+				num_valid = 0
+				@inbounds @simd for i_a in eachindex(mdp.actions)
+					num_valid += mdp.is_valid_action(s, i_a)
 				end
-				return rand(valid_inds)
+
+				iszero(num_valid) && error("No valid actions found in state $s")
+				ind = rand(1:num_valid)
+				i = 0
+				for i_a in eachindex(mdp.actions)
+					i += mdp.is_valid_action(s, i_a)
+					i == ind && return i_a
+				end
+				return ind
+				# valid_inds = Vector{Int64}()
+				# for i_a in eachindex(mdp.actions)
+				# 	if mdp.is_valid_action(s, i_a)
+				# 		push!(valid_inds, i_a)
+				# 	end
+				# end
+				# return rand(valid_inds)
 			else
 				return output.value_function(s; π_kwargs...).maximizing_action
 			end
 		end
 	end
-	function td_train_exhaustive(α::T, λ::T, trial_steps::Integer; new_params = false, use_dp = false, ϵ = one(T) / 10, kwargs...)
+	function td_train_exhaustive(α::T, λ::T, trial_steps::Integer; new_params = false, use_dp = false, ϵ = one(T) / 10, show_messages::Bool = true, kwargs...)
 		params = use_dp ? linear_dp_params : linear_sarsa_params
-		@info "Starting exhaustive training with α = $α and λ = $λ with $trial_steps steps per trial"
+		show_messages && @info "Starting exhaustive training with α = $α and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_linear(zero(T), zero(T), 0; use_dp = use_dp, new_params = new_params, kwargs...)
 		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline average reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
 		backup_params = copy(params)
 		output2 = td_train_linear(α, λ, trial_steps; use_dp = use_dp, new_params = false, ϵ = ϵ, kwargs...)
 		reward2 = check_reward_progress(output2.reward_history)
@@ -2215,7 +2244,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			params .= backup_params
 			return (;output1..., performance = reward1)
 		end
@@ -2223,7 +2252,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		reward_history = output2.reward_history
 		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
-			@info "On trial $trial, average reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, average reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			backup_params .= params
@@ -2236,23 +2265,23 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		if check_bad_params(params)
 			@info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		params .= backup_params
 		return (;output1..., reward_history, performance = reward1)
 	end
 
-	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; new_params = false, kwargs...)
-		@info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(α_init, λ, trial_steps; new_params = new_params, kwargs...)
+	function td_train_rate_decay(α_init::T, λ::T, trial_steps::Integer; new_params = false, show_messages::Bool = true, kwargs...)
+		show_messages && @info "Beginning exhaustive trials with learning rate $α_init"
+		output1 = td_train_exhaustive(α_init, λ, trial_steps; new_params, show_messages, kwargs...)
 		reward_history = output1.reward_history
 
 		α = α_init / 2
-		@info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(α, λ, trial_steps; kwargs...)
+		show_messages && @info "Reducing learning rate to $α for next set of trials"
+		output2 = td_train_exhaustive(α, λ, trial_steps; show_messages, kwargs...)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -2260,24 +2289,24 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			α /= 2
 			output1 = output2
 			reward_history = vcat(reward_history, output1.reward_history)
-			@info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(α, λ, trial_steps; kwargs...)
+			show_messages && @info "On round $round reducing learning rate to $α"
+			output2 = td_train_exhaustive(α, λ, trial_steps; show_messages, kwargs...)
 		end
-		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		show_messages && @info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., reward_history)
 	end
 
-	function td_train_ϵ_decay(α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
-		@info "Beginning epsilon decay continuing td training with initial exploration parameter $ϵ_init"
-		output1 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+	function td_train_ϵ_decay(α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, show_messages::Bool = true, kwargs...)
+		show_messages && @info "Beginning epsilon decay continuing td training with initial exploration parameter $ϵ_init"
+		output1 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., show_messages, ϵ = ϵ_init)
 		reward_history = output1.reward_history
 
 		ϵ = ϵ_init / 2
-		@info "Reducing exploration parameter to $ϵ for next set of trials"
-		output2 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		show_messages && @info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ, show_messages)
 
 		if output2.performance ≤ output1.performance
-			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
 			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
 			return (;output1..., reward_history)
 		end
@@ -2288,8 +2317,8 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 			ϵ /= 2
 			output1 = output2
 			reward_history = vcat(reward_history, output1.reward_history)
-			@info "On round $round, reducing exploration parameter to $ϵ"
-			output2 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = td_train_rate_decay(α_init, λ, trial_steps; kwargs..., ϵ, show_messages)
 		end
 
 		if output2.performance > output1.performance
@@ -2332,10 +2361,10 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		check_bad_params(params) && error("Cannot initiate training with bad parameter values")
 		if iszero(λ)
 			f = use_dp ? semi_gradient_differential_dp_fcann : semi_gradient_differential_sarsa_fcann
-			f(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, parameters = params, kwargs...)
+			f(mdp, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, parameters = params, kwargs...)
 		else
 			f = use_dp ? dp_λ_fcann : sarsa_λ_fcann
-			f(mdp, λ, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, parameters = params, kwargs...)
+			f(mdp, λ, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; reslayers = reslayers, α = α, trace_type = trace_type, parameters = params, kwargs...)
 		end
 	end
 	
@@ -2357,17 +2386,17 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		end
 	end
 
-	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_gpu::Bool = false, kwargs...)
+	function td_train_exhaustive(hidden_layers::Vector{Int64}, reslayers::Integer, α::T, λ::T, trial_steps::Integer; use_dp::Bool = false, new_params::Bool = false, ϵ = one(T) / 10, use_gpu::Bool = false, show_messages::Bool = false, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
-		@info "Starting exhaustive training with α = $α, and λ = $λ with $trial_steps steps per trial"
+		show_messages && @info "Starting exhaustive training with α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, use_gpu = use_gpu, kwargs...)
 		π = extract_value_policy(output1, ϵ)
 		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline average reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
 		backup_params = copy(params)
 		output2 = td_train_nonlinear(hidden_layers, reslayers, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, use_gpu = use_gpu, kwargs...)
 		reward2 = check_reward_progress(output2.reward_history)
@@ -2377,7 +2406,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 			copy!(params, backup_params)
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			copy!(params, backup_params)
 			return (;output1..., performance = reward1)
 		end
@@ -2385,7 +2414,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		reward_history = output2.reward_history
 		while (reward2 > reward1) && !check_bad_params(params)
 			trial += 1
-			@info "On trial $trial, reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			copy!(backup_params, params)
@@ -2398,29 +2427,29 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		if check_bad_params(params)
 			@info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		copy!(params, backup_params)
 		return (;output1..., reward_history, performance = reward1)
 	end
 
-	function td_train_rate_decay(hidden_layers::Vector{Int64}, reslayers::Integer, α_init::T, λ::T, trial_steps::Integer; new_params = false, use_dp = false, kwargs...)
+	function td_train_rate_decay(hidden_layers::Vector{Int64}, reslayers::Integer, α_init::T, λ::T, trial_steps::Integer; new_params = false, use_dp = false, show_messages::Bool = true, kwargs...)
 		params = initialize_params(hidden_layers, reslayers, use_dp; reset_params = new_params)
 		
-		@info "Beginning exhaustive trials with learning rate $α_init"
-		output1 = td_train_exhaustive(hidden_layers, reslayers, α_init, λ, trial_steps; use_dp = use_dp, kwargs...)
+		show_messages && @info "Beginning exhaustive trials with learning rate $α_init"
+		output1 = td_train_exhaustive(hidden_layers, reslayers, α_init, λ, trial_steps; use_dp = use_dp, kwargs..., show_messages)
 		reward_history = output1.reward_history
 
 		α = α_init / 2
-		@info "Reducing learning rate to $α for next set of trials"
-		output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; use_dp = use_dp, kwargs...)
+		show_messages && @info "Reducing learning rate to $α for next set of trials"
+		output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; use_dp = use_dp, kwargs..., show_messages)
 
 		if output2.performance ≤ output1.performance
-			@info "Second round performance of $(output2.performance) failed to improve reward"
-			@info "Completed rate decay training after 1 round with performance $(output1.performance)"
+			show_messages && @info "Second round performance of $(output2.performance) failed to improve reward"
+			show_messages && @info "Completed rate decay training after 1 round with performance $(output1.performance)"
 			return output1
 		end
 
@@ -2430,24 +2459,24 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 			α /= 2
 			output1 = output2
 			reward_history = vcat(reward_history, output1.reward_history)
-			@info "On round $round reducing learning rate to $α"
-			output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; use_dp = use_dp, kwargs...)
+			show_messages && @info "On round $round reducing learning rate to $α"
+			output2 = td_train_exhaustive(hidden_layers, reslayers, α, λ, trial_steps; use_dp = use_dp, kwargs..., show_messages)
 		end
-		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
+		show_messages && @info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., reward_history)
 	end
 
-	function td_train_ϵ_decay(hidden_layers::Vector{Int64}, reslayers::Integer, α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, kwargs...)
-		@info "Beginning epsilon decay continuing nonlinear td training with initial exploration parameter $ϵ_init"
-		output1 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init)
+	function td_train_ϵ_decay(hidden_layers::Vector{Int64}, reslayers::Integer, α_init::T, λ::T, trial_steps::Integer; ϵ_init::T = one(T) / 2, ϵ_min::T = one(T) / 20, show_messages::Bool = true, kwargs...)
+		show_messages && @info "Beginning epsilon decay continuing nonlinear td training with initial exploration parameter $ϵ_init"
+		output1 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ_init, show_messages)
 		reward_history = output1.reward_history
 
 		ϵ = ϵ_init / 2
-		@info "Reducing exploration parameter to $ϵ for next set of trials"
-		output2 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+		show_messages && @info "Reducing exploration parameter to $ϵ for next set of trials"
+		output2 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ, show_messages)
 
 		if output2.performance ≤ output1.performance
-			@info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
+			show_messages && @info "Performance with ϵ = $ϵ failed to improve over ϵ = $ϵ_init"
 			@info "Completed ϵ decay training after 1 round with performance $(output1.performance)"
 			return (;output1..., reward_history)
 		end
@@ -2458,8 +2487,8 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 			ϵ /= 2
 			output1 = output2
 			reward_history = vcat(reward_history, output1.reward_history)
-			@info "On round $round, reducing exploration parameter to $ϵ"
-			output2 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ)
+			show_messages && @info "On round $round, reducing exploration parameter to $ϵ"
+			output2 = td_train_rate_decay(hidden_layers, reslayers, α_init, λ, trial_steps; kwargs..., ϵ = ϵ, show_messages)
 		end
 
 		if output2.performance > output1.performance
@@ -2495,14 +2524,14 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 	function ac_train_linear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer; trace_type = AccumulatingTrace(), new_params::Bool = true, kwargs...)
 		new_params && reset_params()
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_linear(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+			one_step_actor_critic_linear(mdp, num_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
+			actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, num_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = linear_policy_params, value_params = linear_value_params, kwargs...)
 		end
 	end
 
-	function ac_train_exhaustive(α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, kwargs...)
-		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
+	function ac_train_exhaustive(α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, show_messages::Bool = true, kwargs...)
+		show_messages && @info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_linear(zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π = let p = output1.policy_sample_action
@@ -2513,7 +2542,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline average reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
 		backup_policy_params = copy(linear_policy_params)
 		backup_value_params = copy(linear_value_params)
 		output2 = ac_train_linear(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
@@ -2525,7 +2554,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 			linear_value_params .= backup_value_params
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			linear_policy_params .= backup_policy_params
 			linear_value_params .= backup_value_params
 			return (;output1..., performance = reward1)
@@ -2534,7 +2563,7 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 		reward_history = output2.reward_history
 		while (reward2 > reward1) && !check_bad_params(linear_policy_params) && !check_bad_params(linear_value_params)
 			trial += 1
-			@info "On trial $trial, average reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, average reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			backup_policy_params .= linear_policy_params
@@ -2549,25 +2578,25 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
 			@info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		linear_policy_params .= backup_policy_params
 		linear_value_params .= backup_value_params
 		return (;output1..., reward_history, performance = reward1)
 	end
 
-	function ac_train_rate_decay(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, kwargs...)
-		@info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
-		output1 = ac_train_exhaustive(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; new_params = new_params, kwargs...)
+	function ac_train_rate_decay(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, show_messages::Bool = true, kwargs...)
+		show_messages && @info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
+		output1 = ac_train_exhaustive(α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; new_params = new_params, kwargs..., show_messages)
 		reward_history = output1.reward_history
 
 		α_θ = α_θ_init / 2
 		α_w = α_w_init / 2
-		@info "Reducing learning rates to $α_θ and $α_w for next set of trials"
-		output2 = ac_train_exhaustive(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+		show_messages && @info "Reducing learning rates to $α_θ and $α_w for next set of trials"
+		output2 = ac_train_exhaustive(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., show_messages)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -2576,8 +2605,8 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 			α_θ = α_θ / 2
 			α_w = α_w / 2
 			output1 = output2
-			@info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_train_exhaustive(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+			show_messages && @info "On round $round reducing learning rates to $α_θ and $α_w"
+			output2 = ac_train_exhaustive(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., show_messages)
 		end
 		@info "Completed rate decay training after $round rounds with performance $(output1.performance)"
 		return (;output1..., reward_history)
@@ -2612,18 +2641,23 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 	function ac_train_nonlinear(hidden_layers, reslayers, α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer; trace_type = AccumulatingTrace(), new_params::Bool = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
 		if all(iszero, (λ_θ, λ_w))
-			one_step_actor_critic_fcann(mdp, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
+			one_step_actor_critic_fcann(mdp, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
 		else
-			actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_steps, deepcopy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
+			actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, num_steps, copy(feature_vector), update_feature_vector!, hidden_layers; α_θ = α_θ, α_w = α_w, trace_type = trace_type, policy_params = policy_params, value_params = value_params, reslayers=reslayers, kwargs...)
 		end
 	end
 
-	function ac_train_exhaustive(hidden_layers, reslayers, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, kwargs...)
+	function ac_train_exhaustive(hidden_layers, reslayers, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; use_gpu::Bool = false, new_params::Bool = false, show_messages::Bool = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
-		@info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
+		show_messages && @info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
 		output1 = ac_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), zero(T), zero(T), 0; use_gpu = use_gpu, new_params = false, kwargs...)
-		π_kwargs = output1.form_policy_kwargs()
+		π_kwargs_full = output1.form_policy_kwargs()
 		π = let p = output1.policy_sample_action
+			π_kwargs = if use_gpu
+				π_kwargs_full.policy_kwargs_gpu
+			else
+				π_kwargs_full
+			end
 			s -> p(s; use_gpu, π_kwargs...)
 		end
 		# π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
@@ -2631,7 +2665,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		reward1 = baseline_reward
 		trial = 0
 		
-		@info "Baseline average reward is $reward1, beginning first trial"
+		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
 		output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
@@ -2644,7 +2678,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 			copy!(value_params, backup_value_params)
 			return (;output1..., performance = reward1)
 		elseif reward2 ≤ reward1
-			@info "First trial performance of $reward2 failed to improve reward"
+			show_messages && @info "First trial performance of $reward2 failed to improve reward"
 			copy!(policy_params, backup_policy_params)
 			copy!(value_params, backup_value_params)
 			return (;output1..., performance = reward1)
@@ -2653,7 +2687,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		reward_history = output2.reward_history
 		while (reward2 > reward1) && !check_bad_params(policy_params) && !check_bad_params(value_params)
 			trial += 1
-			@info "On trial $trial, average reward improved from $reward1 to $reward2"
+			show_messages && @info "On trial $trial, average reward improved from $reward1 to $reward2"
 			output1 = output2
 			reward1 = reward2
 			copy!(backup_policy_params, policy_params)
@@ -2667,26 +2701,26 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 		if check_bad_params(policy_params) || check_bad_params(value_params)
 			@info "Final trial resulted in bad parameter values"
 		else
-			@info "Final trial performance of $reward2 failed to improve reward"
+			show_messages && @info "Final trial performance of $reward2 failed to improve reward"
 		end
 
-		@info "Performance after $trial trials improved from $baseline_reward to $reward1"
+		show_messages && @info "Performance after $trial trials improved from $baseline_reward to $reward1"
 
 		copy!(policy_params, backup_policy_params)
 		copy!(value_params, backup_value_params)
 		return (;output1..., reward_history, performance = reward1)
 	end
 
-	function ac_train_rate_decay(hidden_layers, reslayers, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, kwargs...)
+	function ac_train_rate_decay(hidden_layers, reslayers, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps::Integer; new_params = false, show_messages::Bool = true, kwargs...)
 		(policy_params, value_params) = initialize_params(hidden_layers, reslayers; reset_params = new_params)
-		@info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
-		output1 = ac_train_exhaustive(hidden_layers, reslayers, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; kwargs...)
+		show_messages && @info "Beginning exhaustive trials with learning rates $(α_θ_init) and $(α_w_init)"
+		output1 = ac_train_exhaustive(hidden_layers, reslayers, α_θ_init, α_w_init, λ_θ, λ_w, trial_steps; kwargs..., show_messages)
 		reward_history = output1.reward_history
 
 		α_θ = α_θ_init / 2
 		α_w = α_w_init / 2
-		@info "Reducing learning rates to $α_θ and $α_w for next set of trials"
-		output2 = ac_train_exhaustive(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+		show_messages && @info "Reducing learning rates to $α_θ and $α_w for next set of trials"
+		output2 = ac_train_exhaustive(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., show_messages)
 
 		round = 2
 		while output2.performance > output1.performance
@@ -2695,8 +2729,8 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 			α_θ = α_θ / 2
 			α_w = α_w / 2
 			output1 = output2
-			@info "On round $round reducing learning rates to $α_θ and $α_w"
-			output2 = ac_train_exhaustive(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs...)
+			show_messages && @info "On round $round reducing learning rates to $α_θ and $α_w"
+			output2 = ac_train_exhaustive(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., show_messages)
 		end
 		@info "Completed rate decay training after $(round-1) rounds with performance $(output1.performance)"
 		return (;output1..., reward_history)

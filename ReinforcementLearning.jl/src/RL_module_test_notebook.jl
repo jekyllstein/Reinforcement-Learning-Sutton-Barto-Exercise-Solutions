@@ -1510,7 +1510,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 40f001a0-a7f7-4006-bbf8-35e5c263f890
-one_step_actor_critic_linear(mountaincar_mdp, 1f0, typemax(Int64), 100_000, mountaincar_features...; α_θ = 0.001f0, α_w = 0.001f0)
+one_step_actor_critic_linear(mountaincar_mdp, 1f0, typemax(Int64), 100_000, mountaincar_features...; α_θ = 0.0001f0, α_w = 0.0001f0)
 
 # ╔═╡ b113a69f-495c-47c5-9ce9-6fd0455050cc
 #=╠═╡
@@ -1643,6 +1643,9 @@ begin
 end
   ╠═╡ =#
 
+# ╔═╡ efa52f3f-bd34-4aed-a011-4ce0166ba6ca
+actor_critic_with_eligibility_traces_fcann(state_mdp_stochastic, 1f0, 0.5f0, 0.5f0, typemax(Int64), 1, dense_feature_setup..., [64, 64]; α_θ = 0.001f0, α_w = 0.001f0, use_gpu = true)
+
 # ╔═╡ cb66981e-73a9-4185-8af2-2967bdece45f
 #=╠═╡
 begin
@@ -1750,7 +1753,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 1662c3fd-343b-4b63-b9ca-3f4cc9df061b
-synchronous_actor_critic_fcann(mountaincar_mdp, 1f0, 10_000, 8, mountaincar_features..., [64, 64]; α_θ = 0.0001f0)
+synchronous_actor_critic_fcann(mountaincar_mdp, 1f0, 10_000, 8, mountaincar_features..., [64, 64]; α_θ = 0.0001f0, α_w = 0.0001f0)
 
 # ╔═╡ 3186e8a7-021b-47f4-bb6c-1084a0ca2271
 synchronous_nstep_actor_critic_fcann(mountaincar_mdp, 1f0, 1_000, 8, mountaincar_features..., [64, 64]; α_θ = 0.0001f0, α_w = 0.0001f0, N = 10)
@@ -1758,8 +1761,8 @@ synchronous_nstep_actor_critic_fcann(mountaincar_mdp, 1f0, 1_000, 8, mountaincar
 # ╔═╡ dc5b027d-d476-4c4f-8a72-a24251e42eb6
 #=╠═╡
 begin
-	@profview synchronous_actor_critic_fcann(mountaincar_mdp, 1f0, 1, 8, mountaincar_features..., [64, 64]; α_θ = 0.0001f0)
-	@profview synchronous_actor_critic_fcann(mountaincar_mdp, 1f0, 10_000, 8, mountaincar_features..., [64, 64]; α_θ = 0.0001f0)
+	@profview synchronous_actor_critic_fcann(mountaincar_mdp, 1f0, 1, 8, mountaincar_features..., [64, 64]; α_θ = 0.0001f0, α_w = 0.0001f0)
+	@profview synchronous_actor_critic_fcann(mountaincar_mdp, 1f0, 10_000, 8, mountaincar_features..., [64, 64]; α_θ = 0.0001f0, α_w = 0.0001f0)
 end
   ╠═╡ =#
 
@@ -1792,6 +1795,9 @@ end
 
 # ╔═╡ 3a674ea7-0d01-4950-992f-968e57eb5bd8
 synchronous_actor_critic_fcann(state_mdp_stochastic, 1f0, 10_000, 8, dense_feature_setup..., [64, 64])
+
+# ╔═╡ ca366c95-098f-4d08-9929-9da48f84feca
+synchronous_actor_critic_fcann(state_mdp_stochastic, 1f0, 1_000, 8, dense_feature_setup..., [64, 64]; use_gpu = true)
 
 # ╔═╡ a836140b-378c-4a8a-8d4d-9cb0757ab3f3
 #=╠═╡
@@ -2639,6 +2645,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╟─a964d032-aa9b-4559-830b-40d2096860be
 # ╠═4c28a58f-66df-4798-9327-d2ee11d3ee0f
 # ╠═a939a648-2fec-47a4-bb74-158149e7437a
+# ╠═efa52f3f-bd34-4aed-a011-4ce0166ba6ca
 # ╠═cb66981e-73a9-4185-8af2-2967bdece45f
 # ╟─e3a33387-ae77-4e59-8f68-bfdedd1f86cf
 # ╠═6c0329b1-a7cc-4865-94a8-4381189a16d0
@@ -2673,6 +2680,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═387884df-cfda-4217-bbd6-e0a76434489e
 # ╠═cd8a8732-e579-47a3-875b-42d62be46b29
 # ╠═3a674ea7-0d01-4950-992f-968e57eb5bd8
+# ╠═ca366c95-098f-4d08-9929-9da48f84feca
 # ╠═a836140b-378c-4a8a-8d4d-9cb0757ab3f3
 # ╠═c3877f0d-5171-4ca4-befc-4f3263213e06
 # ╠═84d6e42c-9958-491f-bf62-6fc4cd5cf54c

@@ -2050,14 +2050,14 @@ function setup_gumbel_mcts_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 					use_μP::Bool = true, 
 					train_policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP),
 					train_value_params::FCANNParams{T} = initialize_fcann_value_params(train_policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T),
-					search_policy_params::FCANNParams{T} = deepcopy(train_policy_params),
-					search_value_params::FCANNParams{T} = deepcopy(train_value_params),
+					search_policy_params::FCANNParams{T} = copy(train_policy_params),
+					search_value_params::FCANNParams{T} = copy(train_value_params),
 					activation_list::Vector{Bool} = fill(true, length(hidden_layers)), 
 					use_gpu::Bool = false,
 					eval_episodes::Integer = 1_000,
 					eval_sims::Integer = 800,
-					∇v̂::FCANNParams{T} = deepcopy(train_value_params), 
-					∇π::FCANNParams{T} = deepcopy(train_policy_params),
+					∇v̂::FCANNParams{T} = copy(train_value_params), 
+					∇π::FCANNParams{T} = copy(train_policy_params),
 					policy_and_value_components = form_policy_and_value_function(mdp, feature_vector, update_feature_vector!, search_policy_params, search_value_params),
 					π_dist!::Function = function π_dist!(v::Vector{T}, s::S) where T<:Real
 						output = policy_and_value_components.policy_and_value(s; policy = v)
@@ -2139,14 +2139,14 @@ function setup_gumbel_mcts_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T
 
 	buffer_lock = ReentrantLock()
 	
-	policy_and_value_generations = [(; policy_params = deepcopy(search_policy_params), value_params = deepcopy(search_value_params), compute_performance(search_policy_params, search_value_params)...)]
+	policy_and_value_generations = [(; policy_params = copy(search_policy_params), value_params = copy(search_value_params), compute_performance(search_policy_params, search_value_params)...)]
 	
 	#copy training parameters into the fixed parameters and save a copy of both as a record
 	function update_generation!(;search_kwargs...)
 		copy!(search_policy_params, train_policy_params)
 		copy!(search_value_params, train_value_params)
 		performance = compute_performance(train_policy_params, train_value_params; search_kwargs...)
-		push!(policy_and_value_generations, (;policy_params = deepcopy(search_policy_params), value_params = deepcopy(search_value_params), performance...))
+		push!(policy_and_value_generations, (;policy_params = copy(search_policy_params), value_params = copy(search_value_params), performance...))
 	end
 
 	function restore_generation!(i::Integer)

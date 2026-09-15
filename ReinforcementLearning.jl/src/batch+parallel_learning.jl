@@ -1974,8 +1974,8 @@ end
 # ╔═╡ b65512a7-1a98-4d99-835f-eca70ced2404
 function synchronous_actor_critic_fcann(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
 
-	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, l2, dropout, use_μP, activation_list)
-	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, l2, dropout, use_μP, activation_list)
+	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, l2, dropout, use_μP, activation_list; use_gpu)
+	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, l2, dropout, use_μP, activation_list; use_gpu)
 	
 
 	!use_gpu && return synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, value_setup..., policy_setup...; kwargs...)

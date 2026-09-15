@@ -884,13 +884,13 @@ md"""
 
 # ╔═╡ 24468748-009d-42a3-918d-4ba18b23c9ed
 begin
-	semi_gradient_TDλ_linear(mrp::StateMRP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mrp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+	semi_gradient_TDλ_linear(mrp::StateMRP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mrp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
-	semi_gradient_TDλ_linear(mrp::StateMRP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mrp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+	semi_gradient_TDλ_linear(mrp::StateMRP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mrp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 	
-	semi_gradient_TDλ_linear(mdp::StateMDP, π::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mdp, π, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+	semi_gradient_TDλ_linear(mdp::StateMDP, π::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mdp, π, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
-	semi_gradient_TDλ_linear(mdp::StateMDP, π::Function, λ::T, num_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mdp, π, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+	semi_gradient_TDλ_linear(mdp::StateMDP, π::Function, λ::T, num_steps::Integer, feature_vector, update_feature_vector!; init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_TDλ!(parameters, mdp, π, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 end
 
 # ╔═╡ be33e2cc-b6d7-48e1-bfbd-71a01f7ae161
@@ -988,7 +988,7 @@ begin
 			x.group_index = i_s
 		end
 		
-		semi_gradient_TDλ!(parameters, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+		semi_gradient_TDλ!(parameters, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 	end
 
 	semi_gradient_TDλ(mrp::TabularMRP, args...; kwargs...) = semi_gradient_TDλ(mrp.states, mrp.initialize_state_index, i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
@@ -1682,7 +1682,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, nu
 	
 	q̂, form_kwargs = form_differential_value_function(mdp, r̄, update_feature_vector!, value_function, feature_vector, parameters)
 	
-	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
+	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = copy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ 51274911-2eaa-4b18-b977-d0f735746bec
@@ -1785,7 +1785,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
 	parameter_history = Vector{P}()
-	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+	save_parameter_history && push!(parameter_history, copy(parameters))
 
 	#initialize variables
 	ep = 1
@@ -1838,7 +1838,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 
 		update_params_with_gradient!(parameters, α*decay*δ, z)
 
-		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
 		i_a = i_a′
 		step += 1
@@ -1852,7 +1852,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 	
 	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = copy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ 3df4cd98-f754-4eca-8e16-e654576e283d
@@ -1916,14 +1916,14 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feat
 	
 	q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_action_values!, feature_vector, parameters)
 	
-	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
+	return (value_function = q̂, reward_history = reward_history, average_reward_history = average_reward_history, final_parameters = copy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ efa11915-d86b-4686-85f9-84d7539e27cf
-sarsa_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+sarsa_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(copy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ fc9149ee-6d28-41b5-ab47-2c2a36e7a8d1
-sarsa_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(deepcopy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+sarsa_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(copy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ c7caa90d-26bf-4179-b869-3385cb75b943
 function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F}
@@ -1992,7 +1992,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
 	parameter_history = Vector{P}()
-	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+	save_parameter_history && push!(parameter_history, copy(parameters))
 
 	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 
@@ -2041,21 +2041,21 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ
 			decay_trace!(z, λ*γ)
 		end
 
-		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
 		step += 1
 	end
 	
 	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
 	
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs, trace = z)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = copy(parameters), form_kwargs = form_kwargs, trace = z)
 end
 
 # ╔═╡ 258be19f-0b01-4d5e-ae82-2ef07ba4cc9c
-dp_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+dp_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ c3fb9a00-3aa0-43e5-98c8-306441166cc4
-dp_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+dp_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ da6944b0-1d1b-4b92-a765-5e28c133cff5
 function test_dp_λ(; kwargs...)
@@ -2207,7 +2207,7 @@ begin
 
 		q̂, form_kwargs = form_value_function(mdp, state_action_values)
 	
-		return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(state_action_values), form_kwargs = form_kwargs)
+		return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = copy(state_action_values), form_kwargs = form_kwargs)
 	end
 
 	#true online sarsaλ for linear features
@@ -2290,7 +2290,7 @@ begin
 
 		q̂, form_kwargs = form_value_function(mdp, update_feature_vector!, update_linear_action_values!, feature_vector, parameters)
 	
-		return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+		return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = copy(parameters), form_kwargs = form_kwargs)
 	end
 end
 
@@ -2373,7 +2373,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 	
 	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, linear_value_function, feature_vector, parameters)
 
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = copy(parameters), form_kwargs = form_kwargs)
 end
 
 # ╔═╡ b1ae33a5-272f-43de-b9e2-eaa0423c34b8
@@ -2432,7 +2432,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 	
 	q̂, form_kwargs = form_differential_value_function(mdp, r̄, update_feature_vector!, linear_value_function, feature_vector, parameters)
 
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = copy(parameters), form_kwargs = form_kwargs)
 end
 
 # ╔═╡ a2a6c291-3ea7-45d4-9608-40e25f1cfe7c

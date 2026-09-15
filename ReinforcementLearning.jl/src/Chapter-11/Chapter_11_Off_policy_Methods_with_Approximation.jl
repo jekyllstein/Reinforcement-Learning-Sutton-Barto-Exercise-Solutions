@@ -128,7 +128,7 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 	episode_steps = Vector{Int64}()
 	decay = one(T)
 	parameter_history = Vector{Q}()
-	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+	save_parameter_history && push!(parameter_history, copy(parameters))
 	
 	while (ep <= max_episodes) && (step <= max_steps)
 		update_feature_vector!(feature_vector, s)
@@ -147,7 +147,7 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 
 		
 		update_params_with_gradient!(parameters, α*decay*δ, ∇v̂)
-		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		save_parameter_history && push!(parameter_history, copy(parameters))
 
 		i_a = sample_action(policy)
 		(r, s) = mdp.ptf(s, i_a)
@@ -167,11 +167,11 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 
 	q̂, form_kwargs = form_value_function(mdp, γ, update_feature_vector!, value_function, feature_vector, parameters)
 
-	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = deepcopy(parameters), form_kwargs = form_kwargs)
+	return (value_function = q̂, episode_rewards = episode_rewards, episode_steps = episode_steps, parameter_history = parameter_history, final_parameters = copy(parameters), form_kwargs = form_kwargs)
 end
 
 # ╔═╡ bea94375-277b-4f38-ad9d-4fa7fc646364
-semi_gradient_dp_policy_estimation_linear(mdp::StateMDP, π_dist!::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_dp_policy_estimation!(parameters, mdp, π_dist!, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+semi_gradient_dp_policy_estimation_linear(mdp::StateMDP, π_dist!::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_dp_policy_estimation!(parameters, mdp, π_dist!, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ e6e606c4-39d7-4b87-bd1a-b5799281f033
 md"""
@@ -2261,8 +2261,8 @@ function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_e
 	step = 1
 	d = length(feature_vector)
 
-	state_representation1 = deepcopy(feature_vector)
-	state_representation2 = deepcopy(feature_vector)
+	state_representation1 = copy(feature_vector)
+	state_representation2 = copy(feature_vector)
 
 	parameter_history = Vector{Vector{T}}()
 
@@ -2321,7 +2321,7 @@ function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_e
 	end
 
 	function v(s::S)
-		x = deepcopy(feature_vector)
+		x = copy(feature_vector)
 		update_state_representation!(x, s)
 		linear_value_function(x, parameters)
 	end
@@ -2445,12 +2445,12 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 	step = 1
 	d = length(feature_vector)
 
-	state_representation1 = deepcopy(feature_vector)
-	state_representation2 = deepcopy(feature_vector)
+	state_representation1 = copy(feature_vector)
+	state_representation2 = copy(feature_vector)
 
 	parameter_history = Vector{Matrix{T}}()
 
-	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+	save_parameter_history && push!(parameter_history, copy(parameters))
 
 	action_values = zeros(T, length(mdp.actions))
 	policy = zeros(T, length(mdp.actions))
@@ -2490,7 +2490,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 			# v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
 		end
 
-		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
 		epstep += 1
 		if mdp.isterm(s′)
@@ -2517,13 +2517,13 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 	step = 1
 	d = length(feature_vector)
 	
-	state_representation1 = deepcopy(feature_vector)
-	state_representation2 = deepcopy(feature_vector)
-	state_representation3 = deepcopy(feature_vector)
+	state_representation1 = copy(feature_vector)
+	state_representation2 = copy(feature_vector)
+	state_representation3 = copy(feature_vector)
 
 	parameter_history = Vector{Vector{T}}()
 
-	save_parameter_history && push!(parameter_history, deepcopy(parameters))
+	save_parameter_history && push!(parameter_history, copy(parameters))
 
 	action_values = zeros(T, length(mdp.actions))
 	v = zeros(T, d)
@@ -2556,7 +2556,7 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 			# v .+= ((β*ρ) * (δ - dot(v, state_representation1))) .* state_representation1
 		end
 
-		save_parameter_history && push!(parameter_history, deepcopy(parameters))
+		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
 		epstep += 1
 		if mdp.isterm(s′)

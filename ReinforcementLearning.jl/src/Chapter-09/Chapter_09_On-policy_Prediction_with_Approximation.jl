@@ -1329,7 +1329,16 @@ function check_bad_params(params::FCANNParams)
 end
 
 # ╔═╡ b70fac93-ba6e-4234-86de-c131011b09a1
-Base.copy(params::FCANNParams) = deepcopy(params)
+begin
+	function Base.copy(weights::Tuple{Vector{<: Matrix{T}}, Vector{<: Vector{T}}}) where T<:Real
+		(deepcopy(weights[1]), deepcopy(weights[2]))
+	end
+
+	function Base.copy(params::FCANNParams{T}) where T<:Real
+		new_weights = copy(params.weights)
+		(weights = new_weights, reslayers = params.reslayers)
+	end
+end
 
 # ╔═╡ 05d958e4-2f2e-46e0-a030-7ecd137fb4f0
 function Base.copy!(dst::FCANNParams{T}, src::FCANNParams{T}) where T<:Real
@@ -1338,6 +1347,7 @@ function Base.copy!(dst::FCANNParams{T}, src::FCANNParams{T}) where T<:Real
 			dst.weights[j][i] .= src.weights[j][i]
 		end
 	end
+	return dst
 end
 
 # ╔═╡ 0c7d2eb3-02ce-47b0-955c-fc62d5c86994
@@ -1836,7 +1846,7 @@ end
 begin
 	#value_function is something that that takes only the feature vector and parameters to generate a state value estimation.  this function converts that into a function that can be called with only the state as an argument.  by default the arguments are designed to make the function thread safe so that any modified internal arguments are generated each time it is called.  It also returns a function to create an instance of the arguments in case the function needs to be used repeatedly on a single thread
 	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::P) where {V, P}
-		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::P = parameters, kwargs...)
+		function v̂(s; feature_vector::V = copy(feature_vector), parameters::P = parameters, kwargs...)
 			update_feature_vector!(feature_vector, s)
 			value_function(feature_vector, parameters; kwargs...)
 		end
@@ -1844,13 +1854,13 @@ begin
 		#also return a method that acts on the feature vector itself which has already been updated
 		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
 
-		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters)
+		form_kwargs() = (feature_vector = copy(feature_vector), parameters = parameters)
 		
 		return (v̂, form_kwargs)
 	end
 
 	function form_state_value_function(value_function::Function, update_feature_vector!::Function, feature_vector::V, parameters::FCANNParams) where V
-		function v̂(s; feature_vector::V = deepcopy(feature_vector), parameters::FCANNParams = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
+		function v̂(s; feature_vector::V = copy(feature_vector), parameters::FCANNParams = parameters, activations = FCANN.form_activations(parameters.weights[1]), kwargs...)
 			update_feature_vector!(feature_vector, s)
 			value_function(feature_vector, parameters; activations = activations, kwargs...)
 		end
@@ -1858,7 +1868,7 @@ begin
 		#also return a method that acts on the feature vector itself which has already been updated
 		v̂(x::V, parameters; kwargs...) = value_function(x, parameters; kwargs...)
 
-		form_kwargs() = (feature_vector = deepcopy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
+		form_kwargs() = (feature_vector = copy(feature_vector), parameters = parameters, activations = FCANN.form_activations(parameters.weights[1]))
 		
 		return (v̂, form_kwargs)
 	end
@@ -2470,15 +2480,25 @@ end
 
 # ╔═╡ 1d43e61e-8428-4f50-8dc7-e322b1d256e8
 function scale_fcann_params!(params::FCANNParamsGPU, scales::Vector{T}; c::T = one(T)) where T<:Real
-	@inbounds for i in eachindex(scales)
-		tmp = [c*scales[i]]
-		GC.@preserve tmp begin
-			ptr = pointer(tmp)
-			for j in 1:2
-				FCANN.cublasSscal(FCANN.cublas_handle, ptr, params.weights[j][i])
+	for i in 1:2
+		for (s, p) in zip(scales, params.weights[i])
+			tmp = [c*s]
+			GC.@preserve tmp begin
+				ptr = pointer(tmp)
+				FCANN.cublasSscal(FCANN.cublas_handle, ptr, p)
 			end
 		end
 	end
+	return params
+	# @inbounds for i in eachindex(scales)
+	# 	tmp = [c*scales[i]]
+	# 	GC.@preserve tmp begin
+	# 		ptr = pointer(tmp)
+	# 		for j in 1:2
+	# 			FCANN.cublasSscal(FCANN.cublas_handle, ptr, params.weights[j][i])
+	# 		end
+	# 	end
+	# end
 end
 
 # ╔═╡ 322fa46d-125f-418b-90a2-6b8ddfc86b6d
@@ -3373,8 +3393,8 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 	
 	#form activations for network
 	activations = FCANN.form_activations(params.weights[1])
-	tanh_grad_z = deepcopy(activations)
-	deltas = deepcopy(activations)
+	tanh_grad_z = copy(activations)
+	deltas = copy(activations)
 
 	final_activation = last(activations)
 
@@ -3467,7 +3487,7 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 		gpu_args = ()
 	end
 
-	return (gradient = deepcopy(params), value_function = value_function, update_gradient! = update_value_gradient!, activations = activations, gpu_args = gpu_args)
+	return (gradient = copy(params), value_function = value_function, update_gradient! = update_value_gradient!, activations = activations, gpu_args = gpu_args)
 end
 
 # ╔═╡ 9b5fbbdd-0b36-4893-b4bb-b05439f5a541
@@ -3956,7 +3976,7 @@ Automatically configures linear function approximation by:
 [`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
 [`initialize_linear_parameters`](@ref), [`StateMDP`](@ref)
 """
-gradient_monte_carlo_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+gradient_monte_carlo_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ f64b78e1-76ff-4337-a9f0-aa2d3e3f33ac
 """
@@ -4096,7 +4116,7 @@ Automatically configures linear function approximation by:
 [`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
 [`initialize_linear_parameters`](@ref)
 """
-gradient_monte_carlo_estimation_linear(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+gradient_monte_carlo_estimation_linear(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ c52222b7-64bd-4285-bba3-e22529495af6
 """
@@ -4448,7 +4468,7 @@ Value at state 500: 0.034f0
 - Reuses feature vector and gradient storage to minimize allocations
 - Compatible with any [`LinearFeatureVector`](@ref) implementation
 """
-semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 99f34d13-a19a-4a28-8173-2f683527d61a
 #=╠═╡
@@ -4584,7 +4604,7 @@ parameter updates after each environment step to estimate the state value functi
 - Reuses feature vector and gradient storage to minimize allocations
 - Compatible with any [`LinearFeatureVector`](@ref) implementation
 """
-semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, deepcopy(feature_vector), update_linear_value_gradient!; kwargs...)
+semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 7889fc4a-3a77-41b4-983a-0b04740afeb7
 #=╠═╡
