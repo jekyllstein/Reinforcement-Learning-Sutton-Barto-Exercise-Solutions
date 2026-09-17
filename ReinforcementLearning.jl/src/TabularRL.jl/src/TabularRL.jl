@@ -42,7 +42,7 @@ export GridworldState, GridworldAction, rook_actions, make_deterministic_gridwor
         for f in [make_deterministic_gridworld, make_stochastic_gridworld]
             mdp = f()
             policy_iteration_v(mdp, γ)
-            value_iteration_v(mdp, γ)
+            value_iteration_v(mdp, γ; show_message = false)
             runepisode(mdp; max_steps = max_steps)
             monte_carlo_control_exploring_starts(mdp, γ, num_episodes; max_steps = max_steps)
             monte_carlo_control_exploring_starts(mdp, γ, num_episodes; averaging_method = ConstantStepAveraging(α), max_steps = max_steps)

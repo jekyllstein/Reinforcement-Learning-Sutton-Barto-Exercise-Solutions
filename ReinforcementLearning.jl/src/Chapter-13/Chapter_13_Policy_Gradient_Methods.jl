@@ -110,7 +110,7 @@ md"""
 """
 
 # ╔═╡ 33c99850-67cd-4754-94b9-6df97b238e27
-function soft_max!(x::AbstractVector{T}, mdp, s) where T<:Real
+function soft_max!(x::AbstractVector{T}, is_valid_action, s) where T<:Real
 	# Get extrema for valid actions only
 	minx = typemax(T)
 	maxx = typemin(T)
@@ -119,7 +119,7 @@ function soft_max!(x::AbstractVector{T}, mdp, s) where T<:Real
 		val = x[i]
 		new_minx = min(minx, val)
 		new_maxx = max(maxx, val)
-		valid_action = mdp.is_valid_action(s, i)
+		valid_action = is_valid_action(s, i)
 		minx = valid_action*new_minx + !valid_action*minx
 		maxx = valid_action*new_maxx + !valid_action*maxx
 		num_valid += valid_action
@@ -833,24 +833,24 @@ end
 
 # ╔═╡ f7232174-8e39-46c4-9374-a39c3c05c3b9
 begin
-	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}, mdp, s) where T<:Real
-		maxq, i_a_max = update_linear_action_values!(policy, x, w, mdp, s)
-		soft_max!(policy, mdp, s)
+	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}, is_valid_action, s) where T<:Real
+		maxq, i_a_max = update_linear_action_values!(policy, x, w, is_valid_action, s)
+		soft_max!(policy, is_valid_action, s)
 		return i_a_max
 	end
 
-	function update_policy_dist!(policy::Vector{T}, x, w::FCANNParams{T}, activations::FCANNActivations{T}, mdp, s) where {T<:Real}
+	function update_policy_dist!(policy::Vector{T}, x, w::FCANNParams{T}, activations::FCANNActivations{T}, is_valid_action, s) where {T<:Real}
 		fcann_value_function!(activations, x, w)
 		policy .= last(activations)
-		soft_max!(policy, mdp, s)
+		soft_max!(policy, is_valid_action, s)
 		(maxq, i_a_max) = findmax(policy)
 		return i_a_max
 	end
 
-	function update_policy_dist!(policy::Vector{T}, x::FCANN.CUDAArray, w::FCANNParamsGPU, activations::FCANNActivationsGPU, mdp, s) where {T<:Real}
+	function update_policy_dist!(policy::Vector{T}, x::FCANN.CUDAArray, w::FCANNParamsGPU, activations::FCANNActivationsGPU, is_valid_action, s) where {T<:Real}
 		fcann_value_function!(activations, x, w)
 		FCANN.memcpy!(policy, last(activations))
-		soft_max!(policy, mdp, s)
+		soft_max!(policy, is_valid_action, s)
 		(maxq, i_a_max) = findmax(policy)
 		return i_a_max
 	end
@@ -1045,8 +1045,8 @@ end
 # ╔═╡ 37ec6802-d4c2-4470-ad69-439d5a732f77
 begin
 	function form_policy_and_value_function(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, feature_vector::V, update_feature_vector!::Function, policy_parameters::P1, value_parameters::P2) where {T<:Real, S, A, PTF, F1, F2, F3, V, P1, P2}
-		function π!(policy::Vector{T}, x::V, params::P1, mdp, s, args::Vararg{Any})
-			update_policy_dist!(policy, x, params, args..., mdp, s)
+		function π!(policy::Vector{T}, x::V, params::P1, is_valid_action, s, args::Vararg{Any})
+			update_policy_dist!(policy, x, params, args..., is_valid_action, s)
 			return policy
 		end
 	
@@ -1056,7 +1056,7 @@ begin
 	
 		function π(s::S; feature_vector::V = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, policy_args = form_policy_args(policy_parameters), kwargs...) 
 			update_feature_vector!(feature_vector, s)
-			π!(policy, feature_vector, policy_parameters, mdp, s, policy_args...)
+			π!(policy, feature_vector, policy_parameters, mdp.is_valid_action, s, policy_args...)
 		end
 	
 		π_sample = let p = π
@@ -1065,7 +1065,7 @@ begin
 	
 		function policy_and_value(s::S; feature_vector::V = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_parameters::P1 = policy_parameters, value_parameters::P2 = value_parameters, policy_args = form_policy_args(policy_parameters), kwargs...)
 			update_feature_vector!(feature_vector, s)
-			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args..., mdp, s)
+			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args..., mdp.is_valid_action, s)
 			v = v̂(feature_vector, value_parameters; kwargs...)
 			return (value = v, policy_dist = policy)
 		end
@@ -1084,20 +1084,20 @@ begin
 		v̂, form_value_kwargs = form_state_value_function(feature_vector, update_feature_vector!, value_parameters)
 
 
-		function π!(policy::Vector{T}, x, params, mdp, s, args::Vararg{Any})
-			update_policy_dist!(policy, x, params, args..., mdp, s)
+		function π!(policy::Vector{T}, x, params, is_valid_action, s, args::Vararg{Any})
+			update_policy_dist!(policy, x, params, args..., is_valid_action, s)
 			return policy
 		end
 		
 		function π(s::S, params::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
-			π!(policy, feature_vector, params, mdp, s, policy_args...)
+			π!(policy, feature_vector, params, mdp.is_valid_action, s, policy_args...)
 		end
 
 		function π(s::S, params::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args = form_policy_args(params)) 
 			update_feature_vector!(feature_vector, s)
 			FCANN.memcpy!(d_x, feature_vector)
-			π!(policy, d_x, params, mdp, s, policy_args...)
+			π!(policy, d_x, params, mdp.is_valid_action, s, policy_args...)
 		end
 
 		function π_cpu(s::S; policy_parameters::FCANNParams{T} = cpu_policy_params, kwargs...)
@@ -1131,7 +1131,7 @@ begin
 
 		function policy_and_value(s::S, policy_parameters::FCANNParams{T}, value_parameters::FCANNParams{T}; feature_vector::Vector{T} = copy(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_cpu = form_policy_args(policy_parameters), kwargs...)
 			update_feature_vector!(feature_vector, s)
-			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args_cpu..., mdp, s)
+			update_policy_dist!(policy, feature_vector, policy_parameters, policy_args_cpu..., mdp.is_valid_action, s)
 			v = v̂(feature_vector, value_parameters; kwargs...)
 			return (value = v, policy_dist = policy)
 		end
@@ -1139,7 +1139,7 @@ begin
 		function policy_and_value(s::S, policy_parameters::FCANNParamsGPU, value_parameters::FCANNParamsGPU; feature_vector::Vector{T} = copy(feature_vector), d_x::FCANN.CUDAArray = FCANN.cuda_allocate(feature_vector), policy::Vector{T} = zeros(T, length(mdp.actions)), policy_args_gpu = form_policy_args(policy_parameters), kwargs...)
 			update_feature_vector!(feature_vector, s)
 			FCANN.memcpy!(d_x, feature_vector)
-			update_policy_dist!(policy, d_x, policy_parameters, policy_args_gpu..., mdp, s)
+			update_policy_dist!(policy, d_x, policy_parameters, policy_args_gpu..., mdp.is_valid_action, s)
 			v = v̂(d_x, value_parameters; kwargs...)
 			return (value = v, policy_dist = policy)
 		end
@@ -2668,7 +2668,7 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, value_param
 	policy_args = form_policy_args(policy_params)
 	function π_sample(s::S)
 		update_feature_vector!(feature_vector, s)
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp, s)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp.is_valid_action, s)
 		sample_action(policy)
 	end
 	
@@ -2722,7 +2722,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 	while (ep <= max_episodes) && (step <= max_steps)
 		
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp, s)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp.is_valid_action, s)
 		i_a = sample_action(policy)
 		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 	
@@ -2779,7 +2779,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T, S,
 	
 	for step in 1:num_steps
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp, s)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp.is_valid_action, s)
 		i_a = sample_action(policy)
 		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 	
@@ -2934,7 +2934,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		update_trace_with_gradient!(z_w, ∇v̂, trace_type)
 		apply_dutch_trace!(z_w, -α_w*γ*λ_w, feature_vector, value_function, ∇v̂, trace_type)
 		
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp, s)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp.is_valid_action, s)
 		i_a = sample_action(policy)
 		update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 	
@@ -3003,7 +3003,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		update_trace_with_gradient!(z_w, ∇v̂, trace_type)
 		apply_dutch_trace!(z_w, -α_w*λ_w, feature_vector, value_function, ∇v̂, trace_type)
 		
-		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp, s)
+		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp.is_valid_action, s)
 		i_a = sample_action(policy)
 		update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 		update_params_with_gradient!(z_θ, one(T), ∇lnπ)

@@ -422,7 +422,7 @@ begin
 			end
 			targets[i] = g
 			if !terminated
-				update_linear_action_values!(action_values, x′, target_params, mdp, s′)
+				update_linear_action_values!(action_values, x′, target_params, mdp.is_valid_action, s′)
 				targets[i] += γ^(k-j) * maximum(action_values)
 			end
 		end
@@ -514,9 +514,9 @@ begin
 			end
 			targets[i] = g
 			if !terminated
-				update_linear_action_values!(action_values, x′, value_params, mdp, s′)
+				update_linear_action_values!(action_values, x′, value_params, mdp.is_valid_action, s′)
 				i_a_max = argmax(action_values)
-				update_linear_action_values!(action_values, x′, target_params, mdp, s′)
+				update_linear_action_values!(action_values, x′, target_params, mdp.is_valid_action, s′)
 				targets[i] += γ^(k-j) * action_values[i_a_max]
 			end
 		end
@@ -688,10 +688,10 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		end
 	end
 
-	function update_action_values!(action_values::Vector{T}, x, params, mdp, s; activations::FCANNActivations{T} = activations, kwargs...) 
+	function update_action_values!(action_values::Vector{T}, x, params, is_valid_action, s; activations::FCANNActivations{T} = activations, kwargs...) 
 		fcann_value_function!(activations, x, params)
 		action_values .= activations[end]
-		mask_invalid_actions!(action_values, s, mdp.is_valid_action)
+		mask_invalid_actions!(action_values, s, is_valid_action)
 		val, index = findmax(action_values)
 		isnan(val) && error("Got NaN action value inside $action_values")
 		isinf(val) && error("Got Inf action value inside $action_values")
@@ -725,11 +725,11 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 		gpu_feature_update! = setup_gpu_feature(zeros(T, input_length), update_feature_vector!)
 
 		#x is always going to come from the replay buffer and hence will be an ordinary vector
-		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU, mdp, s; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations, kwargs...)		
+		function update_action_values!(action_values::Vector{T}, x::Vector{T}, params::FCANNParamsGPU, is_valid_action, s; d_x::FCANN.CUDAArray = d_x, d_activations::FCANNActivationsGPU = d_activations, kwargs...)		
 			FCANN.memcpy!(d_x, x)
 			fcann_value_function!(d_activations, d_x, params)
 			FCANN.memcpy!(action_values, d_activations[end])
-			mask_invalid_actions!(action_values, s, mdp.is_valid_action)
+			mask_invalid_actions!(action_values, s, is_valid_action)
 			val, index = findmax(action_values)
 			isnan(val) && error("Got NaN action value inside $action_values")
 			isinf(val) && error("Got Inf action value inside $action_values")
@@ -1475,7 +1475,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 	
 	s = mdp.initialize_state()
 	update_feature_vector!(feature_vector, s)
-	update_action_values!(action_values, feature_vector, value_params, mdp, s)
+	update_action_values!(action_values, feature_vector, value_params, mdp.is_valid_action, s)
 	policy .= action_values
 	make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 	i_a = sample_action(policy)
@@ -1516,7 +1516,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F
 
 		#prepare next action selection from s′
 		# update_feature_vector!(feature_vector, s′)
-		update_action_values!(action_values, feature_vector2, value_params, mdp, s′)
+		update_action_values!(action_values, feature_vector2, value_params, mdp.is_valid_action, s′)
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy, s′; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 		i_a′ = sample_action(policy)
