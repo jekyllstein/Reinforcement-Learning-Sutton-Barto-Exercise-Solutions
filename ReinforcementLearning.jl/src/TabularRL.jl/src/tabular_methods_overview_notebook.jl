@@ -4518,19 +4518,21 @@ end
 
 # ╔═╡ 9bf8be28-a5b6-4e24-a514-910019be475c
 begin
+	function add_value!(v::AbstractVector{T}, x::T2, i::Integer) where {T, T2 <: T}
+		l = length(v) 
+		if i > l
+			push!(v, x)
+		else
+			v[i] = x
+		end
+	end 
+
 	function runepisode!((states, actions, rewards)::Tuple{Vector{S}, Vector{Int64}, Vector{T}}, mdp::StateMDP{T, S, A, P, F1, F2, F3}; s0::S = mdp.initialize_state(), π::Function = make_random_policy(mdp), i_a0 = π(s0), max_steps = Inf) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
 		s = s0
 		
 		l = length(states)
 		@assert l == length(actions) == length(rewards)
 	
-		function add_value!(v, x, i) 
-			if i > l
-				push!(v, x)
-			else
-				v[i] = x
-			end
-		end 
 		add_value!(states, s, 1)
 		i_a = i_a0
 		(r, s′) = mdp.ptf(s, i_a0)
