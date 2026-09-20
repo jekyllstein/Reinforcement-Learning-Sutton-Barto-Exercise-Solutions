@@ -131,7 +131,7 @@ md"""
 """
 
 # ╔═╡ f46a0dd1-475f-4b05-b03c-6478b7d96d98
-function check_reward_progress(batch_episode_rewards::Vector{V}; min_reward::T = typemin(T)) where {T<:Real, V <: Vector{T}} 
+function check_reward_progress(batch_episode_rewards::Vector{<:Vector{T}}; min_reward::T = typemin(T)) where {T<:Real} 
 	reward_sum = zero(T)
 	num_episodes = 0
 	# @info "Checking reward progress of $batch_episode_rewards"
@@ -350,7 +350,7 @@ function make_continuing_trial(algo::Function)
 end
 
 # ╔═╡ e932d0fd-5832-41eb-a2a3-13a89a1e8751
-function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_value_parameter_studies(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real}
 	function sarsa_train_linear(γ::T, α::T, λ::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
 			semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
@@ -409,7 +409,7 @@ function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2
 end
 
 # ╔═╡ 742c8135-9aac-49f3-ac9a-8430aa4c2b41
-function setup_episodic_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function setup_episodic_value_parameter_studies(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, feature_vector, update_feature_vector!::Function, use_dp::Bool; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real}
 	sarsa_studies = setup_episodic_value_parameter_studies(mdp, feature_vector, update_feature_vector!, use_steps = use_steps, min_reward = min_reward)
 	!use_dp && return sarsa_studies
 	
@@ -528,7 +528,7 @@ episodic_value_studies.sarsa_nonlinear_study.update_results!(1f0, 1f-2, 0.5f0, 1
   ╠═╡ =#
 
 # ╔═╡ 5f9b180e-9201-45d5-92dd-5c0eb9de01e7
-function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_continuing_value_parameter_studies(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function) where {T<:Real}
 	function sarsa_train_linear(α::T, λ::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		if iszero(λ)
 			semi_gradient_differential_sarsa_linear(mdp, num_steps, copy(feature_vector), update_feature_vector!; α = α, kwargs...)
@@ -553,7 +553,7 @@ function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, 
 end
 
 # ╔═╡ f578ab23-12cb-4f38-b76f-fef4189d31cc
-function setup_continuing_value_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function, use_dp::Bool) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function setup_continuing_value_parameter_studies(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, feature_vector, update_feature_vector!::Function, use_dp::Bool) where {T<:Real}
 	sarsa_studies = setup_continuing_value_parameter_studies(mdp, feature_vector, update_feature_vector!)
 	!use_dp && return sarsa_studies
 	
@@ -632,7 +632,7 @@ continuing_value_studies.sarsa_nonlinear_study.update_results!(1f-2, 0.5f0, 1_00
   ╠═╡ =#
 
 # ╔═╡ d2387c9d-aa6e-4eda-904a-101e5fdd3cae
-function setup_episodic_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_policy_parameter_studies(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real}
 	function ac_train_linear(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, max_steps::Integer; max_episodes::Integer = typemax(Int64), trace_type = AccumulatingTrace(), kwargs...)
 		if all(iszero, (λ_θ, λ_w))
 			one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
@@ -759,7 +759,7 @@ episodic_policy_studies.ac_sync_nonlinear_study.update_results!(1f0, 1f-2, 1f-2,
   ╠═╡ =#
 
 # ╔═╡ 2405bd06-0061-4856-a977-0302d911c760
-function setup_continuing_policy_parameter_studies(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_continuing_policy_parameter_studies(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function) where {T<:Real}
 	function ac_train_linear(α_θ::T, α_w::T, λ_θ::T, λ_w::T, num_steps::Integer; trace_type = AccumulatingTrace(), kwargs...)
 		if all(iszero, (λ_θ, λ_w))
 			one_step_actor_critic_linear(mdp, num_steps, copy(feature_vector), update_feature_vector!; α_θ = α_θ, α_w = α_w, kwargs...)
@@ -814,7 +814,7 @@ display_study_results(continuing_policy_studies.ac_linear_study.results)
 
 # ╔═╡ 3a938f27-b6fe-4411-8c41-5d1efaa8189c
 begin
-function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P, F1, F2, F3}
+function evaluate_episodic_policy_performance(mdp::StateMDP{T}, π::Function, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real}
 	s = mdp.initialize_state()
 	step = 0
 	rtot = zero(T)
@@ -860,7 +860,7 @@ end
 # end
 end
 # ╔═╡ 76a43eb8-9be3-4f66-806c-967dc945f5b6
-function evaluate_episodic_policy_performance(mdp::TabularMDP{T, S, A, P, F}, π::AbstractMatrix, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P, F}
+function evaluate_episodic_policy_performance(mdp::TabularMDP{T}, π::AbstractMatrix, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real}
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π, max_steps = eval_steps)
 	!mdp.terminal_states[sterm] && return min_reward
 	reward_sum = sum(rewards)
@@ -917,7 +917,7 @@ runepisode(gridworld_mdp)
   ╠═╡ =#
 
 # ╔═╡ 328aa74c-f64d-4333-857e-ab9d123f12ee
-function setup_episodic_training(mdp::TabularMDP{T, S, A, P, F}; q_values::Matrix{T} = initialize_state_action_value(mdp), double_q_values::Tuple{Matrix{T}, Matrix{T}} = (initialize_state_action_value(mdp), initialize_state_action_value(mdp)), min_reward::T = typemin(T)) where {T<:Real, S, A, P, F}
+function setup_episodic_training(mdp::TabularMDP{T}; q_values::Matrix{T} = initialize_state_action_value(mdp), double_q_values::Tuple{Matrix{T}, Matrix{T}} = (initialize_state_action_value(mdp), initialize_state_action_value(mdp)), min_reward::T = typemin(T)) where {T<:Real}
 
 	function reset_values!(qs::Matrix{T}; init_value::T = zero(T))
 		qs .= init_value
@@ -1106,7 +1106,7 @@ runepisode(gridworld_mdp; π = tabular_test.policy)
   ╠═╡ =#
 
 # ╔═╡ 0d583c27-134f-4651-89d9-63b599aa8c4f
-function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_value_linear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), min_reward::T = typemin(T)) where {T<:Real}
 
 	function reset_params(use_dp::Bool)
 		if use_dp
@@ -1135,7 +1135,7 @@ function setup_episodic_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, 
 	function extract_value_policy(output::NamedTuple, ϵ::T)
 		π_kwargs = output.form_kwargs()
 
-		function π(s::S)
+		function π(s)
 			if rand(T) < ϵ
 				valid_inds = Vector{Int64}()
 				for i_a in eachindex(mdp.actions)
@@ -1418,7 +1418,7 @@ function ReinforcementLearning.initialize_fcann_value_params(mdp::StateMDP, feat
 end
 
 # ╔═╡ 98d94e3b-4ca5-4ff0-8409-9d748799931f
-function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_value_nonlinear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), min_reward::T = typemin(T)) where {T<:Real}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers, use_dp = use_dp)
@@ -1447,7 +1447,7 @@ function setup_episodic_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F
 			(s; kwargs...) -> v(s; kwargs...)
 		end
 
-		function π(s::S)
+		function π(s)
 			if rand(T) < ϵ
 				valid_inds = Vector{Int64}()
 				for i_a in eachindex(mdp.actions)
@@ -1724,7 +1724,8 @@ episodic_nonlinear_value_result3 = episodic_nonlinear_value_test.train_rate_deca
   ╠═╡ =#
 
 # ╔═╡ 33aa329f-7a8b-4264-837e-19130773315f
-function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+#try despecializing this so that the methods aren't specific to all the types.  I only want to specialize further into the calls
+function setup_episodic_policy_linear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), min_reward::T = typemin(T)) where {T<:Real}
 	
 	function reset_params()
 		linear_policy_params .= initialize_linear_parameters(feature_vector, mdp, zero(T))
@@ -1742,21 +1743,21 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 
 	function ac_train_exhaustive(γ::T, α_θ::T, α_w::T, λ_θ::T, λ_w::T, trial_steps::Integer; new_params = false, use_steps::Bool = false, show_messages = true, kwargs...)
 		show_messages && @info "Starting exhaustive training with α_θ = $(α_θ), α_w = $(α_w), λ_θ = $(λ_θ), and λ_w = $(λ_w) with $trial_steps steps per trial"
-		output1 = ac_train_linear(γ, zero(T), zero(T), zero(T), zero(T), 0; new_params = new_params, kwargs...)
+		output1 = ac_train_linear(γ, zero(T), zero(T), λ_θ, λ_w, 0; new_params = new_params, kwargs...)
 		π_kwargs = output1.form_policy_kwargs()
 		π = let p = output1.policy_sample_action
 			s -> p(s; π_kwargs...)
 		end
 		# π(s) = output1.policy_sample_action(s; π_kwargs...)
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
-		reward1 = baseline_reward
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)::T
+		reward1 = baseline_reward::T
 		trial = 0
 		
 		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_policy_params = copy(linear_policy_params)
 		backup_value_params = copy(linear_value_params)
 		output2 = ac_train_linear(γ, α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
-		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)
+		reward2 = check_reward_progress(output2; use_steps = use_steps, min_reward = min_reward)::T
 
 		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
 			@info "First trial performance resulted in bad parameter values"
@@ -1770,12 +1771,12 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 			return (;output1..., performance = reward1)
 		end
 
-		episode_rewards = output2.episode_rewards
+		episode_rewards = output2.episode_rewards::Vector{T}
 		while (reward2 > reward1) && !check_bad_params(linear_policy_params) && !check_bad_params(linear_value_params)
 			trial += 1
 			show_messages && @info "On trial $trial, episode reward improved from $reward1 to $reward2"
 			output1 = output2
-			reward1 = reward2
+			reward1 = reward2::T
 			backup_policy_params .= linear_policy_params
 			backup_value_params .= linear_value_params
 			episode_rewards = vcat(episode_rewards, output1.episode_rewards)
@@ -1843,8 +1844,8 @@ function setup_episodic_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2,
 		end
 		
 		# π(s) = output1.policy_sample_action(s; π_kwargs...)
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)
-		reward1 = baseline_reward
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps = use_steps, min_reward = min_reward)::T
+		reward1 = baseline_reward::T
 		trial = 0
 		
 		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
@@ -1942,7 +1943,7 @@ function initialize_fcann_policy_params(mdp::StateMDP, feature_vector, hidden_la
 end
 
 # ╔═╡ ad63e185-0618-476c-931e-f69b5f24d2a1
-function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), min_reward::T = typemin(T)) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), min_reward::T = typemin(T)) where {T<:Real}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers)
@@ -1981,15 +1982,15 @@ function setup_episodic_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, 
 		# 	s -> p(s; use_gpu, π_kwargs...)
 		# end
 		# π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
-		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps, min_reward)
-		reward1 = baseline_reward
+		baseline_reward = evaluate_episodic_policy_performance(mdp, π, trial_steps; use_steps, min_reward)::T
+		reward1 = baseline_reward::T
 		trial = 0
 		
 		show_messages && @info "Baseline episode reward is $reward1, beginning first trial"
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
 		output2 = ac_train_nonlinear(hidden_layers, reslayers, γ, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu, kwargs..., new_params = false)
-		reward2 = check_reward_progress(output2; use_steps, min_reward)
+		reward2 = check_reward_progress(output2; use_steps, min_reward)::T
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
 			@info "First trial performance resulted in bad parameter values"
@@ -2189,13 +2190,13 @@ runepisode(episodic_mdp; π = episodic_nonlinear_sync_policy_result.policy_sampl
   ╠═╡ =#
 
 # ╔═╡ 64c23666-9e34-4f95-9787-2d1593725bff
-function evaluate_continuing_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer) where {T<:Real, S, A, P, F1, F2, F3}
+function evaluate_continuing_policy_performance(mdp::StateMDP, π::Function, eval_steps::Integer)
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = eval_steps)
 	Statistics.mean(rewards)
 end
 
 # ╔═╡ 9d244394-8523-4975-af85-f70cd0cfa430
-function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_continuing_value_linear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real}
 
 	function reset_params(use_dp::Bool)
 		if use_dp
@@ -2223,7 +2224,7 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 	function extract_value_policy(output::NamedTuple, ϵ::T)
 		π_kwargs = output.form_kwargs()
 
-		function π(s::S)
+		function π(s)
 			if rand(T) < ϵ
 				num_valid = 0
 				@inbounds @simd for i_a in eachindex(mdp.actions)
@@ -2255,8 +2256,8 @@ function setup_continuing_value_linear_training(mdp::StateMDP{T, S, A, P, F1, F2
 		show_messages && @info "Starting exhaustive training with α = $α and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_linear(zero(T), zero(T), 0; use_dp = use_dp, new_params = new_params, kwargs...)
 		π = extract_value_policy(output1, ϵ)
-		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
-		reward1 = baseline_reward
+		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)::T
+		reward1 = baseline_reward::T
 		trial = 0
 		
 		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
@@ -2369,7 +2370,7 @@ continuing_linear_value_result = continuing_linear_value_test.train_rate_decay(1
   ╠═╡ =#
 
 # ╔═╡ d1440c54-faaf-4bf5-a11d-f7c3afb3437f
-function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_continuing_value_nonlinear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real}
 
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer, use_dp::Bool; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers, use_dp = use_dp)
@@ -2396,7 +2397,7 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 	function extract_value_policy(output::NamedTuple, ϵ::T)
 		π_kwargs = output.form_kwargs()
 
-		function π(s::S)
+		function π(s)
 			if rand(T) < ϵ
 				valid_inds = Vector{Int64}()
 				for i_a in eachindex(mdp.actions)
@@ -2417,14 +2418,14 @@ function setup_continuing_value_nonlinear_training(mdp::StateMDP{T, S, A, P, F1,
 		show_messages && @info "Starting exhaustive training with α = $α, and λ = $λ with $trial_steps steps per trial"
 		output1 = td_train_nonlinear(hidden_layers, reslayers, zero(T), zero(T), 0; new_params = false, use_dp = use_dp, use_gpu = use_gpu, kwargs...)
 		π = extract_value_policy(output1, ϵ)
-		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
-		reward1 = baseline_reward
+		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)::T
+		reward1 = baseline_reward::T
 		trial = 0
 		
 		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
 		backup_params = copy(params)
 		output2 = td_train_nonlinear(hidden_layers, reslayers, α, λ, trial_steps; new_params = false, use_dp = use_dp, ϵ = ϵ, use_gpu = use_gpu, kwargs...)
-		reward2 = check_reward_progress(output2.reward_history)
+		reward2 = check_reward_progress(output2.reward_history)::T
 
 		if check_bad_params(params)
 			@info "First trial resulted in bad parameter values"
@@ -2539,7 +2540,7 @@ continuing_nonlinear_value_result = continuing_nonlinear_value_test.train_rate_d
   ╠═╡ =#
 
 # ╔═╡ 93e197d7-3b7d-41a0-ae6e-2dad6c327f51
-function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)),	linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_continuing_policy_linear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)),	linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real}
 	
 	function reset_params()
 		linear_policy_params .= initialize_linear_parameters(feature_vector, mdp, zero(T))
@@ -2563,15 +2564,15 @@ function setup_continuing_policy_linear_training(mdp::StateMDP{T, S, A, P, F1, F
 			s -> p(s; π_kwargs...)
 		end
 		# π(s) = output1.policy_sample_action(s; π_kwargs...)
-		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
-		reward1 = baseline_reward
+		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)::T
+		reward1 = baseline_reward::T
 		trial = 0
 		
 		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
 		backup_policy_params = copy(linear_policy_params)
 		backup_value_params = copy(linear_value_params)
 		output2 = ac_train_linear(α_θ, α_w, λ_θ, λ_w, trial_steps; kwargs..., new_params = false)
-		reward2 = check_reward_progress(output2.reward_history)
+		reward2 = check_reward_progress(output2.reward_history)::T
 
 		if check_bad_params(linear_policy_params) || check_bad_params(linear_value_params)
 			@info "First trial performance resulted in bad parameter values"
@@ -2651,7 +2652,7 @@ continuing_linear_policy_result = continuing_linear_policy_test.train_rate_decay
   ╠═╡ =#
 
 # ╔═╡ 5054ef58-74fd-4fd3-aaaa-099cc00492e2
-function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real}
 	function initialize_params(hidden_layers::Vector{Int64}, reslayers::Integer; reset_params::Bool = false)
 		key = (hidden_layers = hidden_layers, reslayers = reslayers)
 		if (!haskey(fcann_policy_parameters, key) || reset_params) 
@@ -2686,15 +2687,15 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 			s -> p(s; use_gpu, π_kwargs...)
 		end
 		# π(s) = output1.policy_sample_action(s; use_gpu = use_gpu, π_kwargs...)
-		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)
-		reward1 = baseline_reward
+		baseline_reward = evaluate_continuing_policy_performance(mdp, π, trial_steps)::T
+		reward1 = baseline_reward::T
 		trial = 0
 		
 		show_messages && @info "Baseline average reward is $reward1, beginning first trial"
 		backup_policy_params = copy(policy_params)
 		backup_value_params = copy(value_params)
 		output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
-		reward2 = check_reward_progress(output2.reward_history)
+		reward2 = check_reward_progress(output2.reward_history)::T
 
 		
 		if check_bad_params(policy_params) || check_bad_params(value_params)
@@ -2720,7 +2721,7 @@ function setup_continuing_policy_nonlinear_training(mdp::StateMDP{T, S, A, P, F1
 			reward_history = vcat(reward_history, output1.reward_history)
 			
 			output2 = ac_train_nonlinear(hidden_layers, reslayers, α_θ, α_w, λ_θ, λ_w, trial_steps; use_gpu = use_gpu, kwargs..., new_params = false)
-			reward2 = check_reward_progress(output2.reward_history)
+			reward2 = check_reward_progress(output2.reward_history)::T
 		end
 
 		if check_bad_params(policy_params) || check_bad_params(value_params)
@@ -2994,7 +2995,7 @@ linear_policy_disk_test()
   ╠═╡ =#
 
 # ╔═╡ 7d454b42-050b-4c2a-a9b2-2c445fd9fec1
-function setup_value_linear_training(basename::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_value_linear_training(basename::AbstractString, isepisodic::Bool, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real}
 	(check1, fname1) = linear_value_parameters_save_check(basename, mdp, feature_vector, true)
 	(check2, fname2) = linear_value_parameters_save_check(basename, mdp, feature_vector, false)
 	if check1 && check2
@@ -3033,7 +3034,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 5e5051fb-e0fe-4108-b581-e7ac9b7d2198
-function setup_policy_linear_training(basename::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_policy_linear_training(basename::AbstractString, isepisodic::Bool, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; linear_policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T))) where {T<:Real}
 	(check, fname1, fname2) = linear_policy_parameters_save_check(basename, mdp, feature_vector)
 	if check
 		(linear_policy_params, linear_value_params) = load_linear_policy_parameters(basename, mdp, feature_vector)
@@ -3246,7 +3247,7 @@ function erase_nonlinear_value_parameters(base_name::AbstractString, mdp::StateM
 end
 
 # ╔═╡ 707b1a25-0d56-486d-a187-b17b922d49c9
-function setup_value_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), show_message::Bool = true) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_value_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; fcann_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), show_message::Bool = true) where {T<:Real}
 	loaded_parameters = load_nonlinear_value_parameters(base_name, mdp, feature_vector; show_message = show_message)
 	for k in keys(loaded_parameters)
 		fcann_parameters[k] = loaded_parameters[k]
@@ -3348,7 +3349,7 @@ function erase_nonlinear_policy_parameters(base_name::AbstractString, mdp::State
 end
 
 # ╔═╡ c182475b-c1b0-4835-8347-f0f4a831909b
-function setup_policy_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), show_message::Bool = true) where {T<:Real, S, A, P<:AbstractStateTransition, F1, F2, F3}
+function setup_policy_nonlinear_training(base_name::AbstractString, isepisodic::Bool, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; fcann_policy_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_value_parameters::Dict = Dict{NamedTuple, FCANNParams{T}}(), show_message::Bool = true) where {T<:Real}
 	loaded_policy_parameters, loaded_value_parameters = load_nonlinear_policy_parameters(base_name, mdp, feature_vector; show_message = show_message)
 	for k in keys(loaded_policy_parameters)
 		fcann_policy_parameters[k] = loaded_policy_parameters[k]

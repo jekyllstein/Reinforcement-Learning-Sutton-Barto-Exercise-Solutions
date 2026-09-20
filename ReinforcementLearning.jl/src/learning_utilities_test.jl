@@ -240,7 +240,7 @@ const nonlinear_value_dense_setup = setup_episodic_value_nonlinear_training(stat
 
 # ╔═╡ bcbf7017-e196-4ea1-8a9b-a5aab279f96d
 #=╠═╡
-@profview nonlinear_value_dense_setup.train_dqn_ϵ_decay([64, 64], 1, 0.9f0, 0.01f0, 10_000; batch_size = 64, use_steps = true, show_messages = false, N = 10)
+@profview nonlinear_value_dense_setup.train_dqn_ϵ_decay([64, 64], 1, 0.9f0, 0.01f0, 1_000; batch_size = 64, use_steps = true, new_params = true, show_messages = false, N = 10)
   ╠═╡ =#
 
 # ╔═╡ 1b572db3-f442-4df8-bfc7-45314ff851af

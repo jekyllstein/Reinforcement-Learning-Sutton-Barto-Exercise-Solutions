@@ -728,7 +728,7 @@ end
 
 # ╔═╡ 9ec58129-a14f-40a9-9c41-809500181bdd
 begin
-	function zero_trace!(z::AbstractArray{T, N}) where {T<:Real, N}
+	function zero_trace!(z::AbstractArray{T}) where {T<:Real}
 		z .= zero(T)
 	end
 	function zero_trace!(z::FCANNParams)
@@ -978,7 +978,7 @@ The algorithm below runs semi-gradient TD(λ) for a tabular problem without need
 # ╔═╡ 900760f0-b253-4db7-8c4f-4ca34777198d
 begin
 	#in the case of a tabular problem, this algorithm can be used with a trivial version of the linear algorithm
-	function semi_gradient_TDλ(states::Vector{S}, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real, S}
+	function semi_gradient_TDλ(states::Vector, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real}
 		@assert length(parameters) == length(states)
 
 		feature_vector = StateAggregationFeatureVector(length(parameters))
@@ -1339,7 +1339,7 @@ $\begin{flalign}
 # ╔═╡ 7f8fb89d-1a2e-4acd-9118-2ce3d3874341
 begin
 	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function true_online_TDλ!(parameters::Vector{T}, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::X, update_state_representation!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (target - v̂)^2, ∇v̂::P = deepcopy(state_representation), z::Vector{T} = copy(parameters), save_episode_steps::Bool = false, kwargs...) where {P, X, T<:Real}
+	function true_online_TDλ!(parameters::Vector{T}, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation, update_state_representation!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (target - v̂)^2, ∇v̂ = deepcopy(state_representation), z::Vector{T} = copy(parameters), save_episode_steps::Bool = false, kwargs...) where {T<:Real}
 		#initialize records
 		step_rewards = Vector{T}()
 		episode_steps = Vector{Int64}()
@@ -1432,7 +1432,7 @@ end
 # ╔═╡ d1903e34-0463-4a63-a74b-fb827451e542
 begin
 	#in the case of a tabular problem, this algorithm can be used with a trivial version of the linear algorithm
-	function true_online_TDλ(states::Vector{S}, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real, S}
+	function true_online_TDλ(states::Vector, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real}
 		@assert length(parameters) == length(states)
 
 		feature_vector = StateAggregationFeatureVector(length(parameters))
@@ -1629,7 +1629,7 @@ md"""
 """
 
 # ╔═╡ 9c8765f5-0101-47e3-8780-65c197c14d6b
-function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function dp_λ!(parameters, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real}
 	#initialize records
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
@@ -1780,7 +1780,7 @@ function form_value_function(mdp::TabularMDP, parameters::Matrix{T}) where T<:Re
 end
 
 # ╔═╡ b320dc0e-95dc-44d5-8ee4-455c4a858835
-function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+function sarsa_λ!(parameters::P, mdp::StateMDP{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
@@ -1856,7 +1856,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP, γ::T, λ::T, max_episodes::Int
 end
 
 # ╔═╡ 3df4cd98-f754-4eca-8e16-e654576e283d
-function sarsa_λ!(parameters::P, mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_r̄::T = one(T)/10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+function sarsa_λ!(parameters::P, mdp::StateMDP{T}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_r̄::T = one(T)/10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
 	#initialize records
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
@@ -1926,8 +1926,8 @@ sarsa_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::I
 sarsa_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(copy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ c7caa90d-26bf-4179-b869-3385cb75b943
-function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F}
-	function update_feature_vector!(v, s::S)
+function sarsa_λ(mdp::TabularMDP{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real}
+	function update_feature_vector!(v, s)
 		i_s = mdp.state_index[s]
 		v.group_index = i_s
 		return v
@@ -1937,8 +1937,8 @@ function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, γ::T, λ::T, max_episodes::In
 end
 
 # ╔═╡ 58739629-eff4-416a-b133-85ab5ec563fc
-function sarsa_λ(mdp::TabularMDP{T, S, A, P, F}, λ::T, num_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F}
-	function update_feature_vector!(v, s::S)
+function sarsa_λ(mdp::TabularMDP{T}, λ::T, num_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real}
+	function update_feature_vector!(v, s)
 		i_s = mdp.state_index[s]
 		v.group_index = i_s
 		return v
@@ -1987,7 +1987,7 @@ function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector
 end
 
 # ╔═╡ 4cab7b59-f080-4bea-86dc-3c860a618c35
-function dp_λ!(parameters::P, mdp::StateMDP{T, S, A, TR, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P, S, A, TR <: Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3}
+function dp_λ!(parameters::P, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
@@ -2073,7 +2073,7 @@ test_dp_λ()
   ╠═╡ =#
 
 # ╔═╡ 5f623b73-4d7d-4c69-acaf-9a668c352bf9
-function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
+function dp_λ_fcann(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
 	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
@@ -2087,7 +2087,7 @@ function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, λ::T, max_ep
 end
 
 # ╔═╡ c5ae58b0-6f89-476a-8a72-9bb1cfd1a6be
-function dp_λ_fcann(mdp::StateMDP{T, S, A, P, F1, F2, F3}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, P<:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}, F1, F2, F3} 
+function dp_λ_fcann(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
 	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
@@ -2161,7 +2161,7 @@ begin
 			(r, i_s′) = mdp.ptf(i_s, i_a)
 			rtot += r
 			
-			save_step_rewards && push!(step_rewards, r)
+			save_step_rewards && push!(episode_rewards, r)
 
 			if mdp.terminal_states[i_s′]
 				q′ = zero(T)
@@ -2385,6 +2385,8 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 	#initialize records
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
+
+	r̄ = zero(T)
 	
 	#initialize episode
 	s = mdp.initialize_state()
@@ -3427,7 +3429,7 @@ md"""
 """
 
 # ╔═╡ 9bdd4ce4-e9b9-4cc1-8c5d-fbc4c7a6f74a
-function normalized_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3}, StateMRP{T, S, P, F1, F2}}, extract_values::Function, min_value::V, max_value::V; range::T = one(T)) where {T<:Real, N, S, V <: Union{T, NTuple{N, T}}, A, P, F1<:Function, F2<:Function, F3<:Function}
+function normalized_feature_setup(problem::Union{StateMDP{T}, StateMRP{T}}, extract_values::Function, min_value::V, max_value::V; range::T = one(T)) where {T<:Real, N, V <: Union{T, NTuple{N, T}}}
 	#extract_values must transform a state into type V where V is either a tuple of values or a value
 	
 	#states must be tuples with k elements or some number value
@@ -3441,7 +3443,7 @@ function normalized_feature_setup(problem::Union{StateMDP{T, S, A, P, F1, F2, F3
 
 	feature_vector = zeros(T, k)
 
-	function update_feature_vector!(x::Vector{T}, s::S)
+	function update_feature_vector!(x::Vector{T}, s)
 		values = extract_values(s)
 		@inbounds @simd for i in 1:k
 			x[i] = (2*range)*scale_state(values[i], min_value[i], s_range[i]) - range

@@ -336,7 +336,7 @@ Returns:
 The returned caches enable training data extraction.
 """
 function gumbel_mcts_search(
-    mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, s::S, v_est::Function;
+    mdp::StateMDP{T, S}, γ::T, π_dist!::Function, pscale::T, s::S, v_est::Function;
     nsims::Int = 100,
     topk::Int = 16,
     c_visit::T = T(50),
@@ -358,7 +358,7 @@ function gumbel_mcts_search(
     make_est_kwargs::Function = k -> NamedTuple(),
     sim_message::Bool = false,
     rescale_values::Bool = true
-) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
+) where {T<:Real, S}
     num_actions = length(mdp.actions)
     v_new = SparseVector(num_actions, Vector{Int64}(), Vector{T}())
 
@@ -643,9 +643,9 @@ Usage:
                                        c_visit=50, c_scale=1.0)
 """
 function make_gumbel_mcts_policy(
-    mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, π_dist!::Function, pscale::T, v_est::Function;
+    mdp::StateMDP{T, S}, γ::T, π_dist!::Function, pscale::T, v_est::Function;
     kwargs...
-) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
+) where {T<:Real, S}
     num_actions = length(mdp.actions)
     visit_counts = Dict{S, SparseVector{T, Int64}}()
     Q = Dict{S, SparseVector{T, Int64}}()

@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.25
+# v1.0.3
 
 using Markdown
 using InteractiveUtils
@@ -20,7 +20,7 @@ using DataStructures
 # ╠═╡ skip_as_script = true
 #=╠═╡
 begin
-	using PlutoUI, BenchmarkTools, PlutoPlotly, PlutoProfile
+	using PlutoUI, BenchmarkTools, PlutoPlotly, ProfileCanvas
 	TableOfContents(depth = 4)
 end
   ╠═╡ =#
@@ -119,7 +119,10 @@ With a problem this small, we can simply use parameters that isolate every state
 """
 
 # ╔═╡ e4fd6d59-be28-4852-a2d2-6ddc1a40116d
+# ╠═╡ skip_as_script = true
+#=╠═╡
 const gridworld_feature = zeros(Float32, 2)
+  ╠═╡ =#
 
 # ╔═╡ e8c3f789-7ede-4f6d-83ee-3050c9ef5840
 md"""
@@ -236,30 +239,6 @@ md"""
 ### Utility Functions
 """
 
-# ╔═╡ e6f4574b-f28f-43b1-b8f9-7080ecacfb39
-#sample a batch of actions from a matrix of probability distributions.  each row represents a separate environment with its own action distribution.  Fill the respective action selections in the vector `actions`
-function sample_batch_actions!(actions::Vector{I}, πs::Matrix{T}, ::Val{num_env}) where {T<:Real, I<:Integer, num_env} 
-	num_actions = size(πs, 2)
-	actions .= zero(I)
-	# maxvs = fill(T(-Inf), num_env)
-	maxvs = MVector{num_env, T}(undef)
-	maxvs .= T(-Inf)
-	e = eps(T)
-	c = one(T) - 2*e
-	@inbounds @fastmath for i in 1:num_actions
-		@simd for k in 1:num_env
-			x = πs[k, i] 
-			u = e + rand(T) * c #avoid 0 and 1 for numerical stability
-			g = log(x) - log(-log(u))
-			newmax = (g > maxvs[k])
-			maxvs[k] = max(g, maxvs[k])
-			actions[k] += newmax*(i - actions[k])
-		end
-	end
-	any(iszero, actions) && @warn "sample_batch_actions! produced zero actions for some environments with πs $πs"
-	return actions
-end
-
 # ╔═╡ 90d81200-8b3e-4b14-b913-7c8eb0a965b0
 function update_row_extrema!(row_mins, row_maxes, πs)
 	#populate both extrema with the values in the first column
@@ -336,15 +315,15 @@ end
 
 # ╔═╡ cf40f4b3-4495-4f26-a007-18c6589ed4cf
 begin
-	form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, parameters, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3} = ()
+	form_batch_action_value_args(mdp::StateMDP, feature_vector, parameters, batch_size::Integer) = ()
 
-	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector, parameters::FCANNParams{T}, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3}
+	function form_batch_action_value_args(mdp::StateMDP{T}, feature_vector, parameters::FCANNParams{T}, batch_size::Integer) where {T<:Real}
 		num_actions = length(mdp.actions)
 		activations = FCANN.form_activations(parameters.weights[1], batch_size)
 		(activations,)
 	end
 
-	function form_batch_action_value_args(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::Vector{T}, parameters::FCANNParamsGPU, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3}
+	function form_batch_action_value_args(mdp::StateMDP{T}, feature_vector::Vector{T}, parameters::FCANNParamsGPU, batch_size::Integer) where {T<:Real}
 		num_actions = length(mdp.actions)
 		output_matrix = zeros(T, batch_size, num_actions)
 		gpu_output = FCANN.cuda_allocate(output_matrix)
@@ -408,7 +387,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action::F, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, F}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -429,7 +408,7 @@ begin
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
@@ -452,7 +431,7 @@ begin
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, output_matrix::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -476,7 +455,7 @@ begin
 
 	#-------------- Double Q Maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -500,7 +479,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, S, V<:AbstractBinaryFeatures}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -523,7 +502,7 @@ begin
 	end
 
 	#nonlinear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsBatch{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
@@ -548,7 +527,7 @@ begin
 	end
 
 	#nonlinear gpu function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 		input_orientation = get_input_orientation(feature_matrix)
@@ -583,13 +562,13 @@ begin
 		end
 	end
 
-	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{V}) where {T<:Real, V<:StateAggregationFeatureVector}
+	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{<:StateAggregationFeatureVector}) where {T<:Real}
 		#the i argument is the index of the example being used and i_a is the action index for that example, only need to update term for the active feature in that action
 		i_s = feature_vectors[i].group_index
 		∇q̂[i_s, i_a] += c
 	end
 
-	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{V}) where {T<:Real, V<:BinaryFeatureVector}
+	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{<:BinaryFeatureVector}) where {T<:Real}
 		#the i argument is the index of the example being used and i_a is the action index for that example, only need to update terms for active features in that action
 		x = feature_vectors[i]
 		@inbounds @simd for ind in 1:x.num_features
@@ -606,7 +585,7 @@ begin
 		return l, m
 	end
 
-	function get_input_dimension(X::Vector{V}) where V
+	function get_input_dimension(X::Vector)
 		m = length(X)
 		l = length(first(X))
 		return l, m
@@ -634,9 +613,9 @@ end
 
 # ╔═╡ 2dd9b971-fa6e-4a55-8a82-b16739199fab
 begin
-	form_feature_matrix(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::Vector{T}, batch_size::Integer) where {T<:Real, S, A, P, F1, F2, F3} = zeros(T, length(feature_vector), batch_size)
+	form_feature_matrix(mdp::StateMDP{T}, feature_vector::Vector{T}, batch_size::Integer) where {T<:Real} = zeros(T, length(feature_vector), batch_size)
 
-	function form_feature_matrix(mdp::StateMDP{T, S, A, P, F1, F2, F3}, feature_vector::V, batch_size::Integer)  where {T<:Real, S, A, P, F1, F2, F3, V<:AbstractBinaryFeatures}
+	function form_feature_matrix(mdp::StateMDP, feature_vector::V, batch_size::Integer)  where {V<:AbstractBinaryFeatures}
 		output = Vector{V}(undef, batch_size)
 		for i in 1:batch_size
 			output[i] = copy(feature_vector)
@@ -892,6 +871,8 @@ eval_gridworld_final_policy(gridworld_exact.optimal_policy)
   ╠═╡ =#
 
 # ╔═╡ 9a70941b-bf9e-4b3c-aef6-915f3e2019fe
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function update_gridworld_feature!(v::Vector{T}, s::GridworldState) where T<:Real
 	xmin = 1
 	xmax = 10
@@ -901,6 +882,7 @@ function update_gridworld_feature!(v::Vector{T}, s::GridworldState) where T<:Rea
 	v[2] = 2*(((s.y - ymin) / (ymax - ymin)) - one(T)/2)
 	return v
 end
+  ╠═╡ =#
 
 # ╔═╡ 22744a27-614a-4317-a0ed-833bb0ef659c
 #=╠═╡
@@ -1015,7 +997,10 @@ plot([scatter(y = evaluate_gridworld_q_learning3(0.99f0, 100_000, 4f-3, 0.05f0; 
   ╠═╡ =#
 
 # ╔═╡ 98c778fb-aa6d-4372-80cc-e6a6751bee96
+# ╠═╡ skip_as_script = true
+#=╠═╡
 LinearAlgebra.BLAS.set_num_threads(4)
+  ╠═╡ =#
 
 # ╔═╡ 5d4dfd0c-440e-4187-a9fd-05ef01ec8eab
 # ╠═╡ skip_as_script = true
@@ -1186,7 +1171,7 @@ eval_gridworld_final_policy(gridworld_ac2.policy_sample_action)
 
 # ╔═╡ aeb7304c-0f5f-4db9-b3c1-d19048fd4176
 begin
-	function update_batch_policy_gradient!(∇lnπ::Matrix{T}, θ::Matrix{T}, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, feature_vectors::Vector{V}) where {T<:Real, V<:StateAggregationFeatureVector, I<:Integer}
+	function update_batch_policy_gradient!(∇lnπ::Matrix{T}, θ::Matrix{T}, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, feature_vectors::Vector{<:StateAggregationFeatureVector}) where {T<:Real, I<:Integer}
 		K, num_actions = size(π_dists)
 		π_dists .*= δs
 		∇lnπ .= zero(T)
@@ -1205,7 +1190,7 @@ begin
 		return ∇lnπ
 	end
 
-	function update_batch_policy_gradient!(∇lnπ::Matrix{T}, θ::Matrix{T}, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, feature_vectors::Vector{V}) where {T<:Real, V<:BinaryFeatureVector, I<:Integer}
+	function update_batch_policy_gradient!(∇lnπ::Matrix{T}, θ::Matrix{T}, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, feature_vectors::Vector{<:BinaryFeatureVector}) where {T<:Real, I<:Integer}
 		K, num_actions = size(π_dists)
 		π_dists .*= δs
 		∇lnπ .= zero(T)
@@ -1277,6 +1262,30 @@ begin
 	end
 end
 
+# ╔═╡ e6f4574b-f28f-43b1-b8f9-7080ecacfb39
+#sample a batch of actions from a matrix of probability distributions.  each row represents a separate environment with its own action distribution.  Fill the respective action selections in the vector `actions`
+function sample_batch_actions!(actions::Vector{I}, πs::Matrix{T}, ::Val{num_env}) where {T<:Real, I<:Integer, num_env} 
+	num_actions = size(πs, 2)
+	actions .= zero(I)
+	# maxvs = fill(T(-Inf), num_env)
+	maxvs = MVector{num_env, T}(undef)
+	maxvs .= T(-Inf)
+	e = eps(T)
+	c = one(T) - 2*e
+	@inbounds @fastmath for i in 1:num_actions
+		@simd for k in 1:num_env
+			x = πs[k, i] 
+			u = e + rand(T) * c #avoid 0 and 1 for numerical stability
+			g = log(x) - log(-log(u))
+			newmax = (g > maxvs[k])
+			maxvs[k] = max(g, maxvs[k])
+			actions[k] += newmax*(i - actions[k])
+		end
+	end
+	any(iszero, actions) && @warn "sample_batch_actions! produced zero actions for some environments with πs $πs"
+	return actions
+end
+
 # ╔═╡ 7f848bd1-e325-427d-8d68-8f7c2d1e7039
 function BLAS.gemm!(::Char, ::Char, α::T, X::Vector{V}, v::Vector{T}, β::T, output::Array{T, N}) where {T<:Real, N, V<:AbstractBinaryFeatures}
 	@assert length(X) == length(output)
@@ -1297,7 +1306,7 @@ begin
 		LinearAlgebra.BLAS.gemv!('N', c, feature_matrix, δs, zero(T), ∇v̂)
 	end
 
-	function accumulate_linear_gradient!(∇v̂::Vector{T}, c::T, δs::Vector{T}, feature_vectors::Vector{V}) where {T<:Real, V<:StateAggregationFeatureVector}
+	function accumulate_linear_gradient!(∇v̂::Vector{T}, c::T, δs::Vector{T}, feature_vectors::Vector{<:StateAggregationFeatureVector}) where {T<:Real}
 		∇v̂ .= zero(T)
 		for i in eachindex(δs)
 			#the i argument is the index of the example being used. only need to update term for the active features in that state
@@ -1306,7 +1315,7 @@ begin
 		end
 	end
 
-	function accumulate_linear_gradient!(∇v̂::Vector{T}, c::T, δs::Vector{T}, feature_vectors::Vector{V}) where {T<:Real, V<:BinaryFeatureVector}
+	function accumulate_linear_gradient!(∇v̂::Vector{T}, c::T, δs::Vector{T}, feature_vectors::Vector{<:BinaryFeatureVector}) where {T<:Real}
 		∇v̂ .= zero(T)
 		for i in eachindex(δs)
 			#the i argument is the index of the example being used. only need to update term for the active features in that state
@@ -1411,13 +1420,13 @@ end
 
 # ╔═╡ 05e4d2f6-bfc4-426e-866e-834d39666eb7
 begin
-	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::Matrix{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, is_valid_action::Function) where {T<:Real, S}
+	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::Matrix{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector, is_valid_action::F) where {T<:Real, F}
 		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), X, θ, zero(T), policy_matrix)
 		mask_invalid_actions_batch!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 
-	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::FCANNParams{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, is_valid_action::Function, activations::FCANNActivationsBatch{T}) where {T<:Real, S}
+	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::FCANNParams{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector, is_valid_action::F, activations::FCANNActivationsBatch{T}) where {T<:Real, F}
 		FCANN.forwardNOGRAD_base!(activations, θ.weights..., X, θ.reslayers; input_orientation = 'T')
 		# update_state_values!(policy_matrix, X, θ, activations)
 		policy_matrix .= last(activations)
@@ -1425,7 +1434,7 @@ begin
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
 
-	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X::Matrix{T}, θ::FCANNParamsGPU, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector{S}, is_valid_action::Function, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, S}
+	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X::Matrix{T}, θ::FCANNParamsGPU, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector, is_valid_action::F, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray) where {T<:Real, F}
 		FCANN.memcpy!(gpu_input, X)
 		FCANN.forwardNOGRAD_base!(activations, θ.weights..., gpu_input, θ.reslayers; input_orientation = 'T')
 		# update_state_values!(policy_matrix, X, θ, activations)
@@ -1456,7 +1465,7 @@ function Base.copy!(x1::Vector{V}, x2::Vector{V}) where V<:AbstractBinaryFeature
 end
 
 # ╔═╡ 3a4510e6-054b-40fe-989d-7ac8c86db757
-function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::V, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function; target_args::Tuple = (), α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer = 100, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, use_double_q::Bool = false, N::Integer = 0, ∇q̂::Q = copy(value_params), kwargs...) where {Q, T<:Real, S, A, P<:AbstractStateTransition, F1<:Function, F2<:Function, F3<:Function, V}
+function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::V, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function; target_args::Tuple = (), α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer = 100, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, use_double_q::Bool = false, N::Integer = 0, ∇q̂::Q = copy(value_params), kwargs...) where {Q, T<:Real, S, V}
 
 	#initialize memory
 	action_values = zeros(T, length(mdp.actions))
@@ -1717,17 +1726,19 @@ dqn_fcann(gridworld_state_mdp, 0.99f0, typemax(Int64), 100_000, gridworld_featur
   ╠═╡ =#
 
 # ╔═╡ f8cb49ae-10b5-4a94-a5ab-24c6b70d597c
+# ╠═╡ skip_as_script = true
 #=╠═╡
-@plutoprofview dqn_fcann(gridworld_state_mdp, 0.99f0, typemax(Int64), 1_000, gridworld_feature, update_gridworld_feature!, [256, 256]; reslayers = 1, α = 1f-20, ϵ = 0.05f0, buffer_size = 1_000, batch_size = 64, target_update_interval = 100, N = 2, use_gpu = true)
+@profview dqn_fcann(gridworld_state_mdp, 0.99f0, typemax(Int64), 1_000, gridworld_feature, update_gridworld_feature!, [256, 256]; reslayers = 1, α = 1f-20, ϵ = 0.05f0, buffer_size = 1_000, batch_size = 64, target_update_interval = 100, N = 2, use_gpu = true)
   ╠═╡ =#
 
 # ╔═╡ 109954db-b333-4899-91e1-18f067742372
+# ╠═╡ skip_as_script = true
 #=╠═╡
-@plutoprofview dqn_fcann(gridworld_state_mdp, 0.99f0, typemax(Int64), 1_000, gridworld_feature, update_gridworld_feature!, [1024, 1024]; reslayers = 1, α = 1f-3, ϵ = 0.05f0, buffer_size = 1_000, batch_size = 64, target_update_interval = 100, N = 8, use_gpu = false)
+@profview dqn_fcann(gridworld_state_mdp, 0.99f0, typemax(Int64), 1_000, gridworld_feature, update_gridworld_feature!, [1024, 1024]; reslayers = 1, α = 1f-3, ϵ = 0.05f0, buffer_size = 1_000, batch_size = 64, target_update_interval = 100, N = 8, use_gpu = false)
   ╠═╡ =#
 
 # ╔═╡ c7994abc-e49d-4ccb-b09b-e68c14bb7d6f
-function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, A, PTF, F1, F2, F3, VP, PP}
+function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, VP, PP}
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
 	avg_step_rewards = zeros(T, max_steps)
@@ -1753,6 +1764,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 	row_maxes = zeros(T, num_env)
 	state_list = Vector{S}(undef, num_env)
 
+	NUM_ENV = Val(num_env)
 	for (i, s) in enumerate(batch_states)
 		update_feature_vector!(feature_vector, s)
 		update_feature_matrix!(feature_vectors, feature_vector, i)
@@ -1762,7 +1774,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 	for step in 1:max_steps
 		#for each environment update the policy distribution on a per row basis and then sample an action from each environment
 		update_batch_policy_dist!(policy_matrix, feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp.is_valid_action, policy_args...)
-		sample_batch_actions!(batch_actions, policy_matrix, Val(num_env))
+		sample_batch_actions!(batch_actions, policy_matrix, NUM_ENV)
 
 		# @info "Current batch states: $batch_states"
 		# @info "Using a policy matrix of $policy_matrix sampled the following actions: $batch_actions"
@@ -1837,7 +1849,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 end
 
 # ╔═╡ 738241ce-0315-41d8-a67f-64c91479fe57
-synchronous_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
+synchronous_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real} = synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
 
 # ╔═╡ 85a24ea7-411e-4d11-a83b-bddad52772df
 #=╠═╡
@@ -1972,7 +1984,7 @@ function setup_fcann_batch_value_arguments(policy_setup::NamedTuple, params::FCA
 end
 
 # ╔═╡ b65512a7-1a98-4d99-835f-eca70ced2404
-function synchronous_actor_critic_fcann(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
+function synchronous_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real}
 
 	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, l2, dropout, use_μP, activation_list; use_gpu)
 	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, l2, dropout, use_μP, activation_list; use_gpu)
@@ -2045,7 +2057,7 @@ eval_gridworld_final_policy(gridworld_ac_td2.policy_sample_action)
   ╠═╡ =#
 
 # ╔═╡ 44c9104e-8586-4202-8edd-eaea0073842a
-function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, N::Integer = 0, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, A, PTF, F1, F2, F3, VP, PP}
+function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, N::Integer = 0, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, VP, PP}
 
 	iszero(N) && return synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, value_args, value_gradient_args, policy_args, policy_gradient_args; α_w = α_w, α_θ = α_θ, ∇v̂ = ∇v̂, ∇lnπ = ∇lnπ)
 	
@@ -2088,6 +2100,8 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 
 	num_updates = 0
 	batch_steps = fill(0, num_env)
+
+	NUM_ENV = Val(num_env)
 	
 	while num_updates < max_steps
 		# @info "Current batch states: $batch_states"
@@ -2096,7 +2110,7 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 		#for each environment update the policy distribution on a per row basis and then sample an action from each environment
 		if !all(batch_ready) && !all(batch_terminal_check) #only envs that are NOT ready perform a step update so if all are ready we can just proceed straight to gradient updates
 			update_batch_policy_dist!(policy_matrix, current_feature_vectors, policy_params, row_sums, row_mins, row_maxes, state_list, mdp.is_valid_action, policy_args...)
-			sample_batch_actions!(batch_actions, policy_matrix, Val(num_env))
+			sample_batch_actions!(batch_actions, policy_matrix, NUM_ENV)
 		end
 		
 		r_avg = zero(T) 
@@ -2207,12 +2221,13 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 end
 
 # ╔═╡ b9792720-4b34-426e-a244-732b7ebce7a0
-synchronous_nstep_actor_critic_linear(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3} = synchronous_nstep_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
+synchronous_nstep_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real} = synchronous_nstep_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
 
 # ╔═╡ 0c7af119-461e-43ef-b899-0708ff088e45
+# ╠═╡ skip_as_script = true
 #=╠═╡
 
-@plutoprofview synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 10_000, 128, gridworld_feature, update_gridworld_feature!; α_θ = 16f-2, α_w =8f-2, N = 10)
+@profview synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 10_000, 128, gridworld_feature, update_gridworld_feature!; α_θ = 16f-2, α_w =8f-2, N = 10)
   ╠═╡ =#
 
 # ╔═╡ 04102d7f-b139-4923-8928-fe73d124e055
@@ -2241,7 +2256,7 @@ plot_gridworld_policy_function(gridworld_sync_nstep_ac.policy_function)
   ╠═╡ =#
 
 # ╔═╡ 4e8a8484-8e2c-4d02-9f1b-2fdff77fde7c
-function synchronous_nstep_actor_critic_fcann(mdp::StateMDP{T, S, A, PTF, F1, F2, F3}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real, S, A, PTF, F1, F2, F3}
+function synchronous_nstep_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real}
 
 	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
@@ -2318,37 +2333,32 @@ DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+ProfileCanvas = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 
 [compat]
-BenchmarkTools = "~1.6.3"
-DataStructures = "~0.19.3"
-HypertextLiteral = "~0.9.5"
+BenchmarkTools = "~1.8.0"
+DataStructures = "~0.19.6"
+HypertextLiteral = "~1.0.0"
 PlutoDevMacros = "~0.9.2"
-PlutoPlotly = "~0.6.5"
-PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.79"
+PlutoPlotly = "~0.6.6"
+PlutoUI = "~0.7.83"
+ProfileCanvas = "~0.1.7"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.6"
-manifest_format = "2.0"
-project_hash = "c12e28897d0bd84055b96a173f0d8d7a134b96ec"
+julia_version = "1.13.0"
+manifest_format = "2.1"
+project_hash = "23268b047581fe609e7ab963bbc5c4270dd5f3f0"
 
 [[deps.AbstractPlutoDingetjes]]
-deps = ["Pkg"]
-git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+git-tree-sha1 = "6c3913f4e9bdf6ba3c08041a446fb1332716cbc2"
+registries = "General"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.3.2"
-
-[[deps.AbstractTrees]]
-git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
-uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
-version = "0.3.4"
+version = "1.4.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -2363,34 +2373,43 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
 [[deps.BenchmarkTools]]
-deps = ["Compat", "JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "7fecfb1123b8d0232218e2da0c213004ff15358d"
+deps = ["Compat", "JSON", "Logging", "PrecompileTools", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "9670d3febc2b6da60a0ae57846ba74670290653f"
+registries = "General"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.6.3"
+version = "1.8.0"
 
 [[deps.CodeTracking]]
-deps = ["InteractiveUtils", "UUIDs"]
-git-tree-sha1 = "b7231a755812695b8046e8471ddc34c8268cbad5"
+deps = ["InteractiveUtils", "REPL", "UUIDs"]
+git-tree-sha1 = "cfb7a2e89e245a9d5016b70323db412b3a7438d5"
+registries = "General"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
-version = "3.0.0"
+version = "3.0.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
 git-tree-sha1 = "b0fd3f56fa442f81e0a47815c92245acfaaa4e34"
+registries = "General"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 version = "3.31.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
-git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
+git-tree-sha1 = "67e11ee83a43eb71ddc950302c53bf33f0690dfe"
+registries = "General"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
-version = "0.11.5"
+version = "0.12.1"
+weakdeps = ["StyledStrings"]
+
+    [deps.ColorTypes.extensions]
+    StyledStringsExt = "StyledStrings"
 
 [[deps.ColorVectorSpace]]
 deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
-git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
+git-tree-sha1 = "8b3b6f87ce8f65a2b4f857528fd8d70086cd72b1"
+registries = "General"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
-version = "0.10.0"
+version = "0.11.0"
 
     [deps.ColorVectorSpace.extensions]
     SpecialFunctionsExt = "SpecialFunctions"
@@ -2400,13 +2419,15 @@ version = "0.10.0"
 
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
-git-tree-sha1 = "362a287c3aa50601b0bc359053d5c2468f0e7ce0"
+git-tree-sha1 = "37ea44092930b1811e666c3bc38065d7d87fcc74"
+registries = "General"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
-version = "0.12.11"
+version = "0.13.1"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
 git-tree-sha1 = "9d8a54ce4b17aa5bdce0ea5c34bc5e7c340d16ad"
+registries = "General"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
 version = "4.18.1"
 weakdeps = ["Dates", "LinearAlgebra"]
@@ -2417,13 +2438,14 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.3.0+1"
+version = "1.5.5+2"
 
 [[deps.DataStructures]]
 deps = ["OrderedCollections"]
-git-tree-sha1 = "e357641bb3e0638d353c4b29ea0e40ea644066a6"
+git-tree-sha1 = "b0bc6d2cad1fed8b7fd59a1551a991cb3d2809e6"
+registries = "General"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.19.3"
+version = "0.19.6"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -2433,11 +2455,13 @@ version = "1.11.0"
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
+registries = "General"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
+registries = "General"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 version = "0.9.5"
 
@@ -2446,60 +2470,42 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.7.0"
 
-[[deps.FileIO]]
-deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "6522cfb3b8fe97bec632252263057996cbd3de20"
-uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.18.0"
-
-    [deps.FileIO.extensions]
-    HTTPExt = "HTTP"
-
-    [deps.FileIO.weakdeps]
-    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
-deps = ["Statistics"]
-git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+deps = ["Random", "Statistics"]
+git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
+registries = "General"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
-version = "0.8.5"
-
-[[deps.FlameGraphs]]
-deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
-git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
-uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
-version = "0.2.10"
+version = "0.8.6"
 
 [[deps.HashArrayMappedTries]]
 git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
+registries = "General"
 uuid = "076d061b-32b6-4027-95e0-9a2c6f6d7e74"
 version = "0.2.0"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
+registries = "General"
 uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
 version = "0.0.5"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
-git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+git-tree-sha1 = "d1a86724f81bcd184a38fd284ce183ec067d71a0"
+registries = "General"
 uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.5"
+version = "1.0.0"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
 git-tree-sha1 = "0ee181ec08df7d7c911901ea38baf16f755114dc"
+registries = "General"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "1.0.0"
-
-[[deps.IndirectArrays]]
-git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
-uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
 [[deps.InteractiveUtils]]
@@ -2508,16 +2514,24 @@ uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
 
 [[deps.JSON]]
-deps = ["Dates", "Mmap", "Parsers", "Unicode"]
-git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
+deps = ["Dates", "Logging", "Parsers", "PrecompileTools", "StructUtils", "UUIDs", "Unicode"]
+git-tree-sha1 = "cb5b63c11dd08229716a8b41a2325ab941a7b797"
+registries = "General"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
-version = "0.21.4"
+version = "1.8.1"
+
+    [deps.JSON.extensions]
+    JSONArrowExt = ["ArrowTypes"]
+
+    [deps.JSON.weakdeps]
+    ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "80580012d4ed5a3e8b18c7cd86cebe4b816d17a6"
+git-tree-sha1 = "58927c485919bf17ea308d9d82156de1adf4b006"
+registries = "General"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.10.9"
+version = "0.10.12"
 
 [[deps.JuliaSyntaxHighlighting]]
 deps = ["StyledStrings"]
@@ -2525,25 +2539,20 @@ uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
 
 [[deps.LaTeXStrings]]
-git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
+git-tree-sha1 = "f88f3ccef05a6a72a0cf0ed417c8fd68530f4ab2"
+registries = "General"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-version = "1.4.0"
-
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.1.3"
+version = "1.4.1"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "1.0.0"
 
 [[deps.LibCURL_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "Zstd_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.15.0+0"
+version = "8.18.0+1"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -2551,14 +2560,14 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 version = "1.11.0"
 
 [[deps.LibGit2_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.9.0+0"
+version = "1.9.1+0"
 
 [[deps.LibSSH2_jll]]
-deps = ["Artifacts", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "OpenSSL_jll", "Zlib_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.3+1"
+version = "1.11.103+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -2567,7 +2576,7 @@ version = "1.11.0"
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-version = "1.12.0"
+version = "1.13.0"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -2575,11 +2584,13 @@ version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
+registries = "General"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "1.1.0"
 
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
+registries = "General"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.16"
 
@@ -2594,7 +2605,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.11.4"
+version = "2026.8.13"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -2603,34 +2614,42 @@ version = "1.3.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.29+0"
+version = "0.3.30+0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.4+0"
+version = "3.5.6+0"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
+git-tree-sha1 = "94ba93778373a53bfd5a0caaf7d809c445292ff4"
+registries = "General"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.8.1"
+version = "1.8.2"
+
+[[deps.PCRE2_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
+version = "10.46.0+0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
 git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+registries = "General"
 uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 version = "0.12.3"
 
 [[deps.Parsers]]
-deps = ["Dates", "PrecompileTools", "UUIDs"]
-git-tree-sha1 = "7d2f8f21da5db6a806faf7b9b292296da42b2810"
+deps = ["Dates", "PrecompileTools"]
+git-tree-sha1 = "663e8b48b789916221e0765393b289ca6c88f24e"
+registries = "General"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.8.3"
+version = "3.0.0"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "Zstd_jll", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.1"
+version = "1.13.0"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -2639,6 +2658,7 @@ weakdeps = ["REPL"]
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Colors", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
 git-tree-sha1 = "6256ab3ee24ef079b3afa310593817e069925eeb"
+registries = "General"
 uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
 version = "0.8.23"
 
@@ -2657,14 +2677,16 @@ version = "0.8.23"
 [[deps.PlutoDevMacros]]
 deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
 git-tree-sha1 = "709c36a806ec0af91840184f3052bb3c6cc60915"
+registries = "General"
 uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
 version = "0.9.2"
 
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "Artifacts", "ColorSchemes", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "PrecompileTools", "Reexport", "ScopedValues", "Scratch", "TOML"]
-git-tree-sha1 = "8acd04abc9a636ef57004f4c2e6f3f6ed4611099"
+git-tree-sha1 = "2b9e3d771adfe535a4fdda855f4741fdaacd3f7f"
+registries = "General"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-version = "0.6.5"
+version = "0.6.6"
 
     [deps.PlutoPlotly.extensions]
     PlotlyKaleidoExt = "PlotlyKaleido"
@@ -2674,29 +2696,26 @@ version = "0.6.5"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.PlutoProfile]]
-deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
-git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
-uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
-version = "0.4.0"
-
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "3ac7038a98ef6977d44adeadc73cc6f596c08109"
+git-tree-sha1 = "e189d0623e7ce9c37389bac17e80aac3b0302e75"
+registries = "General"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.79"
+version = "0.7.83"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
-git-tree-sha1 = "07a921781cab75691315adc645096ed5e370cb77"
+git-tree-sha1 = "edbeefc7a4889f528644251bdb5fc9ab5348bc2c"
+registries = "General"
 uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
-version = "1.3.3"
+version = "1.3.4"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "522f093a29b31a93e34eaea17ba055d850edea28"
+git-tree-sha1 = "5005266de4bfe50e53ff44a5cb5c540b6e47a254"
+registries = "General"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.5.1"
+version = "1.6.0"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -2709,13 +2728,14 @@ uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 version = "1.11.0"
 
 [[deps.ProfileCanvas]]
-deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
-git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+deps = ["Base64", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "990016fb1508b0726a70039f39569720d054c78d"
+registries = "General"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
-version = "0.1.0"
+version = "0.1.7"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
+deps = ["Base64", "Dates", "FileWatching", "InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 version = "1.11.0"
 
@@ -2726,28 +2746,32 @@ version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+registries = "General"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.Requires]]
 deps = ["UUIDs"]
 git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
+registries = "General"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
-version = "0.7.0"
+version = "1.0.0"
 
 [[deps.ScopedValues]]
 deps = ["HashArrayMappedTries", "Logging"]
-git-tree-sha1 = "c3b2323466378a2ba15bea4b2f73b081e022f473"
+git-tree-sha1 = "67a144433c4ce877ee6d1ada69a124d6b1ecf7be"
+registries = "General"
 uuid = "7e506255-f358-4e82-b7e4-beb19740aa63"
-version = "1.5.0"
+version = "1.6.2"
 
 [[deps.Scratch]]
 deps = ["Dates"]
 git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
+registries = "General"
 uuid = "6c6a2e73-6563-6170-7368-637461726353"
 version = "1.3.0"
 
@@ -2761,15 +2785,35 @@ version = "1.11.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+git-tree-sha1 = "e2b53ce13a53367e96601081e33d34746b571bad"
+registries = "General"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.11.1"
+version = "1.11.5"
 
     [deps.Statistics.extensions]
     SparseArraysExt = ["SparseArrays"]
 
     [deps.Statistics.weakdeps]
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StructUtils]]
+deps = ["Dates", "UUIDs"]
+git-tree-sha1 = "b814d5005d6a529d740ffe06f8a86396f6501138"
+registries = "General"
+uuid = "ec057cc2-7a8d-4b58-b3b3-92acb9f63b42"
+version = "2.9.2"
+
+    [deps.StructUtils.extensions]
+    StructUtilsLazilyInitializedFieldsExt = ["LazilyInitializedFields"]
+    StructUtilsMeasurementsExt = ["Measurements"]
+    StructUtilsStaticArraysCoreExt = ["StaticArraysCore"]
+    StructUtilsTablesExt = ["Tables"]
+
+    [deps.StructUtils.weakdeps]
+    LazilyInitializedFields = "0e77f7df-68c5-4e49-93ce-4cd80f5598bf"
+    Measurements = "eff96d63-e80a-5855-80a2-b1b0885c5ab7"
+    StaticArraysCore = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+    Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
@@ -2788,6 +2832,7 @@ version = "1.10.0"
 [[deps.TensorCore]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
+registries = "General"
 uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
 version = "0.1.1"
 
@@ -2798,13 +2843,15 @@ version = "1.11.0"
 
 [[deps.Tricks]]
 git-tree-sha1 = "311349fd1c93a31f783f977a71e8b062a57d4101"
+registries = "General"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.13"
 
 [[deps.URIs]]
-git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
+git-tree-sha1 = "908fec9df6c5de98548ead82a468c95ccf6cd263"
+registries = "General"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.6.1"
+version = "1.7.0"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -2813,6 +2860,7 @@ version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+registries = "General"
 uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 version = "1.0.2"
 
@@ -2825,20 +2873,29 @@ deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.3.1+2"
 
+[[deps.Zstd_jll]]
+deps = ["CompilerSupportLibraries_jll", "Libdl"]
+uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
+version = "1.5.7+1"
+
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
 version = "5.15.0+0"
 
 [[deps.nghttp2_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.64.0+1"
+version = "1.67.1+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.7.0+0"
+version = "17.8.2+0"
+
+[registries.General]
+url = "https://github.com/JuliaRegistries/General.git"
+uuid = "23338594-aafe-5451-b93e-139f81909106"
 """
 
 # ╔═╡ Cell order:

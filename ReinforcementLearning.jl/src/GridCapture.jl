@@ -64,7 +64,7 @@ Base.hash(b::GameState, h::UInt) = hash(b.x_pieces, h) + hash(b.o_pieces, h)
 Returns an integer representing whose turn it is: 1 for X or 2 for O.
 Uses bit operations for efficient validation.
 """
-function player_turn(state::GameState{N,K}) where {N,K}
+function player_turn(state::GameState)
     # Validate: X and O should not overlap using efficient bitwise AND
     # any(x .& y) checks if any position has both X and O pieces
     @inbounds for (x, o) in zip(state.x_pieces.chunks, state.o_pieces.chunks)

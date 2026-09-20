@@ -344,9 +344,6 @@ md"""
 #### Dense Features
 """
 
-# ╔═╡ 84d6e42c-9958-491f-bf62-6fc4cd5cf54c
-
-
 # ╔═╡ 28c9bd5d-2a46-4df4-9b80-3d6e4c6f2530
 md"""
 # Dependencies
@@ -1554,21 +1551,21 @@ end
   ╠═╡ =#
 
 # ╔═╡ 10e48c8f-f11a-4291-adf4-4eee3d29d5ec
-one_step_actor_critic_linear(mountaincar_continuing, 1_000_000, mountaincar_features...)
+one_step_actor_critic_linear(mountaincar_continuing, 1_000_000, mountaincar_features...; α_θ = 0.0001f0, α_w = 0.0001f0)
 
 # ╔═╡ 2a6fe0c4-9362-4e4c-8c3a-d92c4b93ecb4
 #=╠═╡
 begin
-	@profview one_step_actor_critic_linear(mountaincar_continuing, 1, mountaincar_features...)
-	@profview one_step_actor_critic_linear(mountaincar_continuing, 1_000_000, mountaincar_features...)
+	@profview one_step_actor_critic_linear(mountaincar_continuing, 1, mountaincar_features...; α_θ = 0.0001f0, α_w = 0.0001f0)
+	@profview one_step_actor_critic_linear(mountaincar_continuing, 1_000_000, mountaincar_features...; α_θ = 0.0001f0, α_w = 0.0001f0)
 end
   ╠═╡ =#
 
 # ╔═╡ b2da6f92-b4df-42f7-acb9-cd40b4b3eb9f
 #=╠═╡
 begin
-	@profview one_step_actor_critic_fcann(mountaincar_continuing, 1, mountaincar_features..., [64, 64])
-	@profview one_step_actor_critic_fcann(mountaincar_continuing, 10_000, mountaincar_features..., [64, 64])
+	@profview one_step_actor_critic_fcann(mountaincar_continuing, 1, mountaincar_features..., [64, 64]; α_θ = 0.0001f0, α_w = 0.0001f0)
+	@profview one_step_actor_critic_fcann(mountaincar_continuing, 10_000, mountaincar_features..., [64, 64]; α_θ = 0.0001f0, α_w = 0.0001f0)
 end
   ╠═╡ =#
 
@@ -1726,7 +1723,7 @@ end
 #=╠═╡
 begin
 	@profview dqn_fcann(state_mdp_stochastic, 1f0, typemax(Int64), 1, dense_feature_setup..., [64, 64]; batch_size = 64)
-	@profview dqn_fcann(state_mdp_stochastic, 1f0, typemax(Int64), 1_000, dense_feature_setup..., [64, 64]; batch_size = 64)
+	@profview dqn_fcann(state_mdp_stochastic, 1f0, typemax(Int64), 10_000, dense_feature_setup..., [64, 64]; batch_size = 64)
 end
   ╠═╡ =#
 
@@ -2683,7 +2680,6 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═ca366c95-098f-4d08-9929-9da48f84feca
 # ╠═a836140b-378c-4a8a-8d4d-9cb0757ab3f3
 # ╠═c3877f0d-5171-4ca4-befc-4f3263213e06
-# ╠═84d6e42c-9958-491f-bf62-6fc4cd5cf54c
 # ╟─28c9bd5d-2a46-4df4-9b80-3d6e4c6f2530
 # ╠═ba851c42-8bb0-11f1-94f1-f50977498160
 # ╠═9f51bb2a-574f-4a89-bc8c-426ac2961f7c
