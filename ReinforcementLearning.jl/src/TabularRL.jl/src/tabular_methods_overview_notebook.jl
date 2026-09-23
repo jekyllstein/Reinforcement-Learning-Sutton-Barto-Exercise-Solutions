@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.27
+# v1.0.3
 
 using Markdown
 using InteractiveUtils
@@ -407,6 +407,7 @@ function sample_action(π::AbstractMatrix{<:Real}, i_s::Integer)
 	(n, m) = size(π)
 	sample_action(view(π, :, i_s))
 end
+sample_action(π::AbstractVector{<:Integer}, i_s::Integer) = π[i_s]
 end
 
 # ╔═╡ cc5b0818-bd84-4289-aa41-e83271a85bb1
@@ -994,11 +995,25 @@ begin
 	This function creates a random policy for a tabular Markov Decision Process (MDP). The policy is represented as a matrix `π`, where each row corresponds to an action and each column corresponds to a state. Each element `π[i, j]` denotes the probability of taking the action represented by index `i` in the state represented by index `j`. In the random policy, each action in each state has an equal probability of being selected.
 	"""
 	function make_random_policy(mdp::TabularMDP{T}) where {T <: Real} 
-		mdp.available_actions
 		policy = ones(T, length(mdp.actions), length(mdp.states)) .* mdp.available_actions
 		policy ./= sum(policy, dims = 1)
 		return policy
 	end
+
+	function make_random_bit_policy(mdp::TabularMDP{T}) where {T <: Real} 
+		policy = ones(T, length(mdp.actions), length(mdp.states)) .* mdp.available_actions
+		return BitMatrix(policy)
+	end
+
+	function make_random_deterministic_policy(mdp::TabularMDP{T}) where {T <: Real} 
+		policy = zeros(Int, length(mdp.states))
+		for i_s in 1:length(policy)
+			i_a = sample_action(mdp.available_actions, i_s)
+			policy[i_s] = i_a
+		end
+		return policy
+	end
+
 	
 	#if we have a transition distribution, that alone is enough to form a random policy
 	make_random_policy(ptf::TabularTransitionDistribution{T, 2}) where {T<:Real} = ones(T, size(ptf.state_transition_map)...) ./ size(ptf.state_transition_map, 1)
@@ -1006,7 +1021,7 @@ end
 
 # ╔═╡ 6b3a1c09-8693-41e9-a87c-d47f9ca9e35b
 #when called with a policy distribution instead of an action, the MDP transition function will produce a sample
-function (ptf::AbstractTabularTransition{T, 2})(i_s::Integer, π::AbstractMatrix{T2}) where {T<:Real, T2 <: Real} 
+function (ptf::AbstractTabularTransition{T, 2})(i_s::Integer, π) where {T<:Real} 
 	i_a = sample_action(π, i_s)
 	(r, i_s′) = ptf(i_s, i_a)
 	return (r, i_s′, i_a)
@@ -1144,12 +1159,17 @@ The following code shows how one can use the Bellman Operator to iteratively cal
 begin
 	calculate_state_value(V::Vector{T}, i_s::Integer) where T<:Real = V[i_s] 
 	
-	function calculate_state_value(Q::Matrix{T}, π::Matrix{T}, i_s::Integer) where T<:Real
+	function calculate_state_value(Q::Matrix{T}, π::AbstractMatrix{<:Union{T, Bool}}, i_s::Integer) where T<:Real
 		v = zero(T)
 		@inbounds @simd for i_a in 1:size(Q, 1)
 			v += π[i_a, i_s] * Q[i_a, i_s]
 		end
 		return v
+	end
+	#Adds support for deterministic policy functions
+	function calculate_state_value(Q::Matrix{T}, π::AbstractVector{<:Integer}, i_s::Integer) where T<:Real
+		i_a = π[i_s]
+		Q[i_a, i_s]
 	end
 end
 
@@ -1497,7 +1517,8 @@ begin
 end
 
 # ╔═╡ f67db553-5569-4d05-abc9-b6622725d39e
-function calc_state_policy_probabilities(ptf::TabularTransitionDistribution{T}, π::Matrix{T}, i_s::Integer, i_s′::Integer) where {T<:Real}
+begin
+function calc_state_policy_probabilities(ptf::TabularTransitionDistribution{T}, π::AbstractMatrix{<:Union{T, Bool}}, i_s::Integer, i_s′::Integer) where {T<:Real}
 	(num_actions, num_states) = size(π)
 	x = zero(T)
 	@inbounds @simd for i_a in 1:num_actions
@@ -1506,8 +1527,14 @@ function calc_state_policy_probabilities(ptf::TabularTransitionDistribution{T}, 
 	return x
 end
 
+function calc_state_policy_probabilities(ptf::TabularTransitionDistribution{T}, π::AbstractVector{<:Integer}, i_s::Integer, i_s′::Integer) where {T<:Real}
+	i_a = π[i_s]
+	get_transition_probability(ptf, i_s, i_s′, i_a)
+end
+end
+
 # ╔═╡ dfb0d19a-a846-4c7b-bb1d-b401725aa6bb
-function update_μ!(μ′::Vector{T}, μ::Vector{T}, π::Matrix{T}, ptf::TabularTransitionDistribution{T}) where {T<:Real}
+function update_μ!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionDistribution{T}) where {T<:Real}
 	delt = typemin(T)
 	for i_s′ in eachindex(μ)
 		x = zero(T)
@@ -1521,7 +1548,7 @@ function update_μ!(μ′::Vector{T}, μ::Vector{T}, π::Matrix{T}, ptf::Tabular
 end
 
 # ╔═╡ d7a96871-9c03-4549-b39d-0ee2a7aa3905
-function calculate_μ(ptf::TabularTransitionDistribution{T}, π::Matrix{T}; θ = eps(one(T)), maxiter = 100, μ = ones(T, size(π, 2))/size(π, 2), μ′ = copy(μ)) where {T<:Real}
+function calculate_μ(ptf::TabularTransitionDistribution{T}, π; θ = eps(one(T)), maxiter = 100, μ = ones(T, size(π, 2))/size(π, 2), μ′ = copy(μ)) where {T<:Real}
 	# (num_actions, num_states) = size(π)
 	# μ = ones(T, num_states) / num_states
 	# μ = zeros(T, num_states)
@@ -1539,7 +1566,7 @@ function calculate_μ(ptf::TabularTransitionDistribution{T}, π::Matrix{T}; θ =
 end
 
 # ╔═╡ 649a67ba-ef7e-4918-b24e-6e1ab8fc0af1
-function calculate_μ(mdp::TabularMDP{T}, π::Matrix{T}; θ = eps(one(T)), maxiter = 100) where T<:Real
+function calculate_μ(mdp::TabularMDP{T}, π; θ = eps(one(T)), maxiter = 100) where T<:Real
 	(num_actions, num_states) = size(π)
 	μ = ones(T, num_states) ./ num_states
 	# μ = zeros(T, num_states)
@@ -1557,7 +1584,7 @@ end
 
 # ╔═╡ 7d62fc46-6337-4205-9ffb-7e3185eb3ac4
 begin
-	function calculate_average_reward(ptf::TabularTransitionDistribution{T}, μ::Vector{T}, π::Matrix{T}) where T<:Real
+	function calculate_average_reward(ptf::TabularTransitionDistribution{T}, μ::Vector{T}, π::AbstractMatrix{<:Union{T, Bool}}) where T<:Real
 		(num_actions, num_states) = size(π)
 		r = zero(T)
 		for i_s in 1:num_states
@@ -1570,7 +1597,18 @@ begin
 		return r
 	end
 
-	function calculate_average_reward(ptf::TabularTransitionDistribution{T}, π::Matrix{T}; kwargs...) where T<:Real
+	function calculate_average_reward(ptf::TabularTransitionDistribution{T}, μ::Vector{T}, π::AbstractVector{<:Integer}) where T<:Real
+		(num_actions, num_states) = size(π)
+		r = zero(T)
+		for i_s in 1:num_states
+			i_a = π[i_s]
+			x = get_transition_reward(ptf, i_s, i_a)
+			r += μ[i_s]*x
+		end
+		return r
+	end
+
+	function calculate_average_reward(ptf::TabularTransitionDistribution{T}, π::AbstractMatrix{<:Union{T, Bool}}; kwargs...) where T<:Real
 		steady_state = calculate_μ(ptf, π; kwargs...)
 		(num_actions, num_states) = size(π)
 		μ = steady_state.steady_state_distribution
@@ -1585,6 +1623,18 @@ begin
 		return r
 	end
 	
+	function calculate_average_reward(ptf::TabularTransitionDistribution{T}, π::AbstractVector{<:Integer}; kwargs...) where T<:Real
+		steady_state = calculate_μ(ptf, π; kwargs...)
+		(num_actions, num_states) = size(π)
+		μ = steady_state.steady_state_distribution
+		r = zero(T)
+		for i_s in 1:num_states
+			i_a = π[i_s]
+			x = get_transition_reward(ptf, i_s, i_a)
+			r += μ[i_s]*x
+		end
+		return r
+	end
 end
 
 # ╔═╡ 6253a562-2a48-45da-b453-1ec7b51d2073
@@ -1650,14 +1700,14 @@ end
 
 # ╔═╡ 18bc3870-3261-43d0-924b-46ca44a9e8ce
 begin
-	function bellman_policy_update!(Q::Matrix{T}, π::Matrix{T}, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, 2}, γ::T) where {T <: Real}
+	function bellman_policy_update!(Q::Matrix{T}, π, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, 2}, γ::T) where {T <: Real}
 		q = bellman_state_action_value(ptf, i_s, i_a, γ, Q, π)	
 		delt = calc_pct_change(Q[i_a, i_s], q)
 		Q[i_a, i_s] = q
 		return delt
 	end
 
-	function bellman_policy_update!(V::Vector{T}, π::Matrix{T}, i_s::Int64, ptf::TabularTransitionDistribution{T, 2}, γ::T) where {T <: Real}
+	function bellman_policy_update!(V::Vector{T}, π, i_s::Int64, ptf::TabularTransitionDistribution{T, 2}, γ::T) where {T <: Real}
 		(num_actions, num_states) = size(ptf.state_transition_map)
 		x = zero(T)
 		@inbounds @simd for i_a in 1:num_actions
@@ -1670,6 +1720,7 @@ begin
 end
 
 # ╔═╡ 9d0be18f-6eb2-4a48-931b-75f8ca307b69
+begin
 function make_greedy_bit_policy(V::Vector{T}, ptf::TabularTransitionDistribution, γ::T) where T<:Real
 	π = BitMatrix(undef, size(ptf.state_transition_map)...)
 	v = zeros(T, size(π, 1))
@@ -1688,6 +1739,21 @@ function make_greedy_bit_policy(V::Vector{T}, ptf::TabularTransitionDistribution
 	return π
 end
 
+function make_greedy_deterministic_policy(V::Vector{T}, ptf::TabularTransitionDistribution, γ::T) where T<:Real
+	π = zeros(Int, size(ptf.state_transition_map, 2))
+	for i_s in 1:length(π)
+		qmax = typemin(T)
+		imax = 0
+		@inbounds @simd for i_a in 1:size(ptf.state_transition_map, 1)
+			q = bellman_state_action_value(ptf, i_s, i_a, γ, V)
+			qmax = max(qmax, q)
+			imax = ifelse(q == qmax, i_a, imax)
+		end
+		π[i_s] = imax
+	end
+	return π
+end
+end
 # ╔═╡ b7f5ed8b-32ac-483f-9178-e8cca531ccf5
 begin
 	function make_ϵ_greedy_policy!(v::AbstractArray{T, N}; ϵ::T = one(T)/10, is_valid_action= i_a -> true) where {N, T<:Real}
@@ -1800,7 +1866,42 @@ begin
 	end
 
 	#making the greedy policy is just ϵ-greedy with ϵ = 0
-	make_greedy_policy!(a::Array{T, N}, args::Vararg{Any, M}; kwargs...) where {T<:Real, N, M} = make_ϵ_greedy_policy!(a, args...; kwargs..., ϵ = zero(T))
+	make_greedy_policy!(a::AbstractArray{T, N}, args::Vararg{Any, M}; kwargs...) where {T<:Real, N, M} = make_ϵ_greedy_policy!(a, args...; kwargs..., ϵ = zero(T))
+
+	function make_ϵ_greedy_policy!(π::AbstractVector{<:Integer}, i_s::Integer, q_est::Matrix{T}; kwargs...) where T<:Real
+		q_max = typemin(T)
+		i_max = 0
+		@inbounds @simd for i_a in 1:size(q_est, 1)
+			q = q_est[i_a, i_s]
+			q_max = max(q, q_max)
+			x = (q == q_max)
+			i_max = ifelse(x, i_a, i_max)
+		end
+		π[i_s] = i_max
+		return π
+	end
+
+	function make_ϵ_greedy_policy!(π::AbstractVector{<:Integer}, q_est::Matrix{T}; kwargs...) where T<:Real
+		for i_s in 1:size(q_est, 2)
+			make_greedy_policy!(π, i_s, q_est)
+		end
+		return π
+	end
+
+	function make_ϵ_greedy_policy!(π::AbstractVector{<:Integer}, v_est::Vector{T}, ptf::TabularTransitionDistribution, γ::T; kwargs...) where T<:Real
+		for i_s in 1:length(v_est)
+			q_max = typemin(T)
+			i_max = 0
+			@inbounds @simd for i_a in 1:size(ptf.state_transition_map, 1)
+				q = bellman_state_action_value(ptf, i_s, i_a, γ, v_est)
+				q_max = max(q, q_max)
+				x = (q == q_max)
+				i_max = ifelse(x, i_a, i_max)
+			end
+			π[i_s] = i_max
+		end
+		return π
+	end
 end
 
 # ╔═╡ f42ba03e-318e-495c-ac1e-1cda8f786334
@@ -1823,14 +1924,14 @@ end
 
 # ╔═╡ 5f38d067-3ebf-48f1-a174-b67d33a67119
 begin
-	function bellman_differential_policy_update!(Q::Matrix{T}, π::Matrix{T}, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}, r::T) where {T <: Real, ST, RT}
+	function bellman_differential_policy_update!(Q::Matrix{T}, π, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}, r::T) where {T <: Real, ST, RT}
 		q = bellman_state_action_value(ptf, i_s, i_a, one(T), Q, π) - r
 		delt = calc_pct_change(Q[i_a, i_s], q)
 		Q[i_a, i_s] = q
 		return delt
 	end
 
-	function bellman_differential_policy_update!(V::Vector{T}, π::Matrix{T}, i_s::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}, r::T) where {T <: Real, ST, RT}
+	function bellman_differential_policy_update!(V::Vector{T}, π, i_s::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}, r::T) where {T <: Real, ST, RT}
 		(num_actions, num_states) = size(ptf.state_transition_map)
 		x = zero(T)
 		@inbounds @simd for i_a in 1:num_actions
@@ -1841,12 +1942,12 @@ begin
 		return delt
 	end
 
-	function bellman_differential_policy_update!(Q′::Matrix{T}, Q::Matrix{T}, π::Matrix{T}, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}) where {T <: Real, ST, RT}
+	function bellman_differential_policy_update!(Q′::Matrix{T}, Q::Matrix{T}, π, i_s::Int64, i_a::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}) where {T <: Real, ST, RT}
 		q = bellman_state_action_value(ptf, i_s, i_a, one(T), Q, π)
 		Q′[i_a, i_s] = q
 	end
 
-	function bellman_differential_policy_update!(V′::Vector{T}, V::Vector{T}, π::Matrix{T}, i_s::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}) where {T <: Real, ST, RT}
+	function bellman_differential_policy_update!(V′::Vector{T}, V::Vector{T}, π, i_s::Int64, ptf::TabularTransitionDistribution{T, 2, ST, RT}) where {T <: Real, ST, RT}
 		(num_actions, num_states) = size(ptf.state_transition_map)
 		x = zero(T)
 		@inbounds @simd for i_a in 1:num_actions
@@ -1939,7 +2040,7 @@ function bellman_update_sweep!(value_ests::Array{T, N}, value_ests2::Array{T, N}
 end
 
 # ╔═╡ 34e5cd1b-9aa7-49d8-a070-deb4159c638d
-function update_sweep_trajectory!(sweep::Vector{I}, mdp::TabularMDP, π::Matrix{T}, stop_trigger::Vector{Bool}) where {I <: Integer, T<:Real}
+function update_sweep_trajectory!(sweep::Vector{I}, mdp::TabularMDP, π, stop_trigger::Vector{Bool}) where {I <: Integer}
 	i = 1
 	i_s = mdp.initialize_state_index()
 	l = length(sweep)
@@ -2534,6 +2635,7 @@ update_weight(ρ::T, ::OrdinaryImportanceSampling) where T<:Real = one(T)
 update_weight(ρ, ::WeightedImportanceSampling) = ρ
 
 # ╔═╡ a1b90125-d3dd-409c-8231-ab0c3a85153e
+begin
 function monte_carlo_episode_update!((q, weights)::Tuple{Matrix{T}, Matrix{T}}, states::AbstractVector{I}, actions::AbstractVector{I}, rewards::AbstractVector{T}, π_target::Matrix{T}, π_behavior::Matrix{T}, sampling_method::AbstractSamplingMethod, mdp::TabularMDP{T}, γ::T; kwargs...) where {T<:Real, I<: Integer}
 	l = length(states)
 	g = zero(T)
@@ -2557,6 +2659,30 @@ function monte_carlo_episode_update!((q, weights)::Tuple{Matrix{T}, Matrix{T}}, 
 	end
 end
 
+function monte_carlo_episode_update!((q, weights)::Tuple{Matrix{T}, Matrix{T}}, states::AbstractVector{I}, actions::AbstractVector{I}, rewards::AbstractVector{T}, π_target::AbstractVector{<:Integer}, π_behavior::Matrix{T}, sampling_method::AbstractSamplingMethod, mdp::TabularMDP{T}, γ::T; kwargs...) where {T<:Real, I<: Integer}
+	l = length(states)
+	g = zero(T)
+	ρ = one(T)
+	for i in l:-1:1
+		i_s = states[i]
+		i_a = actions[i]
+		x = (π_target[i_s] == i_a)
+		if !x && isa(sampling_method, WeightedImportanceSampling)
+			#in this case no further updates will occur
+			break
+		end
+		p = x / π_behavior[i_a, i_s]
+		ρ *= p
+		g = γ*g + rewards[i]
+		weights[i_a, i_s] += update_weight(ρ, sampling_method)
+		if !iszero(weights[i_a, i_s]) 
+			q_old = q[i_a, i_s]
+			δ = g - q_old
+			q[i_a, i_s] += ρ * δ / weights[i_a, i_s] 
+		end
+	end
+end
+end
 # ╔═╡ 900523ce-f8e7-4f33-a294-de86a7fb8869
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -2648,7 +2774,7 @@ Typically for TD methods, we update the value estimates with constant step size 
 
 # ╔═╡ a858aeaa-29f5-4615-805c-0c6093cf9b5f
 #note that for td learning with the state_action value function, it is necessary to perform a step and sample the action at the transition state.  The required information from a step is state, action, reward, new state, new action which is summarized by the acronym sarsa.  even though this term is reserved for the control case, the information from the transition is the same as that used for td0 q policy prediction
-function sarsa_step(ptf::AbstractTabularTransition{T, 2}, π::Matrix{T}, i_s::Integer, i_a::Integer) where {T<:Real}
+function sarsa_step(ptf::AbstractTabularTransition{T, 2}, π, i_s::Integer, i_a::Integer) where {T<:Real}
 	(r, i_s′) = ptf(i_s, i_a)
 	i_a′ = sample_action(π, i_s′)
 	(r, i_s′, i_a′)
@@ -2678,7 +2804,7 @@ end
 
 # ╔═╡ 337b9905-9284-4bd7-a06b-f3e8bb44679c
 begin
-	function td0_policy_prediction!(v_est::Array{T}, mdp::TabularMDP{T}, π::Matrix{T}, γ::T, α::T, max_episodes::Unsigned, max_steps::Unsigned; i_s0 = mdp.initialize_state_index()) where {T<:Real}
+	function td0_policy_prediction!(v_est::Array{T}, mdp::TabularMDP{T}, π, γ::T, α::T, max_episodes::Unsigned, max_steps::Unsigned; i_s0 = mdp.initialize_state_index()) where {T<:Real}
 		ep = 1
 		step = 0
 		i_s = i_s0
@@ -2702,7 +2828,7 @@ begin
 		return v_est
 	end
 
-	td0_policy_prediction!(v_est::Array{T}, mdp::TabularMDP{T}, π::Matrix{T}, γ, α, max_episodes, max_steps; kwargs...) where {T<:Real} = td0_policy_prediction!(v_est, mdp, π, T(γ), T(α), Unsigned(max_episodes), Unsigned(max_steps); kwargs...)
+	td0_policy_prediction!(v_est::Array{T}, mdp::TabularMDP{T}, π, γ, α, max_episodes, max_steps; kwargs...) where {T<:Real} = td0_policy_prediction!(v_est, mdp, π, T(γ), T(α), Unsigned(max_episodes), Unsigned(max_steps); kwargs...)
 end
 
 # ╔═╡ f698830f-4124-4569-b0be-9668613d4fb5
@@ -2763,14 +2889,15 @@ md"""
   ╠═╡ =#
 
 # ╔═╡ d899f8ba-b1a3-43d1-8119-4c69a3e2d8d6
-function sarsa_value_update!(v_est::Matrix{T}, π::Matrix{T}, mdp::TabularMDP{T}, γ::T, α::T, i_s::Integer, i_a::Integer) where T<:Real
+function sarsa_value_update!(v_est::Matrix{T}, π, mdp::TabularMDP{T}, γ::T, α::T, i_s::Integer, i_a::Integer) where T<:Real
 	(r, i_s′, i_a′) = sarsa_step(mdp.ptf, π, i_s, i_a)
 	td0_update!(v_est, γ, α, r, i_s, i_a, i_s′, i_a′)
 	return (r, i_s′, i_a′)
 end
 
 # ╔═╡ da5c2a1a-71a2-4560-8d34-8e95777799cf
-function td0_expected_update!(q::Matrix{T}, π::Matrix{T}, γ::T, α::T, r::T, i_s::Integer, i_a::Integer, i_s′::Integer) where T<:Real
+begin
+function td0_expected_update!(q::Matrix{T}, π::AbstractMatrix{<:Union{T, Bool}}, γ::T, α::T, r::T, i_s::Integer, i_a::Integer, i_s′::Integer) where T<:Real
 	v′ = zero(T)
 	@inbounds @simd for i_a′ in 1:size(q, 1)
 		v′ += q[i_a′, i_s′] * π[i_a′, i_s′]
@@ -2779,9 +2906,16 @@ function td0_expected_update!(q::Matrix{T}, π::Matrix{T}, γ::T, α::T, r::T, i
 	q[i_a, i_s] += α * q′
 end
 
+function td0_expected_update!(q::Matrix{T}, π::AbstractVector{<:Integer}, γ::T, α::T, r::T, i_s::Integer, i_a::Integer, i_s′::Integer) where T<:Real
+	i_a′ = π[i_s′]
+	v′ = q[i_a′, i_s′]
+	q′ = r + γ*v′ - q[i_a, i_s]
+	q[i_a, i_s] += α * q′
+end
+end
 # ╔═╡ c092c125-5e1f-4198-b7e3-6ff7e46e61dd
 #expected update when there is just the target policy
-function expected_sarsa_value_update!(v_est::Matrix{T}, π::Matrix{T}, mdp::TabularMDP{T}, γ::T, α::T, i_s::Integer, i_a::Integer) where T<:Real
+function expected_sarsa_value_update!(v_est::Matrix{T}, π, mdp::TabularMDP{T}, γ::T, α::T, i_s::Integer, i_a::Integer) where T<:Real
 	(r, i_s′, i_a′) = sarsa_step(mdp.ptf, π, i_s, i_a)
 	td0_expected_update!(v_est, π, γ, α, r, i_s, i_a, i_s′)
 	return (r, i_s′, i_a′)
@@ -2789,7 +2923,7 @@ end
 
 # ╔═╡ b9285674-eedb-4a0b-8350-bcfb62c0427c
 begin
-	function generalized_sarsa!((value_estimates, policies)::Tuple{NTuple{<:Any, Matrix{T}}, NTuple{<:Any, Matrix{T}}}, mdp::TabularMDP{T}, γ::T, α::T, max_episodes::Unsigned, max_steps::Unsigned, value_update!::Function, policy_update!::Function; i_s0 = mdp.initialize_state_index(), save_history = false) where {T<:Real}
+	function generalized_sarsa!((value_estimates, policies), mdp::TabularMDP{T}, γ::T, α::T, max_episodes::Unsigned, max_steps::Unsigned, value_update!::Function, policy_update!::Function; i_s0 = mdp.initialize_state_index(), save_history = false) where {T<:Real}
 		ep = 1
 		step = 0
 		i_s = i_s0
@@ -2825,7 +2959,7 @@ begin
 		(;basereturn..., reward_history = reward_history, episode_steps = episode_steps)
 	end
 
-	generalized_sarsa!((value_estimates, policies)::Tuple{NTuple{<:Any, Matrix{T}}, NTuple{<:Any, Matrix{T}}}, mdp::TabularMDP{T}, γ, α, max_episodes, max_steps, value_update!::Function, policy_update!::Function; kwargs...) where {T<:Real} = generalized_sarsa!((value_estimates, policies), mdp, T(γ), T(α), Unsigned(max_episodes), Unsigned(max_steps), value_update!, policy_update!; kwargs...)
+	generalized_sarsa!((value_estimates, policies), mdp::TabularMDP{T}, γ, α, max_episodes, max_steps, value_update!::Function, policy_update!::Function; kwargs...) where {T<:Real} = generalized_sarsa!((value_estimates, policies), mdp, T(γ), T(α), Unsigned(max_episodes), Unsigned(max_steps), value_update!, policy_update!; kwargs...)
 end
 
 # ╔═╡ 41361309-8be9-464a-987e-981035e4b15a
@@ -2845,7 +2979,7 @@ Q-learning is implemented as a version of expected sarsa where the target policy
 
 # ╔═╡ f3f54ad8-616f-4d67-8ab7-12736a28786a
 #expected update when target and behavior policies are distinct, the behavior policy is used to generate the next action while the value upate uses the policy distribution for the target policy
-function expected_sarsa_value_update!(v_est::Matrix{T}, π_target::Matrix{T}, π_behavior::Matrix{T}, mdp::TabularMDP{T}, γ::T, α::T, i_s::Integer, i_a::Integer) where T<:Real
+function expected_sarsa_value_update!(v_est::Matrix{T}, π_target, π_behavior::Matrix{T}, mdp::TabularMDP{T}, γ::T, α::T, i_s::Integer, i_a::Integer) where T<:Real
 	(r, i_s′, i_a′) = sarsa_step(mdp.ptf, π_behavior, i_s, i_a)
 	td0_expected_update!(v_est, π_target, γ, α, r, i_s, i_a, i_s′)
 	return (r, i_s′, i_a′)
@@ -3098,7 +3232,7 @@ end
 
 # ╔═╡ 7c9c22ee-f245-45e1-b1b3-e8d029468f65
 begin
-	function bellman_update_sweep!(value_ests::Array{T}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, 2}, γ::T, sweep, ::Val{false}) where {T <: Real}
+	function bellman_update_sweep!(value_ests::Array{T}, π, ptf::TabularTransitionDistribution{T, 2}, γ::T, sweep, ::Val{false}) where {T <: Real}
 		delt = zero(T)
 		num_updates = 0
 		for args in sweep
@@ -3109,7 +3243,7 @@ begin
 		return delt, num_updates
 	end
 
-	function bellman_update_sweep!(value_ests::Array{T}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, 2}, γ::T, sweep, ::Val{true}) where {T <: Real}
+	function bellman_update_sweep!(value_ests::Array{T}, π, ptf::TabularTransitionDistribution{T, 2}, γ::T, sweep, ::Val{true}) where {T <: Real}
 		delt = Atomic{T}(zero(T))
 		num_updates = Atomic{Int64}(0)
 		@threads for args in sweep
@@ -3119,7 +3253,7 @@ begin
 		return delt.value, num_updates.value
 	end
 
-	bellman_update_sweep!(value_ests::Array{T}, π::Matrix{T}, ptf::TabularTransitionDistribution{T, 2}, γ::T, sweep; usethreads::Bool=false) where {T <: Real} = bellman_update_sweep!(value_ests, π, ptf, γ, sweep, Val(usethreads))
+	bellman_update_sweep!(value_ests::Array{T}, π, ptf::TabularTransitionDistribution{T, 2}, γ::T, sweep; usethreads::Bool=false) where {T <: Real} = bellman_update_sweep!(value_ests, π, ptf, γ, sweep, Val(usethreads))
 
 	function bellman_update_sweep!(V::Vector{T}, ptf::TabularTransitionDistribution{T, 1}, γ::T, statesweep, ::Val{false}) where {T <: Real}
 		delt = zero(T)
@@ -3149,7 +3283,7 @@ begin
 end
 
 # ╔═╡ 9925509b-ee7e-430c-a646-fbf59bc75e62
-function policy_evaluation!(value_estimate::Array{T}, π::Matrix{T}, ptf::TabularTransitionDistribution{T}, γ::T; max_updates::Integer = typemax(Int64), θ::T = eps(zero(T)), sweep = make_uniform_sweep(value_estimate), kwargs...) where {T<:Real}
+function policy_evaluation!(value_estimate::Array{T}, π, ptf::TabularTransitionDistribution{T}, γ::T; max_updates::Integer = typemax(Int64), θ::T = eps(zero(T)), sweep = make_uniform_sweep(value_estimate), kwargs...) where {T<:Real}
 	delt = typemax(T)
 	total_updates = 0
 	iter = 1
@@ -3294,7 +3428,7 @@ end
 
 # ╔═╡ 419b8c3e-f8cc-4627-b669-8af8a0656253
 begin
-	differential_policy_evaluation(ptf::TabularTransitionDistribution, π::Matrix, value_initializer::Function; kwargs...) = differential_policy_evaluation!(value_initializer(ptf), value_initializer(ptf), π, ptf; kwargs...)
+	differential_policy_evaluation(ptf::TabularTransitionDistribution, π, value_initializer::Function; kwargs...) = differential_policy_evaluation!(value_initializer(ptf), value_initializer(ptf), π, ptf; kwargs...)
 	function differential_policy_evaluation(mdp::TabularMDP, args::Vararg{Any}; kwargs...) 
 		any(mdp.terminal_states) && error("Differential values cannot be calculated for episodic problems")
 		differential_policy_evaluation(mdp.ptf, args...; kwargs...)
@@ -3352,7 +3486,7 @@ function uniform_bellman_value!(W::Vector{T}, mdp::TabularAfterstateMDP{T}, γ::
 end
 
 # ╔═╡ 75a96208-460b-4932-855f-8029f464e045
-function policy_evaluation!(afterstate_values::Vector{T}, π::Matrix{T}, mdp::TabularAfterstateMDP{T}, γ::T; max_updates = typemax(Int64), θ = eps(zero(T))) where {T<:Real}
+function policy_evaluation!(afterstate_values::Vector{T}, π, mdp::TabularAfterstateMDP{T}, γ::T; max_updates = typemax(Int64), θ = eps(zero(T))) where {T<:Real}
 	delt, num_updates = uniform_bellman_value!(afterstate_values, mdp, γ, π)
 	total_updates = num_updates
 	iter = 1
@@ -3366,16 +3500,16 @@ end
 
 # ╔═╡ 981678dd-3228-4e32-98fa-e05c283a88a3
 begin
-	policy_evaluation(ptf::TabularTransitionDistribution, π::Matrix, γ::Real, value_initializer::Function; kwargs...) = policy_evaluation!(value_initializer(ptf), π, ptf, γ; kwargs...)
+	policy_evaluation(ptf::TabularTransitionDistribution, π, γ::Real, value_initializer::Function; kwargs...) = policy_evaluation!(value_initializer(ptf), π, ptf, γ; kwargs...)
 	
-	function policy_evaluation(mdp::TabularMDP, π::Matrix, γ::Real, value_initializer::Function; kwargs...) 				
+	function policy_evaluation(mdp::TabularMDP, π, γ::Real, value_initializer::Function; kwargs...) 				
 		@assert (γ < 1) || any(mdp.terminal_states)
 		policy_evaluation(mdp.ptf, π, γ, value_initializer; kwargs...)
 	end
 end
 
 # ╔═╡ 87270a1f-1bc8-4565-813d-1296976df057
-function policy_evaluation(mdp::TabularAfterstateMDP{T}, π::Matrix{T}, γ::T; init_value = zero(T), kwargs...) where {T<:Real} 	
+function policy_evaluation(mdp::TabularAfterstateMDP{T}, π, γ::T; init_value = zero(T), kwargs...) where {T<:Real} 	
 	@assert (γ < 1) || any(mdp.terminal_states)
 	policy_evaluation!(initialize_afterstate_value(mdp; init_value = init_value), π, mdp, γ; kwargs...)
 end
@@ -3383,9 +3517,9 @@ end
 # ╔═╡ 8c91d0b1-e143-4443-802d-5d1a291c059f
 begin
 	#the following shorthand will replace the value estimate initializer with the appropriate one for q or v
-	policy_evaluation_q(problem, π::Matrix, γ::Real; kwargs...) = policy_evaluation(problem, π, γ, initialize_state_action_value; kwargs...)
+	policy_evaluation_q(problem, π, γ::Real; kwargs...) = policy_evaluation(problem, π, γ, initialize_state_action_value; kwargs...)
 	
-	policy_evaluation_v(problem, π::Matrix, γ::Real; kwargs...) = policy_evaluation(problem, π, γ, initialize_state_value; kwargs...)
+	policy_evaluation_v(problem, π, γ::Real; kwargs...) = policy_evaluation(problem, π, γ, initialize_state_value; kwargs...)
 end
 
 # ╔═╡ bcffd1b4-d4ec-4357-aba1-ecca43d21a08
@@ -3978,7 +4112,7 @@ end
 
 # ╔═╡ 2f7afb63-22de-49af-b907-4aeb75dc9f2a
 begin
-	function runepisode!((states, actions, rewards)::Tuple{Vector{Int64}, Vector{Int64}, Vector{T}}, mdp::TabularMDP{T}; i_s0::Integer = mdp.initialize_state_index(), π::AbstractMatrix{T2} = make_random_policy(mdp), i_a0 = sample_action(π, i_s0), max_steps = Inf) where {T<:Real, T2<:Real}
+	function runepisode!((states, actions, rewards)::Tuple{Vector{Int64}, Vector{Int64}, Vector{T}}, mdp::TabularMDP{T}; i_s0::Integer = mdp.initialize_state_index(), π = make_random_policy(mdp), i_a0 = sample_action(π, i_s0), max_steps = Inf) where {T<:Real}
 		@assert any(mdp.terminal_states) #ensure that some terminal state exists since episodes are only defined for problems with terminal states
 		i_s = i_s0
 		l = length(states)
@@ -4094,11 +4228,11 @@ const td0q = td0_policy_prediction_q(deterministic_gridworld, example_gridworld_
 
 # ╔═╡ f87fd155-d6cf-4a27-bbc4-74cc64cbd84c
 begin
-	function policy_iteration!(v_π::Array{T, N}, ptf::TabularTransitionDistribution, γ::T; max_iterations = 10, save_history = true, eval_kwargs...) where {T<:Real, N}
-		πgreedy = make_random_policy(ptf)
+	function policy_iteration!(v_π::Array{T, N}, ptf::TabularTransitionDistribution, γ::T; initial_policy::P = make_random_policy(ptf), max_iterations = 10, save_history = true, eval_kwargs...) where {T<:Real, N, P}
+		πgreedy = copy(initial_policy)
 		πlast = copy(πgreedy)
 		(v_π, num_iterations, num_updates) = policy_evaluation!(v_π, πgreedy, ptf, γ; eval_kwargs...)
-		π_list = Vector{Matrix{T}}()
+		π_list = Vector{P}()
 		v_list = Vector{Array{T, N}}()
 		if save_history
 			push!(π_list, copy(πgreedy))
@@ -4231,14 +4365,14 @@ policy_iteration_q(problem, γ::T; kwargs...) where T<:Real = policy_iteration(p
 
 # ╔═╡ f0be2657-b234-4015-8675-48a1470ffd11
 begin
-	function differential_policy_iteration!(v_π::Array{T, N}, ptf::TabularTransitionDistribution; max_iterations = 10, save_history = true, eval_kwargs...) where {T<:Real, N}
-		πgreedy = make_random_policy(ptf)
+	function differential_policy_iteration!(v_π::Array{T, N}, ptf::TabularTransitionDistribution; initial_policy::P = make_random_policy(ptf), max_iterations = 10, save_history = true, eval_kwargs...) where {T<:Real, N, P}
+		πgreedy = copy(initial_policy)
 		πlast = copy(πgreedy)
 		v_π2 = copy(v_π)
 		(v_π, r, num_iterations, num_updates) = differential_policy_evaluation!(v_π, v_π2, πgreedy, ptf; eval_kwargs...)
 		r_last = r
 
-		π_list = Vector{Matrix{T}}()
+		π_list = Vector{P}()
 		v_list = Vector{Array{T, N}}()
 		r_list = Vector{T}()
 		if save_history
@@ -4340,10 +4474,10 @@ So even though the optimal discounted value policy has higher values at every st
 differential_policy_iteration_q(problem; kwargs...) = differential_policy_iteration(problem, initialize_state_action_value; kwargs...)
 
 # ╔═╡ 5b8edd52-1452-4c58-b7b8-b8e67aa87605
-function value_iteration_trajectory(mdp::TabularMDP{T}, args::Vararg{Any, M}; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), ϵ::T = one(T)/10, θ::T = eps(zero(T)), nmax::Integer = typemax(Int64), save_history = false, kwargs...) where {T<:Real, M}
+function value_iteration_trajectory(mdp::TabularMDP{T}, args::Vararg{Any, M}; initialize_policy::Function = make_random_policy, init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), ϵ::T = one(T)/10, θ::T = eps(zero(T)), nmax::Integer = typemax(Int64), save_history = false, kwargs...) where {T<:Real, M}
 	isempty(args) && any(mdp.terminal_states) && error("Attempting to use average reward criteria with episodic problem")
 	isone(first(args)) && !any(mdp.terminal_states) && error("For a continuing problem, cannot use γ = 1.  Omit it instead to treat this as an average reward problem.")
-	π = make_random_policy(mdp)
+	π = initialize_policy(mdp)
 	π_vec = zeros(T, length(mdp.actions))
 	sweep = make_uniform_sweep(v_est) |> collect
 	stop_trigger = [false]
@@ -4387,7 +4521,7 @@ function expected_sarsa(mdp::TabularMDP{T}, γ::Real; α = one(T) / 10, ϵ = one
 end
 
 # ╔═╡ 5e475bb3-cace-429a-86da-0fe74d01bb16
-q_learning(args...; kwargs...) = expected_sarsa(args...; kwargs..., update_target_policy! = make_greedy_policy!, save_history = true)
+q_learning(args...; kwargs...) = expected_sarsa(args...; kwargs..., π_target = make_random_deterministic_policy(first(args)), update_target_policy! = make_greedy_policy!, save_history = true)
 
 # ╔═╡ 86fb7cf7-0c81-4493-89fe-d974728fdbb3
 # ╠═╡ skip_as_script = true
@@ -4408,7 +4542,7 @@ plot(cumsum(expected_sarsa_test.reward_history) ./ collect(1:length(expected_sar
   ╠═╡ =#
 
 # ╔═╡ 23d77e08-880b-4dc6-8a12-af530756a88d
-function double_expected_sarsa(mdp::TabularMDP{T}, γ::Real; α = one(T) / 10, ϵ = one(T) / 10, max_steps = 100_000, max_episodes = typemax(Int64), init_value = zero(T), q1::Matrix{T} = initialize_state_action_value(mdp; init_value = init_value), q2::Matrix{T} = initialize_state_action_value(mdp; init_value = init_value), π_target1::Matrix{T} = make_random_policy(mdp), π_target2::Matrix{T} = make_random_policy(mdp), π_behavior = make_random_policy(mdp), update_behavior_policy! = (π, i_s, q1, q2) -> make_ϵ_greedy_policy!(π, i_s, q1, q2; ϵ = ϵ), update_target_policy! = (π, i_s, q) -> make_ϵ_greedy_policy!(π, i_s, q; ϵ = ϵ), kwargs...) where {T<:Real} 
+function double_expected_sarsa(mdp::TabularMDP{T}, γ::Real; α = one(T) / 10, ϵ = one(T) / 10, max_steps = 100_000, max_episodes = typemax(Int64), init_value = zero(T), q1::Matrix{T} = initialize_state_action_value(mdp; init_value = init_value), q2::Matrix{T} = initialize_state_action_value(mdp; init_value = init_value), π_target1 = make_random_policy(mdp), π_target2 = make_random_policy(mdp), π_behavior = make_random_policy(mdp), update_behavior_policy! = (π, i_s, q1, q2) -> make_ϵ_greedy_policy!(π, i_s, q1, q2; ϵ = ϵ), update_target_policy! = (π, i_s, q) -> make_ϵ_greedy_policy!(π, i_s, q; ϵ = ϵ), kwargs...) where {T<:Real} 
 	function update_policies!(π_target1, π_target2, π_behavior, q1, q2, i_s)
 		update_behavior_policy!(π_behavior, i_s, q1, q2)
 		update_target_policy!(π_target1, i_s, q1)
@@ -4418,7 +4552,7 @@ function double_expected_sarsa(mdp::TabularMDP{T}, γ::Real; α = one(T) / 10, �
 end
 
 # ╔═╡ cd834845-8ca9-407a-91da-d3104b0bd9b7
-double_q_learning(args...; kwargs...) = double_expected_sarsa(args...; update_target_policy! = make_greedy_policy!, kwargs...)
+double_q_learning(args...; kwargs...) = double_expected_sarsa(args...; π_target1 = make_random_deterministic_policy(first(args)), π_target2 = make_random_deterministic_policy(first(args)), update_target_policy! = make_greedy_policy!, kwargs...)
 
 # ╔═╡ ac75ee4b-d36a-485d-9737-f3c94c7d426e
 #=╠═╡
@@ -4633,7 +4767,7 @@ runepisode(stochastic_gridworld; π = example_gridworld_random_policy)
   ╠═╡ =#
 
 # ╔═╡ ea19d77b-96bf-411f-8faa-6007c11e204b
-function monte_carlo_policy_prediction(mdp::TabularMDP{T}, π::Matrix{T}, γ::T, num_episodes::Integer, initialize_value_function::Function; v_est = initialize_value_function(mdp), averaging_method::AbstractAveragingMethod{T} = SampleAveraging(v_est), save_history = false, epkwargs...) where {T<:Real}
+function monte_carlo_policy_prediction(mdp::TabularMDP{T}, π, γ::T, num_episodes::Integer, initialize_value_function::Function; v_est = initialize_value_function(mdp), averaging_method::AbstractAveragingMethod{T} = SampleAveraging(v_est), save_history = false, epkwargs...) where {T<:Real}
 	if save_history
 		v_history = zeros(T, size(v_est)..., num_episodes)
 	end
@@ -4724,7 +4858,7 @@ plot([scatter(y = check_mc_error(x[1], γ_mc_predict, 50), name = x[2]) for x in
   ╠═╡ =#
 
 # ╔═╡ 9a7e922b-44e5-4c5e-8288-e39a48e151d5
-function monte_carlo_control(mdp::TabularMDP{T}, γ::T, num_episodes::Integer, initialize_episode::Function, update_policy!::Function; π::Matrix{T} = make_random_policy(mdp), q::Matrix{T} = initialize_state_action_value(mdp), counts::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), compare_error::Bool = false, value_reference::Vector{T} = zeros(T, length(mdp.states)), averaging_method::AbstractAveragingMethod{T} = SampleAveraging(q), kwargs...) where {T<:Real}
+function monte_carlo_control(mdp::TabularMDP{T}, γ::T, num_episodes::Integer, initialize_episode::Function, update_policy!::Function; π = make_random_policy(mdp), q::Matrix{T} = initialize_state_action_value(mdp), counts::Matrix{T} = zeros(T, length(mdp.actions), length(mdp.states)), compare_error::Bool = false, value_reference::Vector{T} = zeros(T, length(mdp.states)), averaging_method::AbstractAveragingMethod{T} = SampleAveraging(q), kwargs...) where {T<:Real}
 	if compare_error
 		error_history = zeros(T, num_episodes)
 	end
@@ -4786,7 +4920,7 @@ plot(mc_ϵ_soft_control_sample_gridworld.error_history, Layout(xaxis_title = "Ep
   ╠═╡ =#
 
 # ╔═╡ 5648561c-98cf-4aa6-9af4-16add4706c3b
-function monte_carlo_off_policy_prediction(mdp::TabularMDP{T}, π_target::Matrix{T}, γ::T, num_episodes::Integer, initialize_value::Function; π_behavior = make_random_policy(mdp), sampling_method = WeightedImportanceSampling(), save_history = false, kwargs...) where {T<:Real}
+function monte_carlo_off_policy_prediction(mdp::TabularMDP{T}, π_target, γ::T, num_episodes::Integer, initialize_value::Function; π_behavior = make_random_policy(mdp), sampling_method = WeightedImportanceSampling(), save_history = false, kwargs...) where {T<:Real}
 	any(iszero, π_behavior) && error("Behavior policy is not soft")
 	v_est = initialize_value(mdp) #default is 0 initialization
 	weights = zeros(T, size(v_est)...)
@@ -4900,7 +5034,7 @@ begin
 		return g
 	end
 	
-	function sample_rollout(i_s::Integer, i_a::Integer, mdp::TabularMDP{T}, π::AbstractMatrix, γ::T; max_steps::Integer = typemax(Int64)) where {T<:Real}
+	function sample_rollout(i_s::Integer, i_a::Integer, mdp::TabularMDP{T}, π::AbstractArray, γ::T; max_steps::Integer = typemax(Int64)) where {T<:Real}
 		step = 0
 		g = zero(T)
 		r, i_s′ = mdp.ptf(i_s, i_a)
@@ -4919,14 +5053,14 @@ begin
 
 	#if no policy is provided then the rollout will use a uniformly random policy
 	sample_rollout(mdp::StateMDP{T, S}, π::Function, γ::T; s0::S = mdp.initialize_state(), i_a0::Integer = π(s0), kwargs...) where {T<:Real,S} = sample_rollout(s0, i_a0, mdp, π, γ; kwargs...)
-	sample_rollout(mdp::TabularMDP{T}, π::AbstractMatrix, γ::T; s0::Integer = mdp.initialize_state_index(), i_a0::Integer = sample_action(π, s0), kwargs...) where {T<:Real} = sample_rollout(s0, i_a0, mdp, π, γ; kwargs...)
+	sample_rollout(mdp::TabularMDP{T}, π::AbstractArray, γ::T; s0::Integer = mdp.initialize_state_index(), i_a0::Integer = sample_action(π, s0), kwargs...) where {T<:Real} = sample_rollout(s0, i_a0, mdp, π, γ; kwargs...)
 	sample_rollout(mdp, γ::Real; π = make_random_policy(mdp), kwargs...) = sample_rollout(mdp, π, γ; kwargs...)
 end
 
 # ╔═╡ 2dbd5553-12db-4641-9f1d-250fa5cad79b
 begin
 	#perform a rollout with an mdp from state s using a deterministic policy function π that produces an action selection given a state input. return value is an unbiased estimate of the value of this state under the policy.  This rollout is only possible when the transition function is a distribution and this computes an expected value based on that distribution
-	function distribution_rollout(s::S, i_a::Integer, mdp::StateMDP{T, S, <:Any, <:StateMDPTransitionDistribution}, π::Function, γ::T, reducer::Function; max_steps::Integer = typemax(Int64), stepkwargs...) where {T<:Real, S}
+	function distribution_rollout(s::S, i_a::Integer, mdp::StateMDP{T, S, <:Any, <:StateMDPTransitionDistribution}, π::Function, γ::T, reducer::F; max_steps::Integer = typemax(Int64), stepkwargs...) where {T<:Real, S, F<:Function}
 		iszero(max_steps) && return zero(T)
 		mdp.isterm(s) && return zero(T)
 		(rewards, states, probabilities) = mdp.ptf.step(s, i_a; stepkwargs...)
@@ -6691,24 +6825,27 @@ Transducers = "~0.4.84"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
-manifest_format = "2.0"
-project_hash = "59035a539e89e066415f8db13aca9604cc27f694"
+julia_version = "1.13.0"
+manifest_format = "2.1"
+project_hash = "cb7a398ecf093ed5f9d92f07e479ff80482124dc"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+registries = "General"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.3.2"
 
 [[deps.AbstractTrees]]
 git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
+registries = "General"
 uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 version = "0.3.4"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown"]
 git-tree-sha1 = "b392ede862e506d451fc1616e79aa6f4c673dab8"
+registries = "General"
 uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
 version = "0.1.38"
 
@@ -6733,6 +6870,7 @@ version = "0.1.38"
 
 [[deps.ArgCheck]]
 git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+registries = "General"
 uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 version = "2.3.0"
 
@@ -6747,6 +6885,7 @@ version = "1.11.0"
 [[deps.BangBang]]
 deps = ["Accessors", "ConstructionBase", "InitialValues", "LinearAlgebra", "Requires"]
 git-tree-sha1 = "e2144b631226d9eeab2d746ca8880b7ccff504ae"
+registries = "General"
 uuid = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
 version = "0.4.3"
 
@@ -6772,35 +6911,41 @@ version = "1.11.0"
 
 [[deps.BaseDirs]]
 git-tree-sha1 = "cb25e4b105cc927052c2314f8291854ea59bf70a"
+registries = "General"
 uuid = "18cc8868-cbac-4acf-b575-c8ff214dc66f"
 version = "1.2.4"
 
 [[deps.Baselet]]
 git-tree-sha1 = "aebf55e6d7795e02ca500a689d326ac979aaf89e"
+registries = "General"
 uuid = "9718e550-a3fa-408a-8086-8db961cd8217"
 version = "0.1.1"
 
 [[deps.BenchmarkTools]]
 deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
 git-tree-sha1 = "f1dff6729bc61f4d49e140da1af55dcd1ac97b2f"
+registries = "General"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.5.0"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
 git-tree-sha1 = "b5278586822443594ff615963b0c09755771b3e0"
+registries = "General"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 version = "3.26.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
 git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
+registries = "General"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
 version = "0.11.5"
 
 [[deps.ColorVectorSpace]]
 deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
 git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
+registries = "General"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
 version = "0.10.0"
 
@@ -6813,12 +6958,14 @@ version = "0.10.0"
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
 git-tree-sha1 = "362a287c3aa50601b0bc359053d5c2468f0e7ce0"
+registries = "General"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.12.11"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
 git-tree-sha1 = "8ae8d32e09f0dcf42a36b90d4e17f5dd2e4c4215"
+registries = "General"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
 version = "4.16.0"
 weakdeps = ["Dates", "LinearAlgebra"]
@@ -6829,10 +6976,11 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.3.0+1"
+version = "1.5.5+2"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
+registries = "General"
 uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
 version = "0.1.2"
 weakdeps = ["InverseFunctions"]
@@ -6842,6 +6990,7 @@ weakdeps = ["InverseFunctions"]
 
 [[deps.ConstructionBase]]
 git-tree-sha1 = "76219f1ed5771adbb096743bff43fb5fdd4c1157"
+registries = "General"
 uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
 version = "1.5.8"
 
@@ -6857,17 +7006,20 @@ version = "1.5.8"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
+registries = "General"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
 version = "1.16.0"
 
 [[deps.DataStructures]]
 deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
 git-tree-sha1 = "1d0a14036acb104d9e89698bd408f63ab58cdc82"
+registries = "General"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 version = "0.18.20"
 
 [[deps.DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+registries = "General"
 uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
 version = "1.0.0"
 
@@ -6878,12 +7030,14 @@ version = "1.11.0"
 
 [[deps.DefineSingletons]]
 git-tree-sha1 = "0fba8b706d0178b4dc7fd44a96a92382c9065c2c"
+registries = "General"
 uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
 version = "0.1.2"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
+registries = "General"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
@@ -6895,6 +7049,7 @@ version = "1.11.0"
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
 git-tree-sha1 = "2fb1e02f2b635d0845df5d7c167fec4dd739b00d"
+registries = "General"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 version = "0.9.3"
 
@@ -6906,6 +7061,7 @@ version = "1.7.0"
 [[deps.FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
 git-tree-sha1 = "62ca0547a14c57e98154423419d8a342dca75ca9"
+registries = "General"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 version = "1.16.4"
 
@@ -6916,12 +7072,14 @@ version = "1.11.0"
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
 git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+registries = "General"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.5"
 
 [[deps.FlameGraphs]]
 deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
 git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
+registries = "General"
 uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
 version = "0.2.10"
 
@@ -6933,28 +7091,33 @@ version = "1.11.0"
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
+registries = "General"
 uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
 version = "0.0.5"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
 git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+registries = "General"
 uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 version = "0.9.5"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
 git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
+registries = "General"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
 version = "0.2.5"
 
 [[deps.IndirectArrays]]
 git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
+registries = "General"
 uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
 [[deps.InitialValues]]
 git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
+registries = "General"
 uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
 version = "0.3.1"
 
@@ -6965,6 +7128,7 @@ version = "1.11.0"
 
 [[deps.InverseFunctions]]
 git-tree-sha1 = "a779299d77cd080bf77b97535acecd73e1c5e5cb"
+registries = "General"
 uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
 version = "0.1.17"
 weakdeps = ["Dates", "Test"]
@@ -6975,17 +7139,20 @@ weakdeps = ["Dates", "Test"]
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
+registries = "General"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.2"
 
 [[deps.IteratorInterfaceExtensions]]
 git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+registries = "General"
 uuid = "82899510-4779-5014-852e-03e436cf321d"
 version = "1.0.0"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
 git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
+registries = "General"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.4"
 
@@ -6996,24 +7163,26 @@ version = "1.12.0"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
+registries = "General"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.4.0"
 
 [[deps.LeftChildRightSiblingTrees]]
 deps = ["AbstractTrees"]
 git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
+registries = "General"
 uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
 version = "0.1.3"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "1.0.0"
 
 [[deps.LibCURL_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "Zstd_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.15.0+0"
+version = "8.18.0+1"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -7021,14 +7190,14 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 version = "1.11.0"
 
 [[deps.LibGit2_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.9.0+0"
+version = "1.9.1+0"
 
 [[deps.LibSSH2_jll]]
-deps = ["Artifacts", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "OpenSSL_jll", "Zlib_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.3+1"
+version = "1.11.103+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -7037,11 +7206,12 @@ version = "1.11.0"
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-version = "1.12.0"
+version = "1.13.0"
 
 [[deps.LogExpFunctions]]
 deps = ["DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
 git-tree-sha1 = "a2d09619db4e765091ee5c6ffe8872849de0feea"
+registries = "General"
 uuid = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
 version = "0.3.28"
 
@@ -7061,12 +7231,14 @@ version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
+registries = "General"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "0.1.4"
 
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]
 git-tree-sha1 = "2fa9ee3e63fd3a4f7a9a4f4744a52f4856de82df"
+registries = "General"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.13"
 
@@ -7078,12 +7250,14 @@ version = "1.11.0"
 [[deps.MicroCollections]]
 deps = ["Accessors", "BangBang", "InitialValues"]
 git-tree-sha1 = "44d32db644e84c75dab479f1bc15ee76a1a3618f"
+registries = "General"
 uuid = "128add7d-3638-4c79-886c-908ea0c25c34"
 version = "0.2.0"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
 git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
+registries = "General"
 uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 version = "1.2.0"
 
@@ -7093,7 +7267,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.11.4"
+version = "2026.8.13"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -7102,34 +7276,42 @@ version = "1.3.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.29+0"
+version = "0.3.30+0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.4+0"
+version = "3.5.6+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
+registries = "General"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 version = "1.6.3"
+
+[[deps.PCRE2_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
+version = "10.46.0+0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
 git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+registries = "General"
 uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 version = "0.12.3"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
 git-tree-sha1 = "8489905bcdbcfac64d1daa51ca07c0d8f0283821"
+registries = "General"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.8.1"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "Zstd_jll", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.1"
+version = "1.13.0"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -7138,12 +7320,14 @@ weakdeps = ["REPL"]
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
 git-tree-sha1 = "56baf69781fc5e61607c3e46227ab17f7040ffa2"
+registries = "General"
 uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
 version = "0.8.19"
 
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "BaseDirs", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "Reexport", "TOML"]
 git-tree-sha1 = "1ae939782a5ce9a004484eab5416411c7190d3ce"
+registries = "General"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 version = "0.4.6"
 
@@ -7158,24 +7342,28 @@ version = "0.4.6"
 [[deps.PlutoProfile]]
 deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
 git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
+registries = "General"
 uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 version = "0.4.0"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
 git-tree-sha1 = "eba4810d5e6a01f612b948c9fa94f905b49087b0"
+registries = "General"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 version = "0.7.60"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
 git-tree-sha1 = "5aa36f7049a63a1528fe8f7c3f2113413ffd4e1f"
+registries = "General"
 uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 version = "1.2.1"
 
 [[deps.Preferences]]
 deps = ["TOML"]
 git-tree-sha1 = "9306f6085165d270f7e3db02af26a400d580f5c6"
+registries = "General"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
 version = "1.4.3"
 
@@ -7192,11 +7380,12 @@ version = "1.11.0"
 [[deps.ProfileCanvas]]
 deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
 git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+registries = "General"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 version = "0.1.0"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
+deps = ["Base64", "Dates", "FileWatching", "InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 version = "1.11.0"
 
@@ -7207,18 +7396,20 @@ version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+registries = "General"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.Requires]]
 deps = ["UUIDs"]
 git-tree-sha1 = "838a3a4188e2ded87a4f9f184b4b0d78a1e91cb7"
+registries = "General"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.0"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
-version = "0.7.0"
+version = "1.0.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -7227,6 +7418,7 @@ version = "1.11.0"
 [[deps.Setfield]]
 deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
 git-tree-sha1 = "e2cc6d8c88613c05e1defb55170bf5ff211fbeac"
+registries = "General"
 uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
 version = "1.1.1"
 
@@ -7237,23 +7429,26 @@ version = "1.11.0"
 [[deps.SortingAlgorithms]]
 deps = ["DataStructures"]
 git-tree-sha1 = "66e0a8e672a0bdfca2c3f5937efb8538b9ddc085"
+registries = "General"
 uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
 version = "1.2.1"
 
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.12.0"
+version = "1.13.0"
 
 [[deps.SplittablesBase]]
 deps = ["Setfield", "Test"]
 git-tree-sha1 = "e08a62abc517eb79667d0a29dc08a3b589516bb5"
+registries = "General"
 uuid = "171d559e-b47b-412a-8079-5efa626c420e"
 version = "0.1.15"
 
 [[deps.StaticArrays]]
 deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
 git-tree-sha1 = "eeafab08ae20c62c44c8399ccb9354a04b80db50"
+registries = "General"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
 version = "1.9.7"
 
@@ -7267,12 +7462,14 @@ version = "1.9.7"
 
 [[deps.StaticArraysCore]]
 git-tree-sha1 = "192954ef1208c7019899fbf8049e717f92959682"
+registries = "General"
 uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
 version = "1.4.3"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+registries = "General"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 version = "1.11.1"
 weakdeps = ["SparseArrays"]
@@ -7283,12 +7480,14 @@ weakdeps = ["SparseArrays"]
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "1ff449ad350c9c4cbc756624d6f8a8c3ef56d3ed"
+registries = "General"
 uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 version = "1.7.0"
 
 [[deps.StatsBase]]
 deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
 git-tree-sha1 = "5cf7606d6cef84b543b483848d4ae08ad9832b21"
+registries = "General"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.34.3"
 
@@ -7297,9 +7496,9 @@ uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 version = "1.11.0"
 
 [[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.8.3+2"
+version = "7.10.1+0"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -7309,12 +7508,14 @@ version = "1.0.3"
 [[deps.TableTraits]]
 deps = ["IteratorInterfaceExtensions"]
 git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
+registries = "General"
 uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
 version = "1.0.1"
 
 [[deps.Tables]]
 deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "OrderedCollections", "TableTraits"]
 git-tree-sha1 = "598cd7c1f68d1e205689b1c2fe65a9f85846f297"
+registries = "General"
 uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 version = "1.12.0"
 
@@ -7326,6 +7527,7 @@ version = "1.10.0"
 [[deps.TensorCore]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
+registries = "General"
 uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
 version = "0.1.1"
 
@@ -7337,6 +7539,7 @@ version = "1.11.0"
 [[deps.Transducers]]
 deps = ["Accessors", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "ConstructionBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "SplittablesBase", "Tables"]
 git-tree-sha1 = "7deeab4ff96b85c5f72c824cae53a1398da3d1cb"
+registries = "General"
 uuid = "28d57a85-8fef-5791-bfe6-a80928e7c999"
 version = "0.4.84"
 
@@ -7358,11 +7561,13 @@ version = "0.4.84"
 
 [[deps.Tricks]]
 git-tree-sha1 = "7822b97e99a1672bfb1b49b668a6d46d58d8cbcb"
+registries = "General"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.9"
 
 [[deps.URIs]]
 git-tree-sha1 = "67db6cc7b3821e19ebe75791a9dd19c9b1188f2b"
+registries = "General"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
 version = "1.5.1"
 
@@ -7373,6 +7578,7 @@ version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+registries = "General"
 uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 version = "1.0.2"
 
@@ -7385,20 +7591,29 @@ deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.3.1+2"
 
+[[deps.Zstd_jll]]
+deps = ["CompilerSupportLibraries_jll", "Libdl"]
+uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
+version = "1.5.7+1"
+
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
 version = "5.15.0+0"
 
 [[deps.nghttp2_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.64.0+1"
+version = "1.67.1+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.7.0+0"
+version = "17.8.2+0"
+
+[registries.General]
+url = "https://github.com/JuliaRegistries/General.git"
+uuid = "23338594-aafe-5451-b93e-139f81909106"
 """
 
 # ╔═╡ Cell order:
