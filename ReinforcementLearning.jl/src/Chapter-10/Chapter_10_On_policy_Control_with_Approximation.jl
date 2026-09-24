@@ -529,7 +529,7 @@ begin
 				r_avg = zero(T)
 				for i in eachindex(probabilities)
 					s′ = states[i]
-					if !mdp.isterm(s′)
+					if !isterm(mdp, s′)
 						update_feature_vector!(feature_vector, s′)
 						v̂ = value_function(feature_vector, parameters; kwargs...)
 						v′ += probabilities[i] * v̂
@@ -928,7 +928,7 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 	# end
 
 
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s)
 	# mask_invalid_actions!(action_values, mdp, s)
@@ -963,9 +963,9 @@ function semi_gradient_sarsa!(parameters::P, mdp::StateMDP, γ::T, max_episodes:
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
 
-		terminated = mdp.isterm(s′)
+		terminated = isterm(mdp, s′)
 		if terminated
-			s′ = mdp.initialize_state()
+			s′ = initialize_state(mdp)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
@@ -1074,7 +1074,7 @@ function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, <:Any, <:Any, <:Unio
 
 	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	
 	ep = 1
 	step = 1
@@ -1104,8 +1104,8 @@ function semi_gradient_dp!(parameters::PR, mdp::StateMDP{T, <:Any, <:Any, <:Unio
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
 
-		if mdp.isterm(s′)
-			s′ = mdp.initialize_state()
+		if isterm(mdp, s′)
+			s′ = initialize_state(mdp)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
@@ -1933,7 +1933,7 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 	action_values2 = zeros(T, length(mdp.actions))
 	policy = copy(action_values1)
 
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values1, feature_vector, parameters1, mdp.is_valid_action, s)
 	# mask_invalid_actions!(action_values1, mdp, s)
@@ -1971,9 +1971,9 @@ function semi_gradient_double_sarsa!(parameters1::P, parameters2::P, mdp::StateM
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
 
-		terminated = mdp.isterm(s′)
+		terminated = isterm(mdp, s′)
 		if terminated
-			s′ = mdp.initialize_state()
+			s′ = initialize_state(mdp)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
@@ -2333,7 +2333,7 @@ function semi_gradient_differential_sarsa!(parameters::PR, mdp::StateMDP{T}, num
 	action_values = zeros(T, length(mdp.actions))
 	policy = zeros(T, length(mdp.actions))
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s)
 	policy .= action_values
@@ -2358,7 +2358,7 @@ function semi_gradient_differential_sarsa!(parameters::PR, mdp::StateMDP{T}, num
 		reward_history[step] = r
 		average_reward_history[step] = R̄
 
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
 		update_feature_vector!(feature_vector, s′)
 		q_max, i_a_max = update_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s′)
@@ -2453,7 +2453,7 @@ function update_differential_action_values!(action_values::Array{T}, s, feature_
 			r_avg = zero(T)
 			for i in eachindex(probabilities)
 				s′ = states[i]
-				if !mdp.isterm(s′)
+				if !isterm(mdp, s′)
 					update_feature_vector!(feature_vector, s′)
 					v′ += probabilities[i] * value_function(feature_vector, parameters; kwargs...)
 				end
@@ -2678,7 +2678,7 @@ function semi_gradient_differential_dp!(parameters::PR, mdp::StateMDP{T, <:Any, 
 	average_reward_history = zeros(T, num_steps)
 	parameter_history = Vector{PR}(undef, num_steps)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 
 	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 	
@@ -2706,7 +2706,7 @@ function semi_gradient_differential_dp!(parameters::PR, mdp::StateMDP{T, <:Any, 
 		reward_history[step] = r
 		average_reward_history[step] = R̄
 
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 		
 		#only update average reward for actions that match the greedy policy
 		if action_values[i_a] == target
@@ -3229,7 +3229,7 @@ julia> 	# setup task
 julia> 	# run learning algorithm
 	output = semi_gradient_differential_sarsa_linear(mdp, 1, 100, setup...)
 julia> 	# test value function on example initial state
-	output.value_function(mdp.initialize_state());
+	output.value_function(initialize_state(mdp));
 ```
 
 # See Also
@@ -3872,13 +3872,13 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 	
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; epkwargs...)
 
-	success = mdp.isterm(sterm)
+	success = isterm(mdp, sterm)
 	num_success += success
 	if !suppress_warning && !success
 		@info "Warning: Episode 1 did not conclude in $nsteps steps"
 	end
 
-	if mdp.isterm(sterm) || use_unfinished_episodes
+	if isterm(mdp, sterm) || use_unfinished_episodes
 		err = gradient_monte_carlo_episode_update!(parameters, action_values, ∇q̂, feature_vector, update_feature_vector!, update_action_values!, update_value_gradient!, states, actions, rewards, γ, α, calculate_error)
 		push!(error_history, err)
 		push!(step_history, nsteps)
@@ -3888,7 +3888,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP, γ::T, num_epi
 	for ep in 2:num_episodes
 		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π_ϵ_greedy, epkwargs...)
 
-		success = mdp.isterm(sterm)
+		success = isterm(mdp, sterm)
 		num_success += success
 
 		if !success && !suppress_warning
@@ -3928,13 +3928,13 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, <:Any, <:Any
 	
 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; epkwargs...)
 
-	success = mdp.isterm(sterm)
+	success = isterm(mdp, sterm)
 	num_success += success
 	if !suppress_warning && !success
 		@info "Warning: Episode 1 did not conclude in $nsteps steps"
 	end
 
-	if mdp.isterm(sterm) || use_unfinished_episodes
+	if isterm(mdp, sterm) || use_unfinished_episodes
 		err = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, estimate_value, update_value_gradient!, states, rewards, γ, α, calculate_error)
 		push!(error_history, err)
 		push!(step_history, nsteps)
@@ -3944,7 +3944,7 @@ function gradient_monte_carlo_control!(parameters, mdp::StateMDP{T, <:Any, <:Any
 	for ep in 2:num_episodes
 		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π = π_ϵ_greedy, epkwargs...)
 
-		success = mdp.isterm(sterm)
+		success = isterm(mdp, sterm)
 		num_success += success
 
 		if !success && !suppress_warning

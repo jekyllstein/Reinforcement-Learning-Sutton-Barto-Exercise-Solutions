@@ -121,7 +121,7 @@ function mcts_rollout_value(mdp, state, gamma, max_steps)
     s = deepcopy(state)
     
     for step in 1:max_steps
-        if mdp.isterm(s)
+        if isterm(mdp, s)
             break
         end
         
@@ -161,7 +161,7 @@ function test_mcts_basic()
     value_func = form_random_value_function(feature_size)
     
     # Get initial state
-    s = mdp.initialize_state()
+    s = initialize_state(mdp)
     
     # Test MCTS search
     println("Running MCTS search...")
@@ -218,7 +218,7 @@ function test_gumbel_mcts()
     end
     
     # Test MCTS with distribution
-    s = mdp.initialize_state()
+    s = initialize_state(mdp)
     γ = 0.99f0
     
     try
@@ -271,14 +271,14 @@ function test_mcts_vs_random()
     losses = 0
     
     for episode in 1:5
-        state = mdp.initialize_state()
+        state = initialize_state(mdp)
         
-        while !mdp.isterm(state)
+        while !isterm(mdp, state)
             # Agent's turn
             a = mcts_policy(state)
             r, state = mdp.ptf(state, a)
             
-            if mdp.isterm(state)
+            if isterm(mdp, state)
                 if r > 0.5f0
                     wins += 1
                 elseif r < -0.5f0
@@ -359,10 +359,10 @@ function test_training_setup()
     println("Collecting training data...")
     transitions = []
     
-    state = mdp.initialize_state()
+    state = initialize_state(mdp)
     for step in 1:10
-        if mdp.isterm(state)
-            state = mdp.initialize_state()
+        if isterm(mdp, state)
+            state = initialize_state(mdp)
         end
         
         features = state_to_features(state)
@@ -403,7 +403,7 @@ function test_large_board()
     feature_size = 2 * N * N
     value_func = form_random_value_function(feature_size)
     
-    s = mdp.initialize_state()
+    s = initialize_state(mdp)
     
     try
         best_action, action_values, V = monte_carlo_tree_search(

@@ -2913,7 +2913,7 @@ julia> mrp.states
 1002-element Vector{Int64}:
    0    1    2  ...  999  1000  1001
 
-julia> initial_state = mrp.initialize_state()
+julia> initial_state = initialize_state(mrp)
 501
 
 ```
@@ -4061,7 +4061,7 @@ julia> # Example usage with appropriate MDP and policy
 - State aggregation reduces parameter space from `|S|` to `num_groups` dimensions
 - Compatible with any [`StateMDP`](@ref) implementation via generic dispatch
 """
-gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mdp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
+gradient_monte_carlo_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(initialize_state(mdp), num_groups, assign_state_group)...; kwargs...)
 
 # ╔═╡ 966850ef-dd15-417b-b51c-9957f27e4664
 """
@@ -4221,7 +4221,7 @@ Estimated value at state 500: 0.0234f0
 - State aggregation reduces parameter space from `|S|` to `num_groups` dimensions
 - Compatible with any [`StateMRP`](@ref) implementation via generic dispatch
 """
-gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, assign_state_group)...; kwargs...)
+gradient_monte_carlo_estimation_state_aggregation(mrp::StateMRP, γ::Real, num_episodes::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = gradient_monte_carlo_estimation_linear(mrp, γ, num_episodes, state_aggregation_feature_setup(initialize_state(mrp), num_groups, assign_state_group)...; kwargs...)
 
 # ╔═╡ 214714a5-ad1e-4439-8567-9095d10411a6
 # ╠═╡ skip_as_script = true
@@ -4499,7 +4499,7 @@ semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer,
 
 # ╔═╡ 99f34d13-a19a-4a28-8173-2f683527d61a
 #=╠═╡
-semi_gradient_td0_estimation_state_aggregation(mrp::StateMRP, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_estimation_linear(mrp, γ, max_episodes, max_steps, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
+semi_gradient_td0_estimation_state_aggregation(mrp::StateMRP, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_estimation_linear(mrp, γ, max_episodes, max_steps, state_aggregation_feature_setup(initialize_state(mrp), num_groups, random_walk_group_assign)...; kwargs...)
   ╠═╡ =#
 
 # ╔═╡ bfb1858b-5e05-4239-bcae-a3b718074630
@@ -4635,7 +4635,7 @@ semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, m
 
 # ╔═╡ 7889fc4a-3a77-41b4-983a-0b04740afeb7
 #=╠═╡
-semi_gradient_td0_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(mrp.initialize_state(), num_groups, random_walk_group_assign)...; kwargs...)
+semi_gradient_td0_policy_estimation_state_aggregation(mdp::StateMDP, π::Function, γ::Real, max_episodes::Integer, max_steps::Integer, num_groups::Integer, assign_state_group::Function; kwargs...) = semi_gradient_td0_policy_estimation_linear(mdp, π, γ, num_episodes, state_aggregation_feature_setup(initialize_state(mrp), num_groups, random_walk_group_assign)...; kwargs...)
   ╠═╡ =#
 
 # ╔═╡ 74e42774-68e5-44b5-91c4-da87a20879e1

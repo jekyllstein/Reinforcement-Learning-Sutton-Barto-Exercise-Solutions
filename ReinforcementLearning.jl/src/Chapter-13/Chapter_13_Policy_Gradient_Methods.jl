@@ -2243,7 +2243,7 @@ end
 
 # ╔═╡ f946c886-6246-4f98-a96f-f06984691ad8
 begin
-	function TabularRL.runepisode!((states, actions, rewards)::Tuple{Vector{S}, Vector{A}, Vector{T}}, mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, π::Function; s0::S = mdp.initialize_state(), a0::A = π(s0), max_steps = typemax(Int64)) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
+	function TabularRL.runepisode!((states, actions, rewards)::Tuple{Vector{S}, Vector{A}, Vector{T}}, mdp::ContinuousMDP{T, S, A, P, F1, F2, F3}, π::Function; s0::S = initialize_state(mdp), a0::A = π(s0), max_steps = typemax(Int64)) where {T<:Real, S, A, P, F1<:Function, F2<:Function, F3<:Function}
 		s = s0
 		l = length(states)
 		@assert l == length(actions) == length(rewards)
@@ -2263,7 +2263,7 @@ begin
 		add_value!(rewards, r, 1)
 		step = 2
 		sterm = s
-		if mdp.isterm(s′)
+		if isterm(mdp, s′)
 			sterm = s′
 		else
 			sterm = s
@@ -2271,7 +2271,7 @@ begin
 		s = s′
 	
 		#note that the terminal state will not be added to the state list
-		while !mdp.isterm(s) && (step <= max_steps)
+		while !isterm(mdp, s) && (step <= max_steps)
 			add_value!(states, s, step)
 			a = π(s)
 			if bad_continuous_action(a)
@@ -2285,7 +2285,7 @@ begin
 			add_value!(rewards, r, step)
 			s = s′
 			step += 1
-			if mdp.isterm(s′)
+			if isterm(mdp, s′)
 				sterm = s′
 			end
 		end
@@ -2676,7 +2676,7 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, value_param
 	for ep in eachindex(rewards)
 		# @info "On episode $i of $max_episodes"
 		state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp; π = π_sample, max_steps = max_steps)
-		if mdp.isterm(sterm) || use_unfinished_episodes #only update value function if an episode terminated in a terminal state successfully
+		if isterm(mdp, sterm) || use_unfinished_episodes #only update value function if an episode terminated in a terminal state successfully
 			g = zero(T)
 			rtotal = zero(T)
 			#iterate through episode beginning at the end
@@ -2712,7 +2712,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, �
 	step = 1
 	rtot = zero(T)
 	c = one(T)
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 
 	# @info "initial value params: $value_params"
@@ -2730,14 +2730,14 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, �
 		rtot += r
 		step += 1
 
-		if mdp.isterm(s′)
+		if isterm(mdp, s′)
 			push!(episode_steps, step)
 			push!(episode_rewards, rtot)
 			v̂′ = zero(T)
 			ep += 1
 			rtot = zero(T)
 			c = one(T)
-			s = mdp.initialize_state()
+			s = initialize_state(mdp)
 			update_feature_vector!(feature_vector, s)
 		else
 			update_feature_vector!(feature_vector, s′)
@@ -2770,7 +2770,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, n
 
 	#initialize variables
 	r̄ = zero(T)
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 
 	# @info "initial value params: $value_params"
@@ -2788,7 +2788,7 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, n
 		reward_history[step] = r
 		average_reward_history[step] = r̄
 		
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
 		update_feature_vector!(feature_vector, s′)
 		v̂′ = value_function(feature_vector, value_params)
@@ -2922,7 +2922,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 	zero_trace!(z_w)
 	policy_args = form_policy_args(policy_params)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	
 	while (ep <= max_episodes) && (step <= max_steps)
@@ -2942,7 +2942,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		rtot += r
 		step += 1
 
-		terminated = mdp.isterm(s′)
+		terminated = isterm(mdp, s′)
 
 		if terminated
 			push!(episode_steps, step)
@@ -2950,7 +2950,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 			v̂′ = zero(T)
 			rtot = zero(T)
 			ep += 1
-			s = mdp.initialize_state()
+			s = initialize_state(mdp)
 			update_feature_vector!(feature_vector, s)
 		else
 			update_feature_vector!(feature_vector, s′)
@@ -2991,7 +2991,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 	policy_args = form_policy_args(policy_params)
 	r̄ = zero(T)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	
 	for step in 1:num_steps
@@ -3013,7 +3013,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		reward_history[step] = r
 		average_reward_history[step] = r̄
 
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
 	
 		update_feature_vector!(feature_vector, s′)
@@ -3128,7 +3128,7 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 	for i in eachindex(rewards)
 		# @info "On episode $i of $max_episodes"
 		state_history, action_history, reward_history, sterm, nsteps = runepisode!((state_history, action_history, reward_history), mdp, π_sample, epkwargs...)
-		if mdp.isterm(sterm) #if an episode does not terminate properly because the max steps have been reached then do not perform any learning updates
+		if isterm(mdp, sterm) #if an episode does not terminate properly because the max steps have been reached then do not perform any learning updates
 			g = zero(T)
 			rtotal = zero(T)
 			#iterate through episode beginning at the end
@@ -3655,7 +3655,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 	zero_params!(z_θ)
 	zero_params!(z_w)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(x, s)
 	
 	while (ep <= max_episodes) && (step <= max_steps)
@@ -3676,7 +3676,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 		save_step_rewards && push!(step_rewards, r)
 		step += 1
 
-		if mdp.isterm(s′)
+		if isterm(mdp, s′)
 			push!(episode_steps, step)
 			push!(episode_rewards, rtot)
 			v̂′ = zero(T)
@@ -3685,7 +3685,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 			zero_params!(z_w)
 			ep += 1
 			c = one(T)
-			s = mdp.initialize_state()
+			s = initialize_state(mdp)
 			update_feature_vector!(x, s)
 		else
 			update_feature_vector!(x, s′)
@@ -3721,7 +3721,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 	zero_params!(z_θ)
 	zero_params!(z_w)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(x, s)
 	
 	while step <= max_steps
@@ -3742,7 +3742,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 		save_step_rewards && push!(step_rewards, r)
 		step += 1
 
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 		
 		update_feature_vector!(x, s′)
 		v̂′ = value_function(x, value_params)	

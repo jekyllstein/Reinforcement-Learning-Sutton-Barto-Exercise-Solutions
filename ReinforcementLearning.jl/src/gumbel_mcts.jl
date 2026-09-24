@@ -78,7 +78,7 @@ function gumbel_simulate!(
     rescale_values::Bool = true
 ) where {T<:Real}
     # Terminal state check
-    mdp.isterm(s) && return zero(T)
+    isterm(mdp, s) && return zero(T)
 
     # Expand state if first visit
     if !haskey(visit_counts, s)

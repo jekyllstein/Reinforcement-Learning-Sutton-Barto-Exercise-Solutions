@@ -1482,7 +1482,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max
 	feature_vector2 = copy(feature_vector)
 	state_list = Vector{S}(undef, batch_size)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, value_params, mdp.is_valid_action, s)
 	policy .= action_values
@@ -1504,7 +1504,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max
 		#get next reward and state from transition and add it to the replay buffer, note that the buffer also stores whether the transition state s′ is terminal
 		(r, s′) = mdp.ptf(s, i_a)
 		update_feature_vector!(feature_vector2, s′)
-		terminated = mdp.isterm(s′)
+		terminated = isterm(mdp, s′)
 		
 		push!(replay_buffer, (copy(feature_vector), i_a, r, copy(feature_vector2), terminated, s′))
 
@@ -1515,7 +1515,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max
 		#if an episode terminates, initialize a new starting state and add information about the episode to the history
 		if terminated
 			# @info "episode terminated on step $step with reward $r"
-			s′ = mdp.initialize_state()
+			s′ = initialize_state(mdp)
 			update_feature_vector!(feature_vector2, s′)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
@@ -1750,7 +1750,7 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 	rtots = zeros(T, num_env)
 	batch_rewards = zeros(T, num_env)
 	cs = ones(T, num_env)
-	batch_states = [mdp.initialize_state() for _ in 1:num_env]
+	batch_states = [initialize_state(mdp) for _ in 1:num_env]
 	batch_term_check = [false for _ in 1:num_env]
 	feature_vectors = initialize_synchronous_features(feature_vector, num_env)
 	feature_vectors2 = initialize_synchronous_features(feature_vector, num_env)
@@ -1783,12 +1783,12 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 		#perform transitions for entire batch
 		for k in 1:num_env
 			(r, s′) = mdp.ptf(batch_states[k], batch_actions[k])
-			terminal = mdp.isterm(s′)
+			terminal = isterm(mdp, s′)
 			batch_term_check[k] = terminal
 			rtots[k] += r
 			r_avg += r
 			if terminal
-				s′ = mdp.initialize_state()
+				s′ = initialize_state(mdp)
 				update_feature_vector!(feature_vector, s′)
 				batch_episodes[k] += 1
 				push!(batch_episode_steps[k], step)
@@ -2071,7 +2071,7 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 	batch_episode_rewards = [Vector{T}() for _ in 1:num_env]
 	rtots = zeros(T, num_env)
 	cs = ones(T, num_env)
-	batch_states = [mdp.initialize_state() for _ in 1:num_env]
+	batch_states = [initialize_state(mdp) for _ in 1:num_env]
 	current_feature_vectors = initialize_synchronous_features(feature_vector, num_env) #should store the feature vectors of the current time state for that environment
 	state_list = Vector{S}(undef, num_env)
 	update_feature_vectors = initialize_synchronous_features(feature_vector, num_env) #should store the feature vectors of the state being updated
@@ -2124,7 +2124,7 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 					push!(batch_nstep_states[k], batch_states[k])
 					push!(batch_nstep_rewards[k], r)
 					batch_states[k] = s′
-					terminal = mdp.isterm(s′)
+					terminal = isterm(mdp, s′)
 					rtots[k] += r
 					r_avg += r
 					batch_terminal_check[k] = terminal
@@ -2153,7 +2153,7 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 					popfirst!(batch_nstep_rewards[k])
 					popfirst!(batch_nstep_states[k])
 					popfirst!(batch_nstep_actions[k])
-					s′ = mdp.initialize_state()
+					s′ = initialize_state(mdp)
 					update_feature_vector!(feature_vector, s′)
 					update_feature_matrix!(current_feature_vectors, feature_vector, k)
 					state_list[k] = s′

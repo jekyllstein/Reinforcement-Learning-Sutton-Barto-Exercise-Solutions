@@ -738,7 +738,7 @@ function create_mcts_policy_evaluation(mdp::StateMDP, rollout_n::Integer; rollou
 		Q_history = [qvals0]
 		(r, s) = mdp.ptf(s0, i_a0)
 		reward_history = [r]
-		while !mdp.isterm(s)
+		while !isterm(mdp, s)
 			(i_a, counts, qvals) = π(s; kwargs...)
 			push!(state_history, s)
 			push!(action_history, i_a)
@@ -1950,7 +1950,7 @@ function create_gumbel_mcts_policy_evaluation(mdp::StateMDP, π_dist!; nsims = 1
 		data_history = [(;deepcopy(data)..., visit_counts = copy(mcts_policy.search_state[1][s0]))]
 		(r, s) = mdp.ptf(s0, i_a0)
 		reward_history = [r]
-		while !mdp.isterm(s)
+		while !isterm(mdp, s)
 			#by default clear visit counts and values from the search tree after every step of an episode
 			!persist_search_tree && mcts_policy.clear_search_tree!()
 			i_a = mcts_policy.policy(s)

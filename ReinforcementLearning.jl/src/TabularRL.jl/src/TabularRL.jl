@@ -16,10 +16,10 @@ export AbstractAveragingMethod, SampleAveraging, ConstantStepAveraging
 
 #--------Functions---------
 #utilities 
-export initialize_state_action_value, initialize_state_value, find_terminal_states, find_available_actions, sample_action, make_random_policy, runepisode, runepisode!, make_greedy_policy!, make_ϵ_greedy_policy!, initialize_afterstate_value, makelookup, make_random_bit_policy, make_random_deterministic_policy, make_greedy_bit_policy, make_greedy_deterministic_policy
+export initialize_state_action_value, initialize_state_value, find_terminal_states, find_available_actions, sample_action, make_random_policy, runepisode, runepisode!, make_greedy_policy!, make_ϵ_greedy_policy!, initialize_afterstate_value, makelookup, make_random_bit_policy, make_random_deterministic_policy, make_greedy_bit_policy, make_greedy_deterministic_policy, initialize_state, initialize_state_index, isterm
 
 #dynamic programming solution methods
-export bellman_state_value, bellman_state_action_value, bellman_policy_update!, policy_evaluation!, policy_evaluation, mrp_evaluation!, mrp_evaluation, policy_evaluation_q, policy_evaluation_v, policy_iteration!, policy_iteration, policy_iteration_v, value_iteration!, value_iteration, value_iteration_v, value_iteration_q, bellman_afterstate_value, afterstate_policy_iteration!
+export bellman_state_value, bellman_state_action_value, bellman_policy_update!, policy_evaluation!, policy_evaluation, mrp_evaluation!, mrp_evaluation, policy_evaluation_q, policy_evaluation_v, policy_iteration!, policy_iteration, policy_iteration_v, value_iteration!, value_iteration, value_iteration_v, value_iteration_q, bellman_afterstate_value, afterstate_policy_iteration!, calculate_μ, calculate_μ_episodic
 
 #monte carlo solution methods
 export monte_carlo_policy_prediction, monte_carlo_prediction, monte_carlo_policy_prediction_v, monte_carlo_policy_prediction_q, monte_carlo_control, monte_carlo_control_exploring_starts, monte_carlo_control_ϵ_soft, monte_carlo_off_policy_prediction, monte_carlo_off_policy_prediction_q, monte_carlo_off_policy_control
@@ -54,7 +54,7 @@ export GridworldState, GridworldAction, rook_actions, make_deterministic_gridwor
             state_mdp = StateMDP(mdp)
             make_random_policy(state_mdp)
             runepisode(state_mdp)
-            monte_carlo_tree_search(state_mdp, 0.99f0, state_mdp.initialize_state())
+            monte_carlo_tree_search(state_mdp, 0.99f0, initialize_state(state_mdp))
 
             mrp = create_random_walk_distribution(5, -1f0, 1f0)
             mrp_evaluation(mrp, 1f0)

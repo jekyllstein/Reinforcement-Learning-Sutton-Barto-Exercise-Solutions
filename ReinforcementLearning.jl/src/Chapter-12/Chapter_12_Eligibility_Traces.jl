@@ -430,7 +430,7 @@ function n_step_TD_prediction(mrp::TabularMRP{X, S, P, F}, γ::X, num_episodes, 
 
 	#simulate and episode and update the value function every step
 	function runepisode!(V, j)
-		i_s = mrp.initialize_state_index()
+		i_s = initialize_state_index(mrp)
 		T = typemax(Int64)
 		t = 0
 		τ = 0
@@ -859,10 +859,10 @@ begin
 	end
 
 	#when evaluating an MRP, there is no policy and the transition is just from the environment
-	semi_gradient_TDλ!(parameters, mrp::StateMRP, args...; kwargs...) = semi_gradient_TDλ!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
+	semi_gradient_TDλ!(parameters, mrp::StateMRP, args...; kwargs...) = semi_gradient_TDλ!(parameters, () -> initialize_state(mrp), s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
 
 	#when evaluating an MDP, there is a policy and the transition uses it to select actions
-	semi_gradient_TDλ!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π(s)), mdp.isterm, args...; kwargs...)
+	semi_gradient_TDλ!(parameters, mdp::StateMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ!(parameters, () -> initialize_state(mdp), mdp.isterm, args...; kwargs...)
 end
 
 # ╔═╡ 5e5fdcee-356e-46d4-a5b0-3c433aee989d
@@ -991,9 +991,9 @@ begin
 		semi_gradient_TDλ!(parameters, initialize_state_index, transition, i_s -> terminal_states[i_s], γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 	end
 
-	semi_gradient_TDλ(mrp::TabularMRP, args...; kwargs...) = semi_gradient_TDλ(mrp.states, mrp.initialize_state_index, i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
+	semi_gradient_TDλ(mrp::TabularMRP, args...; kwargs...) = semi_gradient_TDλ(mrp.states, () -> initialize_state_index(mrp), i_s -> mrp.ptf(i_s), mrp.terminal_states, args...; kwargs...)
 
-	semi_gradient_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ(mdp.states, mdp.initialize_state_index, i_s -> mdp.ptf(i_s, π), mdp.terminal_states, args...; kwargs...)
+	semi_gradient_TDλ(mdp::TabularMDP, π::Function, args...; kwargs...) = semi_gradient_TDλ(mdp.states, () -> initialize_state_index(mdp), i_s -> mdp.ptf(i_s, π), mdp.terminal_states, args...; kwargs...)
 end
 
 # ╔═╡ 373a89e3-0b8d-49a0-982e-8bb300538429
@@ -1416,7 +1416,7 @@ begin
 	true_online_TDλ!(parameters::Vector{T}, mrp::StateMRP, args...; kwargs...) where T<:Real = true_online_TDλ!(parameters, mrp.initialize_state, s -> mrp.ptf(s), mrp.isterm, args...; kwargs...)
 
 	#when evaluating an MDP, there is a policy and the transition uses it to select actions
-	true_online_TDλ!(parameters::Vector{T}, mdp::StateMDP, π::Function, args...; kwargs...) where {T<:Real} = true_online_TDλ!(parameters, mdp.initialize_state, s -> mdp.ptf(s, π(s)), mdp.isterm, args...; kwargs...)
+	true_online_TDλ!(parameters::Vector{T}, mdp::StateMDP, π::Function, args...; kwargs...) where {T<:Real} = true_online_TDλ!(parameters, initialize_state(mdp), mdp.isterm, args...; kwargs...)
 end
 
 # ╔═╡ 34a28cfa-bf18-4dcf-8cf4-f6e9031d6fc2
@@ -1638,7 +1638,7 @@ function dp_λ!(parameters, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTrans
 
 	#initialize variables
 	decay = one(T)
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	zero_trace!(z)
 	
 	policy = copy(action_values)
@@ -1665,7 +1665,7 @@ function dp_λ!(parameters, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTrans
 
 		#take action and observe transition
 		(r, s′) = mdp.ptf(s, i_a)
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 		reward_history[step] = r
 		
 
@@ -1792,7 +1792,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, γ::T, λ::T, max_episodes::
 	step = 1
 	epreward = zero(T)
 	decay = one(T)
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s)
 	policy = copy(action_values)
@@ -1812,10 +1812,10 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, γ::T, λ::T, max_episodes::
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
 
-		terminated = mdp.isterm(s′)
+		terminated = isterm(mdp, s′)
 
 		if terminated
-			s′ = mdp.initialize_state()
+			s′ = initialize_state(mdp)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
@@ -1865,7 +1865,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, λ::T, num_steps::Integer, f
 	ep = 1
 	step = 1
 	decay = one(T)
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	update_feature_vector!(feature_vector, s)
 	update_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s)
 	policy = copy(action_values)
@@ -1887,7 +1887,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, λ::T, num_steps::Integer, f
 		reward_history[step] = r
 		average_reward_history[step] = r̄
 
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
 		update_feature_vector!(feature_vector, s′)
 		update_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s′)
@@ -2001,7 +2001,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTr
 	step = 1
 	epreward = zero(T)
 	decay = one(T)
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	zero_trace!(z)
 	
 	policy = zeros(T, length(mdp.actions))
@@ -2027,8 +2027,8 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTr
 		(r, s′) = mdp.ptf(s, i_a)
 		epreward += r
 
-		if mdp.isterm(s′)
-			s′ = mdp.initialize_state()
+		if isterm(mdp, s′)
+			s′ = initialize_state(mdp)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
@@ -2144,7 +2144,7 @@ begin
 		policy = copy(action_values)
 		
 		#initialize episode
-		i_s = mdp.initialize_state_index()
+		i_s = initialize_state_index(mdp)
 		update_action_values!(action_values, i_s, state_action_values)
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy; ϵ = ϵ)
@@ -2185,7 +2185,7 @@ begin
 			save_parameter_history && push!(parameter_history, copy(state_action_values))
 
 			if mdp.terminal_states[i_s′]
-				i_s = mdp.initialize_state_index()
+				i_s = initialize_state_index(mdp)
 				update_action_values!(action_values, i_s, state_action_values)
 				policy .= action_values
 				make_ϵ_greedy_policy!(policy; ϵ = ϵ)
@@ -2220,7 +2220,7 @@ begin
 		parameter_history = Vector{Matrix{T}}()
 	
 		#initialize episode
-		s = mdp.initialize_state()
+		s = initialize_state(mdp)
 		update_feature_vector!(feature_vector, s)
 		update_linear_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s)
 		policy .= action_values
@@ -2248,7 +2248,7 @@ begin
 			(r, s′) = mdp.ptf(s, i_a)
 			rtot += r
 
-			terminated = mdp.isterm(s′)
+			terminated = isterm(mdp, s′)
 			if terminated
 				push!(episode_rewards, rtot)
 				push!(episode_steps, step)
@@ -2270,7 +2270,7 @@ begin
 			save_parameter_history && push!(parameter_history, copy(parameters))
 			
 			if terminated
-				s = mdp.initialize_state()
+				s = initialize_state(mdp)
 				update_feature_vector!(feature_vector, s)
 				update_linear_action_values!(action_values, feature_vector, parameters, mdp.is_valid_action, s)
 				make_ϵ_greedy_policy!(action_values, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
@@ -2313,7 +2313,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 	parameter_history = Vector{Vector{T}}()
 	
 	#initialize episode
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	target, i_a_max = update_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, γ, action_value_args...)
 	policy .= action_values
 	make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
@@ -2344,7 +2344,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 		(r, s′) = mdp.ptf(s, i_a)
 		rtot += r
 
-		terminated = mdp.isterm(s′)
+		terminated = isterm(mdp, s′)
 
 		if terminated
 			v′ = zero(T)
@@ -2356,7 +2356,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 		parameters .+= α*(δ + v - v_old) .* z
 
 		if terminated
-			s′ = mdp.initialize_state()
+			s′ = initialize_state(mdp)
 			#reset eligibility vector to 0 at the start of a new episode
 			z .= zero(T)
 			ep += 1
@@ -2389,7 +2389,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 	r̄ = zero(T)
 	
 	#initialize episode
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	target, i_a_max = update_differential_action_values!(action_values, s, feature_vector, update_feature_vector!, linear_value_function, parameters, mdp, r̄, action_value_args...)
 	policy .= action_values
 	make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
@@ -2420,7 +2420,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 		(r, s′) = mdp.ptf(s, i_a)
 		reward_history[step] = r
 
-		mdp.isterm(s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
+		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
 		
 		update_feature_vector!(feature_vector, s′)
@@ -2821,7 +2821,7 @@ begin
 		step_rewards = Vector{T}()
 	
 		#initialize episode
-		s = mdp.initialize_state()
+		s = initialize_state(mdp)
 		active_features = get_active_features(s)
 		update_action_values!(action_values, parameters, active_features)
 		make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
@@ -2864,7 +2864,7 @@ begin
 			
 			save_step_rewards && push!(step_rewards, r)
 
-			if mdp.isterm(s′)
+			if isterm(mdp, s′)
 				q′ = zero(T)
 				active_features = []
 			else
@@ -2885,8 +2885,8 @@ begin
 
 			v .+= β*δ .* z_target .- β*dot(z_behavior, v)
 			
-			if mdp.isterm(s′)
-				s = mdp.initialize_state()
+			if isterm(mdp, s′)
+				s = initialize_state(mdp)
 				active_features = get_active_features(s)
 				update_action_values!(action_values, parameters, active_features)
 				make_ϵ_greedy_policy!(action_values; ϵ = ϵ)
@@ -2922,7 +2922,7 @@ begin
 	# 	end
 	
 	# 	#initialize episode
-	# 	s = mdp.initialize_state()
+	# 	s = initialize_state(mdp)
 	# 	update_feature_vector!(feature_vector, s)
 	# 	i_a = select_action!(action_values, parameters, ϵ, feature_vector)
 	# 	z .= zero(T)
@@ -2943,7 +2943,7 @@ begin
 	# 		save_step_rewards && push!(step_rewards, r)
 
 			
-	# 		if mdp.isterm(s′)
+	# 		if isterm(mdp, s′)
 	# 			q′ = zero(T)
 	# 		else
 	# 			update_feature_vector!(feature_vector, s′)
@@ -2962,8 +2962,8 @@ begin
 	# 			parameters[i_a] .+= α*(δ + q - q_old) .* z[i_a]
 	# 		end
 			
-	# 		if mdp.isterm(s′)
-	# 			s = mdp.initialize_state()
+	# 		if isterm(mdp, s′)
+	# 			s = initialize_state(mdp)
 	# 			update_feature_vector!(feature_vector, s)
 	# 			i_a = select_action!(action_values, parameters, ϵ, feature_vector)
 	# 			#reset eligibility vector to 0 at the start of a new episode
@@ -4164,7 +4164,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ 0e3ae279-be7e-4e13-b1ea-2c0efced3162
-function plot_path(mdp::TabularMDP, π; i_s0 = mdp.initialize_state_index(), max_steps = 100, kwargs...)
+function plot_path(mdp::TabularMDP, π; i_s0 = initialize_state_index(mdp), max_steps = 100, kwargs...)
 	(states, actions, rewards, sterm) = runepisode(mdp; i_s0 = i_s0, π = π, max_steps = max_steps)
 	plot_path(states, sterm, mdp.states, i_s0, mdp.terminal_states; kwargs...)
 end

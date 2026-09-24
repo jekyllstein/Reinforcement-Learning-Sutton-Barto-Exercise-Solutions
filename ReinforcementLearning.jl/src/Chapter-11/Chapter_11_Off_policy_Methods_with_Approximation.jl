@@ -119,7 +119,7 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 	action_values = zeros(T, length(mdp.actions))
 	policy = copy(action_values)
 	
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	
 	ep = 1
 	step = 1
@@ -153,8 +153,8 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 		(r, s) = mdp.ptf(s, i_a)
 		epreward += r
 		
-		if mdp.isterm(s)
-			s = mdp.initialize_state()
+		if isterm(mdp, s)
+			s = initialize_state(mdp)
 			push!(episode_rewards, epreward)
 			push!(episode_steps, step)
 			epreward = zero(T)
@@ -2255,8 +2255,8 @@ md"""
 """
 
 # ╔═╡ 5f7635d8-42a3-4b74-b027-6a870d6e7d47
-function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s) -> zero(T), α = one(T)/10, β = one(T)/10, init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), save_parameter_history = false) where {T<:Real, S}
-	s = mdp.initialize_state()
+function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_state_representation!::Function; s0::S = initialize_state(mdp), calculate_error::Function = (v̂, s) -> zero(T), α = one(T)/10, β = one(T)/10, init_value::T = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), save_parameter_history = false) where {T<:Real, S}
+	s = initialize_state(mdp)
 	ep = 1
 	step = 1
 	d = length(feature_vector)
@@ -2283,7 +2283,7 @@ function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_e
 		i_a = sample_action(b_dist)
 		(r, s′) = mdp.ptf(s, i_a)
 		ρ = π_dist[i_a] / b_dist[i_a]
-		if mdp.isterm(s′)
+		if isterm(mdp, s′)
 			v̂2 = zero(T)
 		else
 			update_state_representation!(state_representation2, s′)
@@ -2295,7 +2295,7 @@ function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_e
 			c1 = α*ρ*δ
 			update_params_with_gradient!(parameters, c1, state_representation1)
 			v̂1_v = linear_value_function(state_representation1, v)
-			if !mdp.isterm(s′)
+			if !isterm(mdp, s′)
 				c2 = -α*ρ*γ*v̂1_v
 				update_params_with_gradient!(parameters, c2, state_representation2)
 			end
@@ -2308,8 +2308,8 @@ function tdc_estimation(mdp::StateMDP, γ::T, π!::Function, b!::Function, max_e
 		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
 		epstep += 1
-		if mdp.isterm(s′)
-			s = mdp.initialize_state()
+		if isterm(mdp, s′)
+			s = initialize_state(mdp)
 			ep += 1
 			ep_step = 1
 			update_state_representation!(state_representation1, s)
@@ -2439,8 +2439,8 @@ begin
 end
 
 # ╔═╡ 12068dea-798d-4cc3-86f0-07b7315caa91
-function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, init_value = zero(T), parameters = initialize_linear_parameters(feature_vector, mdp, init_value), save_parameter_history = false) where {T<:Real, S}
-	s = mdp.initialize_state()
+function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_state_representation!::Function; s0::S = initialize_state(mdp), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, init_value = zero(T), parameters = initialize_linear_parameters(feature_vector, mdp, init_value), save_parameter_history = false) where {T<:Real, S}
+	s = initialize_state(mdp)
 	ep = 1
 	step = 1
 	d = length(feature_vector)
@@ -2468,7 +2468,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 		v̂1 = action_values[i_a]
 		(r, s′) = mdp.ptf(s, i_a)
 		ρ = (i_a_max == i_a) / action_values[i_a]
-		q′ = if mdp.isterm(s′)
+		q′ = if isterm(mdp, s′)
 			r
 		else
 			update_state_representation!(state_representation2, s′)
@@ -2480,7 +2480,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 			c1 = α*ρ*δ
 			update_params_with_gradient!(parameters, c1, state_representation1, i_a)
 			v̂′ = linear_value_function(state_representation1, v)
-			if !mdp.isterm(s′)
+			if !isterm(mdp, s′)
 				c2 = -α*ρ*γ*v̂′
 				update_params_with_gradient!(parameters, c2, state_representation2, i_a)
 			end
@@ -2493,8 +2493,8 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
 		epstep += 1
-		if mdp.isterm(s′)
-			s = mdp.initialize_state()
+		if isterm(mdp, s′)
+			s = initialize_state(mdp)
 			ep += 1
 			ep_step = 1
 			update_state_representation!(state_representation1, s)
@@ -2511,8 +2511,8 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 end
 
 # ╔═╡ 85bf8c44-348b-4825-b89a-33ec7614bb25
-function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_state_representation!::Function; s0::S = mdp.initialize_state(), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, init_value = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), save_parameter_history = false) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
-	s = mdp.initialize_state()
+function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_state_representation!::Function; s0::S = initialize_state(mdp), calculate_error::Function = (v̂, s)->zero(T), α = one(T)/10, β = one(T)/10, ϵ = one(T)/10, init_value = zero(T), parameters = initialize_linear_parameters(feature_vector, init_value), save_parameter_history = false) where {T<:Real, S, A, P <: StateMDPTransitionDistribution, F1, F2, F3}
+	s = initialize_state(mdp)
 	ep = 1
 	step = 1
 	d = length(feature_vector)
@@ -2538,7 +2538,7 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 		make_ϵ_greedy_policy!(action_values; ϵ =  ϵ)
 		i_a = sample_action(action_values)
 		(r, s′) = mdp.ptf(s, i_a)
-		if !mdp.isterm(s′)
+		if !isterm(mdp, s′)
 			update_state_representation!(state_representation2, s′)
 		end
 		ρ = (i_a_max == i_a) / action_values[i_a]
@@ -2548,7 +2548,7 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 			δ = qmax - v̂1
 			update_params_with_gradient!(parameters, α*ρ*δ, state_representation1)
 			v̂_v = linear_value_function(state_representation1, v)
-			if !mdp.isterm(s′)
+			if !isterm(mdp, s′)
 				update_params_with_gradient!(parameters, -α*ρ*γ*v̂_v, state_representation2)
 			end
 			update_params_with_gradient!(v, β*ρ*(δ - v̂_v), state_representation1)
@@ -2559,8 +2559,8 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
 		epstep += 1
-		if mdp.isterm(s′)
-			s = mdp.initialize_state()
+		if isterm(mdp, s′)
+			s = initialize_state(mdp)
 			ep += 1
 			ep_step = 1
 			update_state_representation!(state_representation1, s)

@@ -815,7 +815,7 @@ display_study_results(continuing_policy_studies.ac_linear_study.results)
 # ╔═╡ 3a938f27-b6fe-4411-8c41-5d1efaa8189c
 begin
 function evaluate_episodic_policy_performance(mdp::StateMDP{T}, π::Function, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real}
-	s = mdp.initialize_state()
+	s = initialize_state(mdp)
 	step = 0
 	rtot = zero(T)
 	r_eps = zero(T)
@@ -826,8 +826,8 @@ function evaluate_episodic_policy_performance(mdp::StateMDP{T}, π::Function, ev
 		(r, s) = mdp.ptf(s, i_a)
 		rtot += r
 		r_ep += r
-		if mdp.isterm(s)
-			s = mdp.initialize_state()
+		if isterm(mdp, s)
+			s = initialize_state(mdp)
 			r_eps += r_ep
 			r_ep = zero(T)
 			num_ep += 1
@@ -840,14 +840,14 @@ function evaluate_episodic_policy_performance(mdp::StateMDP{T}, π::Function, ev
 end
 # function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P, F1, F2, F3}
 # 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = eval_steps)
-# 	!mdp.isterm(sterm) && return min_reward
+# 	!isterm(mdp, sterm) && return min_reward
 # 	reward_sum = sum(rewards)
 # 	episode_count = 1
 # 	step_count = nsteps
 # 	remaining_steps = eval_steps - nsteps
 # 	while remaining_steps > 0
 # 		(states, actions, rewards, sterm, nsteps) = runepisode!((states, actions, rewards), mdp; π, max_steps = remaining_steps)
-# 		if mdp.isterm(sterm) 
+# 		if isterm(mdp, sterm) 
 # 			# reward_sum += sum(rewards[i] for i in 1:nsteps)
 # 			reward_sum += sum(view(rewards, 1:nsteps))
 # 			episode_count += 1
