@@ -1602,7 +1602,7 @@ begin
 end
 
 # ╔═╡ 6148608a-0353-49ad-8380-3f114c447af3
-function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransitionDistribution, <:Union{AbstractVector, Integer}}, π; θ = eps(one(T)), maxiter = 100) where T<:Real
+function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransitionDistribution, <:Union{AbstractVector{<:Integer}, Integer, Set{<:Integer}}}, π; θ = eps(one(T)), maxiter = 100) where T<:Real
 	num_states = length(mdp.states)
 	μ = zeros(T, num_states)
 	copy_state_distribution!(μ, mdp.initialize_state_index)	
