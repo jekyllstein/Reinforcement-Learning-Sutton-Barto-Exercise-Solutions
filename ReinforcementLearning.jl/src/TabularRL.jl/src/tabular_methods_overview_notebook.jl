@@ -577,7 +577,7 @@ begin
 
 	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P; kwargs...) where {T<:Real, S, A, P<:TabularTransitionDistribution{T, 2}} = TabularMDP(states, actions, ptf, () -> rand(eachindex(states)); kwargs...)
 
-	TabularMRP(states::Vector{S}, ptf::P, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, P<:AbstractTabularTransition{T, 1}} = TabularMRP(states, ptf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
+	TabularMRP(states::Vector{S}, ptf::P, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, P<:AbstractTabularTransition{T, 1}} = TabularMRP(states, ptf, init_inds, terminal_states; kwargs...)
 
 	TabularMRP(states::Vector{S}, ptf::P, terminal_states::BitVector; kwargs...) where {T<:Real, S, P<:AbstractTabularTransition{T, 1}} = TabularMRP(states, ptf, () -> rand(eachindex(states)), terminal_states; kwargs...)
 
@@ -3236,7 +3236,7 @@ begin
 
 	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = find_available_actions(ptf), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions), afterstate_index::Dict{Y, Int64} = makelookup(afterstates)) where {T<:Real, S, A, Y, PTF<:AbstractTabularTransition{T, 2}, ATF<:AbstractTabularTransition{T, 1}, F<:Function} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
 	
-	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, Y, PTF<:AbstractTabularTransition{T, 2}, ATF<:AbstractTabularTransition{T, 1}} = TabularMDP(states, actions, afterstates, ptf, atf, convert_state_index_initialization(init_inds), terminal_states; kwargs...)
+	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, init_inds, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, Y, PTF<:AbstractTabularTransition{T, 2}, ATF<:AbstractTabularTransition{T, 1}} = TabularMDP(states, actions, afterstates, ptf, atf, init_inds, terminal_states; kwargs...)
 
 	#when nothing is provided for initial states just sample a random state
 	TabularAfterstateMDP(states::Vector{S}, actions::Vector{A}, afterstates::Vector{Y}, ptf::PTF, atf::ATF, terminal_states::BitVector; kwargs...) where {S, A, Y, PTF, ATF} = TabularAfterstateMDP(states, actions, afterstates, ptf, atf, () -> rand(eachindex(states)), terminal_states; kwargs...)
