@@ -566,8 +566,8 @@ begin
 	initialize_state_index(inds::Set{Int64}) = rand(inds)
 	initialize_state_index(inds::AbstractVector{N}) where N<:Integer = rand(inds)
 	initialize_state_index(dist::AbstractVector{T}) where T<:AbstractFloat = sample_action(dist)
-	initialize_state_index(f::Function) = f()
-	initialize_state_index(env) = initialize_state_index(env.initialize_state_index)
+	initialize_state_index(f::Function; kwargs...) = f(;kwargs...)
+	initialize_state_index(env; kwargs...) = initialize_state_index(env.initialize_state_index; kwargs...)
 
 	#when nothing is provided for initial states just sample a random state
 	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, P<:AbstractTabularTransition{T, 2}} = TabularMDP(states, actions, ptf, () -> rand(eachindex(states)), terminal_states; kwargs...)
@@ -4086,9 +4086,9 @@ begin
 	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::S) where {S, N} = init
 	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::AbstractVector{<:S}) where {S, N} = rand(init)
 	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::Set{<:S}) where {S, N} = rand(init)
-	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::Tuple{NTuple{N, T}, NTuple{N, S}}) where {S, N, T<:Real} = init[2][sample_action(init[1])]
-	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::Function) where {S, N} = init()
-	initialize_state(env::Union{StateMDP, StateMRP}) = initialize_state(env.ptf, env.initialize_state)
+	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::Tuple{NTuple{M, T}, NTuple{M, S}}) where {S, N, M, T<:Real} = init[2][sample_action(init[1])]
+	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::Function; kwargs...) where {S, N} = init(;kwargs...)
+	initialize_state(env::Union{StateMDP, StateMRP}; kwargs...) = initialize_state(env.ptf, env.initialize_state; kwargs...)
 
 	isterm(sterm::S, s::S) where S = s == sterm
 	isterm(term_set::Set{S}, s::S) where S = in(s, term_set)
