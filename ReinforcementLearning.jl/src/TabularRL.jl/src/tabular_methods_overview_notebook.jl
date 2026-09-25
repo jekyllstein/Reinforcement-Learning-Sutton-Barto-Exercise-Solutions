@@ -1557,7 +1557,7 @@ function update_μ!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionD
 			x += μ[i_s]*calc_state_policy_probabilities(ptf, π, i_s, i_s′)
 		end 
 		μ′[i_s′] = x
-		delt = calc_pct_change(μ[i_s′], x)
+		delt = max(delt, calc_pct_change(μ[i_s′], x))
 	end
 	return delt
 end
@@ -1573,7 +1573,7 @@ function update_μ_episodic!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTr
 			end
 		end 
 		μ′[i_s′] = x
-		delt = calc_pct_change(μ[i_s′], x)
+		delt = max(delt, calc_pct_change(μ[i_s′], x))
 	end
 	return delt
 end
