@@ -1216,7 +1216,8 @@ end
 function calc_pct_change(x_old::T, x_new::T) where T<:Real 
 	isinf(x_old) && isinf(x_new) && return zero(T)
 	isnan(x_old) && isnan(x_new) && return zero(T)
-	abs(x_old - x_new) / (eps(abs(x_old)) + abs(x_old))
+	iszero(x_old) && iszero(x_new) && return zero(T)
+	abs(x_old - x_new) / (max(abs(x_old), abs(x_new)))
 end
 
 # ╔═╡ 28ab0c91-ebfe-4f05-b35b-f4282ae1c57d
@@ -1556,7 +1557,7 @@ function update_μ!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionD
 			x += μ[i_s]*calc_state_policy_probabilities(ptf, π, i_s, i_s′)
 		end 
 		μ′[i_s′] = x
-		delt = max(delt, abs(x - μ[i_s′]))
+		delt = calc_pct_change(μ[i_s′], x)
 	end
 	return delt
 end
@@ -1572,7 +1573,7 @@ function update_μ_episodic!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTr
 			end
 		end 
 		μ′[i_s′] = x
-		delt = max(delt, abs(x - μ[i_s′]))
+		delt = calc_pct_change(μ[i_s′], x)
 	end
 	return delt
 end
@@ -1602,7 +1603,7 @@ begin
 end
 
 # ╔═╡ 6148608a-0353-49ad-8380-3f114c447af3
-function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransitionDistribution, <:Union{AbstractVector{<:Integer}, Integer, Set{<:Integer}}}, π; θ = eps(one(T)), maxiter = 100) where T<:Real
+function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransitionDistribution, <:Union{AbstractVector{<:Integer}, Integer, Set{<:Integer}}}, π; θ = sqrt(eps(T)), maxiter = 100) where T<:Real
 	num_states = length(mdp.states)
 	μ = zeros(T, num_states)
 	copy_state_distribution!(μ, mdp.initialize_state_index)	
@@ -1621,7 +1622,7 @@ function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransit
 end
 
 # ╔═╡ d7a96871-9c03-4549-b39d-0ee2a7aa3905
-function calculate_μ(ptf::TabularTransitionDistribution{T}, π; θ = eps(one(T)), maxiter = 100, μ = ones(T, size(ptf.state_transition_map, 2))/size(ptf.state_transition_map, 2), μ′ = copy(μ)) where {T<:Real}
+function calculate_μ(ptf::TabularTransitionDistribution{T}, π; θ = sqrt(eps(T)), maxiter = 100, μ = ones(T, size(ptf.state_transition_map, 2))/size(ptf.state_transition_map, 2), μ′ = copy(μ)) where {T<:Real}
 	# (num_actions, num_states) = size(π)
 	# μ = ones(T, num_states) / num_states
 	# μ = zeros(T, num_states)
@@ -1639,7 +1640,7 @@ function calculate_μ(ptf::TabularTransitionDistribution{T}, π; θ = eps(one(T)
 end
 
 # ╔═╡ 649a67ba-ef7e-4918-b24e-6e1ab8fc0af1
-function calculate_μ(mdp::TabularMDP{T}, π; θ = eps(one(T)), maxiter = 100) where T<:Real
+function calculate_μ(mdp::TabularMDP{T}, π; θ = sqrt(eps(T)), maxiter = 100) where T<:Real
 	(num_actions, num_states) = size(π)
 	μ = ones(T, num_states) ./ num_states
 	# μ = zeros(T, num_states)
@@ -2372,7 +2373,7 @@ function value_iteration_prioritized!(v_est::Vector{T}, θ::T, mdp::TabularMDP{T
 end
 
 # ╔═╡ 9c584940-24ac-461d-900e-7ccfa690839e
-function value_iteration_prioritized(mdp::TabularMDP{T}, args...; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), θ::T = eps(zero(T)), max_updates::Integer = typemax(Int64), kwargs...) where {T<:Real}
+function value_iteration_prioritized(mdp::TabularMDP{T}, args...; init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), θ::T = sqrt(eps(T)), max_updates::Integer = typemax(Int64), kwargs...) where {T<:Real}
 	isempty(args) && any(mdp.terminal_states) && error("Attempting to use average reward criteria with episodic problem")
 	isone(first(args)) && !any(mdp.terminal_states) && error("For a continuing problem, cannot use γ = 1.  Omit it instead to treat this as an average reward problem.")
 
@@ -3359,7 +3360,7 @@ begin
 end
 
 # ╔═╡ 9925509b-ee7e-430c-a646-fbf59bc75e62
-function policy_evaluation!(value_estimate::Array{T}, π, ptf::TabularTransitionDistribution{T}, γ::T; max_updates::Integer = typemax(Int64), θ::T = eps(zero(T)), sweep = make_uniform_sweep(value_estimate), kwargs...) where {T<:Real}
+function policy_evaluation!(value_estimate::Array{T}, π, ptf::TabularTransitionDistribution{T}, γ::T; max_updates::Integer = typemax(Int64), θ::T = sqrt(eps(T)), sweep = make_uniform_sweep(value_estimate), kwargs...) where {T<:Real}
 	delt = typemax(T)
 	total_updates = 0
 	iter = 1
@@ -3372,7 +3373,7 @@ function policy_evaluation!(value_estimate::Array{T}, π, ptf::TabularTransition
 end
 
 # ╔═╡ 49ec0925-8221-4a88-8f1b-eeca23ebcb7b
-function mrp_evaluation!(value_estimate::Vector{T}, ptf::TabularTransitionDistribution{T, 1}, γ::T; max_updates::Integer = typemax(Int64), θ::T = eps(zero(T)), sweep = make_uniform_sweep(value_estimate)) where {T<:Real}
+function mrp_evaluation!(value_estimate::Vector{T}, ptf::TabularTransitionDistribution{T, 1}, γ::T; max_updates::Integer = typemax(Int64), θ::T = sqrt(eps(T)), sweep = make_uniform_sweep(value_estimate)) where {T<:Real}
 	delt = typemax(T)
 	total_updates = 0
 	iter = 1
@@ -3484,7 +3485,7 @@ begin
 end
 
 # ╔═╡ 83fd09fd-69ab-479a-a475-1e9b9d3bef08
-function differential_policy_evaluation!(value_estimate::Array{T, N}, value_estimate2::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T}; max_updates = typemax(Int64), max_sweeps = 100, θ = eps(zero(T)), sweep = make_uniform_sweep(value_estimate), i_s_ref = 1) where {T<:Real, N}
+function differential_policy_evaluation!(value_estimate::Array{T, N}, value_estimate2::Array{T, N}, π::Matrix{T}, ptf::TabularTransitionDistribution{T}; max_updates = typemax(Int64), max_sweeps = 100, θ = sqrt(eps(T)), sweep = make_uniform_sweep(value_estimate), i_s_ref = 1) where {T<:Real, N}
 	delt = typemax(T)
 	total_updates = 0
 	iter = 1
@@ -3562,7 +3563,7 @@ function uniform_bellman_value!(W::Vector{T}, mdp::TabularAfterstateMDP{T}, γ::
 end
 
 # ╔═╡ 75a96208-460b-4932-855f-8029f464e045
-function policy_evaluation!(afterstate_values::Vector{T}, π, mdp::TabularAfterstateMDP{T}, γ::T; max_updates = typemax(Int64), θ = eps(zero(T))) where {T<:Real}
+function policy_evaluation!(afterstate_values::Vector{T}, π, mdp::TabularAfterstateMDP{T}, γ::T; max_updates = typemax(Int64), θ = sqrt(eps(T))) where {T<:Real}
 	delt, num_updates = uniform_bellman_value!(afterstate_values, mdp, γ, π)
 	total_updates = num_updates
 	iter = 1
@@ -3630,12 +3631,12 @@ end
 
 # ╔═╡ 1e24a0aa-dbf9-422e-92c9-834f293a0c02
 begin
-	function value_iteration(ptf::TabularTransitionDistribution, γ::T, v_est::Array{T, N}; θ::T = eps(zero(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep, kwargs...) where {N, T<:Real}
+	function value_iteration(ptf::TabularTransitionDistribution, γ::T, v_est::Array{T, N}; θ::T = sqrt(eps(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep, kwargs...) where {N, T<:Real}
 		sweep = create_sweep(v_est)
 		value_iteration!(v_est, θ, ptf, γ, nmax, save_history, sweep; kwargs...)
 	end
 
-	function value_iteration(ptf::TabularTransitionDistribution{T}, v_est::Array{T, N}; θ::T = eps(zero(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep, kwargs...) where {N, T<:Real}
+	function value_iteration(ptf::TabularTransitionDistribution{T}, v_est::Array{T, N}; θ::T = sqrt(eps(T)), nmax::Integer=typemax(Int64), save_history::Bool = true, create_sweep::Function = make_uniform_sweep, kwargs...) where {N, T<:Real}
 		sweep = create_sweep(v_est)
 		value_iteration!(v_est, θ, ptf, nmax, save_history, sweep; kwargs...)
 	end
@@ -3694,7 +3695,7 @@ function prioritized_sweeping_deterministic(mdp::TabularMDP{T}, γ::T;
 	state_transition_map = zeros(Int64, length(mdp.actions), length(mdp.states)),
 	#each column contains the reward received from the state represented by the column index while taking the action represented by the row index.  the state_transition_map can be used to determine if any of these values have been updated from the zero initialization
 	reward_transition_map = zeros(T, length(mdp.actions), length(mdp.states)),
-	θ = eps(zero(T)),
+	θ = sqrt(eps(T)),
 	init_step = 0,
 	isoptimal = l -> false) where {T<:Real}
 
@@ -4574,7 +4575,7 @@ So even though the optimal discounted value policy has higher values at every st
 differential_policy_iteration_q(problem; kwargs...) = differential_policy_iteration(problem, initialize_state_action_value; kwargs...)
 
 # ╔═╡ 5b8edd52-1452-4c58-b7b8-b8e67aa87605
-function value_iteration_trajectory(mdp::TabularMDP{T}, args::Vararg{Any, M}; initialize_policy::Function = make_random_policy, init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), ϵ::T = one(T)/10, θ::T = eps(zero(T)), nmax::Integer = typemax(Int64), save_history = false, kwargs...) where {T<:Real, M}
+function value_iteration_trajectory(mdp::TabularMDP{T}, args::Vararg{Any, M}; initialize_policy::Function = make_random_policy, init_value::T = zero(T), v_est::Vector{T} = initialize_state_value(mdp; init_value = init_value), ϵ::T = one(T)/10, θ::T = sqrt(eps(T)), nmax::Integer = typemax(Int64), save_history = false, kwargs...) where {T<:Real, M}
 	isempty(args) && any(mdp.terminal_states) && error("Attempting to use average reward criteria with episodic problem")
 	isone(first(args)) && !any(mdp.terminal_states) && error("For a continuing problem, cannot use γ = 1.  Omit it instead to treat this as an average reward problem.")
 	π = initialize_policy(mdp)
@@ -4710,7 +4711,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ bf0cdd1a-4393-4ce1-92b1-28816fb0e73f
-function value_iteration(mdp::TabularAfterstateMDP{T}, γ::T; init_value::T = zero(T), θ = eps(zero(T)), nmax=typemax(Int64), save_history = true) where {T<:Real}
+function value_iteration(mdp::TabularAfterstateMDP{T}, γ::T; init_value::T = zero(T), θ = sqrt(eps(T)), nmax=typemax(Int64), save_history = true) where {T<:Real}
 	W = initialize_afterstate_value(mdp; init_value = init_value)
 	est = value_iteration!(W, θ, mdp, γ, nmax; save_history = save_history)
 
