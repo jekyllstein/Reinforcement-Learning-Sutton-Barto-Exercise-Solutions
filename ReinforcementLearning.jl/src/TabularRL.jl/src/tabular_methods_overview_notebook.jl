@@ -443,10 +443,10 @@ begin
 	# TabularTransitionDistribution(m1::Array{SparseVector{T, Int64}, N}, m2::Array{Vector{T}, N}) where {T<:Real, N} = TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}(m1, m2)
 	
 	convert_numeric_type(::T, ptf::TabularTransitionDistribution{T, N, Int64, T}) where {T<:Real, N} = ptf
-	convert_numeric_type(::T2, ptf::TabularTransitionDistribution{T, N, Int64, T}) where {T2<:Real, T<:Real, N} = TabularTransitionDistribution(ptf.state_transition_map, T.(ptf.reward_transition_map))
+	convert_numeric_type(::T2, ptf::TabularTransitionDistribution{T, N, Int64, T}) where {T2<:Real, T<:Real, N} = TabularTransitionDistribution(ptf.state_transition_map, T2.(ptf.reward_transition_map))
 
 	convert_numeric_type(::T, ptf::TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}) where {T<:Real, N} = ptf
-	convert_numeric_type(::T2, ptf::TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}) where {T<:Real, T2<:Real, N} = TabularTransitionDistribution(map(v -> T.(v), ptf.state_transition_map), map(v -> T.(v), ptf.reward_transition_map))
+	convert_numeric_type(::T2, ptf::TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}) where {T<:Real, T2<:Real, N} = TabularTransitionDistribution(map(v -> T2.(v), ptf.state_transition_map), map(v -> T2.(v), ptf.reward_transition_map))
 	
 	convert_numeric_type(T::DataType, args...; kwargs...) = convert_numeric_type(zero(T), args...; kwargs...)
 
