@@ -16,7 +16,7 @@ export AbstractAveragingMethod, SampleAveraging, ConstantStepAveraging
 
 #--------Functions---------
 #utilities 
-export initialize_state_action_value, initialize_state_value, find_terminal_states, find_available_actions, sample_action, make_random_policy, runepisode, runepisode!, make_greedy_policy!, make_ϵ_greedy_policy!, initialize_afterstate_value, makelookup, make_random_bit_policy, make_random_deterministic_policy, make_greedy_bit_policy, make_greedy_deterministic_policy, initialize_state, initialize_state_index, isterm, convert_init_state
+export initialize_state_action_value, initialize_state_value, find_terminal_states, find_available_actions, sample_action, make_random_policy, runepisode, runepisode!, make_greedy_policy!, make_ϵ_greedy_policy!, initialize_afterstate_value, makelookup, make_random_bit_policy, make_random_deterministic_policy, make_greedy_bit_policy, make_greedy_deterministic_policy, initialize_state, initialize_state_index, isterm, convert_init_state, convert_numeric_type
 
 #dynamic programming solution methods
 export bellman_state_value, bellman_state_action_value, bellman_policy_update!, policy_evaluation!, policy_evaluation, mrp_evaluation!, mrp_evaluation, policy_evaluation_q, policy_evaluation_v, policy_iteration!, policy_iteration, policy_iteration_v, value_iteration!, value_iteration, value_iteration_v, value_iteration_q, bellman_afterstate_value, afterstate_policy_iteration!, calculate_μ, calculate_μ_episodic
@@ -41,6 +41,7 @@ export GridworldState, GridworldAction, rook_actions, make_deterministic_gridwor
     @compile_workload begin
         for f in [make_deterministic_gridworld, make_stochastic_gridworld]
             mdp = f()
+            convert_numeric_type(Float64, mdp)
             policy_iteration_v(mdp, γ)
             value_iteration_v(mdp, γ; show_message = false)
             runepisode(mdp; max_steps = max_steps)
@@ -56,6 +57,8 @@ export GridworldState, GridworldAction, rook_actions, make_deterministic_gridwor
             runepisode(state_mdp)
             monte_carlo_tree_search(state_mdp, 0.99f0, initialize_state(state_mdp))
 
+            convert_numeric_type(Float64, state_mdp)
+
             mrp = create_random_walk_distribution(5, -1f0, 1f0)
             mrp_evaluation(mrp, 1f0)
             monte_carlo_prediction(mrp, 1f0, num_episodes)
@@ -63,6 +66,8 @@ export GridworldState, GridworldAction, rook_actions, make_deterministic_gridwor
             runepisode(mrp)
             state_mrp = StateMRP(mrp)
             runepisode(state_mrp)
+
+            convert_numeric_type(Float64, state_mrp)
         end
     end
 end

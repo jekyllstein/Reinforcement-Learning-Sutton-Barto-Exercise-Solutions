@@ -441,6 +441,14 @@ begin
 
 	# TabularTransitionDistribution(m1::Array{Int64, N}, m2::Array{T, N}) where {T<:Real, N} = TabularTransitionDistribution{T, N, Int64, T}(m1, m2)
 	# TabularTransitionDistribution(m1::Array{SparseVector{T, Int64}, N}, m2::Array{Vector{T}, N}) where {T<:Real, N} = TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}(m1, m2)
+	
+	convert_numeric_type(::T, ptf::TabularTransitionDistribution{T, N, Int64, T}) where {T<:Real, N} = ptf
+	convert_numeric_type(::T2, ptf::TabularTransitionDistribution{T, N, Int64, T}) where {T2<:Real, T<:Real, N} = TabularTransitionDistribution(ptf.state_transition_map, T.(ptf.reward_transition_map))
+
+	convert_numeric_type(::T, ptf::TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}) where {T<:Real, N} = ptf
+	convert_numeric_type(::T2, ptf::TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}) where {T<:Real, T2<:Real, N} = TabularTransitionDistribution(map(v -> T.(v), ptf.state_transition_map), map(v -> T.(v), ptf.reward_transition_map))
+	
+	convert_numeric_type(T::DataType, args...; kwargs...) = convert_numeric_type(zero(T), args...; kwargs...)
 
 	const TabularDeterministicTransition{T<:Real, N} = TabularTransitionDistribution{T, N, Int64, T}
 	const TabularStochasticTransition{T<:Real, N} = TabularTransitionDistribution{T, N, SparseVector{T, Int64}, Vector{T}}
@@ -551,6 +559,9 @@ begin
 
 	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, initialize_state_index::F, terminal_states::BitVector; available_actions::BitMatrix = BitMatrix(fill(true, length(actions), length(states))), state_index::Dict{S, Int64} = makelookup(states), action_index::Dict{A, Int64} = makelookup(actions)) where {T<:Real, S, A, P<:AbstractTabularTransition{T, 2}, F} = TabularMDP(states, actions, ptf, initialize_state_index, terminal_states, available_actions, state_index, action_index)
 
+	convert_numeric_type(::T, mdp::TabularMDP{T}) where T<:Real = mdp
+	convert_numeric_type(::T2, mdp::TabularMDP{T}) where {T2<:Real, T<:Real} = TabularMDP(mdp.states, mdp.actions, convert_numeric_type(T2, mdp.ptf), convert_numeric_type(T2, mdp.initialize_state_index), mdp.terminal_states, mdp.available_actions, mdp.state_index, mdp.action_index)
+
 	struct TabularMRP{T<:Real, S,  P <: AbstractTabularTransition{T, 1}, F} <: AbstractMRP{T, S, P, F}
 		states::Vector{S}
 		ptf::P
@@ -561,6 +572,8 @@ begin
 
 	TabularMRP(states::Vector{S}, ptf::P, initialize_state_index::F, terminal_states::BitVector; state_index::Dict{S, Int64} = makelookup(states)) where {T<:Real, S, P<:AbstractTabularTransition{T, 1}, F<:Function} = TabularMRP(states, ptf, initialize_state_index, terminal_states, state_index)
 
+	convert_numeric_type(::T, mrp::TabularMRP{T}) where T<:Real = mrp
+	convert_numeric_type(::T2, mrp::TabularMRP{T}) where {T2<:Real, T<:Real} = TabularMRP(mrp.states, convert_numeric_type(T2, mrp.ptf), convert_numeric_type(T2, mrp.initialize_state_index), mrp.terminal_states, mrp.state_index)
 	#in case the initial states are represented by a list or distribution over indices, convert this to a function that samples a starting state
 	initialize_state_index(ind::Integer) = ind
 	initialize_state_index(inds::Set{Int64}) = rand(inds)
@@ -568,6 +581,10 @@ begin
 	initialize_state_index(dist::AbstractVector{T}) where T<:AbstractFloat = sample_action(dist)
 	initialize_state_index(f::Function; kwargs...) = f(;kwargs...)
 	initialize_state_index(env; kwargs...) = initialize_state_index(env.initialize_state_index; kwargs...)
+
+	convert_numeric_type(::T, init_states) where T<:Real = init_states
+	convert_numeric_type(::T, init_states::AbstractVector{T}) where T<:Real = init_states
+	convert_numeric_type(::T2, init_states::AbstractVector{T}) where {T2<:Real, T<:Real} = T2.(init_states)
 
 	#when nothing is provided for initial states just sample a random state
 	TabularMDP(states::Vector{S}, actions::Vector{A}, ptf::P, terminal_states::BitVector; kwargs...) where {T<:Real, S, A, P<:AbstractTabularTransition{T, 2}} = TabularMDP(states, actions, ptf, () -> rand(eachindex(states)), terminal_states; kwargs...)
@@ -2487,6 +2504,23 @@ begin
 	end
 
 	(ptf::TabularMRPTransitionSampler{T, F})(i_s::Integer) where {T<:Real, F<:Function} = ptf.step(i_s)
+
+	convert_numeric_type(::T, ptf::TabularMDPTransitionSampler{T}) where {T<:Real} = ptf
+	convert_numeric_type(::T, ptf::TabularMRPTransitionSampler{T}) where {T<:Real} = ptf
+	function convert_numeric_type(::T2, ptf::TabularMDPTransitionSampler{T}) where {T2<:Real, T<:Real} 
+		function step(i_s, i_a)
+			(r, i_s′) = ptf.step(1, 1)
+			return (T2(r), i_s′)
+		end
+		TabularMDPTransitionSampler(step)
+	end
+	function convert_numeric_type(::T2, ptf::TabularMRPTransitionSampler{T}) where {T2<:Real, T<:Real} 
+		function step(i_s)
+			(r, i_s′) = ptf.step(1)
+			return (T2(r), i_s′)
+		end
+		TabularMRPTransitionSampler(step)
+	end
 end
 
 # ╔═╡ 7c553f77-7783-439e-834b-53a2cd3bef5a
@@ -3827,7 +3861,9 @@ md"""
 begin
 	#represents a transition where the state must be referenced directly instead of through a tabular index
 	abstract type AbstractStateTransition{T<:Real, N, S, F<:Function} <: AbstractTransition{T, N} end
-	
+
+	convert_numeric_type(::T, ptf::AbstractStateTransition{T}; kwargs...) where T<:Real = ptf
+
 	struct StateMDPTransitionDistribution{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 		step::F
 		function StateMDPTransitionDistribution(step::F, s::S; test_action_index::Integer = 1) where {F<:Function, S}
@@ -3839,6 +3875,15 @@ begin
 		end
 	end
 
+	function convert_numeric_type(::T2, ptf::StateMDPTransitionDistribution{T, S}, s::S; kwargs...) where {T<:Real, T2<:Real, S}
+		function step(s, i_a)
+			(rewards, states, probabilities) = ptf.step(s, i_a)
+			(T2.(rewards), states, T2.(probabilities))
+		end
+
+		StateMDPTransitionDistribution(step, s; kwargs...)
+	end
+
 	struct StateMDPTransitionDeterministic{T<:Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 	step::F
 		function StateMDPTransitionDeterministic(step::F, s::S; test_action_index::Integer = 1) where {F<:Function, S}
@@ -3848,6 +3893,15 @@ begin
 		end
 	end
 			
+	function convert_numeric_type(::T2, ptf::StateMDPTransitionDeterministic{T, S}, s::S; kwargs...) where {T<:Real, T2<:Real, S}
+		function step(s, i_a)
+			(r, s′) = ptf.step(s, i_a)
+			(T2(r), s′)
+		end
+
+		StateMDPTransitionDeterministic(step, s; kwargs...)
+	end
+
 	struct StateMDPTransitionSampler{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 2, S, F}
 		step::F
 		function StateMDPTransitionSampler(step::F, s::S; test_action_index::Integer = 1) where {F<:Function, S}
@@ -3855,6 +3909,15 @@ begin
 			@assert promote_type(S, typeof(s′)) != Any "There is no common type between the provided state $s and the transition state $s′"
 			new{typeof(r), promote_type(S, typeof(s′)), F}(step)
 		end
+	end
+
+	function convert_numeric_type(::T2, ptf::StateMDPTransitionSampler{T, S}, s::S; kwargs...) where {T<:Real, T2<:Real, S}
+		function step(s, i_a)
+			(r, s′) = ptf.step(s, i_a)
+			(T2(r), s′)
+		end
+
+		StateMDPTransitionSampler(step, s; kwargs...)
 	end
 
 	#when used as a functor sample from the output distribution
@@ -3884,6 +3947,15 @@ begin
 		end
 	end
 			
+	function convert_numeric_type(::T2, ptf::StateMRPTransitionDistribution{T, S}, s::S) where {T<:Real, T2<:Real, S}
+		function step(s)
+			(rewards, states, probabilities) = ptf.step(s)
+			(T2.(rewards), states, T2.(probabilities))
+		end
+
+		StateMRPTransitionDistribution(step, s)
+	end
+
 	struct StateMRPTransitionSampler{T <: Real, S, F <: Function} <: AbstractStateTransition{T, 1, S, F}
 		step::F
 		function StateMRPTransitionSampler(step::F, s::S) where {F<:Function, S}
@@ -3891,6 +3963,15 @@ begin
 			@assert promote_type(S, typeof(s′)) != Any "There is no common type between the provided state $s and the transition state $s′"
 			new{typeof(r), promote_type(S, typeof(s′)), F}(step)
 		end
+	end
+
+	function convert_numeric_type(::T2, ptf::StateMRPTransitionSampler{T, S}, s::S) where {T<:Real, T2<:Real, S}
+		function step(s)
+			(r, s′) = ptf.step(s)
+			(T2(r), s′)
+		end
+
+		StateMRPTransitionSampler(step, s)
 	end
 
 	#when used as a functor sample from the output distribution
@@ -4059,7 +4140,11 @@ begin
 	convert_init_state(mrp::TabularMRP{<:Real, S, <:Any, <:Set{<:Integer}}) where S = Set{S}([mrp.states[i] for i in mrp.initialize_state_index])
 	convert_init_state(mrp::TabularMRP{<:Real, S, <:Any, <:SparseVector{T, I}}) where {S, T<:Real, I<:Integer} = (Tuple(mrp.initialize_state_index.nzval), Tuple(i -> mrp.states[i] for i in mrp.initialize_state_index.nzind))
 	convert_init_state(mrp::TabularMRP{<:Real, S, <:Any, <:Function}) where S = () -> mrp.states[mrp.initialize_state_index()]
-	
+
+	convert_numeric_type(::T2, init::Tuple{NTuple{M, T}, NTuple{M, S}}) where {S, T2<:Real, M, T<:Real} = Tuple(ntuple(i -> T2(init[1][i]), M), init[2])
+	convert_numeric_type(::T, mrp::StateMRP{T}) where T<:Real = mrp
+	convert_numeric_type(::T2, mrp::StateMRP{T}) where {T<:Real, T2<:Real} = StateMRP(convert_numeric_type(T2, mrp.ptf), convert_numeric_type(T2, mrp.initialize_state), mrp.isterm)
+
 	#convert a tabular mrp into a non-tabular one
 	function StateMRP(mrp::TabularMRP{T, S}) where {T<:Real, S}
 		termstates = mrp.states[mrp.terminal_states]
@@ -4083,6 +4168,8 @@ begin
 		action_index::Dict{A, Int64} #lookup table mapping actions to their index, this will be constructed automatically
 		StateMDP(actions::Vector{A}, ptf::P, initialize_state::F1, isterm::F2, is_valid_action::F3, action_index::Dict{A, Int64}) where {T<:Real, S, A, F<:Function, P<:AbstractStateTransition{T, 2, S, F}, F1, F2, F3<:Function} = new{T, S, A, P, F1, F2, F3}(actions, ptf, initialize_state, isterm, is_valid_action, action_index)
 	end
+
+	convert_numeric_type(::T, mdp::StateMDP{T}) where T<:Real = mdp
 
 	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::S) where {S, N} = init
 	initialize_state(ptf::AbstractStateTransition{<:Real, N, S}, init::AbstractVector{<:S}) where {S, N} = rand(init)
@@ -4120,6 +4207,14 @@ begin
 		is_valid_action(s::S, i_a::Integer) = mdp.available_actions[i_a, mdp.state_index[s]]
 		ptf = make_non_tabular_ptf(mdp)
 		StateMDP(mdp.actions, ptf, initialize_state, termstates; is_valid_action = is_valid_action, action_index = mdp.action_index)
+	end
+
+	function convert_numeric_type(::T2, mdp::StateMDP{T}) where {T2<:Real, T<:Real}
+		s0 = initialize_state(mdp)
+		test_action_index = findfirst(i_a -> mdp.is_valid_action(s0, i_a), eachindex(mdp.actions))
+		ptf = convert_numeric_type(T2, mdp.ptf, s0; test_action_index)
+		state_init = convert_numeric_type(T2, mdp.initialize_state)
+		StateMDP(mdp.actions, ptf, state_init, mdp.isterm, mdp.is_valid_action, mdp.action_index)
 	end
 end
 
