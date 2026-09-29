@@ -836,7 +836,7 @@ function evaluate_episodic_policy_performance(mdp::StateMDP{T}, π::Function, ev
 	end
 
 	use_steps && return rtot / eval_steps
-	iszero(num_ep) ? min_reward : r_ep / num_ep
+	iszero(num_ep) ? min_reward : r_eps / num_ep
 end
 # function evaluate_episodic_policy_performance(mdp::StateMDP{T, S, A, P, F1, F2, F3}, π::Function, eval_steps::Integer; use_steps::Bool = false, min_reward::T = typemin(T)) where {T<:Real, S, A, P, F1, F2, F3}
 # 	(states, actions, rewards, sterm, nsteps) = runepisode(mdp; π = π, max_steps = eval_steps)
