@@ -869,6 +869,7 @@ end
 begin
 	function update_eligibility_vector!(∇lnπ::LinearEligibilityVector, x::LinearFeatureVector, i_a::Integer, params::Matrix{T}; kwargs...) where T<:AbstractFloat
 		update_linear_action_values!(∇lnπ.π_dist, x, params)
+		soft_max!(∇lnπ.π_dist)
 		update_feature_vector!(∇lnπ.feature_vector, x)
 		∇lnπ.i_a = i_a
 		return ∇lnπ
