@@ -111,28 +111,30 @@ md"""
 
 # ╔═╡ 33c99850-67cd-4754-94b9-6df97b238e27
 function soft_max!(x::AbstractVector{T}, is_valid_action::F, s) where {T<:Real, F}
+	max_val = prevfloat(typemax(T))
 	# Get extrema for valid actions only
-	minx = typemax(T)
+	minx = max_val
 	maxx = typemin(T)
 	num_valid = 0
 	@inbounds @simd for i in eachindex(x)
 		val = x[i]
 		new_minx = min(minx, val)
-		new_maxx = max(maxx, val)
+		new_maxx = min(max_val, max(maxx, val)) #ensures the maximum if not infinite
 		valid_action = is_valid_action(s, i)
 		minx = valid_action*new_minx + !valid_action*minx
 		maxx = valid_action*new_maxx + !valid_action*maxx
 		num_valid += valid_action
-		x[i] = valid_action*val + !valid_action*typemin(T) # Set invalid actions to -Inf for numerical stability in softmax calculation
+		x[i] = valid_action*min(val, max_val) + !valid_action*typemin(T) # Set invalid actions to -Inf for numerical stability in softmax calculation, for an action that would be infinite, set it to the largest finite value instead
 	end
 
 	@assert num_valid > 0 "No valid actions provided to soft_max!"
 	@assert !isnan(maxx) "All valid actions have NaN values: $x, cannot compute softmax!"
 	@assert !isnan(minx) "All valid actions have NaN values: $x, cannot compute softmax!"
+	isinf(maxx) && @warn "Maximum value is infinite"
 
 	s = zero(T)
 	@inbounds @simd for i in eachindex(x)
-		h = exp(x[i] - maxx)
+		h = exp(x[i] - maxx) #now this should always evaluate to 1 for the maximum value instead of NaN in the infinite case
 		s += h
 		x[i] = h
 	end
@@ -2749,10 +2751,13 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, �
 		δ = r + γ*v̂′ - v̂
 
 		# @info "About to update value params with gradient $∇v̂ and constant $(α_w * δ)"
-		
-		update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
-		# @info "About to update policy params with eligibility vector $∇lnπ and constant $(α_θ*c*δ)"
-		update_params_with_gradient!(policy_params, α_θ*c*δ, ∇lnπ)
+		if !iszero(δ)
+			update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
+			# @info "About to update policy params with eligibility vector $∇lnπ and constant $(α_θ*c*δ)"
+			if !iszero(c)
+				update_params_with_gradient!(policy_params, α_θ*c*δ, ∇lnπ)
+			end
+		end
 		# @info "policy params after $step updates: $policy_params"
 		# @info "value params after $step updates: $value_params"
 	end
@@ -2960,10 +2965,14 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		
 		δ = r + γ*v̂′ - v̂
 
-		update_params_with_gradient!(z_θ, c, ∇lnπ)
-		
-		update_params_with_gradient!(value_params, α_w*δ, z_w)
-		update_params_with_gradient!(policy_params, α_θ*δ, z_θ)
+		if !iszero(c)
+			update_params_with_gradient!(z_θ, c, ∇lnπ)
+		end
+	
+		if !iszero(δ)
+			update_params_with_gradient!(value_params, α_w*δ, z_w)
+			update_params_with_gradient!(policy_params, α_θ*δ, z_θ)
+		end
 
 		if terminated
 			zero_trace!(z_θ)
