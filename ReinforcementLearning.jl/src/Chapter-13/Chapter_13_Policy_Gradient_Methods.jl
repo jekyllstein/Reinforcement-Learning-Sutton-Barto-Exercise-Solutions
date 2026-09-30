@@ -2750,6 +2750,9 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, �
 		
 		δ = r + γ*v̂′ - v̂
 
+		isinf(δ) && @warn "δ has an infinite value on step $step and in state $s"
+		isnan(δ) && @warn "δ has a NaN value on step $step and in state $s"
+
 		# @info "About to update value params with gradient $∇v̂ and constant $(α_w * δ)"
 		if !iszero(δ)
 			update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
@@ -2802,6 +2805,8 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, n
 		δ = r - r̄ + v̂′ - v̂
 		r̄ += α_r̄*δ
 
+		isinf(δ) && @warn "δ has an infinite value on step $step and in state $s"
+		isnan(δ) && @warn "δ has a NaN value on step $step and in state $s"
 		# @info "About to update value params with gradient $∇v̂ and constant $(α_w * δ)"
 		
 		update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
@@ -2965,6 +2970,8 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		
 		δ = r + γ*v̂′ - v̂
 
+		isinf(δ) && @warn "δ has an infinite value on step $step and in state $s"
+		isnan(δ) && @warn "δ has a NaN value on step $step and in state $s"
 		if !iszero(c)
 			update_params_with_gradient!(z_θ, c, ∇lnπ)
 		end
@@ -3032,6 +3039,8 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		δ = r - r̄ + v̂′ - v̂
 		r̄ += α_r̄*δ
 		
+		isinf(δ) && @warn "δ has an infinite value on step $step and in state $s"
+		isnan(δ) && @warn "δ has a NaN value on step $step and in state $s"
 		update_params_with_gradient!(value_params, α_w*δ, z_w)
 		update_params_with_gradient!(policy_params, α_θ*δ, z_θ)
 	end
