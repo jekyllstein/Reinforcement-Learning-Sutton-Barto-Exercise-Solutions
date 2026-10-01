@@ -1580,7 +1580,7 @@ function update_μ!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionD
 end
 
 # ╔═╡ a390abf2-c579-45b7-ab0a-37d3df6c5b9d
-function update_μ_episodic!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionDistribution{T}, terminal_states::BitVector) where {T<:Real}
+function update_μ_episodic!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionDistribution{T}, terminal_states::BitVector, γ::T) where {T<:Real}
 	delt = typemin(T)
 	for i_s′ in eachindex(μ)
 		x = zero(T)
@@ -1589,7 +1589,7 @@ function update_μ_episodic!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTr
 				x += μ[i_s]*calc_state_policy_probabilities(ptf, π, i_s, i_s′)
 			end
 		end 
-		μ′[i_s′] = x
+		μ′[i_s′] = γ * x
 		delt = max(delt, calc_pct_change(μ[i_s′], x))
 	end
 	return delt
@@ -1620,7 +1620,7 @@ begin
 end
 
 # ╔═╡ 6148608a-0353-49ad-8380-3f114c447af3
-function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransitionDistribution, <:Union{AbstractVector{<:Integer}, Integer, Set{<:Integer}}}, π; θ = sqrt(eps(T)), maxiter = 100) where T<:Real
+function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransitionDistribution, <:Union{AbstractVector{<:Integer}, Integer, Set{<:Integer}}}, π; γ::T = one(T), θ = sqrt(eps(T)), maxiter = 100) where T<:Real
 	num_states = length(mdp.states)
 	μ = zeros(T, num_states)
 	copy_state_distribution!(μ, mdp.initialize_state_index)	
@@ -1630,7 +1630,7 @@ function calculate_μ_episodic(mdp::TabularMDP{T, <:Any, <:Any, <:TabularTransit
 	delt = typemax(T)
 	iter = 0
 	while (delt > θ) && (iter < maxiter)
-		delt = update_μ_episodic!(μ′, μ, π, mdp.ptf, mdp.terminal_states)
+		delt = update_μ_episodic!(μ′, μ, π, mdp.ptf, mdp.terminal_states, γ)
 		μ .= μ′
 		accumulated_μ .+= μ
 		iter += 1
