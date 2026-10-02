@@ -1563,6 +1563,41 @@ function calc_state_policy_probabilities(ptf::TabularTransitionDistribution{T}, 
 	i_a = π[i_s]
 	get_transition_probability(ptf, i_s, i_s′, i_a)
 end
+
+# For Deterministic Transitions: Yields the single target state with a probability of 1.0
+@inline function get_nonzero_transitions(ptf::TabularDeterministicTransition, i_s::Integer, i_a::Integer)
+    return ((ptf.state_transition_map[i_a, i_s], 1.0),)
+end
+
+# For Stochastic Transitions: Directly leverages your sparse structures via `pairs`
+@inline function get_nonzero_transitions(ptf::TabularStochasticTransition, i_s::Integer, i_a::Integer)
+    return pairs(ptf.state_transition_map[i_a, i_s]) 
+end
+
+# --- Case A: Stochastic Policy Matrix ---
+@inline function push_probabilities!(μ′::Vector{T}, μ::Vector{T}, π::AbstractMatrix{T}, ptf, i_s::Integer, γ::T) where {T<:Real}
+    num_actions = size(π, 1)
+    @inbounds for i_a in 1:num_actions
+        π_prob = π[i_a, i_s]
+        if π_prob > zero(T)
+            # Fetch and iterate ONLY over actual target destinations
+            for (i_s′, trans_prob) in get_nonzero_transitions(ptf, i_s, i_a)
+                μ′[i_s′] += γ * μ[i_s] * π_prob * trans_prob
+            end
+        end
+    end
+end
+
+# --- Case B: Deterministic Policy Vector ---
+@inline function push_probabilities!(μ′::Vector{T}, μ::Vector{T}, π::AbstractVector{<:Integer}, ptf, i_s::Integer, γ::T) where {T<:Real}
+    @inbounds i_a = π[i_s]
+    # Fetch and iterate ONLY over actual target destinations
+    @inbounds for (i_s′, trans_prob) in get_nonzero_transitions(ptf, i_s, i_a)
+        μ′[i_s′] += γ * μ[i_s] * trans_prob
+    end
+end
+
+
 end
 
 # ╔═╡ dfb0d19a-a846-4c7b-bb1d-b401725aa6bb
@@ -1580,20 +1615,40 @@ function update_μ!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionD
 end
 
 # ╔═╡ a390abf2-c579-45b7-ab0a-37d3df6c5b9d
+# function update_μ_episodic!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionDistribution{T}, terminal_states::BitVector, γ::T) where {T<:Real}
+# 	delt = typemin(T)
+# 	for i_s′ in eachindex(μ)
+# 		x = zero(T)
+# 		for i_s in eachindex(μ)
+# 			if !terminal_states[i_s] && μ[i_s] > 0
+# 				x += μ[i_s]*calc_state_policy_probabilities(ptf, π, i_s, i_s′)
+# 			end
+# 		end 
+# 		μ′[i_s′] = γ * x
+# 		delt = max(delt, calc_pct_change(μ[i_s′], x))
+# 	end
+# 	return delt
+# end
 function update_μ_episodic!(μ′::Vector{T}, μ::Vector{T}, π, ptf::TabularTransitionDistribution{T}, terminal_states::BitVector, γ::T) where {T<:Real}
-	delt = typemin(T)
-	for i_s′ in eachindex(μ)
-		x = zero(T)
-		for i_s in eachindex(μ)
-			if !terminal_states[i_s] && μ[i_s] > 0
-				x += μ[i_s]*calc_state_policy_probabilities(ptf, π, i_s, i_s′)
-			end
-		end 
-		μ′[i_s′] = γ * x
-		delt = max(delt, calc_pct_change(μ[i_s′], x))
-	end
-	return delt
+    # Clear out the target tracker array
+    μ′ .= zero(T)
+
+    # Outer Loop: Traverse source states
+    for i_s in eachindex(μ)
+        @inbounds if !terminal_states[i_s] && μ[i_s] > zero(T)
+            # Dispatches automatically to Matrix or Vector policy handling
+            push_probabilities!(μ′, μ, π, ptf, i_s, γ)
+        end
+    end
+
+    # Convergence delta check
+    delt = typemin(T)
+    for i in eachindex(μ)
+        @inbounds delt = max(delt, calc_pct_change(μ[i], μ′[i]))
+    end
+    return delt
 end
+
 
 # ╔═╡ 333830e7-6cc5-4c66-9ae5-fd0002a1be98
 begin
