@@ -1569,9 +1569,13 @@ end
     return ((ptf.state_transition_map[i_a, i_s], 1.0),)
 end
 
-# For Stochastic Transitions: Directly leverages your sparse structures via `pairs`
+# For Stochastic Transitions: Directly leverages your sparse structures
 @inline function get_nonzero_transitions(ptf::TabularStochasticTransition, i_s::Integer, i_a::Integer)
-    return pairs(ptf.state_transition_map[i_a, i_s]) 
+	# Extracts the underlying sparse vector for this specific action and state
+    v = ptf.state_transition_map[i_a, i_s]
+    
+    # zip the raw, non-zero index and value structural arrays directly
+    return zip(v.nzind, v.nzval) 
 end
 
 # --- Case A: Stochastic Policy Matrix ---
