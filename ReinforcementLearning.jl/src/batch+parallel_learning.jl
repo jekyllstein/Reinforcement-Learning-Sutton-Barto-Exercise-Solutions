@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.3
+# v1.1.0
 
 using Markdown
 using InteractiveUtils
@@ -62,6 +62,23 @@ end
 
 # ╔═╡ f9d3ee23-f39d-46e4-834e-86b8eee1ce50
 const FCANNActivationsBatch{T} = Vector{Matrix{T}} where T<:Float32
+
+# ╔═╡ 9cc1ab1a-9c5c-4a77-b573-c4af24ffd607
+#update all of this for new linear params
+
+# ╔═╡ 929d4e3b-0b53-4038-96ba-9a1c0978a830
+function fill_biases!(output::Matrix{T}, biases::Vector{T}) where T<:Real
+	@assert size(output, 2) == length(biases) #columns of output represent different output values per example
+	for col in 1:size(output, 2)
+		@inbounds @simd for row in 1:size(output, 1)
+			output[row, col] = biases[col]
+		end
+	end
+	return output
+end
+
+# ╔═╡ 1805574f-a668-477f-a6a9-e7ee29ce08bf
+
 
 # ╔═╡ ce90a48f-4111-4f33-9448-a04af33e6231
 md"""
@@ -166,6 +183,15 @@ begin
 end
   ╠═╡ =#
 
+# ╔═╡ 95098580-9d74-41af-af28-c08c7dede5f4
+function display_study(study::NamedTuple)
+	results = study.results
+	DataFrame(begin
+		(;k..., value = results[k])
+	end
+	for k in keys(results))
+end
+
 # ╔═╡ 3c11234c-5ea5-4709-b84b-ae477fb8dc55
 md"""
 ### DQN
@@ -238,6 +264,15 @@ md"""
 md"""
 ### Utility Functions
 """
+
+# ╔═╡ 20babb85-0ba5-4e0e-8472-206584b30dfc
+function calculate_row_entropy(π_dists::Matrix{T}, row::Integer) where T <: Real
+	entropy = zero(T)
+	for j in 1:size(π_dists, 2)
+		entropy -= π_dists[row, j] * log(max(π_dists[row, j], eps(T)))
+	end
+	return entropy
+end
 
 # ╔═╡ 90d81200-8b3e-4b14-b913-7c8eb0a965b0
 function update_row_extrema!(row_mins, row_maxes, πs)
@@ -365,12 +400,14 @@ end
 begin
 	#-------------------Single Q maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T})  where {T<:Real, S}
+	function update_targets!(targets::Vector{T}, state_list::Vector{S}, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::LinearParams{T, 2}, feature_matrix::Matrix{T}, action_values::Vector{T}, output_matrix::Matrix{T})  where {T<:Real, S}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
+		#prefill columns of output matrix with bias terms
+		fill_biases!(output_matrix, target_params.biases)
 		#perform forward pass to fill in target values with function output
-		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, target_params, zero(T), output_matrix)
+		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, target_params.weights, one(T), output_matrix)
 
 		mask_invalid_actions_batch!(output_matrix, state_list, is_valid_action)
 
@@ -387,7 +424,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action::F, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, F}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action::F, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::LinearParams{T, 2}, feature_matrix::Vector{V}, action_values::Vector{T}, output_matrix::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures, F}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -455,13 +492,17 @@ begin
 
 	#-------------- Double Q Maximization
 	#linear function approximation with a dense feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::LinearParams{T, 2}, value_params::LinearParams{T, 2}, feature_matrix::Matrix{T}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real}
 		#update feature matrix with replay buffer
 		update_nstep_returns!(targets, target_const, feature_matrix, state_list, γ, replay_buffer, batch_inds, N)
 
+		#prefill outputs with biases
+		fill_biases!(target_output, target_params.biases)
+		fill_biases!(value_output, value_params.biases)
+		
 		#perform forward pass to fill in target values with function output times the discount rate plus the reward
-		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, target_params, zero(T), target_output)
-		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, value_params, zero(T), value_output)
+		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, target_params.weights, one(T), target_output)
+		LinearAlgebra.BLAS.gemm!('T', 'N', γ, feature_matrix, value_params.weights, one(T), value_output)
 
 		mask_invalid_actions_batch!(target_output, state_list, is_valid_action)
 		mask_invalid_actions_batch!(value_output, state_list, is_valid_action)
@@ -479,7 +520,7 @@ begin
 	end
 
 	#linear function approximation with a binary feature vector
-	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::Matrix{T}, value_params::Matrix{T}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures}
+	function update_targets!(targets::Vector{T}, state_list::Vector, is_valid_action, γ::T, replay_buffer::CircularBuffer, batch_inds::Vector{Int64}, N::Integer, target_const::Vector{T}, target_params::LinearParams{T, 2}, value_params::LinearParams{T, 2}, feature_matrix::Vector{V}, action_values::Vector{T}, target_output::Matrix{T}, value_output::Matrix{T}) where {T<:Real, V<:AbstractBinaryFeatures}
 		#update feature matrix with replay buffer
 		for i in eachindex(batch_inds)
 			j = batch_inds[i]
@@ -560,12 +601,14 @@ begin
 		@inbounds @simd for j in 1:size(feature_matrix, 1)
 			∇q̂[j, i_a] += c * feature_matrix[j, i]
 		end
+		return ∇q̂
 	end
 
 	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{<:StateAggregationFeatureVector}) where {T<:Real}
 		#the i argument is the index of the example being used and i_a is the action index for that example, only need to update term for the active feature in that action
 		i_s = feature_vectors[i].group_index
 		∇q̂[i_s, i_a] += c
+		return ∇q̂
 	end
 
 	function accumulate_linear_gradient!(∇q̂::Matrix{T}, c::T, i::Integer, i_a::Integer, feature_vectors::Vector{<:BinaryFeatureVector}) where {T<:Real}
@@ -575,6 +618,13 @@ begin
 			j = x.active_features[ind]
 			∇q̂[j, i_a] += c
 		end
+		return ∇q̂
+	end
+	
+	function accumulate_linear_gradient!(∇q̂::LinearParams{T, 2}, c::T, i::Integer, i_a::Integer, feature_vectors) where {T<:Real}
+		accumulate_linear_gradient!(∇q̂.weights, c, i, i_a, feature_vectors)
+		∇q̂.biases[i_a] += c
+		return ∇q̂
 	end
 end
 
@@ -600,14 +650,14 @@ end
 
 # ╔═╡ f7a94436-b905-48b5-a0f3-ae26d0ecab5e
 begin
-	function ReinforcementLearning.update_fcann_value_gradient!(∇q̂::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, targets::Vector{T}, output_indices::Vector{I}, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivationsBatch{T}, activations::FCANNActivationsBatch{T}, deltas::FCANNActivationsBatch{T}, onesvec::Vector{T}, dropout::T, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool, I<:Integer}
-		FCANN.nnCostFunction(value_params.weights..., hidden_layers, feature_matrix, targets, output_indices, l2, ∇q̂.weights..., tanh_grad_z, activations, deltas, onesvec, dropout; resLayers = value_params.reslayers, costFunc = "sqErr", activation_list = activation_list, input_orientation = get_input_orientation(feature_matrix))
+	function ReinforcementLearning.update_fcann_value_gradient!(∇q̂::FCANNParams{T}, value_params::FCANNParams{T}, feature_matrix, targets::Vector{T}, output_indices::Vector{I}, hidden_layers::Vector{Int64}, tanh_grad_z::FCANNActivationsBatch{T}, activations::FCANNActivationsBatch{T}, deltas::FCANNActivationsBatch{T}, onesvec::Vector{T}, dropout::T, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool, I<:Integer}
+		FCANN.nnCostFunction(value_params.weights..., hidden_layers, feature_matrix, targets, output_indices, zero(T), ∇q̂.weights..., tanh_grad_z, activations, deltas, onesvec, dropout; resLayers = value_params.reslayers, costFunc = "sqErr", activation_list = activation_list, input_orientation = get_input_orientation(feature_matrix))
 	end
 
-	function ReinforcementLearning.update_fcann_value_gradient!(∇q̂::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix::FCANN.CUDAArray, targets::FCANN.CUDAArray, output_indices::FCANN.CUDAArray, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivationsGPU, activations::FCANNActivationsGPU, deltas::FCANNActivationsGPU, onesvec::FCANN.CUDAArray, dropout::T, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool}
+	function ReinforcementLearning.update_fcann_value_gradient!(∇q̂::FCANNParamsGPU, value_params::FCANNParamsGPU, feature_matrix::FCANN.CUDAArray, targets::FCANN.CUDAArray, output_indices::FCANN.CUDAArray, hidden_layers::Vector{Int64}, tanh_grad_z::FCANNActivationsGPU, activations::FCANNActivationsGPU, deltas::FCANNActivationsGPU, onesvec::FCANN.CUDAArray, dropout::T, activation_list::AbstractVector{B}) where {T<:Float32, B<:Bool}
 		input_layer_size, m = get_input_dimension(feature_matrix)
 		output_layer_size = activations[end].size[2]
-		FCANN.nnCostFunction(value_params.weights..., input_layer_size, output_layer_size, hidden_layers, m, onesvec, activations, tanh_grad_z, deltas, ∇q̂.weights..., feature_matrix, targets, output_indices, l2, dropout; resLayers = value_params.reslayers, costFunc = "sqErrIndex", activation_list = activation_list, input_orientation = 'T')
+		FCANN.nnCostFunction(value_params.weights..., input_layer_size, output_layer_size, hidden_layers, m, onesvec, activations, tanh_grad_z, deltas, ∇q̂.weights..., feature_matrix, targets, output_indices, zero(T), dropout; resLayers = value_params.reslayers, costFunc = "sqErrIndex", activation_list = activation_list, input_orientation = 'T')
 	end
 end
 
@@ -624,15 +674,6 @@ begin
 	end
 end
 
-# ╔═╡ 1805574f-a668-477f-a6a9-e7ee29ce08bf
-function Base.copy!(dst::FCANNParamsGPU, src::FCANNParamsGPU)
-	for i in eachindex(src.weights[1])
-		for j in 1:2
-			FCANN.memcpy!(dst.weights[j][i], src.weights[j][i])
-		end
-	end
-end
-
 # ╔═╡ 75ba6587-ebe0-4f54-89f6-a65ec26abd63
 begin
 	#since the gradient is created inside the dqn! function it needs to handle any cleanup if necessary.  In this case it only applies to a gpu array where we want the memory explicitly freed
@@ -644,7 +685,7 @@ begin
 end
 
 # ╔═╡ 6fe10947-cdc4-48c5-8fbe-942714640dca
-function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::FCANNParams{T}, target_params::FCANNParams{T}, batch_size::Integer, l2::T, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
+function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::FCANNParams{T}, target_params::FCANNParams{T}, batch_size::Integer, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
 	input_length, hidden_layers, num_hidden = get_network_dimensions(value_params)
 	input_length2, hidden_layers2, num_hidden2 = get_network_dimensions(target_params)
 	@assert input_length == input_length2 "Value and target networks don't share the same input dimension"
@@ -654,8 +695,8 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 	#form activations for network
 	activations_batch = FCANN.form_activations(value_params.weights[1], batch_size)
 	activations = FCANN.form_activations(value_params.weights[1])
-	tanh_grad_z = copy(activations_batch)
-	deltas = copy(activations_batch)
+	tanh_grad_z = FCANN.form_activations(value_params.weights[1], batch_size)
+	deltas = FCANN.form_activations(value_params.weights[1], batch_size)
 	onesvec = ones(T, batch_size)
 
 	#note that the scales are multiplied by -1 to minimize loss in gradient update
@@ -678,7 +719,7 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 	end
 	
 	function update_value_gradient!(∇q̂::FCANNParams{T}, params::FCANNParams{T}, targets::Vector{T}, output_inds::Vector{I}, feature_matrix, output_matrix::Matrix{T}) where I<:Integer
-		update_fcann_value_gradient!(∇q̂, params, feature_matrix, targets, output_inds, hidden_layers, l2, tanh_grad_z, activations_batch, deltas, onesvec, dropout, activation_list)
+		update_fcann_value_gradient!(∇q̂, params, feature_matrix, targets, output_inds, hidden_layers, tanh_grad_z, activations_batch, deltas, onesvec, dropout, activation_list)
 		scale_fcann_params!(∇q̂, scales) #note that this also multiplies the gradient by -1 to account for minimization
 		return ∇q̂
 	end
@@ -720,7 +761,7 @@ function ReinforcementLearning.setup_fcann_action_value_arguments(value_params::
 			FCANN.memcpy!(d_targets, targets)
 			output_inds2 .= Cint.(output_inds .- 1) #note that the GPU uses zero indexing and 32 bit integers
 			FCANN.memcpy!(d_output_inds, output_inds2)
-			update_fcann_value_gradient!(∇q̂, params, d_feature_matrix, d_targets, d_output_inds, hidden_layers, l2, d_tanh_grad_z, d_activations_batch, d_deltas, d_onesvec, dropout, activation_list)
+			update_fcann_value_gradient!(∇q̂, params, d_feature_matrix, d_targets, d_output_inds, hidden_layers, d_tanh_grad_z, d_activations_batch, d_deltas, d_onesvec, dropout, activation_list)
 			scale_fcann_params!(∇q̂, scales)
 			return ∇q̂
 		end
@@ -974,15 +1015,6 @@ eval_gridworld_final_policy(s -> gridworld_q3.value_function(s).maximizing_actio
 plot_gridworld_value_function(gridworld_q3.value_function)
   ╠═╡ =#
 
-# ╔═╡ 95098580-9d74-41af-af28-c08c7dede5f4
-function display_study(study::NamedTuple)
-	results = study.results
-	DataFrame(begin
-		(;k..., value = results[k])
-	end
-	for k in keys(results))
-end
-
 # ╔═╡ cd104c87-dd11-45a7-9ef5-ccecfdea3abd
 #=╠═╡
 function evaluate_gridworld_q_learning3(γ, steps, α, ϵ; nruns = 100, hidden_layers = [8, 8], λ = 0f0, kwargs...)
@@ -1169,12 +1201,90 @@ plot_gridworld_policy_function(gridworld_ac2.policy_function)
 eval_gridworld_final_policy(gridworld_ac2.policy_sample_action)
   ╠═╡ =#
 
+# ╔═╡ bdfd366c-5212-4092-8834-2a4695e4b006
+begin
+	function update_batch_entropy_gradient!(∇lnπ::LinearParams{T, 2}, policy_params::LinearParams{T, 2}, β::T, π_dists::Matrix{T}, feature_vectors::Vector{<:StateAggregationFeatureVector}) where {T<:Real}
+		∇lnπ.weights .= zero(T)
+		∇lnπ.biases .= zero(T)
+		
+		iszero(β) && return ∇lnπ
+	
+		(rows, cols) = size(π_dists)
+		# c = one(T)/rows
+		
+		for i in eachindex(feature_vectors)
+			entropy = calculate_row_entropy(π_dists, i)
+			group_index = feature_vectors[i].group_index
+			for i_a in 1:cols
+				p = π_dists[i, i_a]
+				lp = log(max(p, eps(T)))
+				∇lnπ.weights[group_index, i_a] -= β*p*(entropy+lp)
+				∇lnπ.biases[i_a] -= β*p*(entropy+lp)
+			end
+		end
+		return ∇lnπ
+	end
+
+	function update_batch_entropy_gradient!(∇lnπ::LinearParams{T, 2}, policy_params::LinearParams{T, 2}, β::T, π_dists::Matrix{T}, feature_vectors::Vector{<:BinaryFeatureVector}) where {T<:Real}
+		∇lnπ.weights .= zero(T)
+		∇lnπ.biases .= zero(T)
+		
+		iszero(β) && return ∇lnπ
+	
+		(rows, cols) = size(π_dists)
+		# c = one(T)/rows
+		
+		for i in eachindex(feature_vectors)
+			entropy = calculate_row_entropy(π_dists, i)
+			group_index = feature_vectors[i].group_index
+			x = feature_vectors[i]
+			for i_a in 1:cols
+				p = π_dists[i, i_a]
+				lp = log(max(p, eps(T)))
+				x = β*p*(entropy+lp)
+				@inbounds @simd for j in 1:x.num_features
+					j = x.active_features[j]
+					∇lnπ.weights[j, i_a] -= x
+				end
+				∇lnπ.biases[i_a] -= x
+			end
+		end
+		return ∇lnπ
+	end
+
+	function update_batch_entropy_gradient!(∇lnπ::LinearParams{T, 2}, policy_params::LinearParams{T, 2}, β::T, π_dists::Matrix{T}, feature_vectors::Matrix{T}) where {T<:Real}
+		∇lnπ.weights .= zero(T)
+		∇lnπ.biases .= zero(T)
+		
+		iszero(β) && return ∇lnπ
+	
+		(rows, cols) = size(π_dists)
+		# c = one(T)/rows
+
+		(l, num) = size(feature_vectors)
+		
+		for i in 1:num
+			entropy = calculate_row_entropy(π_dists, i)
+			for i_a in 1:cols
+				p = π_dists[i, i_a]
+				lp = log(max(p, eps(T)))
+				x = β*p*(entropy+lp)
+				@inbounds @simd for j in 1:l
+					∇lnπ.weights[j, i_a] -= x*feature_vectors[j, i]
+				end
+				∇lnπ.biases[i_a] -= x
+			end
+		end
+		return ∇lnπ
+	end
+end
+
 # ╔═╡ aeb7304c-0f5f-4db9-b3c1-d19048fd4176
 begin
 	function update_batch_policy_gradient!(∇lnπ::Matrix{T}, θ::Matrix{T}, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, feature_vectors::Vector{<:StateAggregationFeatureVector}) where {T<:Real, I<:Integer}
 		K, num_actions = size(π_dists)
 		π_dists .*= δs
-		∇lnπ .= zero(T)
+		
 		c = one(T) / K
 		@inbounds for i_a in 1:num_actions
 			@simd for k in 1:K
@@ -1193,7 +1303,6 @@ begin
 	function update_batch_policy_gradient!(∇lnπ::Matrix{T}, θ::Matrix{T}, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, feature_vectors::Vector{<:BinaryFeatureVector}) where {T<:Real, I<:Integer}
 		K, num_actions = size(π_dists)
 		π_dists .*= δs
-		∇lnπ .= zero(T)
 		c = one(T) / K
 		@inbounds for k in 1:K
 			v = feature_vectors[k]
@@ -1222,7 +1331,6 @@ begin
 		num_features = size(X, 1)
 		K, num_actions = size(π_dists)
 		π_dists .*= δs
-		∇lnπ .= zero(T)
 		c = one(T) / K
 		for k in 1:K
 			@inbounds @simd for i in 1:num_features
@@ -1235,17 +1343,38 @@ begin
 		return ∇lnπ
 	end
 
-	function update_batch_policy_gradient!(∇lnπ::FCANNParams{T}, θ::FCANNParams{T}, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, X, hidden_layers, l2::T, tanh_grad_z::FCANNActivationsBatch{T}, activations::FCANNActivationsBatch{T}, deltas::FCANNActivationsBatch{T}, onesvec::Vector{T}, dropout::T, activation_list, scales::Vector{T}) where {T <: Real, I<:Integer}
-		FCANN.nnCostFunction(θ.weights..., hidden_layers, X, batch_actions, δs, l2, ∇lnπ.weights..., tanh_grad_z, activations, deltas, onesvec, dropout; resLayers = θ.reslayers, activation_list = activation_list, loss_type = CrossEntropyLoss(), input_orientation = 'T')
+	function update_batch_policy_gradient!(∇lnπ::LinearParams{T, 2}, θ::LinearParams{T, 2}, δs::Vector{T}, β::T, π_dists::Matrix{T}, batch_actions::Vector{I}, X) where {T<:Real, I<:Integer}
+		#if β is 0, this step only zeros out the gradient, otherwise, populates it with the entropy regularization contribution
+		update_batch_entropy_gradient!(∇lnπ, θ, β, π_dists, X)
+
+		#updates policy gradient for the weights only
+		update_batch_policy_gradient!(∇lnπ.weights, θ.weights, δs, π_dists, batch_actions, X)
+		K, num_actions = size(π_dists)
+		c = one(T) / K
+		for k in 1:K
+			@inbounds @simd for i_a in 1:num_actions
+				∇lnπ.biases[i_a] -= c*π_dists[k, i_a]
+			end
+		end
+
+		@inbounds @simd for k in 1:K
+			∇lnπ.biases[batch_actions[k]] += c*δs[k]
+		end
+
+		return ∇lnπ
+	end
+	
+	function update_batch_policy_gradient!(∇lnπ::FCANNParams{T}, θ::FCANNParams{T}, δs::Vector{T}, β::T, π_dists::Matrix{T}, batch_actions::Vector{I}, X, hidden_layers,tanh_grad_z::FCANNActivationsBatch{T}, activations::FCANNActivationsBatch{T}, deltas::FCANNActivationsBatch{T}, onesvec::Vector{T}, dropout::T, activation_list, scales::Vector{T}) where {T <: Real, I<:Integer}
+		FCANN.nnCostFunction(θ.weights..., hidden_layers, X, batch_actions, δs, zero(T), ∇lnπ.weights..., tanh_grad_z, activations, deltas, onesvec, dropout; resLayers = θ.reslayers, activation_list = activation_list, loss_type = CrossEntropyLoss(β), input_orientation = 'T')
 		scale_fcann_params!(∇lnπ, scales) #note that this also multiplies the gradient by -1 to convert cross entropy loss to policy gradient
 	end
 
-	function update_batch_policy_gradient!(∇lnπ::FCANNParamsGPU, θ::FCANNParamsGPU, δs::Vector{T}, π_dists::Matrix{T}, batch_actions::Vector{I}, X::Matrix{T}, hidden_layers, l2::T, tanh_grad_z::FCANNActivationsGPU, activations::FCANNActivationsGPU, deltas::FCANNActivationsGPU, onesvec::FCANN.CUDAArray, dropout::T, activation_list, scales::Vector{T}, gpu_input::FCANN.CUDAArray, reindexed_output_indices::Vector{Cint},  gpu_output_indices::FCANN.CUDAArray, gpu_output_values::FCANN.CUDAArray) where {T <: Real, I<:Integer}
+	function update_batch_policy_gradient!(∇lnπ::FCANNParamsGPU, θ::FCANNParamsGPU, δs::Vector{T}, β::T, π_dists::Matrix{T}, batch_actions::Vector{I}, X::Matrix{T}, hidden_layers, tanh_grad_z::FCANNActivationsGPU, activations::FCANNActivationsGPU, deltas::FCANNActivationsGPU, onesvec::FCANN.CUDAArray, dropout::T, activation_list, scales::Vector{T}, gpu_input::FCANN.CUDAArray, reindexed_output_indices::Vector{Cint},  gpu_output_indices::FCANN.CUDAArray, gpu_output_values::FCANN.CUDAArray) where {T <: Real, I<:Integer}
 		reindexed_output_indices .= batch_actions .- 1 #note that the gpu uses zero indexing by default
 		FCANN.memcpy!(gpu_output_indices, reindexed_output_indices)
 		FCANN.memcpy!(gpu_input, X)
 		FCANN.memcpy!(gpu_output_values, δs)
-		FCANN.nnCostFunction(θ.weights..., size(X, 1), size(π_dists, 2), hidden_layers, length(batch_actions), onesvec, activations, tanh_grad_z, deltas, ∇lnπ.weights..., gpu_input, gpu_output_indices, gpu_output_values; lambda = l2, D = dropout, resLayers = θ.reslayers, activation_list = activation_list, input_orientation = 'T')
+		FCANN.nnCostFunction(θ.weights..., size(X, 1), size(π_dists, 2), hidden_layers, length(batch_actions), onesvec, activations, tanh_grad_z, deltas, ∇lnπ.weights..., gpu_input, gpu_output_indices, gpu_output_values; loss_type = CrossEntropyLoss(β), D = dropout, resLayers = θ.reslayers, activation_list = activation_list, input_orientation = 'T')
 		scale_fcann_params!(∇lnπ, scales) #note that this also multiplies the gradient by -1 to convert cross entropy loss to policy gradient
 	end
 end
@@ -1326,19 +1455,29 @@ begin
 			end
 		end
 	end
+
+	function accumulate_linear_gradient!(∇v̂::LinearParams{T, 1}, c::T, δs::Vector{T}, features) where T<:Real
+		accumulate_linear_gradient!(∇v̂.weights, c, δs, features)
+		∇v̂.biases[1] += c*sum(δs)
+		return ∇v̂
+	end
 end
 
 # ╔═╡ f76f33f3-7cb3-4715-800c-9a0b2561f05b
-function ReinforcementLearning.update_linear_value_gradient!(∇q̂::Matrix{T}, value_params::Matrix{T}, targets::Vector{T}, output_indices::Vector{I}, feature_matrix, output_matrix::Matrix{T}) where {T<:Real, I<:Integer}
+function ReinforcementLearning.update_linear_value_gradient!(∇q̂::LinearParams{T, 2}, value_params::LinearParams{T, 2}, targets::Vector{T}, output_indices::Vector{I}, feature_matrix, output_matrix::Matrix{T}) where {T<:Real, I<:Integer}
 	#reset gradient to 0
-	∇q̂ .= zero(T)
+	∇q̂.weights .= zero(T)
+	∇q̂.biases .= zero(T)
 
 	#initialize batch size in order to calculate constant for average
 	batch_size = length(targets)
 	c = T(2 / batch_size)
 
+	#prefill output matrix with biases
+	fill_biases!(output_matrix, value_params.biases)
+
 	#get reference value using value params
-	LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, value_params, zero(T), output_matrix)
+	LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, value_params.weights, one(T), output_matrix)
 
 	#accumulate gradient of loss function per example
 	for i in eachindex(targets)
@@ -1349,16 +1488,18 @@ function ReinforcementLearning.update_linear_value_gradient!(∇q̂::Matrix{T}, 
 end
 
 # ╔═╡ be468ef6-6e8f-4b9a-aa20-993102168ca6
-function update_batch_value_gradient!(∇v̂::Vector{T}, δs::Vector{T}, value_params::Vector{T}, targets::Vector{T}, feature_matrix) where {T<:Real}
+function update_batch_value_gradient!(∇v̂::LinearParams{T, 1}, δs::Vector{T}, value_params::LinearParams{T, 1}, targets::Vector{T}, feature_matrix) where {T<:Real}
 	#reset gradient to 0
-	∇v̂ .= zero(T)
+	∇v̂.weights .= zero(T)
+	∇v̂.biases .= zero(T)
 
 	#initialize batch size in order to calculate constant for average
 	batch_size = length(targets)
 	c = T(2 / batch_size)
 
+	δs .= value_params.biases
 	#get reference value using value params
-	LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, value_params, zero(T), δs)
+	LinearAlgebra.BLAS.gemm!('T', 'N', one(T), feature_matrix, value_params.weights, one(T), δs)
 
 	δs .= targets .- δs
 
@@ -1367,15 +1508,15 @@ end
 
 # ╔═╡ a92a325e-4e3f-4c9f-8299-33b1a54cef10
 begin
-	function update_batch_value_gradient!(∇v̂::FCANNParams{T}, δs::Vector{T}, value_params::FCANNParams{T}, targets::Vector{T}, feature_matrix, input_size::Integer, output::Matrix{T}, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivationsBatch{T}, activations::FCANNActivationsBatch{T}, deltas::FCANNActivationsBatch{T}, onesvec::Vector{T}, dropout::T, activation_list::AbstractVector{B}, scales::Vector{T}) where {T<:Float32, B<:Bool}
+	function update_batch_value_gradient!(∇v̂::FCANNParams{T}, δs::Vector{T}, value_params::FCANNParams{T}, targets::Vector{T}, feature_matrix, input_size::Integer, output::Matrix{T}, hidden_layers::Vector{Int64}, tanh_grad_z::FCANNActivationsBatch{T}, activations::FCANNActivationsBatch{T}, deltas::FCANNActivationsBatch{T}, onesvec::Vector{T}, dropout::T, activation_list::AbstractVector{B}, scales::Vector{T}) where {T<:Float32, B<:Bool}
 		output .= targets
-		FCANN.nnCostFunction(value_params.weights..., input_size, hidden_layers, feature_matrix, output, l2, ∇v̂.weights..., tanh_grad_z, activations, deltas, onesvec, dropout; resLayers = value_params.reslayers, costFunc = "sqErr", activation_list = activation_list, input_orientation = get_input_orientation(feature_matrix))
+		FCANN.nnCostFunction(value_params.weights..., input_size, hidden_layers, feature_matrix, output, zero(T), ∇v̂.weights..., tanh_grad_z, activations, deltas, onesvec, dropout; resLayers = value_params.reslayers, costFunc = "sqErr", activation_list = activation_list, input_orientation = get_input_orientation(feature_matrix))
 		scale_fcann_params!(∇v̂, scales)
 		δs .= activations[end] #note that this is just the state value output
 		δs .= targets .- δs
 	end
 
-	function update_batch_value_gradient!(∇v̂::FCANNParamsGPU, δs::Vector{T}, value_params::FCANNParamsGPU, targets::Vector{T}, feature_matrix::Matrix{T}, input_size::Integer, gpu_output::FCANN.CUDAArray, cpu_output::Matrix{T}, hidden_layers::Vector{Int64}, l2::T, tanh_grad_z::FCANNActivationsGPU, activations::FCANNActivationsGPU, deltas::FCANNActivationsGPU, onesvec::FCANN.CUDAArray, dropout::T, activation_list::AbstractVector{B}, scales::Vector{T}, gpu_input::FCANN.CUDAArray) where {T<:Float32, B<:Bool}
+	function update_batch_value_gradient!(∇v̂::FCANNParamsGPU, δs::Vector{T}, value_params::FCANNParamsGPU, targets::Vector{T}, feature_matrix::Matrix{T}, input_size::Integer, gpu_output::FCANN.CUDAArray, cpu_output::Matrix{T}, hidden_layers::Vector{Int64}, tanh_grad_z::FCANNActivationsGPU, activations::FCANNActivationsGPU, deltas::FCANNActivationsGPU, onesvec::FCANN.CUDAArray, dropout::T, activation_list::AbstractVector{B}, scales::Vector{T}, gpu_input::FCANN.CUDAArray) where {T<:Float32, B<:Bool}
 		cpu_output .= targets
 		FCANN.memcpy!(gpu_output, cpu_output)
 		FCANN.memcpy!(gpu_input, feature_matrix)
@@ -1420,8 +1561,9 @@ end
 
 # ╔═╡ 05e4d2f6-bfc4-426e-866e-834d39666eb7
 begin
-	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::Matrix{T}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector, is_valid_action::F) where {T<:Real, F}
-		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), X, θ, zero(T), policy_matrix)
+	function update_batch_policy_dist!(policy_matrix::Matrix{T}, X, θ::LinearParams{T, 2}, row_sums::Vector{T}, row_mins::Vector{T}, row_maxes::Vector{T}, state_list::Vector, is_valid_action::F) where {T<:Real, F}
+		fill_biases!(policy_matrix, θ.biases)
+		LinearAlgebra.BLAS.gemm!('T', 'N', one(T), X, θ.weights, one(T), policy_matrix)
 		mask_invalid_actions_batch!(policy_matrix, state_list, is_valid_action)
 		soft_max!(policy_matrix, row_sums, row_mins, row_maxes)
 	end
@@ -1446,7 +1588,7 @@ end
 
 # ╔═╡ 4622a796-1ef7-40b1-87da-a1799369f758
 begin
-	update_batch_state_values!(state_values::Vector{T}, X, w::Vector{T}) where T<:Real = update_state_values!(state_values, X, w, nothing)
+	update_batch_state_values!(state_values::Vector{T}, X, w::LinearParams{T, 1}) where T<:Real = update_state_values!(state_values, X, w, nothing)
 	update_batch_state_values!(state_values::Vector{T}, X, w::FCANNParams{T}, activations::FCANNActivationsBatch{T}) where T<:Real = update_state_values!(state_values, X, w, activations)
 
 	function update_batch_state_values!(state_values::Vector{T}, X::Matrix{T}, w::FCANNParamsGPU, activations::FCANNActivationsGPU, gpu_input::FCANN.CUDAArray, output::Matrix{T}) where T<:Real
@@ -1465,7 +1607,7 @@ function Base.copy!(x1::Vector{V}, x2::Vector{V}) where V<:AbstractBinaryFeature
 end
 
 # ╔═╡ 3a4510e6-054b-40fe-989d-7ac8c86db757
-function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::V, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function; target_args::Tuple = (), α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer = 100, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, use_double_q::Bool = false, N::Integer = 0, ∇q̂::Q = copy(value_params), kwargs...) where {Q, T<:Real, S, V}
+function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::V, update_feature_vector!::Function, update_action_values!::Function, update_value_gradient!::Function; target_args::Tuple = (), α = one(T)/10, ϵ = one(T) / 10, buffer_size::Integer = 10_000, batch_size::Integer = 512, target_update_interval::Integer = 100, α_decay = one(T), decay_step = typemax(Int64), save_step_rewards::Bool = false, use_double_q::Bool = false, N::Integer = 0, ∇q̂::Q = copy(value_params), reg::Regularizer = NoOpReg(), kwargs...) where {Q, T<:Real, S, V}
 
 	#initialize memory
 	action_values = zeros(T, length(mdp.actions))
@@ -1551,6 +1693,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max
 			update_value_gradient!(∇q̂, value_params, targets, output_inds, feature_matrix, output_matrix)
 	
 			update_params_with_gradient!(value_params, α*decay, ∇q̂)
+			regularize_params!(value_params, reg, α)
 
 			#on set interval update target params with current value params
 			if iszero(step % target_update_interval)
@@ -1572,7 +1715,7 @@ function dqn!(value_params::Q, target_params::Q, mdp::StateMDP{T, S}, γ::T, max
 end
 
 # ╔═╡ 830ba410-377a-423b-9e75-6884c8cbbbea
-dqn_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), value_params::Matrix{T} = initialize_linear_parameters(feature_vector,mdp, init_value), target_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = dqn!(value_params, target_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, update_linear_value_gradient!; kwargs...) 
+dqn_linear(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), value_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector,mdp, init_value), target_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = dqn!(value_params, target_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, update_linear_value_gradient!; kwargs...) 
 
 # ╔═╡ 05fa2e5c-8633-4c43-89ba-09dd0c83cdfa
 function dqn(mdp::TabularMDP, γ::T, max_episodes::Integer, max_steps::Integer; kwargs...) where T<:Real 
@@ -1668,8 +1811,8 @@ plot_gridworld_value_function(gridworld_dqn2.value_function)
   ╠═╡ =#
 
 # ╔═╡ d9437c04-d197-4b8c-b1ad-0029b3d77144
-function dqn_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; batch_size::Integer = 512, reslayers::Int64 = 0, use_μP::Bool = true, value_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), target_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
-	setup = setup_fcann_action_value_arguments(value_params, target_params, batch_size, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function dqn_fcann(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; batch_size::Integer = 512, reslayers::Int64 = 0, use_μP::Bool = true, value_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), target_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real 
+	setup = setup_fcann_action_value_arguments(value_params, target_params, batch_size, dropout, use_μP, activation_list; use_gpu = use_gpu)
 	
 	!use_gpu && return dqn!(value_params, target_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.update_value_gradient!; target_args = setup.target_args, batch_size = batch_size, kwargs...)
 	
@@ -1738,7 +1881,7 @@ dqn_fcann(gridworld_state_mdp, 0.99f0, typemax(Int64), 100_000, gridworld_featur
   ╠═╡ =#
 
 # ╔═╡ c7994abc-e49d-4ccb-b09b-e68c14bb7d6f
-function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, VP, PP}
+function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params), value_reg::Regularizer = NoOpReg(), policy_reg::Regularizer = NoOpReg(), β::T = zero(T)) where {T<:Real, S, VP, PP}
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
 	avg_step_rewards = zeros(T, max_steps)
@@ -1824,12 +1967,14 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 		
 		#update value parameters using the value gradient
 		update_params_with_gradient!(value_params, α_w, ∇v̂)
+		regularize_params!(value_params, value_reg, α_w)
 
 		# @info "Updating policy_params with the following information: δs = $δs, policy_matrix = $policy_matrix"
 		#update policy parameters using the policy distribution, batch actions, and advantage values
-		update_batch_policy_gradient!(∇lnπ, policy_params, δs, policy_matrix, batch_actions, feature_vectors, policy_gradient_args...)
+		update_batch_policy_gradient!(∇lnπ, policy_params, δs, β/num_env, policy_matrix, batch_actions, feature_vectors, policy_gradient_args...)
 		
 		update_params_with_gradient!(policy_params, α_θ, ∇lnπ)
+		regularize_params!(policy_params, policy_reg, α_θ)
 
 		#prepare for next step
 		copy!(feature_vectors, feature_vectors2)
@@ -1849,11 +1994,11 @@ function synchronous_actor_critic!(policy_params::PP, value_params::VP, mdp::Sta
 end
 
 # ╔═╡ 738241ce-0315-41d8-a67f-64c91479fe57
-synchronous_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real} = synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
+synchronous_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real} = synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
 
 # ╔═╡ 85a24ea7-411e-4d11-a83b-bddad52772df
 #=╠═╡
-const gridworld_sync_ac = synchronous_actor_critic_linear(gridworld_state_mdp, 0.99f0, 100_000, 1, gridworld_feature, update_gridworld_feature!; α_θ = 64f-2, α_w = 32f-2)
+const gridworld_sync_ac = synchronous_actor_critic_linear(gridworld_state_mdp, 0.99f0, 60_000, 1, gridworld_feature, update_gridworld_feature!; α_θ = 64f-2, α_w = 32f-2, β = 1f0)
   ╠═╡ =#
 
 # ╔═╡ 0d045fdd-67e4-45d4-957e-c58b266dfe5e
@@ -1872,13 +2017,13 @@ plot_gridworld_state_value_function(gridworld_sync_ac.value_function)
   ╠═╡ =#
 
 # ╔═╡ 2fa46312-ec98-4680-be6e-a5ddd08baca2
-function setup_fcann_batch_policy_arguments(params::FCANNParams{T}, batch_size::Integer, l2::T, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
+function setup_fcann_batch_policy_arguments(params::FCANNParams{T}, batch_size::Integer, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
 	input_length, hidden_layers, num_hidden = get_network_dimensions(params)
 	
 	#form activations for network
 	activations = FCANN.form_activations(params.weights[1], batch_size)
-	tanh_grad_z = copy(activations)
-	deltas = copy(activations)
+	tanh_grad_z = FCANN.form_activations(params.weights[1], batch_size)
+	deltas = FCANN.form_activations(params.weights[1], batch_size)
 	onesvec = ones(T, batch_size)
 	output = zeros(T, batch_size)
 
@@ -1892,7 +2037,7 @@ function setup_fcann_batch_policy_arguments(params::FCANNParams{T}, batch_size::
 	end
 
 	policy_args = (activations,)
-	policy_gradient_args = (hidden_layers, l2, tanh_grad_z, activations, deltas, onesvec, dropout, activation_list, scales)
+	policy_gradient_args = (hidden_layers, tanh_grad_z, activations, deltas, onesvec, dropout, activation_list, scales)
 
 	!use_gpu && return (policy_args = policy_args, policy_gradient_args = policy_gradient_args)
 
@@ -1920,7 +2065,7 @@ function setup_fcann_batch_policy_arguments(params::FCANNParams{T}, batch_size::
 		end
 
 		gpu_policy_args = (d_activations, d_x)
-		gpu_policy_gradient_args = (hidden_layers, l2, d_tanh_grad_z, d_activations, d_deltas, d_onesvec, dropout, activation_list, scales, d_x, reindexed_output, gpu_output_inds, gpu_output_vals)
+		gpu_policy_gradient_args = (hidden_layers, d_tanh_grad_z, d_activations, d_deltas, d_onesvec, dropout, activation_list, scales, d_x, reindexed_output, gpu_output_inds, gpu_output_vals)
 		gpu_args = (params = d_params, policy_args = gpu_policy_args, policy_gradient_args = gpu_policy_gradient_args, cleanup_vars = cleanup_vars)
 	else
 		gpu_args = ()
@@ -1930,13 +2075,13 @@ function setup_fcann_batch_policy_arguments(params::FCANNParams{T}, batch_size::
 end
 
 # ╔═╡ d5364951-0bfd-424a-8e8c-fecc05ce124b
-function setup_fcann_batch_value_arguments(policy_setup::NamedTuple, params::FCANNParams{T}, batch_size::Integer, l2::T, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
+function setup_fcann_batch_value_arguments(policy_setup::NamedTuple, params::FCANNParams{T}, batch_size::Integer, dropout::T, use_μP::Bool, activation_list; use_gpu = false) where {T<:Real}
 	input_length, hidden_layers, num_hidden = get_network_dimensions(params)
 	
 	#form activations for network
 	activations = FCANN.form_activations(params.weights[1], batch_size)
-	tanh_grad_z = copy(activations)
-	deltas = copy(activations)
+	tanh_grad_z = FCANN.form_activations(params.weights[1], batch_size)
+	deltas = FCANN.form_activations(params.weights[1], batch_size)
 	onesvec = ones(T, batch_size)
 	output = zeros(T, batch_size, 1)
 
@@ -1949,7 +2094,7 @@ function setup_fcann_batch_value_arguments(policy_setup::NamedTuple, params::FCA
 	end
 
 	value_args = (activations,)
-	value_gradient_args = (input_length, output, hidden_layers, l2, tanh_grad_z, activations, deltas, onesvec, dropout, activation_list, scales)
+	value_gradient_args = (input_length, output, hidden_layers, tanh_grad_z, activations, deltas, onesvec, dropout, activation_list, scales)
 
 	!use_gpu && return (value_args = value_args, value_gradient_args = value_gradient_args)
 
@@ -1973,7 +2118,7 @@ function setup_fcann_batch_value_arguments(policy_setup::NamedTuple, params::FCA
 		end
 
 		gpu_value_args = (d_activations, d_x, output)
-		gpu_gradient_args = (input_length, d_output, output, hidden_layers, l2, d_tanh_grad_z, d_activations, d_deltas, d_onesvec, dropout, activation_list, scales, d_x)
+		gpu_gradient_args = (input_length, d_output, output, hidden_layers, d_tanh_grad_z, d_activations, d_deltas, d_onesvec, dropout, activation_list, scales, d_x)
 
 		gpu_args = (params = d_params, value_args = gpu_value_args, value_gradient_args = gpu_gradient_args, cleanup_vars = cleanup_vars)
 	else
@@ -1984,10 +2129,10 @@ function setup_fcann_batch_value_arguments(policy_setup::NamedTuple, params::FCA
 end
 
 # ╔═╡ b65512a7-1a98-4d99-835f-eca70ced2404
-function synchronous_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real}
+function synchronous_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real}
 
-	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, l2, dropout, use_μP, activation_list; use_gpu)
-	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, l2, dropout, use_μP, activation_list; use_gpu)
+	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, dropout, use_μP, activation_list; use_gpu)
+	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, dropout, use_μP, activation_list; use_gpu)
 	
 
 	!use_gpu && return synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, value_setup..., policy_setup...; kwargs...)
@@ -2008,7 +2153,7 @@ end
 
 # ╔═╡ 89317d85-e18d-4940-9f1b-bf4f9fbf9880
 #=╠═╡
-const gridworld_sync_ac2 = synchronous_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 1_000_000, 4, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 64f-2)
+const gridworld_sync_ac2 = synchronous_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 1_000_000, 4, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 64f-2, β = .1f0)
   ╠═╡ =#
 
 # ╔═╡ f411dc93-77df-49c6-a222-5985e8aea544
@@ -2057,9 +2202,9 @@ eval_gridworld_final_policy(gridworld_ac_td2.policy_sample_action)
   ╠═╡ =#
 
 # ╔═╡ 44c9104e-8586-4202-8edd-eaea0073842a
-function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, N::Integer = 0, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params)) where {T<:Real, S, VP, PP}
+function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, mdp::StateMDP{T, S}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, value_args::Tuple, value_gradient_args::Tuple, policy_args::Tuple, policy_gradient_args::Tuple; α_w::T = one(T)/10, α_θ::T = one(T)/10, N::Integer = 0, ∇v̂::VP = copy(value_params), ∇lnπ::PP = copy(policy_params), value_reg::Regularizer = NoOpReg(), policy_reg::Regularizer = NoOpReg(), β::T = zero(T)) where {T<:Real, S, VP, PP}
 
-	iszero(N) && return synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, value_args, value_gradient_args, policy_args, policy_gradient_args; α_w = α_w, α_θ = α_θ, ∇v̂ = ∇v̂, ∇lnπ = ∇lnπ)
+	iszero(N) && return synchronous_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, value_args, value_gradient_args, policy_args, policy_gradient_args; α_w = α_w, α_θ = α_θ, ∇v̂ = ∇v̂, ∇lnπ = ∇lnπ, value_reg, policy_reg, β)
 	
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
@@ -2196,12 +2341,14 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 			
 			#update value parameters using the value gradient
 			update_params_with_gradient!(value_params, α_w, ∇v̂)
+			regularize_params!(value_params, value_reg, α_w)
 	
 			# @info "Updating policy_params with the following information: δs = $δs, policy_matrix = $policy_matrix"
 			#update policy parameters using the policy distribution, batch actions, and advantage values
-			update_batch_policy_gradient!(∇lnπ, policy_params, δs, policy_matrix, update_actions, update_feature_vectors, policy_gradient_args...)
+			update_batch_policy_gradient!(∇lnπ, policy_params, δs, β/num_env, policy_matrix, update_actions, update_feature_vectors, policy_gradient_args...)
 			
 			update_params_with_gradient!(policy_params, α_θ, ∇lnπ)
+			regularize_params!(policy_params, policy_reg, α_θ)
 	
 			batch_ready .= false #once a gradient update has occured, inform all environments they need to perform a new step
 			cs .*= γ
@@ -2221,18 +2368,22 @@ function synchronous_nstep_actor_critic!(policy_params::PP, value_params::VP, md
 end
 
 # ╔═╡ b9792720-4b34-426e-a244-732b7ebce7a0
-synchronous_nstep_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::Vector{T} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real} = synchronous_nstep_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
+synchronous_nstep_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function; policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, zero(T)), value_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, zero(T)), kwargs...) where {T<:Real} = synchronous_nstep_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, (), (), (), (); kwargs...)
 
 # ╔═╡ 0c7af119-461e-43ef-b899-0708ff088e45
 # ╠═╡ skip_as_script = true
 #=╠═╡
-
 @profview synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 10_000, 128, gridworld_feature, update_gridworld_feature!; α_θ = 16f-2, α_w =8f-2, N = 10)
+  ╠═╡ =#
+
+# ╔═╡ 7768ba4f-bc87-4628-91b7-53feeca539ff
+#=╠═╡
+@profview synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 10_000, 128, gridworld_feature, update_gridworld_feature!; α_θ = 16f-2, α_w =8f-2, N = 10, β = 1f0)
   ╠═╡ =#
 
 # ╔═╡ 04102d7f-b139-4923-8928-fe73d124e055
 #=╠═╡
-const gridworld_sync_nstep_ac = synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 1_000_000, 8, gridworld_feature, update_gridworld_feature!; α_θ = 2f-2, α_w = 6f-3, N = 20)
+const gridworld_sync_nstep_ac = synchronous_nstep_actor_critic_linear(gridworld_state_mdp, 0.99f0, 1_000_000, 8, gridworld_feature, update_gridworld_feature!; α_θ = 2f-2, α_w = 6f-3, N = 20, β = 10f0)
   ╠═╡ =#
 
 # ╔═╡ 670641ea-8600-41c0-af5c-48e3d6bc7a0a
@@ -2256,10 +2407,10 @@ plot_gridworld_policy_function(gridworld_sync_nstep_ac.policy_function)
   ╠═╡ =#
 
 # ╔═╡ 4e8a8484-8e2c-4d02-9f1b-2fdff77fde7c
-function synchronous_nstep_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), l2::T = zero(T), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real}
+function synchronous_nstep_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_steps::Integer, num_env::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers = 0, use_μP::Bool = true, policy_params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), dropout::T = zero(T), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real}
 
-	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
-	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+	policy_setup = setup_fcann_batch_policy_arguments(policy_params, num_env, dropout, use_μP, activation_list; use_gpu = use_gpu)
+	value_setup = setup_fcann_batch_value_arguments(policy_setup, value_params, num_env, dropout, use_μP, activation_list; use_gpu = use_gpu)
 
 	!use_gpu && return synchronous_nstep_actor_critic!(policy_params, value_params, mdp, γ, max_steps, num_env, feature_vector, update_feature_vector!, value_setup..., policy_setup...; kwargs...)
 
@@ -2279,7 +2430,7 @@ end
 
 # ╔═╡ 631ead41-0bf5-4bc0-bbe6-d98ceb32ca20
 #=╠═╡
-const gridworld_sync_nstep_ac2 = synchronous_nstep_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 100_000, 16, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 32f-2, N = 5)
+const gridworld_sync_nstep_ac2 = synchronous_nstep_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 100_000, 16, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 32f-2, N = 5, β = .01f0)
   ╠═╡ =#
 
 # ╔═╡ 6c60168b-b5d6-4146-a530-c343adba4f87
@@ -2304,15 +2455,17 @@ plot_gridworld_policy_function(gridworld_sync_nstep_ac2.policy_function)
 
 # ╔═╡ ccdb85e1-dfef-42b8-9e39-6e6062b93b19
 #=╠═╡
-synchronous_nstep_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 10_000, 16, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 32f-2, N = 5)
+synchronous_nstep_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 10_000, 16, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 32f-2, N = 5, β = 0.001f0)
   ╠═╡ =#
 
 # ╔═╡ 82c3f031-0fe0-442a-8d14-91046aad4760
 #=╠═╡
-synchronous_nstep_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 1_000, 16, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 32f-2, N = 5, use_gpu = true)
+synchronous_nstep_actor_critic_fcann(gridworld_state_mdp, 0.99f0, 1_000, 16, gridworld_feature, update_gridworld_feature!, [32, 32]; reslayers = 1, α_θ = 64f-2, α_w = 32f-2, N = 5, use_gpu = true, β = 0.001f0)
   ╠═╡ =#
 
 # ╔═╡ ea607cf6-a263-4d44-9d72-dc9a5de055ad
+# ╠═╡ skip_as_script = true
+#=╠═╡
 html"""
 <style>
 	main {
@@ -2324,6 +2477,7 @@ html"""
 	}
 </style>
 """
+  ╠═╡ =#
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2350,7 +2504,7 @@ ProfileCanvas = "~0.1.7"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.13.0"
+julia_version = "1.13.3"
 manifest_format = "2.1"
 project_hash = "23268b047581fe609e7ab963bbc5c4270dd5f3f0"
 
@@ -2552,7 +2706,7 @@ version = "1.0.0"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "Zstd_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.18.0+1"
+version = "8.22.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -2562,12 +2716,12 @@ version = "1.11.0"
 [[deps.LibGit2_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.9.1+0"
+version = "1.9.7+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "OpenSSL_jll", "Zlib_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.103+0"
+version = "1.11.104+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -2605,7 +2759,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2026.8.13"
+version = "2026.10.20"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -2619,7 +2773,7 @@ version = "0.3.30+0"
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.6+0"
+version = "3.5.8+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "94ba93778373a53bfd5a0caaf7d809c445292ff4"
@@ -2630,7 +2784,7 @@ version = "1.8.2"
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.46.0+0"
+version = "10.47.0+0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -2871,7 +3025,7 @@ version = "1.11.0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.3.1+2"
+version = "1.3.2+0"
 
 [[deps.Zstd_jll]]
 deps = ["CompilerSupportLibraries_jll", "Libdl"]
@@ -2886,12 +3040,12 @@ version = "5.15.0+0"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.67.1+0"
+version = "1.70.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.8.2+0"
+version = "17.8.3+0"
 
 [registries.General]
 url = "https://github.com/JuliaRegistries/General.git"
@@ -2907,6 +3061,8 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═1b4c3482-165e-4c09-bbc2-c705e5ceb2fe
 # ╠═f9d3ee23-f39d-46e4-834e-86b8eee1ce50
 # ╠═cb972f94-d22c-4d00-8c70-50daff8f697e
+# ╠═9cc1ab1a-9c5c-4a77-b573-c4af24ffd607
+# ╠═929d4e3b-0b53-4038-96ba-9a1c0978a830
 # ╠═576ff132-27d0-4a91-a955-e797fe6637c1
 # ╠═a743f767-1ff6-4e1c-8c6f-88622d07c175
 # ╠═f76f33f3-7cb3-4715-800c-9a0b2561f05b
@@ -3038,6 +3194,8 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═e366c806-9f44-4bdc-b2b0-8754d99c8342
 # ╟─99190158-126a-4149-9d32-dffda0259cab
 # ╟─c113e64f-7463-4714-8253-40d196496b1d
+# ╠═20babb85-0ba5-4e0e-8472-206584b30dfc
+# ╠═bdfd366c-5212-4092-8834-2a4695e4b006
 # ╠═aeb7304c-0f5f-4db9-b3c1-d19048fd4176
 # ╠═c0b907ca-9959-45d9-8cc1-343d71ef5dd8
 # ╠═e6f4574b-f28f-43b1-b8f9-7080ecacfb39
@@ -3080,6 +3238,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═b9792720-4b34-426e-a244-732b7ebce7a0
 # ╠═4e8a8484-8e2c-4d02-9f1b-2fdff77fde7c
 # ╠═0c7af119-461e-43ef-b899-0708ff088e45
+# ╠═7768ba4f-bc87-4628-91b7-53feeca539ff
 # ╠═04102d7f-b139-4923-8928-fe73d124e055
 # ╠═670641ea-8600-41c0-af5c-48e3d6bc7a0a
 # ╠═449125ea-7eb6-4bc3-b994-ea85bd7a68aa

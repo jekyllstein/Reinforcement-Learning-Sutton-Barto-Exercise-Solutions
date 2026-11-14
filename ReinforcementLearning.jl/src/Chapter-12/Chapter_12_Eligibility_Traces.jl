@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.24
+# v1.0.4
 
 using Markdown
 using InteractiveUtils
@@ -11,7 +11,7 @@ using PlutoDevMacros
 # ╠═╡ skip_as_script = true
 #=╠═╡
 begin
-	using PlutoUI, PlutoPlotly , BenchmarkTools, PlutoProfile, HypertextLiteral, LaTeXStrings
+	using PlutoUI, PlutoPlotly , BenchmarkTools, ProfileCanvas, HypertextLiteral, LaTeXStrings
 	TableOfContents()
 end
   ╠═╡ =#
@@ -658,7 +658,12 @@ md"""
 
 # ╔═╡ 0b2e26e4-e87a-49a8-a7a6-c5b225af82b3
 begin
-	decay_trace!(z, c) = z .*= c
+	decay_trace!(z::Array{T}, c::T) where T <: Real = z .*= c
+	function decay_trace!(z::LinearParams{T}, c::T) where T <: Real
+		decay_trace!(z.weights, c)
+		decay_trace!(z.biases, c)
+		return z
+	end
 	function decay_trace!(z::FCANNParams{T}, c::T) where T<:Real
 		for i in eachindex(z.weights[1])
 			decay_trace!(z.weights[1][i], c)
@@ -682,7 +687,7 @@ end
 
 # ╔═╡ 5542897d-eb37-4e96-ac33-d36fc8adb603
 begin
-	function update_trace!(z, γ, λ, ∇v) 
+	function update_trace!(z::Array{T, N}, γ::T, λ::T, ∇v::Array{T, N}) where {T<:Real, N} 
 		z .= (γ*λ .* z) .+ ∇v
 	end
 
@@ -698,6 +703,13 @@ begin
 	function update_trace!(z::Vector{T}, γ::T, λ::T, ∇v::StateAggregationFeatureVector) where T<:Real
 		z .*= γ*λ 
 		z[∇v.group_index] += one(T)
+		return z
+	end
+
+	function update_trace!(z::LinearParams{T}, γ::T, λ::T, ∇) where T <: Real
+		update_trace!(z.weights, γ, λ, ∇)
+		z.biases .*= γ*λ
+		z.biases .+= one(T)
 		return z
 	end
 
@@ -731,6 +743,10 @@ begin
 	function zero_trace!(z::AbstractArray{T}) where {T<:Real}
 		z .= zero(T)
 	end
+	function zero_trace!(z::LinearParams{T}) where T<:Real
+		zero_trace!(z.weights)
+		zero_trace!(z.biases)
+	end
 	function zero_trace!(z::FCANNParams)
 		for i in eachindex(first(z.weights))
 			zero_trace!(z.weights[1][i])
@@ -743,7 +759,7 @@ end
 # ╔═╡ 5610a0ba-60a8-4da6-8f68-50b1c5e82686
 begin
 	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = copy(parameters), save_episode_steps::Bool = false, kwargs...) where {P, X, T<:Real}
+	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = copy(parameters), save_episode_steps::Bool = false, reg::Regularizer = NoOpReg(), kwargs...) where {P, X, T<:Real}
 		#initialize records
 		step_rewards = Vector{T}()
 		episode_steps = Vector{Int64}()
@@ -801,6 +817,7 @@ begin
 			#by default does: 
 			# parameters .+= α*δ .* z
 			update_params_with_gradient!(parameters, α*δ, z)
+			regularize_params!(parameters, reg, α)
 			s = s′
 			step += 1
 			epstep += 1
@@ -811,7 +828,7 @@ begin
 		(value_function = v̂, episode_history = (errors = episode_errors, steps = episode_steps, rewards = episode_rewards), step_rewards = step_rewards, parameters = parameters, form_kwargs = form_kwargs, trace = z)
 	end
 
-	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, λ::T, num_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄ = one(T)/100, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = copy(parameters), kwargs...) where {P, X, T<:Real}
+	function semi_gradient_TDλ!(parameters::P, initialize_state::Function, transition::Function, isterm::Function, λ::T, num_steps::Integer, state_representation::X, update_state_representation!::Function, estimate_value::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄ = one(T)/100, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, z::P = copy(parameters), reg::Regularizer = NoOpReg(), kwargs...) where {P, X, T<:Real}
 		#initialize records
 		reward_history = zeros(T, num_steps)
 		error_history = zeros(T, num_steps)
@@ -850,6 +867,7 @@ begin
 			#by default does: 
 			# parameters .+= α*δ .* z
 			update_params_with_gradient!(parameters, α*δ, z)
+			regularize_params!(parameters, reg, α)
 			s = s′
 			step += 1
 		end
@@ -900,8 +918,8 @@ md"""
 
 # ╔═╡ 52098913-ea06-497d-afad-a9fef99fb428
 begin
-	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+	function semi_gradient_TDλ_fcann(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real
+		setup = setup_fcann_value_arguments(parameters, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 		
 		!use_gpu && return semi_gradient_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 		
@@ -915,8 +933,8 @@ begin
 		(;output..., parameters = parameters)
 	end
 
-	function semi_gradient_TDλ_fcann(problem::Tuple, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-		setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+	function semi_gradient_TDλ_fcann(problem::Tuple, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real
+		setup = setup_fcann_value_arguments(parameters, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 
 		!use_gpu && return semi_gradient_TDλ!(parameters, problem..., λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 		
@@ -978,10 +996,10 @@ The algorithm below runs semi-gradient TD(λ) for a tabular problem without need
 # ╔═╡ 900760f0-b253-4db7-8c4f-4ca34777198d
 begin
 	#in the case of a tabular problem, this algorithm can be used with a trivial version of the linear algorithm
-	function semi_gradient_TDλ(states::Vector, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real}
-		@assert length(parameters) == length(states)
+	function semi_gradient_TDλ(states::Vector, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::LinearParams{T, 1} = LinearParams(zeros(T, length(states)), [zero(T)]), kwargs...) where {T<:Real}
+		@assert length(parameters.weights) == length(states)
 
-		feature_vector = StateAggregationFeatureVector(length(parameters))
+		feature_vector = StateAggregationFeatureVector(length(parameters.weights))
 
 		#the state representation just stores the index of the state
 		function update_feature_vector!(x::StateAggregationFeatureVector, i_s::Integer)
@@ -1339,7 +1357,7 @@ $\begin{flalign}
 # ╔═╡ 7f8fb89d-1a2e-4acd-9118-2ce3d3874341
 begin
 	#note that this function will modify both parameters and the state representation vector as well as some of the keyword arguments
-	function true_online_TDλ!(parameters::Vector{T}, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation, update_state_representation!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (target - v̂)^2, ∇v̂ = deepcopy(state_representation), z::Vector{T} = copy(parameters), save_episode_steps::Bool = false, kwargs...) where {T<:Real}
+	function true_online_TDλ!(parameters::LinearParams{T}, initialize_state::Function, transition::Function, isterm::Function, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation, update_state_representation!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (target - v̂)^2, ∇v̂ = deepcopy(state_representation), z::LinearParams{T} = copy(parameters), save_episode_steps::Bool = false, kwargs...) where {T<:Real}
 		#initialize records
 		step_rewards = Vector{T}()
 		episode_steps = Vector{Int64}()
@@ -1356,7 +1374,7 @@ begin
 		rtot = zero(T)
 
 		#initialize eligibility vector to 0
-		z .= zero(T)
+		zero_trace!(z)
 		v_old = zero(T)
 	
 		while (ep <= max_episodes) && (step <= max_steps)
@@ -1377,8 +1395,7 @@ begin
 				v̂′ = linear_value_function(state_representation, parameters)
 			end
 
-			
-			z .*= γ*λ
+			decay_trace!(z, γ*λ)
 			c = one(T) - α*γ*λ*linear_value_function(∇v̂, z)
 			update_params_with_gradient!(z, c, ∇v̂)
 			#by default computes this: z .= (γ*λ .* z) .+ (one(T) - α*γ*λ*dot(z, ∇v)) .* ∇v
@@ -1396,7 +1413,7 @@ begin
 				s = initialize_state()
 				update_state_representation!(state_representation, s)
 				#reset eligibility vector to 0 at the start of a new episode
-				z .= zero(T)
+				zero_trace!(z)
 				v_old = zero(T)
 				push!(episode_errors, eperr / epstep)
 				eperr = zero(T)
@@ -1422,7 +1439,7 @@ end
 # ╔═╡ 34a28cfa-bf18-4dcf-8cf4-f6e9031d6fc2
 begin
 	#convenience functions for calling true online algorithm on an MDP+policy or MRP problem
-	true_online_TDλ(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::LinearFeatureVector, update_state_representation!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(state_representation, init_value), kwargs...) where T<:Real = true_online_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, state_representation, update_state_representation!; kwargs...)
+	true_online_TDλ(problem::Tuple, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, state_representation::LinearFeatureVector, update_state_representation!::Function; init_value::T = zero(T), parameters::LinearParams{T, 1} = initialize_linear_parameters(state_representation, init_value), kwargs...) where T<:Real = true_online_TDλ!(parameters, problem..., γ, λ, max_episodes, max_steps, state_representation, update_state_representation!; kwargs...)
 	
 	true_online_TDλ(mdp::StateMDP, π::Function, args...; kwargs...) = true_online_TDλ((mdp, π), args...; kwargs...)
 	
@@ -1432,10 +1449,10 @@ end
 # ╔═╡ d1903e34-0463-4a63-a74b-fb827451e542
 begin
 	#in the case of a tabular problem, this algorithm can be used with a trivial version of the linear algorithm
-	function true_online_TDλ(states::Vector, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::Vector{T} = zeros(T, length(states)), kwargs...) where {T<:Real}
-		@assert length(parameters) == length(states)
+	function true_online_TDλ(states::Vector, initialize_state_index::Function, transition::Function, terminal_states::BitVector, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; parameters::LinearParams{T, 1} = LinearParams(zeros(T, length(states)), zeros(T, 1)), kwargs...) where {T<:Real}
+		@assert length(parameters.weights) == length(states)
 
-		feature_vector = StateAggregationFeatureVector(length(parameters))
+		feature_vector = StateAggregationFeatureVector(length(parameters.weights))
 
 		#the state representation just stores the index of the state
 		function update_feature_vector!(x::StateAggregationFeatureVector, i_s::Integer)
@@ -1553,7 +1570,7 @@ end
 # ╔═╡ 58ea2a87-3a8c-4fa3-877e-b1aa4b0ba36f
 begin
 	#accumulating traces just add the gradient to z
-	update_trace_with_gradient!(z::Union{Array{T, N}, FCANNParams{T}}, ∇, ::AccumulatingTrace) where {T<:Real, N} = update_params_with_gradient!(z, one(T), ∇)
+	update_trace_with_gradient!(z::Union{Array{T}, LinearParams{T}, FCANNParams{T}}, ∇, ::AccumulatingTrace) where {T<:Real} = update_params_with_gradient!(z, one(T), ∇)
 	update_trace_with_gradient!(z::FCANNParamsGPU, ∇, ::AccumulatingTrace) = update_params_with_gradient!(z, 1f0, ∇)
 
 	#the first step to a dutch trace is to apply the accumulating trace
@@ -1573,6 +1590,11 @@ begin
 		return z
 	end
 
+	function update_trace_with_gradient!(z::LinearParams{T, 1}, ∇::Union{BinaryFeatureVector, StateAggregationFeatureVector}, tr::ReplacingTrace) where T<:Real
+		update_trace_with_gradient!(z.weights, ∇, tr)
+		z.biases .= one(T)
+	end
+
 	function update_trace_with_gradient!(z::Matrix{T}, ∇::LinearActionValueGradient{I, V}, ::ReplacingTrace) where {T<:Real, I<:Integer, V<:BinaryFeatureVector}
 		for i in 1:∇.action_gradient.num_features
 			j = ∇.action_gradient.active_features[i]
@@ -1586,9 +1608,15 @@ begin
 		return z
 	end
 
-	update_trace_with_gradient!(z::Vector{T}, ∇q̂::Vector{T}, ::ReplacingTrace) where {T<:Real} = error("Attempting to use replacing trace with non-binary features")
+	function update_trace_with_gradient!(z::LinearParams{T, 2}, ∇::LinearActionValueGradient{I, V}, tr::ReplacingTrace) where {T<:Real, I<:Integer, V<:Union{BinaryFeatureVector, StateAggregationFeatureVector}}
+		update_trace_with_gradient!(z.weights, ∇, tr)
+		z.biases[∇.action_index] = one(T)
+		return z
+	end
 
-	update_trace_with_gradient!(z::Matrix{T}, ∇q̂::LinearActionValueGradient{I, V}, ::ReplacingTrace) where {T<:Real, I<:Integer, V<:Vector{T}} = error("Attempting to use replacing trace with non-binary features")
+	update_trace_with_gradient!(z, ∇q̂::Vector{T}, ::ReplacingTrace) where {T<:Real} = error("Attempting to use replacing trace with non-binary features")
+
+	update_trace_with_gradient!(z, ∇q̂::LinearActionValueGradient{I, V}, ::ReplacingTrace) where {T<:Real, I<:Integer, V<:Vector{T}} = error("Attempting to use replacing trace with non-binary features")
 
 	update_trace_with_gradient!(z::FCANNParams{T}, ∇::FCANNParams{T}, ::ReplacingTrace) where {T<:Real} = error("Attempting to use replacing trace with non-linear approximation")
 	update_trace_with_gradient!(z::FCANNParamsGPU, ∇::FCANNParamsGPU, ::ReplacingTrace) = error("Attempting to use replacing trace with non-linear approximation")
@@ -1629,7 +1657,7 @@ md"""
 """
 
 # ╔═╡ 9c8765f5-0101-47e3-8780-65c197c14d6b
-function dp_λ!(parameters, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real}
+function dp_λ!(parameters, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), reg::Regularizer = NoOpReg(), kwargs...) where {T<:Real}
 	#initialize records
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
@@ -1658,6 +1686,7 @@ function dp_λ!(parameters, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTrans
 		
 		decay *= (step > decay_step)*α_decay + (step <= decay_step)
 		update_params_with_gradient!(parameters, α*decay*δ, z)
+		regularize_params!(parameters, reg, α)
 
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
@@ -1780,7 +1809,7 @@ function form_value_function(mdp::TabularMDP, parameters::Matrix{T}) where T<:Re
 end
 
 # ╔═╡ b320dc0e-95dc-44d5-8ee4-455c4a858835
-function sarsa_λ!(parameters::P, mdp::StateMDP{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+function sarsa_λ!(parameters::P, mdp::StateMDP{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), reg::Regularizer = NoOpReg(), kwargs...) where {T<:Real, P}
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
@@ -1837,6 +1866,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, γ::T, λ::T, max_episodes::
 		decay *= (step > decay_step)*α_decay + (step <= decay_step)
 
 		update_params_with_gradient!(parameters, α*decay*δ, z)
+		regularize_params!(parameters, reg, α)
 
 		save_parameter_history && push!(parameter_history, copy(parameters))
 		s = s′
@@ -1856,7 +1886,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, γ::T, λ::T, max_episodes::
 end
 
 # ╔═╡ 3df4cd98-f754-4eca-8e16-e654576e283d
-function sarsa_λ!(parameters::P, mdp::StateMDP{T}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_r̄::T = one(T)/10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+function sarsa_λ!(parameters::P, mdp::StateMDP{T}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, update_action_values!::Function, ∇q̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, α_r̄::T = one(T)/10, z::P = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), reg::Regularizer = NoOpReg(), kwargs...) where {T<:Real, P}
 	#initialize records
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
@@ -1905,6 +1935,7 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, λ::T, num_steps::Integer, f
 		decay *= (step > decay_step)*α_decay + (step <= decay_step)
 
 		update_params_with_gradient!(parameters, α*decay*δ, z)
+		regularize_params!(parameters, reg, α)
 
 		s = s′
 		i_a = i_a′
@@ -1920,13 +1951,13 @@ function sarsa_λ!(parameters::P, mdp::StateMDP{T}, λ::T, num_steps::Integer, f
 end
 
 # ╔═╡ efa11915-d86b-4686-85f9-84d7539e27cf
-sarsa_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(copy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+sarsa_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(copy(feature_vector), 0), update_linear_action_value_gradient!; kwargs...)
 
 # ╔═╡ fc9149ee-6d28-41b5-ab47-2c2a36e7a8d1
-sarsa_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(copy(feature_vector), 0), update_linear_value_gradient!; kwargs...)
+sarsa_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where T<:Real = sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, update_linear_action_values!, LinearActionValueGradient(copy(feature_vector), 0), update_linear_action_value_gradient!; kwargs...)
 
 # ╔═╡ c7caa90d-26bf-4179-b869-3385cb75b943
-function sarsa_λ(mdp::TabularMDP{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real}
+function sarsa_λ(mdp::TabularMDP{T}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real}
 	function update_feature_vector!(v, s)
 		i_s = mdp.state_index[s]
 		v.group_index = i_s
@@ -1937,7 +1968,7 @@ function sarsa_λ(mdp::TabularMDP{T}, γ::T, λ::T, max_episodes::Integer, max_s
 end
 
 # ╔═╡ 58739629-eff4-416a-b133-85ab5ec563fc
-function sarsa_λ(mdp::TabularMDP{T}, λ::T, num_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real}
+function sarsa_λ(mdp::TabularMDP{T}, λ::T, num_steps::Integer; feature_vector = StateAggregationFeatureVector(length(mdp.states)), init_value::T = zero(T), parameters::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real}
 	function update_feature_vector!(v, s)
 		i_s = mdp.state_index[s]
 		v.group_index = i_s
@@ -1948,17 +1979,22 @@ function sarsa_λ(mdp::TabularMDP{T}, λ::T, num_steps::Integer; feature_vector 
 end
 
 # ╔═╡ 2c8beba6-4436-4603-88f2-20f847c5e916
+# ╠═╡ skip_as_script = true
+#=╠═╡
 function test_sarsa_λ(; kwargs...)
 	mdp = make_stochastic_gridworld(;stepreward = -1f0, termreward = 0f0)
 	sarsa_λ(mdp, 1f0, -.5f0, 10, 10000; kwargs...)
 end
+  ╠═╡ =#
 
 # ╔═╡ 84d71a29-7e38-4877-bfb8-57d4af2ec0d0
+#=╠═╡
 test_sarsa_λ()
+  ╠═╡ =#
 
 # ╔═╡ 84870ff4-d7a5-4214-abcb-3d74b7a8fe7b
-function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real 
+	setup = setup_fcann_action_value_arguments(parameters, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return sarsa_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -1972,8 +2008,8 @@ function sarsa_λ_fcann(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_
 end
 
 # ╔═╡ 747700de-0a87-4ac9-a9cd-0bc11721836e
-function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real 
-	setup = setup_fcann_action_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real 
+	setup = setup_fcann_action_value_arguments(parameters, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return sarsa_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.update_action_values!, setup.gradient, setup.update_value_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -1987,7 +2023,7 @@ function sarsa_λ_fcann(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector
 end
 
 # ╔═╡ 4cab7b59-f080-4bea-86dc-3c860a618c35
-function dp_λ!(parameters::P, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), kwargs...) where {T<:Real, P}
+function dp_λ!(parameters::P, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, ϵ = one(T) / 10, z::P = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, trace_type::AbstractEligibilityTrace = AccumulatingTrace(), α_decay::T = one(T), decay_step::Integer = typemax(Int64), reg::Regularizer = NoOpReg(), kwargs...) where {T<:Real, P}
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
@@ -2018,6 +2054,7 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTr
 		
 		decay *= (step > decay_step)*α_decay + (step <= decay_step)
 		update_params_with_gradient!(parameters, α*decay*δ, z)
+		regularize_params!(parameters, reg, α)
 
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
@@ -2052,10 +2089,10 @@ function dp_λ!(parameters::P, mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTr
 end
 
 # ╔═╡ 258be19f-0b01-4d5e-ae82-2ef07ba4cc9c
-dp_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
+dp_λ_linear(mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ c3fb9a00-3aa0-43e5-98c8-306441166cc4
-dp_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
+dp_λ_linear(mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ da6944b0-1d1b-4b92-a765-5e28c133cff5
 function test_dp_λ(; kwargs...)
@@ -2073,8 +2110,8 @@ test_dp_λ()
   ╠═╡ =#
 
 # ╔═╡ 5f623b73-4d7d-4c69-acaf-9a668c352bf9
-function dp_λ_fcann(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function dp_λ_fcann(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real} 
+	setup = setup_fcann_value_arguments(parameters, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return dp_λ!(parameters, mdp, γ, λ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -2087,8 +2124,8 @@ function dp_λ_fcann(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDi
 end
 
 # ╔═╡ c5ae58b0-6f89-476a-8a72-9bb1cfd1a6be
-function dp_λ_fcann(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
-	setup = setup_fcann_value_arguments(parameters, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function dp_λ_fcann(mdp::StateMDP{T, <:Any, <:Any, <:Union{StateMDPTransitionDistribution, StateMDPTransitionDeterministic}}, λ::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, parameters::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where {T<:Real} 
+	setup = setup_fcann_value_arguments(parameters, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return dp_λ!(parameters, mdp, λ, num_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -2211,13 +2248,13 @@ begin
 	end
 
 	#true online sarsaλ for linear features
-	function true_online_sarsa_λ!(parameters::Matrix{T}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::Matrix{T} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, kwargs...) where {T<:Real}
+	function true_online_sarsa_λ!(parameters::LinearParams{T, 2}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::LinearParams{T, 2} = copy(parameters), action_values::Vector{T} = zeros(T, length(mdp.actions)), compute_value::Function = compute_sarsa_value, save_parameter_history::Bool = false, kwargs...) where {T<:Real}
 		policy = copy(action_values)
 		
 		#initialize records
 		episode_rewards = Vector{T}()
 		episode_steps = Vector{Int64}()
-		parameter_history = Vector{Matrix{T}}()
+		parameter_history = Vector{LinearParams{T, 2}}()
 	
 		#initialize episode
 		s = initialize_state(mdp)
@@ -2226,7 +2263,7 @@ begin
 		policy .= action_values
 		make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 		i_a = sample_action(policy)
-		z .= zero(T)
+		zero_trace!(z)
 		q_old = zero(T)
 		ep = 1
 		step = 1
@@ -2238,7 +2275,7 @@ begin
 			#represents the portion of the eligibility trace update that depends on the current feature vector
 			dt =  one(T) - α*γ*λ*linear_action_value_function(feature_vector, i_a, z)
 
-			z .*= γ*λ
+			decay_trace!(z, γ*λ)
 
 			update_params_with_gradient!(z, dt, feature_vector, i_a)
 
@@ -2265,7 +2302,8 @@ begin
 			
 			δ = r + γ*q′ - q
 
-			parameters .+= α*(δ + q - q_old) .* z
+			parameters.weights .+= α*(δ + q - q_old) .* z.weights
+			parameters.biases .+= α*(δ + q - q_old) .* z.biases
 
 			save_parameter_history && push!(parameter_history, copy(parameters))
 			
@@ -2303,14 +2341,14 @@ end
 
 # ╔═╡ ded7c8e0-f44c-44c9-afad-070d325c180b
 #true online dp λ for linear features
-function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), save_parameter_history::Bool = false, kwargs...) where {T<:Real}
+function true_online_dp_λ!(parameters::LinearParams{T, 1}, mdp::StateMDP, γ::T, λ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, ϵ = one(T) / 10, z::LinearParams{T, 1} = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), save_parameter_history::Bool = false, kwargs...) where {T<:Real}
 	policy = zeros(T, length(mdp.actions))
 	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 	
 	#initialize records
 	episode_rewards = Vector{T}()
 	episode_steps = Vector{Int64}()
-	parameter_history = Vector{Vector{T}}()
+	parameter_history = Vector{LinearParams{T, 1}}()
 	
 	#initialize episode
 	s = initialize_state(mdp)
@@ -2318,7 +2356,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 	policy .= action_values
 	make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 	i_a = sample_action(policy)
-	z .= zero(T)
+	zero_trace!(z)
 	v_old = zero(T)
 	ep = 1
 	step = 1
@@ -2329,7 +2367,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 		v = linear_value_function(feature_vector, parameters)
 		#represents the portion of the eligibility trace update that depends on the current feature vector
 		dt =  one(T) - α*γ*λ*linear_value_function(feature_vector, z)
-		z .*= γ*λ
+		decay_trace!(z, γ*λ)
 		update_params_with_gradient!(z, dt, feature_vector)
 		update_params_with_gradient!(parameters, -α*(v - v_old), feature_vector)
 		
@@ -2353,12 +2391,13 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, γ::T, λ::T, 
 			v′ = linear_value_function(feature_vector, parameters)
 		end
 
-		parameters .+= α*(δ + v - v_old) .* z
+		parameters.weights .+= α*(δ + v - v_old) .* z.weights
+		parameters.biases .+= α*(δ + v - v_old) .* z.biases
 
 		if terminated
 			s′ = initialize_state(mdp)
 			#reset eligibility vector to 0 at the start of a new episode
-			z .= zero(T)
+			zero_trace!(z)
 			ep += 1
 			push!(episode_rewards, rtot)
 			push!(episode_steps, step)
@@ -2378,7 +2417,7 @@ end
 
 # ╔═╡ b1ae33a5-272f-43de-b9e2-eaa0423c34b8
 #true online dp λ for linear features
-function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z::Vector{T} = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), kwargs...) where {T<:Real}
+function true_online_dp_λ!(parameters::LinearParams{T, 1}, mdp::StateMDP, λ::T, num_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; α = one(T)/10, α_r̄::T = one(T)/10, ϵ = one(T) / 10, z::LinearParams{T, 1} = copy(parameters), action_values::Matrix{T} = zeros(T, length(mdp.actions), 1), kwargs...) where {T<:Real}
 	policy = zeros(T, length(mdp.actions))
 	action_value_args = form_action_value_args(mdp, feature_vector, parameters)
 	
@@ -2394,7 +2433,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 	policy .= action_values
 	make_ϵ_greedy_policy!(policy, s; ϵ = ϵ, is_valid_action = mdp.is_valid_action)
 	i_a = sample_action(policy)
-	z .= zero(T)
+	zero_trace!(z)
 	v_old = zero(T)
 
 	
@@ -2403,7 +2442,7 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 		v = linear_value_function(feature_vector, parameters)
 		#represents the portion of the eligibility trace update that depends on the current feature vector
 		dt =  one(T) - α*λ*linear_value_function(feature_vector, z)
-		z .*= λ
+		decay_trace!(z, λ)
 		update_params_with_gradient!(z, dt, feature_vector)
 		update_params_with_gradient!(parameters, -α*(v - v_old), feature_vector)
 		average_reward_history[step] = r̄
@@ -2426,7 +2465,8 @@ function true_online_dp_λ!(parameters::Vector{T}, mdp::StateMDP, λ::T, num_ste
 		update_feature_vector!(feature_vector, s′)
 		v′ = linear_value_function(feature_vector, parameters)
 
-		parameters .+= α*(δ + v - v_old) .* z
+		parameters.weights .+= α*(δ + v - v_old) .* z.weights
+		parameters.biases .+= α*(δ + v - v_old) .* z.biases
 			
 		s = s′
 		v_old = v′
@@ -3573,7 +3613,7 @@ end
 
 # ╔═╡ d0e96989-c165-48d6-ba4b-4eab05fcb638
 #=╠═╡
-const cartpole_fcann_λ_best = run_cartpole_fcann(.14f0, 0.0f0; algo = dp_λ_fcann, layers = fill(4, 4), num_steps = 100_000)
+const cartpole_fcann_λ_best = run_cartpole_fcann(.14f0, 0.0f0; algo = dp_λ_fcann, layers = fill(8, 4), num_steps = 100_000)
   ╠═╡ =#
 
 # ╔═╡ 993f8193-7488-415d-85d5-9a7a83f6bf71
@@ -3684,7 +3724,7 @@ const gridworld_true_online_sarsaλ_study = setup_parameter_study(gridworld_true
 #=╠═╡
 function display_gridworld_sarsaλ_parameter_study(steps::Integer, nruns::Integer; λ_list = [0f0, 0.5f0, 0.6f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
 	value_iteration_output = value_iteration_v(gridworld_mdp, 1f0; show_message = false)
-	best_steps = abs(value_iteration_output.final_value[gridworld_mdp.initialize_state_index()])
+	best_steps = abs(value_iteration_output.final_value[gridworld_mdp.initialize_state_index])
 	traces = [begin 
 		output = [gridworld_sarsaλ_study.update_results!(λ, α; steps = steps, num_trials = nruns, kwargs...) for α in α_list]
 		scatter(x = α_list, y = output, name = "λ = $λ")
@@ -3707,7 +3747,7 @@ display_gridworld_sarsaλ_parameter_study(10_000, 50; ϵ = 0.01f0, computer_valu
 #=╠═╡
 function display_gridworld_true_online_sarsaλ_parameter_study(steps::Integer, nruns::Integer; λ_list = [0f0, 0.5f0, 0.6f0, 0.7f0, 0.8f0, 0.9f0, 0.99f0], α_list = Base.LogRange(0.1f0, 1f0, 10), kwargs...)
 	value_iteration_output = value_iteration_v(gridworld_mdp, 1f0; show_message = false)
-	best_steps = abs(value_iteration_output.final_value[gridworld_mdp.initialize_state_index()])
+	best_steps = abs(value_iteration_output.final_value[initialize_state_index(gridworld_mdp)])
 	traces = [begin 
 		output = [gridworld_true_online_sarsaλ_study.update_results!(λ, α; steps = steps, num_trials = nruns, kwargs...) for α in α_list]
 		scatter(x = α_list, y = output, name = "λ = $λ")
@@ -3760,7 +3800,7 @@ HTML("""
 function show_grid_probabilities(states, terminds::BitVector, state_init, μ::Vector, name; scale = 1.0, title = "", sigdigits = 2, square_pixels = 20, highlight_state_index = 0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
-	start = states[state_init()]
+	start = states[state_init]
 	sterms = any(terminds) ? states[terminds] : [GridworldState(0, 0)]
 	ngrid = width*height
 
@@ -3827,7 +3867,7 @@ end
 function show_grid_value(states, terminds::BitVector, state_init, Q, name; scale = 1.0, title = "", sigdigits = 2, square_pixels = 20, highlight_state_index = 0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
-	start = states[state_init()]
+	start = states[state_init]
 	sterms = any(terminds) ? states[terminds] : [GridworldState(0, 0)]
 	ngrid = width*height
 
@@ -3930,7 +3970,7 @@ const rook_action_display = @htl("""
 #=╠═╡
 function show_grid_transitions(states, terminds, state_init, name; scale = 1.0, title = "", action_display = rook_action_display, highlight_state = GridworldState(1, 1), transition_states::Dict{GridworldState, Float32} = Dict([GridworldState(1, 2) => 1f0]), reward_values = [(p = 1f0, r = 0f0)], width = maximum(s.x for s in states), wind = zeros(Int64, width), square_pixels = 30)
 	height = maximum(s.y for s in states)
-	start = states[state_init()]
+	start = states[state_init]
 	sterms = states[terminds]
 	ngrid = width*height
 
@@ -3999,7 +4039,7 @@ end
 function show_grid_policy(states, state_init, terminds, π, name; display_function = display_rook_policy, action_display = rook_action_display, scale = 1.0)
 	width = maximum(s.x for s in states)
 	height = maximum(s.y for s in states)
-	start = states[state_init()]
+	start = states[state_init]
 	sterms = any(terminds) ? states[terminds] : [GridworldState(0, 0)]
 	ngrid = width*height
 	@htl("""
@@ -4201,7 +4241,7 @@ show_gridworld_exact_solution(gridworld_mdp; show_message = false)
 #=╠═╡
 function show_gridworld_sarsaλ_solution(mdp, λ, episodes; kwargs...)
 	output = sarsa_λ(mdp, 1f0, λ, episodes, typemax(Int64); kwargs...)
-	greedy_policy = TabularRL.make_greedy_policy(output.final_parameters' |> collect)
+	greedy_policy = TabularRL.make_greedy_policy(output.final_parameters.weights' |> collect)
 	
 	@htl("""
 	<div style = "display: flex">
@@ -4379,37 +4419,32 @@ HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+ProfileCanvas = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 
 [compat]
-BenchmarkTools = "~1.6.3"
-HypertextLiteral = "~0.9.5"
-LaTeXStrings = "~1.4.0"
-PlutoDevMacros = "~0.9.1"
-PlutoPlotly = "~0.6.5"
-PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.73"
+BenchmarkTools = "~1.8.0"
+HypertextLiteral = "~1.0.0"
+LaTeXStrings = "~1.4.1"
+PlutoDevMacros = "~0.9.2"
+PlutoPlotly = "~0.6.6"
+PlutoUI = "~0.7.83"
+ProfileCanvas = "~0.1.7"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
-manifest_format = "2.0"
-project_hash = "3d1178c7404f262152d31e2855f70e2a3293599d"
+julia_version = "1.13.2"
+manifest_format = "2.1"
+project_hash = "0541ab5aafb5779fe45de2a6c88a720c1b5da587"
 
 [[deps.AbstractPlutoDingetjes]]
-deps = ["Pkg"]
-git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+git-tree-sha1 = "6c3913f4e9bdf6ba3c08041a446fb1332716cbc2"
+registries = "General"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.3.2"
-
-[[deps.AbstractTrees]]
-git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
-uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
-version = "0.3.4"
+version = "1.4.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -4424,34 +4459,43 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
 [[deps.BenchmarkTools]]
-deps = ["Compat", "JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "7fecfb1123b8d0232218e2da0c213004ff15358d"
+deps = ["Compat", "JSON", "Logging", "PrecompileTools", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "9670d3febc2b6da60a0ae57846ba74670290653f"
+registries = "General"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.6.3"
+version = "1.8.0"
 
 [[deps.CodeTracking]]
-deps = ["InteractiveUtils", "UUIDs"]
-git-tree-sha1 = "980f01d6d3283b3dbdfd7ed89405f96b7256ad57"
+deps = ["InteractiveUtils", "REPL", "UUIDs"]
+git-tree-sha1 = "cfb7a2e89e245a9d5016b70323db412b3a7438d5"
+registries = "General"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
-version = "2.0.1"
+version = "3.0.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
 git-tree-sha1 = "b0fd3f56fa442f81e0a47815c92245acfaaa4e34"
+registries = "General"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 version = "3.31.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
-git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
+git-tree-sha1 = "6eaa7ad1a86c07e4917f9e67dca60e98d224a43d"
+registries = "General"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
-version = "0.11.5"
+version = "0.12.2"
+weakdeps = ["StyledStrings"]
+
+    [deps.ColorTypes.extensions]
+    StyledStringsExt = "StyledStrings"
 
 [[deps.ColorVectorSpace]]
 deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
-git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
+git-tree-sha1 = "8b3b6f87ce8f65a2b4f857528fd8d70086cd72b1"
+registries = "General"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
-version = "0.10.0"
+version = "0.11.0"
 
     [deps.ColorVectorSpace.extensions]
     SpecialFunctionsExt = "SpecialFunctions"
@@ -4461,13 +4505,15 @@ version = "0.10.0"
 
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
-git-tree-sha1 = "362a287c3aa50601b0bc359053d5c2468f0e7ce0"
+git-tree-sha1 = "37ea44092930b1811e666c3bc38065d7d87fcc74"
+registries = "General"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
-version = "0.12.11"
+version = "0.13.1"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
 git-tree-sha1 = "9d8a54ce4b17aa5bdce0ea5c34bc5e7c340d16ad"
+registries = "General"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
 version = "4.18.1"
 weakdeps = ["Dates", "LinearAlgebra"]
@@ -4478,7 +4524,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.3.0+1"
+version = "1.5.5+2"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -4488,11 +4534,13 @@ version = "1.11.0"
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
+registries = "General"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
+registries = "General"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 version = "0.9.5"
 
@@ -4501,60 +4549,42 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.7.0"
 
-[[deps.FileIO]]
-deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "d60eb76f37d7e5a40cc2e7c36974d864b82dc802"
-uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.17.1"
-
-    [deps.FileIO.extensions]
-    HTTPExt = "HTTP"
-
-    [deps.FileIO.weakdeps]
-    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
-deps = ["Statistics"]
-git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+deps = ["Random", "Statistics"]
+git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
+registries = "General"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
-version = "0.8.5"
-
-[[deps.FlameGraphs]]
-deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
-git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
-uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
-version = "0.2.10"
+version = "0.8.6"
 
 [[deps.HashArrayMappedTries]]
 git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
+registries = "General"
 uuid = "076d061b-32b6-4027-95e0-9a2c6f6d7e74"
 version = "0.2.0"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
+registries = "General"
 uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
 version = "0.0.5"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
-git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+git-tree-sha1 = "d1a86724f81bcd184a38fd284ce183ec067d71a0"
+registries = "General"
 uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.5"
+version = "1.0.0"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
 git-tree-sha1 = "0ee181ec08df7d7c911901ea38baf16f755114dc"
+registries = "General"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "1.0.0"
-
-[[deps.IndirectArrays]]
-git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
-uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
 [[deps.InteractiveUtils]]
@@ -4563,16 +4593,24 @@ uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
 
 [[deps.JSON]]
-deps = ["Dates", "Mmap", "Parsers", "Unicode"]
-git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
+deps = ["Dates", "Logging", "Parsers", "PrecompileTools", "StructUtils", "UUIDs", "Unicode"]
+git-tree-sha1 = "4657a834b01ce00f2b94546095c4350617b9af2c"
+registries = "General"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
-version = "0.21.4"
+version = "1.10.0"
+
+    [deps.JSON.extensions]
+    JSONArrowExt = ["ArrowTypes"]
+
+    [deps.JSON.weakdeps]
+    ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "277779adfedf4a30d66b64edc75dc6bb6d52a16e"
+git-tree-sha1 = "58927c485919bf17ea308d9d82156de1adf4b006"
+registries = "General"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.10.6"
+version = "0.10.12"
 
 [[deps.JuliaSyntaxHighlighting]]
 deps = ["StyledStrings"]
@@ -4580,25 +4618,20 @@ uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
 
 [[deps.LaTeXStrings]]
-git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
+git-tree-sha1 = "f88f3ccef05a6a72a0cf0ed417c8fd68530f4ab2"
+registries = "General"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-version = "1.4.0"
-
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.1.3"
+version = "1.4.1"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "1.0.0"
 
 [[deps.LibCURL_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "Zstd_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.15.0+0"
+version = "8.22.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -4606,14 +4639,14 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 version = "1.11.0"
 
 [[deps.LibGit2_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.9.0+0"
+version = "1.9.7+0"
 
 [[deps.LibSSH2_jll]]
-deps = ["Artifacts", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "OpenSSL_jll", "Zlib_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.3+1"
+version = "1.11.104+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -4622,7 +4655,7 @@ version = "1.11.0"
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-version = "1.12.0"
+version = "1.13.0"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -4630,11 +4663,13 @@ version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
+registries = "General"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "1.1.0"
 
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
+registries = "General"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.16"
 
@@ -4649,7 +4684,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.11.4"
+version = "2026.8.13"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -4658,34 +4693,42 @@ version = "1.3.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.29+0"
+version = "0.3.30+0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.4+0"
+version = "3.5.8+0"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
+git-tree-sha1 = "94ba93778373a53bfd5a0caaf7d809c445292ff4"
+registries = "General"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.8.1"
+version = "1.8.2"
+
+[[deps.PCRE2_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
+version = "10.46.0+0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
 git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+registries = "General"
 uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 version = "0.12.3"
 
 [[deps.Parsers]]
-deps = ["Dates", "PrecompileTools", "UUIDs"]
-git-tree-sha1 = "7d2f8f21da5db6a806faf7b9b292296da42b2810"
+deps = ["Dates", "PrecompileTools"]
+git-tree-sha1 = "663e8b48b789916221e0765393b289ca6c88f24e"
+registries = "General"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.8.3"
+version = "3.0.0"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "Zstd_jll", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.1"
+version = "1.13.0"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -4693,9 +4736,10 @@ weakdeps = ["REPL"]
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Colors", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
-git-tree-sha1 = "28278bb0053da0fd73537be94afd1682cc5a0a83"
+git-tree-sha1 = "6256ab3ee24ef079b3afa310593817e069925eeb"
+registries = "General"
 uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
-version = "0.8.21"
+version = "0.8.23"
 
     [deps.PlotlyBase.extensions]
     DataFramesExt = "DataFrames"
@@ -4711,15 +4755,17 @@ version = "0.8.21"
 
 [[deps.PlutoDevMacros]]
 deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
-git-tree-sha1 = "1cb861c9295d79dc6e23170d4b33bce013f69643"
+git-tree-sha1 = "709c36a806ec0af91840184f3052bb3c6cc60915"
+registries = "General"
 uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
-version = "0.9.1"
+version = "0.9.2"
 
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "Artifacts", "ColorSchemes", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "PrecompileTools", "Reexport", "ScopedValues", "Scratch", "TOML"]
-git-tree-sha1 = "8acd04abc9a636ef57004f4c2e6f3f6ed4611099"
+git-tree-sha1 = "2b9e3d771adfe535a4fdda855f4741fdaacd3f7f"
+registries = "General"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-version = "0.6.5"
+version = "0.6.6"
 
     [deps.PlutoPlotly.extensions]
     PlotlyKaleidoExt = "PlotlyKaleido"
@@ -4729,29 +4775,26 @@ version = "0.6.5"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.PlutoProfile]]
-deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
-git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
-uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
-version = "0.4.0"
-
 [[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "3faff84e6f97a7f18e0dd24373daa229fd358db5"
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
+git-tree-sha1 = "e189d0623e7ce9c37389bac17e80aac3b0302e75"
+registries = "General"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.73"
+version = "0.7.83"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
-git-tree-sha1 = "07a921781cab75691315adc645096ed5e370cb77"
+git-tree-sha1 = "edbeefc7a4889f528644251bdb5fc9ab5348bc2c"
+registries = "General"
 uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
-version = "1.3.3"
+version = "1.3.4"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "0f27480397253da18fe2c12a4ba4eb9eb208bf3d"
+git-tree-sha1 = "5005266de4bfe50e53ff44a5cb5c540b6e47a254"
+registries = "General"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.5.0"
+version = "1.6.0"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -4764,13 +4807,14 @@ uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 version = "1.11.0"
 
 [[deps.ProfileCanvas]]
-deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
-git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+deps = ["Base64", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "990016fb1508b0726a70039f39569720d054c78d"
+registries = "General"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
-version = "0.1.0"
+version = "0.1.7"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
+deps = ["Base64", "Dates", "FileWatching", "InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 version = "1.11.0"
 
@@ -4781,28 +4825,32 @@ version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+registries = "General"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.Requires]]
 deps = ["UUIDs"]
 git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
+registries = "General"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
-version = "0.7.0"
+version = "1.0.0"
 
 [[deps.ScopedValues]]
 deps = ["HashArrayMappedTries", "Logging"]
-git-tree-sha1 = "c3b2323466378a2ba15bea4b2f73b081e022f473"
+git-tree-sha1 = "67a144433c4ce877ee6d1ada69a124d6b1ecf7be"
+registries = "General"
 uuid = "7e506255-f358-4e82-b7e4-beb19740aa63"
-version = "1.5.0"
+version = "1.6.2"
 
 [[deps.Scratch]]
 deps = ["Dates"]
 git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
+registries = "General"
 uuid = "6c6a2e73-6563-6170-7368-637461726353"
 version = "1.3.0"
 
@@ -4816,15 +4864,35 @@ version = "1.11.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+git-tree-sha1 = "e2b53ce13a53367e96601081e33d34746b571bad"
+registries = "General"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.11.1"
+version = "1.11.5"
 
     [deps.Statistics.extensions]
     SparseArraysExt = ["SparseArrays"]
 
     [deps.Statistics.weakdeps]
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StructUtils]]
+deps = ["Dates", "UUIDs"]
+git-tree-sha1 = "b814d5005d6a529d740ffe06f8a86396f6501138"
+registries = "General"
+uuid = "ec057cc2-7a8d-4b58-b3b3-92acb9f63b42"
+version = "2.9.2"
+
+    [deps.StructUtils.extensions]
+    StructUtilsLazilyInitializedFieldsExt = ["LazilyInitializedFields"]
+    StructUtilsMeasurementsExt = ["Measurements"]
+    StructUtilsStaticArraysCoreExt = ["StaticArraysCore"]
+    StructUtilsTablesExt = ["Tables"]
+
+    [deps.StructUtils.weakdeps]
+    LazilyInitializedFields = "0e77f7df-68c5-4e49-93ce-4cd80f5598bf"
+    Measurements = "eff96d63-e80a-5855-80a2-b1b0885c5ab7"
+    StaticArraysCore = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+    Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
@@ -4843,6 +4911,7 @@ version = "1.10.0"
 [[deps.TensorCore]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
+registries = "General"
 uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
 version = "0.1.1"
 
@@ -4853,13 +4922,15 @@ version = "1.11.0"
 
 [[deps.Tricks]]
 git-tree-sha1 = "311349fd1c93a31f783f977a71e8b062a57d4101"
+registries = "General"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.13"
 
 [[deps.URIs]]
-git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
+git-tree-sha1 = "908fec9df6c5de98548ead82a468c95ccf6cd263"
+registries = "General"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.6.1"
+version = "1.7.0"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -4868,6 +4939,7 @@ version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+registries = "General"
 uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 version = "1.0.2"
 
@@ -4878,7 +4950,12 @@ version = "1.11.0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.3.1+2"
+version = "1.3.2+0"
+
+[[deps.Zstd_jll]]
+deps = ["CompilerSupportLibraries_jll", "Libdl"]
+uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
+version = "1.5.7+1"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -4886,14 +4963,18 @@ uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
 version = "5.15.0+0"
 
 [[deps.nghttp2_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.64.0+1"
+version = "1.70.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.7.0+0"
+version = "17.8.3+0"
+
+[registries.General]
+url = "https://github.com/JuliaRegistries/General.git"
+uuid = "23338594-aafe-5451-b93e-139f81909106"
 """
 
 # ╔═╡ Cell order:

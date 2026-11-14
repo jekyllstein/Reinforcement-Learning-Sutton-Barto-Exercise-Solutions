@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.3
+# v1.1.0
 
 using Markdown
 using InteractiveUtils
@@ -8,13 +8,13 @@ using InteractiveUtils
 using PlutoDevMacros
 
 # ╔═╡ 2e2c7ba4-4b45-4110-8045-9382370d37dd
-using SpecialFunctions, DataFrames, Distributions
+@only_in_nb using SpecialFunctions, DataFrames, Distributions
 
 # ╔═╡ d04d4234-d97f-11ed-2ea3-85ee0fc3bd70
 # ╠═╡ skip_as_script = true
 #=╠═╡
 begin
-	using PlutoUI, PlutoPlotly, LaTeXStrings, PlutoProfile, HypertextLiteral, ProgressLogging, BenchmarkTools
+	using PlutoUI, PlutoPlotly, LaTeXStrings, ProfileCanvas, HypertextLiteral, ProgressLogging, BenchmarkTools
 	TableOfContents()
 end
   ╠═╡ =#
@@ -109,7 +109,7 @@ md"""
 ### *Soft-max Implementation*
 """
 
-# ╔═╡ 33c99850-67cd-4754-94b9-6df97b238e27
+# ╔═╡ 63bbbf94-7797-4fca-8a61-619bc3b7afb1
 function soft_max!(x::AbstractVector{T}, is_valid_action::F, s) where {T<:Real, F}
 	max_val = prevfloat(typemax(T))
 	# Get extrema for valid actions only
@@ -143,6 +143,7 @@ function soft_max!(x::AbstractVector{T}, is_valid_action::F, s) where {T<:Real, 
 	x ./= s
 end
 
+# ╔═╡ b47fa2ef-480a-45b9-9320-af761e09a01b
 function soft_max!(x::AbstractVector{T}) where T<:Real
 	(minx, maxx) = extrema(x)
 
@@ -702,18 +703,24 @@ mutable struct LinearEligibilityVector{T <: Real, V <: LinearFeatureVector} <: A
 	feature_vector::V
 	i_a::Int64
 	π_dist::Vector{T}
+	β::T
+	δ::T
 
-	function LinearEligibilityVector(feature_vector::V, params::Matrix{T}) where {V<:LinearFeatureVector, T<:Real} 
+	function LinearEligibilityVector(feature_vector::V, params::LinearParams{T, 2}) where {V<:LinearFeatureVector, T<:Real} 
 		l1 = length(feature_vector)
-		l2 = size(params, 1)
+		l2 = size(params.weights, 1)
 		@assert l1 == l2 "Feature vector length of $l1 does not match expected input length from parameter matrix of $l2"
-		new{T, V}(copy(feature_vector), 0, zeros(T, size(params, 2)))
+		new{T, V}(copy(feature_vector), 0, zeros(T, size(params.weights, 2)), zero(T), zero(T))
 	end
 end
 
 # ╔═╡ 7ece4dbb-30bc-47fa-8380-479701091533
 #the idea here is to store inside of this everything that the FCANN cost function needs to perform backprop
-struct NonLinearEligibilityVector{T <: Real} <: AbstractEligibilityVector{T}
+mutable struct NonLinearEligibilityVector{T <: Real, V} <: AbstractEligibilityVector{T}
+	# feature_vector::V
+	# i_a::Int
+	# π_dist::Vector{T}
+	# params::FCANNParams{T}
 	gradient::FCANNParams{T}
 	hidden_layers::Vector{Int64}
 	tanh_grad_z::FCANNActivations{T}
@@ -722,14 +729,14 @@ struct NonLinearEligibilityVector{T <: Real} <: AbstractEligibilityVector{T}
 	activation_list::Vector{Bool}
 	scales::Vector{T}
 
-	function NonLinearEligibilityVector(feature_vector, params::FCANNParams{T}; activation_list = fill(true, length(params.weights[1]) - 1), use_μP = true) where T<:Real
+	function NonLinearEligibilityVector(feature_vector::V, params::FCANNParams{T}; activation_list = fill(true, length(params.weights[1]) - 1), use_μP = true) where {V, T<:Real}
 		input_length, hidden_layers, num_hidden = get_network_dimensions(params)
 		@assert input_length == length(feature_vector) "Feature vector length of $(length(feature_vector)) does not match expected input length from network parameters of $input_length"
 		
 		#form activations for network
 		activations = FCANN.form_activations(params.weights[1])
-		tanh_grad_z = copy(activations)
-		deltas = copy(activations)
+		tanh_grad_z = FCANN.form_activations(params.weights[1])
+		deltas = FCANN.form_activations(params.weights[1])
 	
 		gradient = copy(params)
 
@@ -741,7 +748,8 @@ struct NonLinearEligibilityVector{T <: Real} <: AbstractEligibilityVector{T}
 			end
 		end
 		
-		new{T}(gradient, hidden_layers, tanh_grad_z, activations, deltas, activation_list, scales)
+		# new{T, V}(copy(feature_vector), 0, zeros(T, length(params.weights[2][end])), copy(params), gradient, hidden_layers, tanh_grad_z, activations, deltas, activation_list, scales)
+		new{T, V}(gradient, hidden_layers, tanh_grad_z, activations, deltas, activation_list, scales)
 	end
 end	
 
@@ -788,54 +796,24 @@ function cleanup_gpu_eligibility_vector(v::NonLinearGPUEligibilityVector)
 	FCANN.clear_gpu_data(v.deltas)
 end
 
-# ╔═╡ ad9cbe48-98c8-477f-a2ce-49c1778aa385
-begin
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V<:StateAggregationFeatureVector}
-		group_index = ∇lnπ.feature_vector.group_index
-		@inbounds @simd for i_a in eachindex(∇lnπ.π_dist)
-			w[group_index, i_a] -= α*∇lnπ.π_dist[i_a]
-		end
-		w[group_index, ∇lnπ.i_a] += α
-
-		return w
+# ╔═╡ 74d14b31-a3af-433e-a0d2-b2d80595cdb0
+function calculate_entropy(π_dist::Vector{T}) where T <: Real
+	entropy = zero(T)
+	@inbounds @simd for i in eachindex(π_dist)
+		entropy -= π_dist[i] * log(max(π_dist[i], eps(T)))
 	end
-
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V<:BinaryFeatureVector}
-		@inbounds @simd for i in 1:∇lnπ.feature_vector.num_features
-			j = ∇lnπ.feature_vector.active_features[i]
-			w[j, ∇lnπ.i_a] += α
-		end
-		
-		for i_a in eachindex(∇lnπ.π_dist)
-			@inbounds @simd for i in 1:∇lnπ.feature_vector.num_features
-				j = ∇lnπ.feature_vector.active_features[i]
-				w[j, i_a] -= α*∇lnπ.π_dist[i_a]
-			end
-		end
-		return w
-	end
-
-	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V<:Vector{T}}
-		x = ∇lnπ.feature_vector
-		@inbounds @simd for i in eachindex(x)
-			w[i, ∇lnπ.i_a] += α*x[i]
-		end
-		
-		for i_a in eachindex(∇lnπ.π_dist)
-			@inbounds @simd for i in eachindex(x)
-				w[i, i_a] -= α*∇lnπ.π_dist[i_a]*x[i]
-			end
-		end
-		return w
-	end
-
-	update_params_with_gradient!(w::FCANNParams{T}, α::T, ∇lnπ::NonLinearEligibilityVector{T}) where T = update_params_with_gradient!(w, α, ∇lnπ.gradient)
-	update_params_with_gradient!(w::FCANNParamsGPU, α::T, ∇lnπ::NonLinearGPUEligibilityVector{T}) where T = update_params_with_gradient!(w, α, ∇lnπ.gradient)
+	return entropy
 end
+
+# ╔═╡ c3610e58-29d7-4689-87c0-cde1d6496650
+# ╠═╡ skip_as_script = true
+#=╠═╡
+calculate_entropy(ones(Float32, 4) ./ 4)
+  ╠═╡ =#
 
 # ╔═╡ f7232174-8e39-46c4-9374-a39c3c05c3b9
 begin
-	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::Matrix{T}, is_valid_action::F, s) where {T<:Real, F}
+	function update_policy_dist!(policy::Vector{T}, x::LinearFeatureVector, w::LinearParams{T, 2}, is_valid_action::F, s) where {T<:Real, F}
 		maxq, i_a_max = update_linear_action_values!(policy, x, w, is_valid_action, s)
 		soft_max!(policy, is_valid_action, s)
 		return i_a_max
@@ -862,33 +840,43 @@ end
 begin
 	form_policy_args(w::FCANNParams) = (FCANN.form_activations(w.weights[1]),)
 	form_policy_args(w::FCANNParamsGPU) = (FCANN.form_activations(w.weights[1]),)
-	form_policy_args(w::Matrix) = ()
+	form_policy_args(w) = ()
 end
+
+# ╔═╡ 09c27574-5d0b-4d12-9ab9-d2d1dc217734
+#add β to input argument for update eligibility vector and apply it now
+#for nonlinear stuff I can apply the β here and calculate the gradient.  for linear though i'm just calculating the pieces and saving them in the eligibility vector for later so then the gradient update will need to apply the regularization, so that means I do need to save β inside the linear eligibility vector
 
 # ╔═╡ b42c7eb5-9cbe-437a-af4b-c567cfbb3cbd
 begin
-	function update_eligibility_vector!(∇lnπ::LinearEligibilityVector, x::LinearFeatureVector, i_a::Integer, params::Matrix{T}; kwargs...) where T<:AbstractFloat
+	function update_eligibility_vector!(∇lnπ::LinearEligibilityVector, x::LinearFeatureVector, i_a::Integer, δ::T, params::LinearParams{T, 2}, β::T; kwargs...) where T<:AbstractFloat
 		update_linear_action_values!(∇lnπ.π_dist, x, params)
 		soft_max!(∇lnπ.π_dist)
 		update_feature_vector!(∇lnπ.feature_vector, x)
 		∇lnπ.i_a = i_a
+		∇lnπ.β = β
+		∇lnπ.δ = δ
 		return ∇lnπ
 	end
 
-	function update_eligibility_vector!(∇lnπ::NonLinearEligibilityVector{T}, x, i_a::Integer, params::FCANNParams{T}; l2 = zero(T), dropout = zero(T)) where T<:Float32
-		FCANN.nnCostFunction(params.weights..., ∇lnπ.hidden_layers, x, i_a, l2, ∇lnπ.gradient.weights..., ∇lnπ.tanh_grad_z, ∇lnπ.activations, ∇lnπ.deltas, dropout; resLayers = params.reslayers, loss_type = CrossEntropyLoss(), activation_list = ∇lnπ.activation_list)
+	function update_eligibility_vector!(∇lnπ::NonLinearEligibilityVector{T}, x, i_a::Integer, δ::T, params::FCANNParams{T}, β::T; dropout = zero(T)) where T<:Float32
+		
+		FCANN.nnCostFunction(params.weights..., ∇lnπ.hidden_layers, x, i_a, δ, zero(T), ∇lnπ.gradient.weights..., ∇lnπ.tanh_grad_z, ∇lnπ.activations, ∇lnπ.deltas, dropout; resLayers = params.reslayers, loss_type = CrossEntropyLoss(β), activation_list = ∇lnπ.activation_list)
 		scale_fcann_params!(∇lnπ.gradient, ∇lnπ.scales; c = -1*one(T))
-		# @inbounds for i in eachindex(params.weights[1])
-		# 	for j in 1:2
-		# 		∇lnπ.gradient.weights[j][i] .*= -1f0 * ∇lnπ.scales[i]
-		# 	end
-		# end
+
+		#restore distribution from deltas
+		# ∇lnπ.π_dist .= ∇lnπ.deltas[end]
+		# ∇lnπ.π_dist[i_a] += one(T)
+
+		# update_feature_vector!(∇lnπ.feature_vector, x)
+		# ∇lnπ.i_a = i_a	
+		# copy!(∇lnπ.params, params)
 		return ∇lnπ
 	end
 
-	function update_eligibility_vector!(∇lnπ::NonLinearGPUEligibilityVector{T}, d_x::FCANN.CUDAArray, i_a::Integer, params::FCANNParamsGPU; l2 = zero(T), dropout = zero(T)) where T<:Float32
+	function update_eligibility_vector!(∇lnπ::NonLinearGPUEligibilityVector{T}, d_x::FCANN.CUDAArray, i_a::Integer, δ::T, params::FCANNParamsGPU, β::T; dropout = zero(T)) where T<:Float32
 		output_size = ∇lnπ.activations[end].size[1]
-		FCANN.nnCostFunction(params.weights..., d_x.size[1], output_size, ∇lnπ.hidden_layers, ∇lnπ.activations, ∇lnπ.tanh_grad_z, ∇lnπ.deltas, ∇lnπ.gradient.weights..., d_x, i_a, l2, dropout; resLayers = params.reslayers, loss_type = CrossEntropyLoss(), activation_list = ∇lnπ.activation_list)
+		FCANN.nnCostFunction(params.weights..., d_x.size[1], output_size, ∇lnπ.hidden_layers, ∇lnπ.activations, ∇lnπ.tanh_grad_z, ∇lnπ.deltas, ∇lnπ.gradient.weights..., d_x, i_a, δ, zero(T), dropout; resLayers = params.reslayers, loss_type = CrossEntropyLoss(β), activation_list = ∇lnπ.activation_list)
 		scale_fcann_params!(∇lnπ.gradient, ∇lnπ.scales; c = -1*one(T))
 		# @inbounds for i in eachindex(params.weights[1])
 		# 	for j in 1:2
@@ -897,6 +885,9 @@ begin
 		# end
 		return ∇lnπ
 	end
+
+	#when δ and β are not passed as arguments, treat as a gradient calculation with respect to the output only with no regularization.  This is the case when using eligibility traces where we need to accumulate values over time.  We also cannot polute that gradient accumulation with the δs or the regularization terms so the entropy regularization in that case must be done as a separate step after the initial gradient update
+	update_eligibility_vector!(∇lnπ::AbstractEligibilityVector{T}, x, i_a::Integer, params; kwargs...) where {T<:Real} = update_eligibility_vector!(∇lnπ, x, i_a, one(T), params, zero(T); kwargs...)
 end
 
 # ╔═╡ 2dc387cd-56e8-4340-9cc5-0aaa7e51867b
@@ -904,27 +895,27 @@ end
 update_params_with_gradient!(::Nothing, α, ∇) = return nothing
 
 # ╔═╡ 0e9de19e-bcd4-40ac-9831-afb6cad38422
-function setup_fcann_policy_arguments(params::FCANNParams{T}, input_length::Integer, hidden_layers::Vector{Int64}, reslayers::Integer, l2::T, dropout::T, use_μP::Bool, activation_list) where {T<:Real}
-	x = zeros(T, input_length)
-	activations = FCANN.form_activations(params[1])
-	tanh_grad_z = copy(activations)
-	deltas = copy(activations)
-	scales = fill(one(T), length(params[1]))
-	if use_μP
-		for i in eachindex(hidden_layers)
-			i′ = i + 1
-			scales[i′] /= size(params[1][i′], 2)
-		end
-	end	 
+# function setup_fcann_policy_arguments(params::FCANNParams{T}, input_length::Integer, hidden_layers::Vector{Int64}, reslayers::Integer, dropout::T, use_μP::Bool, activation_list) where {T<:Real}
+# 	x = zeros(T, input_length)
+# 	activations = FCANN.form_activations(params[1])
+# 	tanh_grad_z = FCANN.form_activations(params[1])
+# 	deltas = FCANN.form_activations(params[1])
+# 	scales = fill(one(T), length(params[1]))
+# 	if use_μP
+# 		for i in eachindex(hidden_layers)
+# 			i′ = i + 1
+# 			scales[i′] /= size(params[1][i′], 2)
+# 		end
+# 	end	 
 
-	∇lnπ = copy(params)
+# 	∇lnπ = copy(params)
 
-	update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales)
+# 	update_eligibility_vector!(∇lnπ::FCANNParams, action_preferences::Vector{T}, x, i_a, params::FCANNParams, β::T) = update_fcann_eligibility_vector!(∇lnπ, action_preferences, x, i_a, params, hidden_layers, tanh_grad_z, activations, deltas, dropout, reslayers, activation_list, scales)
 	
-	update_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_fcann_action_preferences!(action_preferences, x, params, activations, reslayers)
+# 	update_action_preferences!(action_preferences::Vector{T}, x::Vector{T}, params::FCANNParams) = update_fcann_action_preferences!(action_preferences, x, params, activations, reslayers)
 
-	return (feature_vector = x, params = params, eligibility_vector = ∇lnπ, update_eligibility_vector! = update_eligibility_vector!, update_action_preferences! = update_action_preferences!, scales = scales)
-end
+# 	return (feature_vector = x, params = params, eligibility_vector = ∇lnπ, update_eligibility_vector! = update_eligibility_vector!, update_action_preferences! = update_action_preferences!, scales = scales)
+# end
 
 # ╔═╡ a206c759-3f6e-4003-8cba-5f6ce6742646
 md"""
@@ -970,7 +961,7 @@ These functions use two sets of parameters, one to calculate the policy function
 begin
 	form_state_value_function(feature_vector, update_feature_vector!::Function, parameters::Nothing) = (Returns(nothing), Returns(NamedTuple()))
 	
-	form_state_value_function(feature_vector, update_feature_vector!::Function, parameters::Vector{T}) where {T<:Real} = form_state_value_function(linear_value_function, update_feature_vector!, feature_vector, parameters)
+	form_state_value_function(feature_vector, update_feature_vector!::Function, parameters::LinearParams{T, 1}) where {T<:Real} = form_state_value_function(linear_value_function, update_feature_vector!, feature_vector, parameters)
 	
 	function form_state_value_function(feature_vector, update_feature_vector!::Function, parameters::FCANNParams{T}) where {T<:Real}
 		function v̂(s; feature_vector = copy(feature_vector), value_parameters::FCANNParams = parameters, value_activations = FCANN.form_activations(value_parameters.weights[1]), kwargs...)
@@ -1169,6 +1160,9 @@ begin
 		form_policy_and_value_function(mdp, cpu_feature, update_feature_vector!, policy_parameters, value_parameters)
 	end
 end
+
+# ╔═╡ 4c5b466d-fb61-4f68-9a6a-566f3692e68c
+# I need to handle entropy regularization as a separate gradient update since it should not depend on the δ value.  Need to add to FCANN also a function that just calculatesa gradient with the entropy regularization target and nothing else or I an fix it so the values don't affect it.  Since I calculate the eligibility vector update first, that is a gradient calculation that is intended to be used with the delta value later for the parameter update.  I need to perform the parameter update with that ignoring regularization and then apply it after in a separate pass.  That also applies to other forms of regularization as well since they will also be affected by the δ factor.
 
 # ╔═╡ d29c51f1-6f23-4c73-9d4a-d3d72c07926b
 begin
@@ -2659,9 +2653,175 @@ begin
 	end
 end
 
+# ╔═╡ eda7b706-f57b-4a24-b432-0b45cd3054f6
+begin
+	function entropy_regularize!(policy_params::LinearParams{T, 2}, α_θ::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V <: StateAggregationFeatureVector}
+		β = ∇lnπ.β
+
+		iszero(β) && return policy_params
+		entropy = calculate_entropy(∇lnπ.π_dist)
+		group_index = ∇lnπ.feature_vector.group_index
+		@inbounds @simd for i_a in eachindex(∇lnπ.π_dist)
+			p = ∇lnπ.π_dist[i_a]
+			lp = log(max(p, eps(T)))
+			policy_params.weights[group_index, i_a] -= α_θ*β*p*(entropy+lp)
+			policy_params.biases[i_a] -= α_θ*β*p*(entropy+lp)
+		end
+
+		return policy_params
+	end
+
+	function entropy_regularize!(policy_params::LinearParams{T, 2}, α_θ::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V <: BinaryFeatureVector}
+		β = ∇lnπ.β
+		iszero(β) && return policy_params
+		entropy = calculate_entropy(∇lnπ.π_dist)
+
+		for i_a in eachindex(∇lnπ.π_dist)
+			p = ∇lnπ.π_dist[i_a]
+			lp = log(max(p, eps(T)))
+			x = α_θ*β*p*(entropy+lp)
+			@inbounds @simd for i in 1:∇lnπ.feature_vector.num_features
+				j = ∇lnπ.feature_vector.active_features[i]
+				policy_params.weights[j, i_a] -= x
+			end
+			policy_params.biases[i_a] -= x
+		end
+		
+		return policy_params
+	end
+
+	function entropy_regularize!(policy_params::LinearParams{T, 2}, α_θ::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V <: Vector{T}}
+		β = ∇lnπ.β
+
+		iszero(β) && return policy_params
+		entropy = calculate_entropy(∇lnπ.π_dist)
+		for i_a in eachindex(∇lnπ.π_dist)
+			p = ∇lnπ.π_dist[i_a]
+			lp = log(max(p, eps(T)))
+			x = α_θ*β*p*(entropy+lp)
+			v = ∇lnπ.feature_vector
+			@inbounds @simd for i in eachindex(v)
+				policy_params.weights[i, i_a] -= x*v[i]
+			end
+			policy_params.biases[i_a] -= x
+		end
+		
+		return policy_params
+	end
+
+	function entropy_regularize!(policy_params::LinearParams{T, 2}, x, β::T, α_θ::T, ∇lnπ::LinearEligibilityVector{T}) where T<:Real
+		update_eligibility_vector!(∇lnπ, x, 1, zero(T), policy_params, β) #fills in the policy distribution with the most recent parameters
+		entropy_regularize!(policy_params, α_θ, ∇lnπ)
+	end
+
+	#By setting the δ term in the gradient update to 0 and using a value for β, we can calculate the gradient just for the entropy regularization itself by zeroing out the contribution from the selected action
+	function entropy_regularize!(policy_params::FCANNParams{T}, x, β::T, α_θ::T, ∇lnπ::NonLinearEligibilityVector{T}) where T<:Real
+		iszero(β) && return policy_params
+
+		FCANN.nnCostFunction(policy_params.weights..., ∇lnπ.hidden_layers, x, 1, zero(T), zero(T), ∇lnπ.gradient.weights..., ∇lnπ.tanh_grad_z, ∇lnπ.activations, ∇lnπ.deltas, zero(T); resLayers = policy_params.reslayers, loss_type = CrossEntropyLoss(β), activation_list = ∇lnπ.activation_list)
+		scale_fcann_params!(∇lnπ.gradient, ∇lnπ.scales; c = -1*one(T))
+		update_params_with_gradient!(policy_params, α_θ, ∇lnπ.gradient)
+
+		return policy_params
+		
+		# entropy = calculate_entropy(∇lnπ.π_dist)
+		# @inbounds @simd for i in eachindex(∇lnπ.π_dist)
+		# 	p = ∇lnπ.π_dist[i]
+		# 	lp = log(max(p, eps(T)))
+		# 	  ∇lnπ.deltas[end][i] = -β*p*(entropy+lp)
+		# end
+
+		# #backpropagate deltas to gradients
+		# num_hidden = length(∇lnπ.hidden_layers)
+		# reslayers = policy_params.reslayers
+		# for i in num_hidden:-1:1
+		# 	gemm!('N', 'T', one(T), ∇lnπ.deltas[i+1], ∇lnπ.activations[i], zero(T), ∇lnπ.gradient.weights[1][i+1])
+		# 	copy!(∇lnπ.gradient.weights[2][i+1], ∇lnπ.deltas[i+1])
+		# 	if (reslayers != 0) && ((i <= (num_hidden - reslayers)) && (((i + reslayers - 1) % reslayers) == 0))
+		# 		BLAS.blascopy!(length(∇lnπ.deltas[i]), ∇lnπ.deltas[i+reslayers], 1, ∇lnπ.deltas[i], 1)
+		# 		gemv!('T', one(T), ∇lnπ.params.weights[1][i+1], ∇lnπ.deltas[i+1], one(T), ∇lnπ.deltas[i])
+		# 	else
+		# 		gemv!('T', one(T), ∇lnπ.params.weights[1][i+1], ∇lnπ.deltas[i+1], zero(T), ∇lnπ.deltas[i])
+		# 	end
+		# 	FCANN.finishDelta!(∇lnπ.deltas[i], ∇lnπ.tanh_grad_z[i])
+		# end
+		# gemm!('N', 'T', one(T), ∇lnπ.deltas[1], ∇lnπ.feature_vector, zero(T), ∇lnπ.gradient.weights[1][1])
+		# copy!(∇lnπ.gradient.weights[2][1], ∇lnπ.deltas[1])
+
+		# update_params_with_gradient!(policy_params, α_θ, ∇lnπ.gradient)
+		# return policy_params
+	end	
+
+	function entropy_regularize!(policy_params::FCANNParamsGPU, d_x::FCANN.CUDAArray, β::T, α_θ::T, ∇lnπ::NonLinearGPUEligibilityVector{T}) where T<:Real
+		iszero(β) && return policy_params
+		output_size = ∇lnπ.activations[end].size[1]
+		FCANN.nnCostFunction(policy_params.weights..., d_x.size[1], output_size, ∇lnπ.hidden_layers,  ∇lnπ.activations, ∇lnπ.tanh_grad_z, ∇lnπ.deltas, ∇lnπ.gradient.weights..., d_x, 1, zero(T), zero(T); resLayers = policy_params.reslayers, loss_type = CrossEntropyLoss(β), activation_list = ∇lnπ.activation_list)
+		scale_fcann_params!(∇lnπ.gradient, ∇lnπ.scales; c = -1*one(T))
+		update_params_with_gradient!(policy_params, α_θ, ∇lnπ.gradient)
+		return policy_params
+	end
+end
+
+# ╔═╡ ad9cbe48-98c8-477f-a2ce-49c1778aa385
+begin
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V<:StateAggregationFeatureVector}
+		group_index = ∇lnπ.feature_vector.group_index
+		@inbounds @simd for i_a in eachindex(∇lnπ.π_dist)
+			w[group_index, i_a] -= α*∇lnπ.π_dist[i_a]
+		end
+		w[group_index, ∇lnπ.i_a] += α
+
+		return w
+	end
+
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V<:BinaryFeatureVector}
+		@inbounds @simd for i in 1:∇lnπ.feature_vector.num_features
+			j = ∇lnπ.feature_vector.active_features[i]
+			w[j, ∇lnπ.i_a] += α
+		end
+		
+		for i_a in eachindex(∇lnπ.π_dist)
+			@inbounds @simd for i in 1:∇lnπ.feature_vector.num_features
+				j = ∇lnπ.feature_vector.active_features[i]
+				w[j, i_a] -= α*∇lnπ.π_dist[i_a]
+			end
+		end	
+		return w
+	end
+
+	function update_params_with_gradient!(w::Matrix{T}, α::T, ∇lnπ::LinearEligibilityVector{T, V}) where {T<:Real, V<:Vector{T}}
+		x = ∇lnπ.feature_vector
+		@inbounds @simd for i in eachindex(x)
+			w[i, ∇lnπ.i_a] += α*x[i]
+		end
+		
+		for i_a in eachindex(∇lnπ.π_dist)
+			@inbounds @simd for i in eachindex(x)
+				w[i, i_a] -= α*∇lnπ.π_dist[i_a]*x[i]
+			end
+		end
+		return w
+	end
+
+	function update_params_with_gradient!(params::LinearParams{T, 2}, α::T, ∇lnπ::LinearEligibilityVector{T}) where T <: Real
+		w = params.weights
+		b = params.biases
+		c = α * ∇lnπ.δ
+		update_params_with_gradient!(w, c, ∇lnπ)
+		b .-= c .* ∇lnπ.π_dist
+		b[∇lnπ.i_a] += c
+
+		entropy_regularize!(params, α, ∇lnπ)
+		return params
+	end
+
+	update_params_with_gradient!(w::FCANNParams{T}, α::T, ∇lnπ::NonLinearEligibilityVector{T}) where T = update_params_with_gradient!(w, α, ∇lnπ.gradient)
+	update_params_with_gradient!(w::FCANNParamsGPU, α::T, ∇lnπ::NonLinearGPUEligibilityVector{T}) where T = update_params_with_gradient!(w, α, ∇lnπ.gradient)
+end
+
 # ╔═╡ 4fb83451-b6f8-4e6e-a131-1accc8e10b08
 #version of reinforce for general function approximation
-function reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp::StateMDP{T}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, max_steps = typemax(Int64), use_unfinished_episodes::Bool = false, eligibility_update_kwargs...) where {T<:Real}
+function reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp::StateMDP{T}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, max_steps = typemax(Int64), use_unfinished_episodes::Bool = false, value_reg::Regularizer = NoOpReg(), policy_reg::Regularizer = NoOpReg(), β::T = zero(T), eligibility_update_kwargs...) where {T<:Real}
 	rewards = Vector{Union{T, Missing}}(undef, num_episodes)
 	steps = Vector{Union{Int64, Missing}}(undef, num_episodes)
 
@@ -2691,10 +2851,12 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, value_param
 				update_value_gradient!(∇v̂, feature_vector, value_params)
 				c = α_w*δ
 				update_params_with_gradient!(value_params, c, ∇v̂)
+				regularize_params!(value_params, value_reg, α_w)
 				# @info "Updating eligiblity vector $∇lnπ with action $(action_history[i])"
-				update_eligibility_vector!(∇lnπ, feature_vector, action_history[i], policy_params; eligibility_update_kwargs...)
-				c = α_θ * γ^(i-1) * δ
-				update_params_with_gradient!(policy_params, c, ∇lnπ)
+				update_eligibility_vector!(∇lnπ, feature_vector, action_history[i], δ*γ^(i-1), policy_params, β; eligibility_update_kwargs...)
+				update_params_with_gradient!(policy_params, α_θ, ∇lnπ)
+				# !iszero(β) && entropy_regularize!(policy_params, β, α_θ, ∇lnπ; eligibility_update_kwargs...)
+				regularize_params!(policy_params, policy_reg, α_θ)
 				rtotal += reward_history[i]
 			end
 			rewards[ep] = rtotal
@@ -2706,7 +2868,7 @@ end
 
 # ╔═╡ 4d4ae57b-afc3-44f9-b6fc-892f59f82921
 #version of reinforce for general function approximation
-function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, policy = zeros(T, length(mdp.actions)), eligibility_vector_kwargs...) where {T<:Real}
+function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, policy = zeros(T, length(mdp.actions)), value_reg::Regularizer = NoOpReg(), policy_reg::Regularizer = NoOpReg(), β::T = zero(T), eligibility_vector_kwargs...) where {T<:Real}
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
 
@@ -2721,13 +2883,15 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, �
 	# @info "initial value params: $value_params"
 
 	policy_args = form_policy_args(policy_params)
+
+	feature_vector′ = copy(feature_vector)
 	
 	while (ep <= max_episodes) && (step <= max_steps)
 		
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
 		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp.is_valid_action, s)
 		i_a = sample_action(policy)
-		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
+		
 	
 		(r, s′) = mdp.ptf(s, i_a)
 		rtot += r
@@ -2741,15 +2905,17 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, �
 			rtot = zero(T)
 			c = one(T)
 			s = initialize_state(mdp)
-			update_feature_vector!(feature_vector, s)
+			update_feature_vector!(feature_vector′, s)
 		else
-			update_feature_vector!(feature_vector, s′)
-			v̂′ = value_function(feature_vector, value_params)
+			update_feature_vector!(feature_vector′, s′)
+			v̂′ = value_function(feature_vector′, value_params)
 			s = s′
 			c *= γ
 		end
 		
 		δ = r + γ*v̂′ - v̂
+
+		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, δ*c, policy_params, β; eligibility_vector_kwargs...)
 
 		isinf(δ) && @warn "δ has an infinite value on step $step and in state $s"
 		isnan(δ) && @warn "δ has a NaN value on step $step and in state $s"
@@ -2757,11 +2923,15 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, �
 		# @info "About to update value params with gradient $∇v̂ and constant $(α_w * δ)"
 		if !iszero(δ)
 			update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
+			regularize_params!(value_params, value_reg, α_w)
 			# @info "About to update policy params with eligibility vector $∇lnπ and constant $(α_θ*c*δ)"
 			if !iszero(c)
-				update_params_with_gradient!(policy_params, α_θ*c*δ, ∇lnπ)
+				update_params_with_gradient!(policy_params, α_θ, ∇lnπ)
 			end
+			regularize_params!(policy_params, policy_reg, α_θ)
+			# !iszero(β) && entropy_regularize!(policy_params, β, α_θ, ∇lnπ)
 		end
+		copy!(feature_vector, feature_vector′)
 		# @info "policy params after $step updates: $policy_params"
 		# @info "value params after $step updates: $value_params"
 	end
@@ -2773,7 +2943,7 @@ end
 
 # ╔═╡ 5647a7a7-e58e-48b7-bad9-bb68706f354e
 #version of reinforce for general function approximation
-function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄::T = one(T)/100, policy = zeros(T, length(mdp.actions)), eligibility_vector_kwargs...) where {T<:Real}
+function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄::T = one(T)/100, policy = zeros(T, length(mdp.actions)), value_reg::Regularizer = NoOpReg(), policy_reg::Regularizer = NoOpReg(), β::T = zero(T), eligibility_vector_kwargs...) where {T<:Real}
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
 
@@ -2785,12 +2955,13 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, n
 	# @info "initial value params: $value_params"
 
 	policy_args = form_policy_args(policy_params)
+
+	feature_vector′ = copy(feature_vector)
 	
 	for step in 1:num_steps
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
 		update_policy_dist!(policy, feature_vector, policy_params, policy_args..., mdp.is_valid_action, s)
 		i_a = sample_action(policy)
-		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, policy_params; eligibility_vector_kwargs...)
 	
 		(r, s′) = mdp.ptf(s, i_a)
 
@@ -2799,22 +2970,28 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, n
 		
 		isterm(mdp, s′) && error("$s′ is a terminal state and this method only applies to continuing tasks")
 
-		update_feature_vector!(feature_vector, s′)
-		v̂′ = value_function(feature_vector, value_params)
+		update_feature_vector!(feature_vector′, s′)
+		v̂′ = value_function(feature_vector′, value_params)
 		s = s′
 				
 		δ = r - r̄ + v̂′ - v̂
 		r̄ += α_r̄*δ
+
+		policy_dist = update_eligibility_vector!(∇lnπ, feature_vector, i_a, δ, policy_params, β; eligibility_vector_kwargs...)
 
 		isinf(δ) && @warn "δ has an infinite value on step $step and in state $s"
 		isnan(δ) && @warn "δ has a NaN value on step $step and in state $s"
 		# @info "About to update value params with gradient $∇v̂ and constant $(α_w * δ)"
 		
 		update_params_with_gradient!(value_params, α_w*δ, ∇v̂)
+		regularize_params!(value_params, value_reg, α_w)
 		# @info "About to update policy params with eligibility vector $∇lnπ and constant $(α_θ*c*δ)"
-		update_params_with_gradient!(policy_params, α_θ*δ, ∇lnπ)
+		update_params_with_gradient!(policy_params, α_θ, ∇lnπ)
+		regularize_params!(policy_params, policy_reg, α_θ)
+		# !iszero(β) && entropy_regularize!(policy_params, β, α_θ, ∇lnπ)
 		# @info "policy params after $step updates: $policy_params"
 		# @info "value params after $step updates: $value_params"
+		copy!(feature_vector, feature_vector′)
 	end
 
 	policy_and_value_components = form_policy_and_value_function(mdp, feature_vector, update_feature_vector!, policy_params, value_params)
@@ -2823,25 +3000,35 @@ function one_step_actor_critic!(policy_params, value_params, mdp::StateMDP{T}, n
 end
 
 # ╔═╡ 57e5e12a-b722-4ea3-ab3b-e5711029e640
-one_step_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+one_step_actor_critic_linear(mdp::StateMDP{T}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 78221df2-4029-43a6-a16e-70b4d6890d23
-one_step_actor_critic_linear(mdp::StateMDP{T}, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+one_step_actor_critic_linear(mdp::StateMDP{T}, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 7d63b960-3998-4f7b-8cbb-ccd49db9aeac
 #=╠═╡
-one_step_actor_critic_linear(corridor_mdp, 1f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0^-7, α_w = 2f0^-13, policy_params = [0f0 3.7f0]).policy_and_value(1)
+one_step_actor_critic_linear(corridor_mdp, 1f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0^-7, α_w = 2f0^-13, policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0])).policy_and_value(1)
+  ╠═╡ =#
+
+# ╔═╡ 4a2e4e99-97d9-43ec-99ff-fba36ad9b8c3
+#=╠═╡
+one_step_actor_critic_linear(corridor_mdp, 1f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0^-7, α_w = 2f0^-13, policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 9db9ff71-bee9-4bea-a45b-748f8517fed1
 #=╠═╡
-one_step_actor_critic_linear(corridor_mdp, 1f0, typemax(Int64), 100_000, [1f0], Returns(nothing); α_θ = 2f0^-6, α_w = 2f0^-2, policy_params = [0f0 3.7f0]).policy_and_value(1)
+one_step_actor_critic_linear(corridor_mdp, 1f0, typemax(Int64), 100_000, [1f0], Returns(nothing); α_θ = 2f0^-6, α_w = 2f0^-2, policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), β = 1f0).policy_and_value(1)
+  ╠═╡ =#
+
+# ╔═╡ b6b4c7d9-0126-4dc0-abe8-28c197f0d5d5
+#=╠═╡
+one_step_actor_critic_linear(corridor_mdp, 1f0, typemax(Int64), 100_000, [1f0], Returns(nothing); α_θ = 2f0^-10, α_w = 2f0^-10, policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ c0c5d43a-8f4c-4202-9c53-138abb516674
 #=╠═╡
 begin
-	corridor_actor_critic(α_θ, α_w, num_episodes, num_steps; kwargs...) = one_step_actor_critic_linear(corridor_mdp, 1f0, num_episodes, num_steps, corridor_feature_vector, update_corridor_feature!; policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, kwargs...)
+	corridor_actor_critic(α_θ, α_w, num_episodes, num_steps; kwargs...) = one_step_actor_critic_linear(corridor_mdp, 1f0, num_episodes, num_steps, corridor_feature_vector, update_corridor_feature!; policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), α_θ = α_θ, α_w = α_w, kwargs...)
 	
 	
 	function corridor_actor_critic_trial(args...; kwargs...) 
@@ -2872,8 +3059,8 @@ corridor_parameter_studies(2f0 .^ (-10:-6), 2f0 .^ (-35:5:-15); num_trials = 100
   ╠═╡ =#
 
 # ╔═╡ 09bfbf48-6d1d-4adc-a576-6be0ab047c01
-function one_step_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function one_step_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
+	value_setup = setup_fcann_value_arguments(value_params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return one_step_actor_critic!(policy_params, value_params, mdp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -2890,8 +3077,8 @@ function one_step_actor_critic_fcann(mdp::StateMDP{T}, γ::T, max_episodes::Inte
 end
 
 # ╔═╡ 855fa5bc-9eab-4e26-85b4-48ba302d2c05
-function one_step_actor_critic_fcann(mdp::StateMDP{T}, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function one_step_actor_critic_fcann(mdp::StateMDP{T}, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
+	value_setup = setup_fcann_value_arguments(value_params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return one_step_actor_critic!(policy_params, value_params, mdp, num_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -2910,17 +3097,22 @@ end
 # ╔═╡ 0fbf45c8-3e3c-47c1-b763-3b06bcdc60e0
 # ╠═╡ show_logs = false
 #=╠═╡
-one_step_actor_critic_fcann(corridor_mdp, 1f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!, [2]; α_θ = 2f0^-7, α_w = 2f0^-13).policy_and_value(1)
+one_step_actor_critic_fcann(corridor_mdp, 1f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!, [2]; α_θ = 2f0^-7, α_w = 2f0^-13, β = 1f0).policy_and_value(1)
+  ╠═╡ =#
+
+# ╔═╡ 14130b4e-d526-4f99-a762-ccfeff354b9d
+#=╠═╡
+one_step_actor_critic_fcann(corridor_mdp, 1f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!, [2]; α_θ = 2f0^-7, α_w = 2f0^-13, β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 42ff6c93-9eb0-455b-8b8a-98df5c328a0d
 #=╠═╡
-one_step_actor_critic_fcann(corridor_mdp, 1f0, typemax(Int64), 100, [1f0], Returns(nothing), [2]; α_θ = 2f0^-7, α_w = 2f0^-13, use_gpu=true).policy_and_value(1)
+one_step_actor_critic_fcann(corridor_mdp, 1f0, typemax(Int64), 100, [1f0], Returns(nothing), [2]; α_θ = 2f0^-7, α_w = 2f0^-13, use_gpu=true, β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 266d2234-26c8-43f1-9e75-49440a230ed6
 #version of reinforce for general function approximation
-function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::P2, mdp::StateMDP{T}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, policy::Vector{T} = zeros(T, length(mdp.actions)), z_θ::P1 = copy(policy_params), z_w::P2 = copy(value_params), trace_type::AbstractEligibilityTrace = AccumulatingTrace(), eligibility_vector_kwargs...) where {P1, P2, T<:Real}
+function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::P2, mdp::StateMDP{T}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, policy::Vector{T} = zeros(T, length(mdp.actions)), z_θ::P1 = copy(policy_params), z_w::P2 = copy(value_params), trace_type::AbstractEligibilityTrace = AccumulatingTrace(), value_reg::Regularizer = NoOpReg(), policy_reg::Regularizer = NoOpReg(), β::T = zero(T), eligibility_vector_kwargs...) where {P1, P2, T<:Real}
 	episode_steps = Vector{Int64}()
 	episode_rewards = Vector{T}()
 
@@ -2937,6 +3129,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 	update_feature_vector!(feature_vector, s)
 	
 	while (ep <= max_episodes) && (step <= max_steps)
+		!iszero(β) && entropy_regularize!(policy_params, feature_vector, β, α_θ, ∇lnπ)
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
 
 		decay_trace!(z_w, λ_w*γ)
@@ -2981,7 +3174,10 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 			update_params_with_gradient!(value_params, α_w*δ, z_w)
 			update_params_with_gradient!(policy_params, α_θ*δ, z_θ)
 		end
-
+	
+		regularize_params!(value_params, value_reg, α_w)
+		regularize_params!(policy_params, policy_reg, α_θ)
+		
 		if terminated
 			zero_trace!(z_θ)
 			zero_trace!(z_w)
@@ -2998,7 +3194,7 @@ end
 
 # ╔═╡ eb330654-68d2-4ccd-80af-be079ee94008
 #version of reinforce for general function approximation
-function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::P2, mdp::StateMDP{T}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄::T = one(T)/10, policy::Vector{T} = zeros(T, length(mdp.actions)), z_θ::P1 = copy(policy_params), z_w::P2 = copy(value_params), trace_type::AbstractEligibilityTrace = AccumulatingTrace(), eligibility_vector_kwargs...) where {P1, P2, T<:Real}
+function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::P2, mdp::StateMDP{T}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function, ∇lnπ; α_w::T = one(T)/10, α_θ::T = one(T)/10, α_r̄::T = one(T)/10, policy::Vector{T} = zeros(T, length(mdp.actions)), z_θ::P1 = copy(policy_params), z_w::P2 = copy(value_params), trace_type::AbstractEligibilityTrace = AccumulatingTrace(), value_reg::Regularizer = NoOpReg(), policy_reg::Regularizer = NoOpReg(), β::T = zero(T), eligibility_vector_kwargs...) where {P1, P2, T<:Real}
 	reward_history = zeros(T, num_steps)
 	average_reward_history = zeros(T, num_steps)
 
@@ -3012,6 +3208,7 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 	update_feature_vector!(feature_vector, s)
 	
 	for step in 1:num_steps
+		!iszero(β) && entropy_regularize!(policy_params, feature_vector, β, α_θ, ∇lnπ)
 		v̂ = update_value_gradient!(∇v̂, feature_vector, value_params)
 
 		decay_trace!(z_w, λ_w)
@@ -3044,6 +3241,9 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, value_params::
 		isnan(δ) && @warn "δ has a NaN value on step $step and in state $s"
 		update_params_with_gradient!(value_params, α_w*δ, z_w)
 		update_params_with_gradient!(policy_params, α_θ*δ, z_θ)
+
+		regularize_params!(value_params, value_reg, α_w)
+		regularize_params!(policy_params, policy_reg, α_θ)
 	end
 
 	policy_and_value_components = form_policy_and_value_function(mdp, feature_vector, update_feature_vector!, policy_params, value_params)
@@ -3181,7 +3381,7 @@ function reinforce_with_baseline_monte_carlo_control!(policy_params, ∇lnπ, va
 end
 
 # ╔═╡ d8bac85f-3d77-4303-a2b6-2c1ccc040320
-reinforce_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, nothing, mdp, γ, num_episodes, feature_vector, update_feature_vector!, Returns(zero(T)), copy(feature_vector), Returns(nothing), LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+reinforce_monte_carlo_control_linear(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), kwargs...) where {T<:Real, S, A, P, F1, F2, F3} = reinforce_with_baseline_monte_carlo_control!(policy_params, nothing, mdp, γ, num_episodes, feature_vector, update_feature_vector!, Returns(zero(T)), copy(feature_vector), Returns(nothing), LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ d037ea92-915c-4dc7-97c6-d006d92e088a
 #=╠═╡
@@ -3189,7 +3389,7 @@ function figure_13_1(α_list; nruns = 100, num_episodes = 1_000, max_steps = 1_0
 	mdp = make_corridor_mdp(; reward = -1.)
 	Random.seed!(45)
 	function average_runs(α)
-		1:nruns |> Map(_ -> reinforce_monte_carlo_control_linear(mdp, 1., num_episodes, deepcopy(corridor_feature_vector), update_corridor_feature!; policy_params = [0e0 3.7e0], α_θ = α, use_unfinished_episodes = true, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+		1:nruns |> Map(_ -> reinforce_monte_carlo_control_linear(mdp, 1., num_episodes, deepcopy(corridor_feature_vector), update_corridor_feature!; policy_params = LinearParams([0e0 3.7e0], [0e0, 0e0]), α_θ = α, use_unfinished_episodes = true, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
 	end
 
 	traces = [begin
@@ -3212,7 +3412,7 @@ figure_13_1(2. .^ [-12, -13, -14])
 
 # ╔═╡ f2ed56c9-c2b7-42cb-a083-e12aeaa126ef
 #=╠═╡
-reinforce_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0^-13, max_steps = 1_000).policy_function(1)
+reinforce_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0^-13, max_steps = 1_000, β = 1f0).policy_function(1)
   ╠═╡ =#
 
 # ╔═╡ 5720e942-d3f8-4329-83a8-8bcedf078b6a
@@ -3238,25 +3438,25 @@ end
 
 # ╔═╡ 07ad517a-c2ac-4377-99fb-adb13d0f1d0c
 #=╠═╡
-reinforce_monte_carlo_control_fcann(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!, [2]; α_θ = 2f0^-14, max_steps = 1_000).policy_function(1)
+reinforce_monte_carlo_control_fcann(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!, [2]; α_θ = 2f0^-14, β = 0f0, max_steps = 1_000).policy_function(1)
   ╠═╡ =#
 
 # ╔═╡ 40c92bd1-bd1d-4981-99f3-be9531f316bb
 #=╠═╡
-reinforce_monte_carlo_control_fcann(corridor_mdp, 1f0, 10, [1f0], Returns(nothing), [2]; α_θ = 2f0^-14, max_steps = 1_000, use_gpu=true).policy_function(1)
+reinforce_monte_carlo_control_fcann(corridor_mdp, 1f0, 10, [1f0], Returns(nothing), [2]; α_θ = 2f0^-14, β = 1f0, max_steps = 1_000, use_gpu=true).policy_function(1)
   ╠═╡ =#
 
 # ╔═╡ a7c9ae69-f4b8-471c-ab97-90642f3c2bdb
-reinforce_with_baseline_monte_carlo_control_linear(mdp::StateMDP{T}, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+reinforce_with_baseline_monte_carlo_control_linear(mdp::StateMDP{T}, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ cbea5840-49d2-4e91-be9c-f5f15666d78a
 #=╠═╡
-reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0^-12, α_w = 2f0^-6, max_steps = 1_000).policy_function(1)
+reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0^-12, α_w = 2f0^-6, max_steps = 1_000, β = 1f0).policy_function(1)
   ╠═╡ =#
 
 # ╔═╡ cacaaca6-6e01-464f-a2ee-cbf62737a426
 #=╠═╡
-reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, [1f0], Returns(nothing); α_θ = 2f0^-12, α_w = 2f0^-6, max_steps = 1_000).policy_function(1)
+reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, [1f0], Returns(nothing); α_θ = 2f0^-12, α_w = 2f0^-6, max_steps = 1_000, β = 1f0).policy_function(1)
   ╠═╡ =#
 
 # ╔═╡ 83ca0577-15d7-4448-b597-c77810b812bf
@@ -3264,11 +3464,11 @@ reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, 10_000, [1
 function figure_13_2_test(α_list, α_pair_list; nruns = 100, num_episodes = 1_000, max_steps = 1_000)
 	Random.seed!(45)
 	function average_runs(α)
-		1:nruns |> Map(_ -> reinforce_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = [0f0 3.7f0], α_θ = α, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+		1:nruns |> Map(_ -> reinforce_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), α_θ = α, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
 	end
 
 	function average_runs(α_θ, α_w)
-		1:nruns |> Map(_ -> reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
+		1:nruns |> Map(_ -> reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), α_θ = α_θ, α_w = α_w, max_steps = max_steps).episode_rewards) |> foldxt((a, b) -> a .+ b) |> v -> v ./ nruns
 	end
 
 	traces1 = [begin
@@ -3297,9 +3497,9 @@ figure_13_2_test([2f0^-13], vcat([(2f0^n, 2f0^-4) for n in -12:-10], [(2f0^n, 2f
 # ╔═╡ 373124a0-c382-465d-9976-f2166c700162
 #=╠═╡
 begin
-	corridor_reinforce(α; num_episodes = 100, kwargs...) = reinforce_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = [0f0 3.7f0], use_unfinished_episodes = true, max_steps = 1_000, α_θ = α, kwargs...)
+	corridor_reinforce(α; num_episodes = 100, kwargs...) = reinforce_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), use_unfinished_episodes = true, max_steps = 1_000, α_θ = α, kwargs...)
 	
-	corridor_reinforce_with_baseline(α_θ, α_w; num_episodes = 100, kwargs...) = reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, use_unfinished_episodes = true, max_steps = 1_000, kwargs...)
+	corridor_reinforce_with_baseline(α_θ, α_w; num_episodes = 100, kwargs...) = reinforce_with_baseline_monte_carlo_control_linear(corridor_mdp, 1f0, num_episodes, corridor_feature_vector, update_corridor_feature!; policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), α_θ = α_θ, α_w = α_w, use_unfinished_episodes = true, max_steps = 1_000, kwargs...)
 end
   ╠═╡ =#
 
@@ -3354,8 +3554,8 @@ get_corridor_episode_stats(best_mc_corridor.policy_sample_action; make_policy_kw
   ╠═╡ =#
 
 # ╔═╡ 697b2310-9d96-4f7f-be62-c3bd6bf736f3
-function reinforce_with_baseline_monte_carlo_control_fcann(mdp::StateMDP{T}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function reinforce_with_baseline_monte_carlo_control_fcann(mdp::StateMDP{T}, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real} 
+	value_setup = setup_fcann_value_arguments(value_params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return reinforce_with_baseline_monte_carlo_control!(policy_params, value_params, mdp, γ, num_episodes, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -3375,12 +3575,12 @@ end
 
 # ╔═╡ aa69e4ea-91e0-496a-a7be-529e67f4dbec
 #=╠═╡
-reinforce_with_baseline_monte_carlo_control_fcann(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!, [2, 2]; α_θ = 2f0^-20, α_w = 2f0^-25, max_steps = 1_000).policy_and_value(1)
+reinforce_with_baseline_monte_carlo_control_fcann(corridor_mdp, 1f0, 10_000, corridor_feature_vector, update_corridor_feature!, [2, 2]; α_θ = 2f0^-12, α_w = 2f0^-6, max_steps = 1_000, β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 592b04e7-71b8-47c6-baf1-dab6382f06c4
 #=╠═╡
-reinforce_with_baseline_monte_carlo_control_fcann(corridor_mdp, 1f0, 10, [1f0], Returns(nothing), [2, 2]; α_θ = 2f0^-20, α_w = 2f0^-25, max_steps = 1_000, use_gpu=true).policy_and_value(1)
+reinforce_with_baseline_monte_carlo_control_fcann(corridor_mdp, 1f0, 10, [1f0], Returns(nothing), [2, 2]; α_θ = 2f0^-12, α_w = 2f0^-10, max_steps = 1_000, use_gpu=true).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 76eb6743-cac0-4174-9ba3-a0691c200b54
@@ -3783,11 +3983,11 @@ function actor_critic_with_eligibility_traces!(policy_params::P1, ∇lnπ, value
 end
 
 # ╔═╡ 05bfd818-bf4e-4bda-baa9-5ba647867097
-actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 97b7ce3f-6d1e-41bc-ba07-50e8516a2d54
-function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real}
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real}
+	value_setup = setup_fcann_value_arguments(value_params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, γ, λ_θ, λ_w, max_episodes, max_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -3810,17 +4010,17 @@ function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T}, γ::T, λ_
 end
 
 # ╔═╡ 4bc22ad6-75f7-4dc9-8bfe-9f5a99eb67ef
-actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::Matrix{T} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
+actor_critic_with_eligibility_traces_linear(mdp::StateMDP{T}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function; init_value::T = zero(T), policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, init_value), value_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where {T<:Real} = actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!, LinearEligibilityVector(feature_vector, policy_params); kwargs...)
 
 # ╔═╡ 3bccf6fc-6e5e-4f62-ad40-1ff0a3740728
 #=╠═╡
-actor_critic_with_eligibility_traces_linear(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, policy_params = [0f0 3.7f0]).policy_and_value(1)
+actor_critic_with_eligibility_traces_linear(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 0a31fc6a-a1fe-442a-ba7d-94a97385d65b
 #=╠═╡
 begin
-	corridor_actor_critic_with_traces(α_θ, α_w, λ_θ, λ_w, num_episodes; num_steps = 100_000, kwargs...) = actor_critic_with_eligibility_traces_linear(corridor_mdp, 1f0, λ_θ, λ_w, num_episodes, num_steps, corridor_feature_vector, update_corridor_feature!; policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, kwargs...)
+	corridor_actor_critic_with_traces(α_θ, α_w, λ_θ, λ_w, num_episodes; num_steps = 100_000, kwargs...) = actor_critic_with_eligibility_traces_linear(corridor_mdp, 1f0, λ_θ, λ_w, num_episodes, num_steps, corridor_feature_vector, update_corridor_feature!; policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), α_θ = α_θ, α_w = α_w, kwargs...)
 	
 	
 	function corridor_actor_critic_with_traces_trial(args...; kwargs...) 
@@ -3855,13 +4055,13 @@ actor_critic_with_eligibility_traces_linear(corridor_mdp, 0.5f0, 0.5f0, 100_000,
 
 # ╔═╡ 431365c7-7dc9-44d6-a837-abd40091c9e7
 #=╠═╡
-actor_critic_with_eligibility_traces_linear(corridor_continuing_mdp, 0.5f0, 0.5f0, 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, policy_params = [0f0 3.7f0]).policy_and_value(1)
+actor_critic_with_eligibility_traces_linear(corridor_continuing_mdp, 0.5f0, 0.5f0, 100_000, corridor_feature_vector, update_corridor_feature!; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), β = .1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ e8852873-1c52-4024-b47c-d96ba99ff749
 #=╠═╡
 begin
-	corridor_continuing_actor_critic_with_traces(α_θ, α_w, α_r̄, λ_θ, λ_w; num_steps = 100_000, kwargs...) = actor_critic_with_eligibility_traces_linear(corridor_continuing_mdp, λ_θ, λ_w, num_steps, corridor_feature_vector, update_corridor_feature!; policy_params = [0f0 3.7f0], α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, kwargs...)
+	corridor_continuing_actor_critic_with_traces(α_θ, α_w, α_r̄, λ_θ, λ_w; num_steps = 100_000, kwargs...) = actor_critic_with_eligibility_traces_linear(corridor_continuing_mdp, λ_θ, λ_w, num_steps, corridor_feature_vector, update_corridor_feature!; policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0]), α_θ = α_θ, α_w = α_w, α_r̄ = α_r̄, kwargs...)
 	
 	function corridor_continuing_actor_critic_with_traces_trial(args...; kwargs...) 
 		output = corridor_continuing_actor_critic_with_traces(args...; kwargs...).reward_history
@@ -3879,7 +4079,7 @@ display_actor_critic_continuing_parameter_study(corridor_continuing_actor_critic
 
 # ╔═╡ 8b35661b-5075-4d63-bc31-044407f99acf
 #=╠═╡
-actor_critic_with_eligibility_traces_linear(corridor_continuing_mdp, 0.75f0, 0.25f0, 1_000_000, corridor_feature_vector, update_corridor_feature!; α_θ = 0.00625f0, α_w = 0.0004f0, α_r̄ = 0.004f0, policy_params = [0f0 3.7f0]).policy_and_value(1)
+actor_critic_with_eligibility_traces_linear(corridor_continuing_mdp, 0.75f0, 0.25f0, 1_000_000, corridor_feature_vector, update_corridor_feature!; α_θ = 0.00625f0, α_w = 0.0004f0, α_r̄ = 0.004f0, policy_params = LinearParams([0f0 3.7f0], [0f0, 0f0])).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 246c080e-8394-4498-a500-670cfefba1ea
@@ -3911,8 +4111,8 @@ const cartpole_continuing_tile_test = cartpole_continuing_actor_critic_tiles(1f0
   ╠═╡ =#
 
 # ╔═╡ 8fbd4122-abf6-4484-9e86-49d2bb8a1af8
-function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), l2::T = zero(T), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real}
-	value_setup = setup_fcann_value_arguments(value_params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function actor_critic_with_eligibility_traces_fcann(mdp::StateMDP{T}, λ_θ::T, λ_w::T, num_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, policy_params::FCANNParams = initialize_fcann_params(feature_vector, hidden_layers, length(mdp.actions), reslayers, use_μP), value_params::FCANNParams = initialize_fcann_value_params(policy_params, use_μP), activation_list::Vector{Bool} = fill(true, length(hidden_layers)), dropout::T = zero(T), use_gpu::Bool = false, kwargs...) where {T<:Real}
+	value_setup = setup_fcann_value_arguments(value_params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return actor_critic_with_eligibility_traces!(policy_params, value_params, mdp, λ_θ, λ_w, num_steps, feature_vector, update_feature_vector!, value_setup.value_function, value_setup.gradient, value_setup.update_gradient!, NonLinearEligibilityVector(feature_vector, policy_params; use_μP = use_μP); kwargs...)
 
 	isempty(value_setup.gpu_args) && error("GPU backend is not available")
@@ -3936,7 +4136,7 @@ end
 
 # ╔═╡ 230a8e3c-fbe2-4948-9d82-e08d7a0fad69
 #=╠═╡
-actor_critic_with_eligibility_traces_fcann(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!, [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10).policy_and_value(1)
+actor_critic_with_eligibility_traces_fcann(corridor_mdp, 1f0, 0.5f0, 0.5f0, typemax(Int64), 100_000, corridor_feature_vector, update_corridor_feature!, [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -20, β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 82c793d8-9dee-40db-9b92-70667dcd8dc1
@@ -3946,12 +4146,12 @@ actor_critic_with_eligibility_traces_fcann(corridor_mdp, 1f0, 0.5f0, 0.5f0, type
 
 # ╔═╡ c718274d-5dfc-4764-83d9-c737275a66eb
 #=╠═╡
-actor_critic_with_eligibility_traces_fcann(corridor_continuing_mdp, 0.5f0, 0.5f0, 100_000, corridor_feature_vector, update_corridor_feature!, [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10).policy_and_value(1)
+actor_critic_with_eligibility_traces_fcann(corridor_continuing_mdp, 0.5f0, 0.5f0, 100_000, corridor_feature_vector, update_corridor_feature!, [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, β = 0.1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ 40985248-85d9-4cbd-9e75-5ef8b9b9cc90
 #=╠═╡
-actor_critic_with_eligibility_traces_fcann(corridor_continuing_mdp, 0.5f0, 0.5f0, 100, [1f0], Returns(nothing), [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, use_gpu=true).policy_and_value(1)
+actor_critic_with_eligibility_traces_fcann(corridor_continuing_mdp, 0.5f0, 0.5f0, 100, [1f0], Returns(nothing), [2, 2]; α_θ = 2f0 ^ -6, α_w = 2f0 ^ -10, use_gpu=true, β = 1f0).policy_and_value(1)
   ╠═╡ =#
 
 # ╔═╡ f52fc4a9-f6dd-422d-aeae-6c327d1a7b62
@@ -3980,7 +4180,7 @@ end
 
 # ╔═╡ eae6493e-81b6-4d99-a9c6-6e75d3b3dc27
 #=╠═╡
-const cartpole_continuing_fcann_test = cartpole_continuing_actor_critic_fcann(1f-2, 4f-2, 0.015f0, 0.9f0, 0.2f0; num_steps = 1_000_000, hidden_layers = fill(4, 2), reslayers = 1)
+const cartpole_continuing_fcann_test = cartpole_continuing_actor_critic_fcann(1f-2, 4f-2, 0.015f0, 0.9f0, 0.2f0; num_steps = 1_000_000, hidden_layers = fill(4, 2), reslayers = 1, β = 0.5f0)
   ╠═╡ =#
 
 # ╔═╡ c92c9e97-cab1-4d22-b5a1-62db9a22dd07
@@ -5561,8 +5761,8 @@ HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+ProfileCanvas = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
@@ -5574,8 +5774,8 @@ HypertextLiteral = "~1.0.0"
 LaTeXStrings = "~1.4.0"
 PlutoDevMacros = "~0.9.2"
 PlutoPlotly = "~0.6.6"
-PlutoProfile = "~0.4.0"
 PlutoUI = "~0.7.83"
+ProfileCanvas = "~0.1.7"
 ProgressLogging = "~0.1.6"
 SpecialFunctions = "~2.8.3"
 """
@@ -5584,23 +5784,20 @@ SpecialFunctions = "~2.8.3"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.6"
-manifest_format = "2.0"
-project_hash = "8e10b1bbf1937e3284c59b2c77c68e8993877a02"
+julia_version = "1.13.3"
+manifest_format = "2.1"
+project_hash = "a239dc15d53272d0b644ce397af8ed66150f77e8"
 
 [[deps.AbstractPlutoDingetjes]]
 git-tree-sha1 = "6c3913f4e9bdf6ba3c08041a446fb1332716cbc2"
+registries = "General"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.4.0"
-
-[[deps.AbstractTrees]]
-git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
-uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
-version = "0.3.4"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
 git-tree-sha1 = "7063ad1083578215c7c4bf410368150abe8d5524"
+registries = "General"
 uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
 version = "0.1.45"
 
@@ -5625,6 +5822,7 @@ version = "0.1.45"
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
 git-tree-sha1 = "9876e1e164b144ca45e9e3198d0b689cadfed9ff"
+registries = "General"
 uuid = "66dad0bd-aa9a-41b7-9441-69ab47430ed8"
 version = "1.1.3"
 
@@ -5643,30 +5841,35 @@ version = "1.11.0"
 [[deps.BenchmarkTools]]
 deps = ["Compat", "JSON", "Logging", "PrecompileTools", "Printf", "Profile", "Statistics", "UUIDs"]
 git-tree-sha1 = "9670d3febc2b6da60a0ae57846ba74670290653f"
+registries = "General"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 version = "1.8.0"
 
 [[deps.CodeTracking]]
 deps = ["InteractiveUtils", "REPL", "UUIDs"]
 git-tree-sha1 = "cfb7a2e89e245a9d5016b70323db412b3a7438d5"
+registries = "General"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
 version = "3.0.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
 git-tree-sha1 = "b0fd3f56fa442f81e0a47815c92245acfaaa4e34"
+registries = "General"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 version = "3.31.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
 git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
+registries = "General"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
 version = "0.11.5"
 
 [[deps.ColorVectorSpace]]
 deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
 git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
+registries = "General"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
 version = "0.10.0"
 weakdeps = ["SpecialFunctions"]
@@ -5677,17 +5880,20 @@ weakdeps = ["SpecialFunctions"]
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
 git-tree-sha1 = "362a287c3aa50601b0bc359053d5c2468f0e7ce0"
+registries = "General"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.12.11"
 
 [[deps.CommonSolve]]
 git-tree-sha1 = "cf963add2340ad9960e5eb22844e61ad8f931fe1"
+registries = "General"
 uuid = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
 version = "0.2.13"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
 git-tree-sha1 = "9d8a54ce4b17aa5bdce0ea5c34bc5e7c340d16ad"
+registries = "General"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
 version = "4.18.1"
 weakdeps = ["Dates", "LinearAlgebra"]
@@ -5698,10 +5904,11 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.3.0+1"
+version = "1.5.5+2"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
+registries = "General"
 uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
 version = "0.1.2"
 weakdeps = ["InverseFunctions"]
@@ -5711,6 +5918,7 @@ weakdeps = ["InverseFunctions"]
 
 [[deps.ConstructionBase]]
 git-tree-sha1 = "b4b092499347b18a015186eae3042f72267106cb"
+registries = "General"
 uuid = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
 version = "1.6.0"
 
@@ -5726,28 +5934,33 @@ version = "1.6.0"
 
 [[deps.Crayons]]
 git-tree-sha1 = "54b76cbb40d9a0f5368c880725b2f141da77c94f"
+registries = "General"
 uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
 version = "4.2.0"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
+registries = "General"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
 version = "1.16.0"
 
 [[deps.DataFrames]]
 deps = ["Compat", "DataAPI", "DataStructures", "Future", "InlineStrings", "InvertedIndices", "IteratorInterfaceExtensions", "LinearAlgebra", "Markdown", "Missings", "PooledArrays", "PrecompileTools", "PrettyTables", "Printf", "Random", "Reexport", "SentinelArrays", "SortingAlgorithms", "Statistics", "TableTraits", "Tables", "Unicode"]
 git-tree-sha1 = "5fab31e2e01e70ad66e3e24c968c264d1cf166d6"
+registries = "General"
 uuid = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 version = "1.8.2"
 
 [[deps.DataStructures]]
 deps = ["OrderedCollections"]
 git-tree-sha1 = "b0bc6d2cad1fed8b7fd59a1551a991cb3d2809e6"
+registries = "General"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 version = "0.19.6"
 
 [[deps.DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+registries = "General"
 uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
 version = "1.0.0"
 
@@ -5759,12 +5972,14 @@ version = "1.11.0"
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
+registries = "General"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
 [[deps.Distributions]]
 deps = ["AliasTables", "FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "Roots", "SpecialFunctions", "Statistics", "StatsAPI", "StatsBase", "StatsFuns"]
 git-tree-sha1 = "d2facc77c08c1c2bfb1a77c148edd05b3db5410b"
+registries = "General"
 uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
 version = "0.25.130"
 
@@ -5782,6 +5997,7 @@ version = "0.25.130"
 
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
+registries = "General"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 version = "0.9.5"
 
@@ -5790,18 +6006,6 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.7.0"
 
-[[deps.FileIO]]
-deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "6621fef488e496356c9c9625d0562c12a6070819"
-uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.20.0"
-
-    [deps.FileIO.extensions]
-    HTTPExt = "HTTP"
-
-    [deps.FileIO.weakdeps]
-    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
@@ -5809,6 +6013,7 @@ version = "1.11.0"
 [[deps.FillArrays]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "5bad39456d9f0166184fce2248783dd9862645c1"
+registries = "General"
 uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
 version = "1.17.0"
 
@@ -5827,14 +6032,9 @@ version = "1.17.0"
 [[deps.FixedPointNumbers]]
 deps = ["Random", "Statistics"]
 git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
+registries = "General"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
 version = "0.8.6"
-
-[[deps.FlameGraphs]]
-deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
-git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
-uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
-version = "0.2.10"
 
 [[deps.Future]]
 deps = ["Random"]
@@ -5844,45 +6044,47 @@ version = "1.11.0"
 [[deps.Gamma]]
 deps = ["LogExpFunctions"]
 git-tree-sha1 = "becc397f7cfb06e343496ae6ffb04818a851da51"
+registries = "General"
 uuid = "a0844989-3bd2-4988-8bea-c9407ab0941b"
 version = "1.2.0"
 
 [[deps.HashArrayMappedTries]]
 git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
+registries = "General"
 uuid = "076d061b-32b6-4027-95e0-9a2c6f6d7e74"
 version = "0.2.0"
 
 [[deps.HypergeometricFunctions]]
 deps = ["Gamma", "LinearAlgebra"]
 git-tree-sha1 = "31bb6c92405c084617facc1d7ed9eb6c402d061e"
+registries = "General"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.30"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
+registries = "General"
 uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
 version = "0.0.5"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
 git-tree-sha1 = "d1a86724f81bcd184a38fd284ce183ec067d71a0"
+registries = "General"
 uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 version = "1.0.0"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
 git-tree-sha1 = "0ee181ec08df7d7c911901ea38baf16f755114dc"
+registries = "General"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "1.0.0"
-
-[[deps.IndirectArrays]]
-git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
-uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
 [[deps.InlineStrings]]
 git-tree-sha1 = "8f3d257792a522b4601c24a577954b0a8cd7334d"
+registries = "General"
 uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
 version = "1.4.5"
 
@@ -5901,6 +6103,7 @@ version = "1.11.0"
 
 [[deps.InverseFunctions]]
 git-tree-sha1 = "a779299d77cd080bf77b97535acecd73e1c5e5cb"
+registries = "General"
 uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
 version = "0.1.17"
 weakdeps = ["Dates", "Test"]
@@ -5911,34 +6114,40 @@ weakdeps = ["Dates", "Test"]
 
 [[deps.InvertedIndices]]
 git-tree-sha1 = "6da3c4316095de0f5ee2ebd875df8721e7e0bdbe"
+registries = "General"
 uuid = "41ab1584-1d38-5bbf-9106-f11c6c58b48f"
 version = "1.3.1"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "b2d91fe939cae05960e760110b328288867b5758"
+registries = "General"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.6"
 
 [[deps.IteratorInterfaceExtensions]]
 git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+registries = "General"
 uuid = "82899510-4779-5014-852e-03e436cf321d"
 version = "1.0.0"
 
 [[deps.JLLWrappers]]
 deps = ["Artifacts", "Preferences"]
 git-tree-sha1 = "7204148362dafe5fe6a273f855b8ccbe4df8173e"
+registries = "General"
 uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
 version = "1.8.0"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
 git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
+registries = "General"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.4"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
 git-tree-sha1 = "58927c485919bf17ea308d9d82156de1adf4b006"
+registries = "General"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
 version = "0.10.12"
 
@@ -5949,24 +6158,19 @@ version = "1.12.0"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
+registries = "General"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 version = "1.4.0"
-
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.1.3"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "1.0.0"
 
 [[deps.LibCURL_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "Zstd_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.15.0+0"
+version = "8.22.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -5974,14 +6178,14 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 version = "1.11.0"
 
 [[deps.LibGit2_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.9.0+0"
+version = "1.9.7+0"
 
 [[deps.LibSSH2_jll]]
-deps = ["Artifacts", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "OpenSSL_jll", "Zlib_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.3+1"
+version = "1.11.104+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -5990,11 +6194,12 @@ version = "1.11.0"
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-version = "1.12.0"
+version = "1.13.0"
 
 [[deps.LogExpFunctions]]
 deps = ["DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
 git-tree-sha1 = "bba2d9aa057d8f126415de240573e86a8f39d2a1"
+registries = "General"
 uuid = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
 version = "1.0.1"
 
@@ -6014,11 +6219,13 @@ version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
+registries = "General"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "1.1.0"
 
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
+registries = "General"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.16"
 
@@ -6030,6 +6237,7 @@ version = "1.11.0"
 [[deps.Missings]]
 deps = ["DataAPI"]
 git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
+registries = "General"
 uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 version = "1.2.0"
 
@@ -6039,7 +6247,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.11.4"
+version = "2026.10.20"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -6048,32 +6256,40 @@ version = "1.3.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.29+0"
+version = "0.3.30+0"
 
 [[deps.OpenLibm_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
 version = "0.8.7+0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.4+0"
+version = "3.5.8+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "1346c9208249809840c91b26703912dff463d335"
+registries = "General"
 uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
 version = "0.5.6+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "94ba93778373a53bfd5a0caaf7d809c445292ff4"
+registries = "General"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 version = "1.8.2"
+
+[[deps.PCRE2_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
+version = "10.47.0+0"
 
 [[deps.PDMats]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
 git-tree-sha1 = "123266c25174ef6c8d4718920abc206452cf8de6"
+registries = "General"
 uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
 version = "0.11.41"
 weakdeps = ["StatsBase"]
@@ -6084,19 +6300,21 @@ weakdeps = ["StatsBase"]
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
 git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+registries = "General"
 uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 version = "0.12.3"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
 git-tree-sha1 = "3de8f5e6e90ebfa8d6d1f86997d6cdcd6a912ff3"
+registries = "General"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.8.7"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "Zstd_jll", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.1"
+version = "1.13.0"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -6105,6 +6323,7 @@ weakdeps = ["REPL"]
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Colors", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
 git-tree-sha1 = "6256ab3ee24ef079b3afa310593817e069925eeb"
+registries = "General"
 uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
 version = "0.8.23"
 
@@ -6123,12 +6342,14 @@ version = "0.8.23"
 [[deps.PlutoDevMacros]]
 deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
 git-tree-sha1 = "709c36a806ec0af91840184f3052bb3c6cc60915"
+registries = "General"
 uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
 version = "0.9.2"
 
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "Artifacts", "ColorSchemes", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "PrecompileTools", "Reexport", "ScopedValues", "Scratch", "TOML"]
 git-tree-sha1 = "2b9e3d771adfe535a4fdda855f4741fdaacd3f7f"
+registries = "General"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
 version = "0.6.6"
 
@@ -6140,39 +6361,38 @@ version = "0.6.6"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.PlutoProfile]]
-deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
-git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
-uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
-version = "0.4.0"
-
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
 git-tree-sha1 = "e189d0623e7ce9c37389bac17e80aac3b0302e75"
+registries = "General"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 version = "0.7.83"
 
 [[deps.PooledArrays]]
 deps = ["DataAPI", "Future"]
 git-tree-sha1 = "36d8b4b899628fb92c2749eb488d884a926614d3"
+registries = "General"
 uuid = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
 version = "1.4.3"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
 git-tree-sha1 = "edbeefc7a4889f528644251bdb5fc9ab5348bc2c"
+registries = "General"
 uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 version = "1.3.4"
 
 [[deps.Preferences]]
 deps = ["TOML"]
 git-tree-sha1 = "8b770b60760d4451834fe79dd483e318eee709c4"
+registries = "General"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
 version = "1.5.2"
 
 [[deps.PrettyTables]]
 deps = ["Crayons", "LaTeXStrings", "Markdown", "PrecompileTools", "Printf", "REPL", "Reexport", "StringManipulation", "Tables"]
 git-tree-sha1 = "4ac881f5432bd93463a41767a814a45245be22b6"
+registries = "General"
 uuid = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 version = "3.4.6"
 
@@ -6195,25 +6415,29 @@ uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 version = "1.11.0"
 
 [[deps.ProfileCanvas]]
-deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
-git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+deps = ["Base64", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "990016fb1508b0726a70039f39569720d054c78d"
+registries = "General"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
-version = "0.1.0"
+version = "0.1.7"
 
 [[deps.ProgressLogging]]
 deps = ["Logging", "SHA", "UUIDs"]
 git-tree-sha1 = "f0803bc1171e455a04124affa9c21bba5ac4db32"
+registries = "General"
 uuid = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
 version = "0.1.6"
 
 [[deps.PtrArrays]]
 git-tree-sha1 = "4fbbafbc6251b883f4d2705356f3641f3652a7fe"
+registries = "General"
 uuid = "43287f4e-b6f4-7ad1-bb20-aadabca52c3d"
 version = "1.4.0"
 
 [[deps.QuadGK]]
 deps = ["DataStructures", "LinearAlgebra"]
 git-tree-sha1 = "5e8e8b0ab68215d7a2b14b9921a946fee794749e"
+registries = "General"
 uuid = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
 version = "2.11.3"
 
@@ -6224,7 +6448,7 @@ version = "2.11.3"
     Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
+deps = ["Base64", "Dates", "FileWatching", "InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 version = "1.11.0"
 
@@ -6235,30 +6459,35 @@ version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+registries = "General"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.Requires]]
 deps = ["UUIDs"]
 git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
+registries = "General"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
 [[deps.Rmath]]
 deps = ["Random", "Rmath_jll"]
 git-tree-sha1 = "5b3d50eb374cea306873b371d3f8d3915a018f0b"
+registries = "General"
 uuid = "79098fc4-a85e-5d69-aa6a-4863f24498fa"
 version = "0.9.0"
 
 [[deps.Rmath_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "6d40b2fe70437b01397d2a4d5b020008da4e7019"
+registries = "General"
 uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
 version = "0.5.2+0"
 
 [[deps.Roots]]
 deps = ["Accessors", "CommonSolve", "Printf"]
 git-tree-sha1 = "7fb25a964849d90a0446366cdefca822e0e84900"
+registries = "General"
 uuid = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 version = "3.0.6"
 
@@ -6280,23 +6509,26 @@ version = "3.0.6"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
-version = "0.7.0"
+version = "1.0.0"
 
 [[deps.ScopedValues]]
 deps = ["HashArrayMappedTries", "Logging"]
 git-tree-sha1 = "67a144433c4ce877ee6d1ada69a124d6b1ecf7be"
+registries = "General"
 uuid = "7e506255-f358-4e82-b7e4-beb19740aa63"
 version = "1.6.2"
 
 [[deps.Scratch]]
 deps = ["Dates"]
 git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
+registries = "General"
 uuid = "6c6a2e73-6563-6170-7368-637461726353"
 version = "1.3.0"
 
 [[deps.SentinelArrays]]
 deps = ["Dates", "Random"]
 git-tree-sha1 = "084c47c7c5ce5cfecefa0a98dff69eb3646b5a80"
+registries = "General"
 uuid = "91c51154-3ec4-41a3-a24f-3f23e20d615c"
 version = "1.4.10"
 
@@ -6311,17 +6543,19 @@ version = "1.11.0"
 [[deps.SortingAlgorithms]]
 deps = ["DataStructures"]
 git-tree-sha1 = "13cd91cc9be159e3f4d95b857fa2aa383b53772a"
+registries = "General"
 uuid = "a2af1166-a08f-5f64-846c-94a0d3cef48c"
 version = "1.2.3"
 
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.12.0"
+version = "1.13.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
 git-tree-sha1 = "c3ac026e735264e9bdc6a9bcbd1b1e781b36e3bc"
+registries = "General"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
 version = "2.8.3"
 
@@ -6334,6 +6568,7 @@ version = "2.8.3"
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+registries = "General"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 version = "1.11.1"
 weakdeps = ["SparseArrays"]
@@ -6344,18 +6579,21 @@ weakdeps = ["SparseArrays"]
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "178ed29fd5b2a2cfc3bd31c13375ae925623ff36"
+registries = "General"
 uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 version = "1.8.0"
 
 [[deps.StatsBase]]
 deps = ["AliasTables", "DataAPI", "DataStructures", "IrrationalConstants", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
 git-tree-sha1 = "e4d7a1a0edc20af42689ea6f4f3587a2175d50ee"
+registries = "General"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.34.12"
 
 [[deps.StatsFuns]]
 deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
 git-tree-sha1 = "91a5737baed20ee31f3faea0e51f57461f6a689e"
+registries = "General"
 uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 version = "2.2.1"
 
@@ -6370,6 +6608,7 @@ version = "2.2.1"
 [[deps.StringManipulation]]
 deps = ["PrecompileTools"]
 git-tree-sha1 = "8a90c1d77c3277a5d43b83927b3cbe2c70a37484"
+registries = "General"
 uuid = "892a3eda-7b42-436c-8928-eab12a02cf0e"
 version = "0.4.7"
 
@@ -6382,9 +6621,9 @@ deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
 uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.8.3+2"
+version = "7.10.1+0"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -6394,12 +6633,14 @@ version = "1.0.3"
 [[deps.TableTraits]]
 deps = ["IteratorInterfaceExtensions"]
 git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
+registries = "General"
 uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
 version = "1.0.1"
 
 [[deps.Tables]]
 deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "OrderedCollections", "TableTraits"]
 git-tree-sha1 = "0f38a06c83f0007bbab3cf911262841c9a0f07e0"
+registries = "General"
 uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 version = "1.13.0"
 
@@ -6411,6 +6652,7 @@ version = "1.10.0"
 [[deps.TensorCore]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
+registries = "General"
 uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
 version = "0.1.1"
 
@@ -6421,11 +6663,13 @@ version = "1.11.0"
 
 [[deps.Tricks]]
 git-tree-sha1 = "311349fd1c93a31f783f977a71e8b062a57d4101"
+registries = "General"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.13"
 
 [[deps.URIs]]
 git-tree-sha1 = "5253f44481f18cd938d4559d5e44fa82198408a6"
+registries = "General"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
 version = "1.6.3"
 
@@ -6436,6 +6680,7 @@ version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+registries = "General"
 uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 version = "1.0.2"
 
@@ -6446,7 +6691,12 @@ version = "1.11.0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.3.1+2"
+version = "1.3.2+0"
+
+[[deps.Zstd_jll]]
+deps = ["CompilerSupportLibraries_jll", "Libdl"]
+uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
+version = "1.5.7+1"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -6454,14 +6704,18 @@ uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
 version = "5.15.0+0"
 
 [[deps.nghttp2_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.64.0+1"
+version = "1.70.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.7.0+0"
+version = "17.8.3+0"
+
+[registries.General]
+url = "https://github.com/JuliaRegistries/General.git"
+uuid = "23338594-aafe-5451-b93e-139f81909106"
 """
 
 # ╔═╡ Cell order:
@@ -6471,7 +6725,8 @@ version = "17.7.0+0"
 # ╟─d95f75b5-21d8-4862-baa7-50b58d9725b8
 # ╟─fc3dcd26-c5cf-4141-bf6c-eaed5fc9bb1d
 # ╟─dcb306ae-a1b1-43d6-ba6e-e38668838689
-# ╠═33c99850-67cd-4754-94b9-6df97b238e27
+# ╠═63bbbf94-7797-4fca-8a61-619bc3b7afb1
+# ╠═b47fa2ef-480a-45b9-9320-af761e09a01b
 # ╟─7a6fb1f0-fc3c-4c29-a6d9-769d32ca98a9
 # ╠═5cc4d12d-b537-47e2-8109-4e7a234fdf25
 # ╠═ff76ef94-fdf5-41f3-a31a-21c4629efabe
@@ -6527,9 +6782,13 @@ version = "17.7.0+0"
 # ╠═7ece4dbb-30bc-47fa-8380-479701091533
 # ╠═378021a0-176f-425d-ae60-4a94fef9b4b5
 # ╠═b41901f9-cf11-48c6-8907-82d33ddf9e4a
+# ╠═74d14b31-a3af-433e-a0d2-b2d80595cdb0
+# ╠═c3610e58-29d7-4689-87c0-cde1d6496650
+# ╠═eda7b706-f57b-4a24-b432-0b45cd3054f6
 # ╠═ad9cbe48-98c8-477f-a2ce-49c1778aa385
 # ╠═f7232174-8e39-46c4-9374-a39c3c05c3b9
 # ╠═7237504a-f5de-4ab7-9fc4-d86055593037
+# ╠═09c27574-5d0b-4d12-9ab9-d2d1dc217734
 # ╠═b42c7eb5-9cbe-437a-af4b-c567cfbb3cbd
 # ╠═2dc387cd-56e8-4340-9cc5-0aaa7e51867b
 # ╠═d8bac85f-3d77-4303-a2b6-2c1ccc040320
@@ -6543,6 +6802,7 @@ version = "17.7.0+0"
 # ╟─d83dc659-dce7-41dd-a8e7-2933ab39d15c
 # ╠═ccd85da6-1220-4e8f-a391-7dfc2ac5dcf8
 # ╠═37ec6802-d4c2-4470-ad69-439d5a732f77
+# ╠═4c5b466d-fb61-4f68-9a6a-566f3692e68c
 # ╠═4fb83451-b6f8-4e6e-a131-1accc8e10b08
 # ╠═a7c9ae69-f4b8-471c-ab97-90642f3c2bdb
 # ╠═d29c51f1-6f23-4c73-9d4a-d3d72c07926b
@@ -6582,8 +6842,11 @@ version = "17.7.0+0"
 # ╠═855fa5bc-9eab-4e26-85b4-48ba302d2c05
 # ╟─1386ffdb-940d-4f1b-a872-4e38647b5335
 # ╠═7d63b960-3998-4f7b-8cbb-ccd49db9aeac
+# ╠═4a2e4e99-97d9-43ec-99ff-fba36ad9b8c3
 # ╠═9db9ff71-bee9-4bea-a45b-748f8517fed1
+# ╠═b6b4c7d9-0126-4dc0-abe8-28c197f0d5d5
 # ╠═0fbf45c8-3e3c-47c1-b763-3b06bcdc60e0
+# ╠═14130b4e-d526-4f99-a762-ccfeff354b9d
 # ╠═42ff6c93-9eb0-455b-8b8a-98df5c328a0d
 # ╠═c0c5d43a-8f4c-4202-9c53-138abb516674
 # ╠═646bc853-b7fc-49fa-a201-ff98e8f952d4

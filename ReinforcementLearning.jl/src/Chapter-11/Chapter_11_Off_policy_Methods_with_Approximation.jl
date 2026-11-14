@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v1.0.4
 
 using Markdown
 using InteractiveUtils
@@ -11,7 +11,7 @@ using PlutoDevMacros
 # ╠═╡ skip_as_script = true
 #=╠═╡
 begin
-	using PlutoPlotly, PlutoUI, PlutoProfile, BenchmarkTools, LaTeXStrings, HypertextLiteral
+	using PlutoPlotly, PlutoUI, ProfileCanvas, BenchmarkTools, LaTeXStrings, HypertextLiteral
 	TableOfContents()
 end
   ╠═╡ =#
@@ -171,7 +171,7 @@ function semi_gradient_dp_policy_estimation!(parameters::Q, mdp::StateMDP{T, S, 
 end
 
 # ╔═╡ bea94375-277b-4f38-ad9d-4fa7fc646364
-semi_gradient_dp_policy_estimation_linear(mdp::StateMDP, π_dist!::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_dp_policy_estimation!(parameters, mdp, π_dist!, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
+semi_gradient_dp_policy_estimation_linear(mdp::StateMDP, π_dist!::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), parameters::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_dp_policy_estimation!(parameters, mdp, π_dist!, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ e6e606c4-39d7-4b87-bd1a-b5799281f033
 md"""
@@ -292,17 +292,17 @@ end
 
 # ╔═╡ c15bedae-1231-4421-8abe-ab2fa3cb34ec
 #=╠═╡
-const baird_dp_result = semi_gradient_dp_policy_estimation_linear(baird_state_mdp, on_policy_baird_params.π, 0.99f0, 100, 10000, zeros(Float32, 8), baird_update_state_vector!, save_parameter_history = true, parameters = on_policy_baird_params.w .* ones(Float32, 8))
+const baird_dp_result = semi_gradient_dp_policy_estimation_linear(baird_state_mdp, on_policy_baird_params.π, 0.99f0, 100, 10000, zeros(Float32, 8), baird_update_state_vector!, save_parameter_history = true, parameters = LinearParams(on_policy_baird_params.w .* ones(Float32, 8), [0f0]))
   ╠═╡ =#
 
 # ╔═╡ ac53f74b-3909-44b7-acf2-d2dd5f2e57cc
 #=╠═╡
-plot([scatter(y = [x[i] for x in baird_dp_result.parameter_history], name = "weight $i") for i in 1:8], Layout(xaxis_title = "Evaluation Steps", yaxis_title = "Weight Value", title = "Baird Weights During Semi-Gradient DP Learning"))
+plot([scatter(y = [x.weights[i] for x in baird_dp_result.parameter_history], name = "weight $i") for i in 1:8], Layout(xaxis_title = "Evaluation Steps", yaxis_title = "Weight Value", title = "Baird Weights During Semi-Gradient DP Learning"))
   ╠═╡ =#
 
 # ╔═╡ 21174c39-7b4d-48ce-80b1-a2c72be9239a
 #=╠═╡
-plot([scatter(y = [x[7] + 2*x[8] for x in baird_dp_result.parameter_history], name = "State value 7"), scatter(y = [2*x[1] + x[8] for x in baird_dp_result.parameter_history], name = "State value 1")], Layout(xaxis_title = "Evaluation Steps", yaxis_title = "State Value", title = "Value of Baird States 1 and 7 During Semi-gradient DP Learning"))
+plot([scatter(y = [x.weights[7] + 2*x.weights[8] for x in baird_dp_result.parameter_history], name = "State value 7"), scatter(y = [2*x.weights[1] + x.weights[8] for x in baird_dp_result.parameter_history], name = "State value 1")], Layout(xaxis_title = "Evaluation Steps", yaxis_title = "State Value", title = "Value of Baird States 1 and 7 During Semi-gradient DP Learning"))
   ╠═╡ =#
 
 # ╔═╡ 3c2bb063-db4f-4680-bf4a-2f3ac10a174d
@@ -904,20 +904,20 @@ md"""
 #=╠═╡
 function exercise_11_3_2(;winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), maxsteps = 10_000, γ = 0.99f0, ϵ = 0.99f0, α = 0.01f0, state_index = 1)
 	winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1])
-	sarsa_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [winit winit])
+	sarsa_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = LinearParams([winit winit], [0f0, 0f0]))
 
-	q_learning_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [winit winit], compute_value = compute_q_learning_value)
+	q_learning_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = LinearParams([winit winit], [0f0, 0f0]), compute_value = compute_q_learning_value)
 	
-	p1 = plot([scatter(y = [a[i, 1] for a in sarsa_output.parameter_history], name = "Parameter $i", showlegend=false) for i in 1:8], Layout(xaxis_title = "Step", yaxis_title = "Parameter Value"))
-	p2 = plot([scatter(y = [a[i, 2] for a in q_learning_output.parameter_history], name = "Parameter $i") for i in 1:8])
+	p1 = plot([scatter(y = [a.weights[i, 1] for a in sarsa_output.parameter_history], name = "Parameter $i", showlegend=false) for i in 1:8], Layout(xaxis_title = "Step", yaxis_title = "Parameter Value"))
+	p2 = plot([scatter(y = [a.weights[i, 2] for a in q_learning_output.parameter_history], name = "Parameter $i") for i in 1:8])
 
 	baird_values(w::Vector{T}) where T<:Real = [2*w[1] + w[8], 2*w[2] + w[8], 2*w[3]+w[8], 2*w[4] + w[8], 2*w[5] + w[8], 2*w[6] + w[8], w[7] + 2*w[8]]
 	
-	q_value_history1 = [baird_values(w[:, 1][:]) for w in q_learning_output.parameter_history]
-	q_value_history2 = [baird_values(w[:, 2][:]) for w in q_learning_output.parameter_history]
+	q_value_history1 = [baird_values(w.weights[:, 1][:]) for w in q_learning_output.parameter_history]
+	q_value_history2 = [baird_values(w.weights[:, 2][:]) for w in q_learning_output.parameter_history]
 
-	sarsa_value_history1 = [baird_values(w[:, 1][:]) for w in sarsa_output.parameter_history]
-	sarsa_value_history2 = [baird_values(w[:, 2][:]) for w in sarsa_output.parameter_history]
+	sarsa_value_history1 = [baird_values(w.weights[:, 1][:]) for w in sarsa_output.parameter_history]
+	sarsa_value_history2 = [baird_values(w.weights[:, 2][:]) for w in sarsa_output.parameter_history]
 
 	p3 = plot([scatter(y = [a[i] for a in q_value_history1], name = "State $i") for i in 1:7])
 	p4 = plot([scatter(y = [a[i] for a in q_value_history2], name = "State $i") for i in 1:7])
@@ -2448,7 +2448,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 	state_representation1 = copy(feature_vector)
 	state_representation2 = copy(feature_vector)
 
-	parameter_history = Vector{Matrix{T}}()
+	parameter_history = Vector{LinearParams{T, 2}}()
 
 	save_parameter_history && push!(parameter_history, copy(parameters))
 
@@ -2462,7 +2462,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 	epstep = 1
 	
 	while (ep <= max_episodes) && (step <= max_steps)
-		(qmax, i_a_max) = update_linear_action_values!(action_values, state_representation1, parameters; is_valid_action = i_a -> mdp.is_valid_action(s, i_a))
+		(qmax, i_a_max) = update_linear_action_values!(action_values, state_representation1, parameters, mdp.is_valid_action, s)
 		make_ϵ_greedy_policy!(policy; ϵ =  ϵ)
 		i_a = sample_action(policy)
 		v̂1 = action_values[i_a]
@@ -2472,7 +2472,7 @@ function tdc_control(mdp::StateMDP, γ::T, max_episodes::Integer, max_steps::Int
 			r
 		else
 			update_state_representation!(state_representation2, s′)
-			r + γ*update_linear_action_values!(action_values, state_representation2, parameters; is_valid_action = i_a -> mdp.is_valid_action(s′, i_a))[1]
+			r + γ*update_linear_action_values!(action_values, state_representation2, parameters, mdp.is_valid_action, s′)[1]
 		end
 
 		if !iszero(ρ)
@@ -2521,7 +2521,7 @@ function tdc_dp_control(mdp::StateMDP{T, S, A, P, F1, F2, F3}, γ::T, max_episod
 	state_representation2 = copy(feature_vector)
 	state_representation3 = copy(feature_vector)
 
-	parameter_history = Vector{Vector{T}}()
+	parameter_history = Vector{LinearParams{T, 1}}()
 
 	save_parameter_history && push!(parameter_history, copy(parameters))
 
@@ -2585,20 +2585,20 @@ md"""
 #=╠═╡
 function tdc_control_baird(;winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1]), maxsteps = 2_000, γ = 0.99f0, ϵ = 0.5f0, α = 0.01f0, state_index = 1)
 	winit = Float32.([1, 1, 1, 1, 1, 1, 10, 1])
-	sarsa_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [copy(winit) copy(winit)])
+	sarsa_output = semi_gradient_sarsa_linear(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = LinearParams([copy(winit) copy(winit)], [0f0, 0f0]))
 
-	tdc_control_output = tdc_control(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = [copy(winit) copy(winit)])
+	tdc_control_output = tdc_control(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = LinearParams([copy(winit) copy(winit)], [0f0, 0f0]))
 
-	tdc_dp_control_output = tdc_dp_control(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = copy(winit))
+	tdc_dp_control_output = tdc_dp_control(baird_state_mdp, γ, 1000, maxsteps, zeros(Float32, 8), baird_update_state_vector!; ϵ = ϵ, α = α, save_parameter_history = true, parameters = LinearParams(copy(winit), [0f0]))
 	
-	tdc_parameter_traces = [scatter(y = [tdc_control_output.parameter_history[i][i_w, 2] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
+	tdc_parameter_traces = [scatter(y = [tdc_control_output.parameter_history[i].weights[i_w, 2] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
 
 
 	tdc_value_traces = [scatter(y = [tdc_control_output.value_function(i_s; parameters = tdc_control_output.parameter_history[i]).maximizing_value for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
 
 	tdc_dp_value_traces = [scatter(y = [tdc_dp_control_output.value_function(i_s; parameters = tdc_dp_control_output.parameter_history[i]).maximizing_value for i in 1:maxsteps], name = "State $(i_s) value") for i_s in 1:7]
 
-	tdc_dp_parameter_traces = [scatter(y = [tdc_dp_control_output.parameter_history[i][i_w] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
+	tdc_dp_parameter_traces = [scatter(y = [tdc_dp_control_output.parameter_history[i].weights[i_w] for i in 1:maxsteps], name = latexstring("w_$i_w")) for i_w in 1:8]
 
 	tdc_value_plot = plot([tdc_value_traces; tdc_parameter_traces])
 
@@ -2745,16 +2745,16 @@ md"""
 # ╠═╡ skip_as_script = true
 #=╠═╡
 html"""
-	<style>
-		main {
-			margin: 0 auto;
-			max-width: min(1600px, 90%);
-			padding-left: max(10px, 5%);
-			padding-right: max(10px, 5%);
-			font-size: max(10px, min(24px, 2vw));
-		}
-	</style>
-	"""
+<style>
+	main {
+		margin: 0 auto;
+		max-width: min(1600px, 90%);
+		padding-left: max(10px, 5%);
+		padding-right: max(200px, 5%);
+		font-size: max(10px, min(24px, 2vw));
+	}
+</style>
+"""
   ╠═╡ =#
 
 # ╔═╡ 4c505f66-0c2c-4f59-858d-bd16c59f3397
@@ -2881,37 +2881,32 @@ HypertextLiteral = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PlutoDevMacros = "a0499f29-c39b-4c5c-807c-88074221b949"
 PlutoPlotly = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-PlutoProfile = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+ProfileCanvas = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
 
 [compat]
-BenchmarkTools = "~1.6.3"
-HypertextLiteral = "~0.9.5"
-LaTeXStrings = "~1.4.0"
-PlutoDevMacros = "~0.9.1"
-PlutoPlotly = "~0.6.5"
-PlutoProfile = "~0.4.0"
-PlutoUI = "~0.7.73"
+BenchmarkTools = "~1.8.0"
+HypertextLiteral = "~1.0.0"
+LaTeXStrings = "~1.4.1"
+PlutoDevMacros = "~0.9.2"
+PlutoPlotly = "~0.6.6"
+PlutoUI = "~0.7.83"
+ProfileCanvas = "~0.1.7"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
-manifest_format = "2.0"
-project_hash = "3d1178c7404f262152d31e2855f70e2a3293599d"
+julia_version = "1.13.2"
+manifest_format = "2.1"
+project_hash = "0541ab5aafb5779fe45de2a6c88a720c1b5da587"
 
 [[deps.AbstractPlutoDingetjes]]
-deps = ["Pkg"]
-git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+git-tree-sha1 = "6c3913f4e9bdf6ba3c08041a446fb1332716cbc2"
+registries = "General"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.3.2"
-
-[[deps.AbstractTrees]]
-git-tree-sha1 = "03e0550477d86222521d254b741d470ba17ea0b5"
-uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
-version = "0.3.4"
+version = "1.4.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -2926,34 +2921,43 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
 [[deps.BenchmarkTools]]
-deps = ["Compat", "JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "7fecfb1123b8d0232218e2da0c213004ff15358d"
+deps = ["Compat", "JSON", "Logging", "PrecompileTools", "Printf", "Profile", "Statistics", "UUIDs"]
+git-tree-sha1 = "9670d3febc2b6da60a0ae57846ba74670290653f"
+registries = "General"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.6.3"
+version = "1.8.0"
 
 [[deps.CodeTracking]]
-deps = ["InteractiveUtils", "UUIDs"]
-git-tree-sha1 = "980f01d6d3283b3dbdfd7ed89405f96b7256ad57"
+deps = ["InteractiveUtils", "REPL", "UUIDs"]
+git-tree-sha1 = "cfb7a2e89e245a9d5016b70323db412b3a7438d5"
+registries = "General"
 uuid = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
-version = "2.0.1"
+version = "3.0.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
 git-tree-sha1 = "b0fd3f56fa442f81e0a47815c92245acfaaa4e34"
+registries = "General"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 version = "3.31.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
-git-tree-sha1 = "b10d0b65641d57b8b4d5e234446582de5047050d"
+git-tree-sha1 = "6eaa7ad1a86c07e4917f9e67dca60e98d224a43d"
+registries = "General"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
-version = "0.11.5"
+version = "0.12.2"
+weakdeps = ["StyledStrings"]
+
+    [deps.ColorTypes.extensions]
+    StyledStringsExt = "StyledStrings"
 
 [[deps.ColorVectorSpace]]
 deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statistics", "TensorCore"]
-git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
+git-tree-sha1 = "8b3b6f87ce8f65a2b4f857528fd8d70086cd72b1"
+registries = "General"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
-version = "0.10.0"
+version = "0.11.0"
 
     [deps.ColorVectorSpace.extensions]
     SpecialFunctionsExt = "SpecialFunctions"
@@ -2963,13 +2967,15 @@ version = "0.10.0"
 
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
-git-tree-sha1 = "362a287c3aa50601b0bc359053d5c2468f0e7ce0"
+git-tree-sha1 = "37ea44092930b1811e666c3bc38065d7d87fcc74"
+registries = "General"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
-version = "0.12.11"
+version = "0.13.1"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
 git-tree-sha1 = "9d8a54ce4b17aa5bdce0ea5c34bc5e7c340d16ad"
+registries = "General"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
 version = "4.18.1"
 weakdeps = ["Dates", "LinearAlgebra"]
@@ -2980,7 +2986,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.3.0+1"
+version = "1.5.5+2"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -2990,11 +2996,13 @@ version = "1.11.0"
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
+registries = "General"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
+registries = "General"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 version = "0.9.5"
 
@@ -3003,60 +3011,42 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.7.0"
 
-[[deps.FileIO]]
-deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "d60eb76f37d7e5a40cc2e7c36974d864b82dc802"
-uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.17.1"
-
-    [deps.FileIO.extensions]
-    HTTPExt = "HTTP"
-
-    [deps.FileIO.weakdeps]
-    HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
 [[deps.FixedPointNumbers]]
-deps = ["Statistics"]
-git-tree-sha1 = "05882d6995ae5c12bb5f36dd2ed3f61c98cbb172"
+deps = ["Random", "Statistics"]
+git-tree-sha1 = "59af96b98217c6ef4ae0dfe065ac7c20831d1a84"
+registries = "General"
 uuid = "53c48c17-4a7d-5ca2-90c5-79b7896eea93"
-version = "0.8.5"
-
-[[deps.FlameGraphs]]
-deps = ["AbstractTrees", "Colors", "FileIO", "FixedPointNumbers", "IndirectArrays", "LeftChildRightSiblingTrees", "Profile"]
-git-tree-sha1 = "d9eee53657f6a13ee51120337f98684c9c702264"
-uuid = "08572546-2f56-4bcf-ba4e-bab62c3a3f89"
-version = "0.2.10"
+version = "0.8.6"
 
 [[deps.HashArrayMappedTries]]
 git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
+registries = "General"
 uuid = "076d061b-32b6-4027-95e0-9a2c6f6d7e74"
 version = "0.2.0"
 
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
+registries = "General"
 uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
 version = "0.0.5"
 
 [[deps.HypertextLiteral]]
 deps = ["Tricks"]
-git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+git-tree-sha1 = "d1a86724f81bcd184a38fd284ce183ec067d71a0"
+registries = "General"
 uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.5"
+version = "1.0.0"
 
 [[deps.IOCapture]]
 deps = ["Logging", "Random"]
 git-tree-sha1 = "0ee181ec08df7d7c911901ea38baf16f755114dc"
+registries = "General"
 uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "1.0.0"
-
-[[deps.IndirectArrays]]
-git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
-uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
 
 [[deps.InteractiveUtils]]
@@ -3065,16 +3055,24 @@ uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
 
 [[deps.JSON]]
-deps = ["Dates", "Mmap", "Parsers", "Unicode"]
-git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
+deps = ["Dates", "Logging", "Parsers", "PrecompileTools", "StructUtils", "UUIDs", "Unicode"]
+git-tree-sha1 = "4657a834b01ce00f2b94546095c4350617b9af2c"
+registries = "General"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
-version = "0.21.4"
+version = "1.10.0"
+
+    [deps.JSON.extensions]
+    JSONArrowExt = ["ArrowTypes"]
+
+    [deps.JSON.weakdeps]
+    ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
-git-tree-sha1 = "277779adfedf4a30d66b64edc75dc6bb6d52a16e"
+git-tree-sha1 = "58927c485919bf17ea308d9d82156de1adf4b006"
+registries = "General"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
-version = "0.10.6"
+version = "0.10.12"
 
 [[deps.JuliaSyntaxHighlighting]]
 deps = ["StyledStrings"]
@@ -3082,25 +3080,20 @@ uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
 
 [[deps.LaTeXStrings]]
-git-tree-sha1 = "dda21b8cbd6a6c40d9d02a73230f9d70fed6918c"
+git-tree-sha1 = "f88f3ccef05a6a72a0cf0ed417c8fd68530f4ab2"
+registries = "General"
 uuid = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-version = "1.4.0"
-
-[[deps.LeftChildRightSiblingTrees]]
-deps = ["AbstractTrees"]
-git-tree-sha1 = "b864cb409e8e445688bc478ef87c0afe4f6d1f8d"
-uuid = "1d6d02ad-be62-4b6b-8a6d-2f90e265016e"
-version = "0.1.3"
+version = "1.4.1"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "1.0.0"
 
 [[deps.LibCURL_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "nghttp2_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "Zstd_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.15.0+0"
+version = "8.22.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -3108,14 +3101,14 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 version = "1.11.0"
 
 [[deps.LibGit2_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.9.0+0"
+version = "1.9.7+0"
 
 [[deps.LibSSH2_jll]]
-deps = ["Artifacts", "Libdl", "OpenSSL_jll"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "OpenSSL_jll", "Zlib_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.3+1"
+version = "1.11.104+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -3124,7 +3117,7 @@ version = "1.11.0"
 [[deps.LinearAlgebra]]
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-version = "1.12.0"
+version = "1.13.0"
 
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -3132,11 +3125,13 @@ version = "1.11.0"
 
 [[deps.MIMEs]]
 git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
+registries = "General"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
 version = "1.1.0"
 
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
+registries = "General"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.16"
 
@@ -3151,7 +3146,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.11.4"
+version = "2026.8.13"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -3160,34 +3155,42 @@ version = "1.3.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.29+0"
+version = "0.3.30+0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.4+0"
+version = "3.5.8+0"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "05868e21324cede2207c6f0f466b4bfef6d5e7ee"
+git-tree-sha1 = "94ba93778373a53bfd5a0caaf7d809c445292ff4"
+registries = "General"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.8.1"
+version = "1.8.2"
+
+[[deps.PCRE2_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
+version = "10.46.0+0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
 git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+registries = "General"
 uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 version = "0.12.3"
 
 [[deps.Parsers]]
-deps = ["Dates", "PrecompileTools", "UUIDs"]
-git-tree-sha1 = "7d2f8f21da5db6a806faf7b9b292296da42b2810"
+deps = ["Dates", "PrecompileTools"]
+git-tree-sha1 = "663e8b48b789916221e0765393b289ca6c88f24e"
+registries = "General"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.8.3"
+version = "3.0.0"
 
 [[deps.Pkg]]
-deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
+deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "Zstd_jll", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.12.1"
+version = "1.13.0"
 weakdeps = ["REPL"]
 
     [deps.Pkg.extensions]
@@ -3195,9 +3198,10 @@ weakdeps = ["REPL"]
 
 [[deps.PlotlyBase]]
 deps = ["ColorSchemes", "Colors", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
-git-tree-sha1 = "28278bb0053da0fd73537be94afd1682cc5a0a83"
+git-tree-sha1 = "6256ab3ee24ef079b3afa310593817e069925eeb"
+registries = "General"
 uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
-version = "0.8.21"
+version = "0.8.23"
 
     [deps.PlotlyBase.extensions]
     DataFramesExt = "DataFrames"
@@ -3213,15 +3217,17 @@ version = "0.8.21"
 
 [[deps.PlutoDevMacros]]
 deps = ["JuliaInterpreter", "Logging", "MacroTools", "Pkg", "TOML"]
-git-tree-sha1 = "1cb861c9295d79dc6e23170d4b33bce013f69643"
+git-tree-sha1 = "709c36a806ec0af91840184f3052bb3c6cc60915"
+registries = "General"
 uuid = "a0499f29-c39b-4c5c-807c-88074221b949"
-version = "0.9.1"
+version = "0.9.2"
 
 [[deps.PlutoPlotly]]
 deps = ["AbstractPlutoDingetjes", "Artifacts", "ColorSchemes", "Colors", "Dates", "Downloads", "HypertextLiteral", "InteractiveUtils", "LaTeXStrings", "Markdown", "Pkg", "PlotlyBase", "PrecompileTools", "Reexport", "ScopedValues", "Scratch", "TOML"]
-git-tree-sha1 = "8acd04abc9a636ef57004f4c2e6f3f6ed4611099"
+git-tree-sha1 = "2b9e3d771adfe535a4fdda855f4741fdaacd3f7f"
+registries = "General"
 uuid = "8e989ff0-3d88-8e9f-f020-2b208a939ff0"
-version = "0.6.5"
+version = "0.6.6"
 
     [deps.PlutoPlotly.extensions]
     PlotlyKaleidoExt = "PlotlyKaleido"
@@ -3231,29 +3237,26 @@ version = "0.6.5"
     PlotlyKaleido = "f2990250-8cf9-495f-b13a-cce12b45703c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.PlutoProfile]]
-deps = ["AbstractTrees", "FlameGraphs", "Profile", "ProfileCanvas"]
-git-tree-sha1 = "154819e606ac4205dd1c7f247d7bda0bf4f215c4"
-uuid = "ee419aa8-929d-45cd-acf6-76bd043cd7ba"
-version = "0.4.0"
-
 [[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "3faff84e6f97a7f18e0dd24373daa229fd358db5"
+deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
+git-tree-sha1 = "e189d0623e7ce9c37389bac17e80aac3b0302e75"
+registries = "General"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.73"
+version = "0.7.83"
 
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
-git-tree-sha1 = "07a921781cab75691315adc645096ed5e370cb77"
+git-tree-sha1 = "edbeefc7a4889f528644251bdb5fc9ab5348bc2c"
+registries = "General"
 uuid = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
-version = "1.3.3"
+version = "1.3.4"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "0f27480397253da18fe2c12a4ba4eb9eb208bf3d"
+git-tree-sha1 = "5005266de4bfe50e53ff44a5cb5c540b6e47a254"
+registries = "General"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.5.0"
+version = "1.6.0"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -3266,13 +3269,14 @@ uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 version = "1.11.0"
 
 [[deps.ProfileCanvas]]
-deps = ["FlameGraphs", "JSON", "Pkg", "Profile", "REPL"]
-git-tree-sha1 = "41fd9086187b8643feda56b996eef7a3cc7f4699"
+deps = ["Base64", "JSON", "Pkg", "Profile", "REPL"]
+git-tree-sha1 = "990016fb1508b0726a70039f39569720d054c78d"
+registries = "General"
 uuid = "efd6af41-a80b-495e-886c-e51b0c7d77a3"
-version = "0.1.0"
+version = "0.1.7"
 
 [[deps.REPL]]
-deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
+deps = ["Base64", "Dates", "FileWatching", "InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 version = "1.11.0"
 
@@ -3283,28 +3287,32 @@ version = "1.11.0"
 
 [[deps.Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
+registries = "General"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.Requires]]
 deps = ["UUIDs"]
 git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
+registries = "General"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
-version = "0.7.0"
+version = "1.0.0"
 
 [[deps.ScopedValues]]
 deps = ["HashArrayMappedTries", "Logging"]
-git-tree-sha1 = "c3b2323466378a2ba15bea4b2f73b081e022f473"
+git-tree-sha1 = "67a144433c4ce877ee6d1ada69a124d6b1ecf7be"
+registries = "General"
 uuid = "7e506255-f358-4e82-b7e4-beb19740aa63"
-version = "1.5.0"
+version = "1.6.2"
 
 [[deps.Scratch]]
 deps = ["Dates"]
 git-tree-sha1 = "9b81b8393e50b7d4e6d0a9f14e192294d3b7c109"
+registries = "General"
 uuid = "6c6a2e73-6563-6170-7368-637461726353"
 version = "1.3.0"
 
@@ -3318,15 +3326,35 @@ version = "1.11.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "ae3bb1eb3bba077cd276bc5cfc337cc65c3075c0"
+git-tree-sha1 = "e2b53ce13a53367e96601081e33d34746b571bad"
+registries = "General"
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.11.1"
+version = "1.11.5"
 
     [deps.Statistics.extensions]
     SparseArraysExt = ["SparseArrays"]
 
     [deps.Statistics.weakdeps]
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StructUtils]]
+deps = ["Dates", "UUIDs"]
+git-tree-sha1 = "b814d5005d6a529d740ffe06f8a86396f6501138"
+registries = "General"
+uuid = "ec057cc2-7a8d-4b58-b3b3-92acb9f63b42"
+version = "2.9.2"
+
+    [deps.StructUtils.extensions]
+    StructUtilsLazilyInitializedFieldsExt = ["LazilyInitializedFields"]
+    StructUtilsMeasurementsExt = ["Measurements"]
+    StructUtilsStaticArraysCoreExt = ["StaticArraysCore"]
+    StructUtilsTablesExt = ["Tables"]
+
+    [deps.StructUtils.weakdeps]
+    LazilyInitializedFields = "0e77f7df-68c5-4e49-93ce-4cd80f5598bf"
+    Measurements = "eff96d63-e80a-5855-80a2-b1b0885c5ab7"
+    StaticArraysCore = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+    Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
@@ -3345,6 +3373,7 @@ version = "1.10.0"
 [[deps.TensorCore]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "1feb45f88d133a655e001435632f019a9a1bcdb6"
+registries = "General"
 uuid = "62fd8b95-f654-4bbd-a8a5-9c27f68ccd50"
 version = "0.1.1"
 
@@ -3355,13 +3384,15 @@ version = "1.11.0"
 
 [[deps.Tricks]]
 git-tree-sha1 = "311349fd1c93a31f783f977a71e8b062a57d4101"
+registries = "General"
 uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
 version = "0.1.13"
 
 [[deps.URIs]]
-git-tree-sha1 = "bef26fb046d031353ef97a82e3fdb6afe7f21b1a"
+git-tree-sha1 = "908fec9df6c5de98548ead82a468c95ccf6cd263"
+registries = "General"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
-version = "1.6.1"
+version = "1.7.0"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
@@ -3370,6 +3401,7 @@ version = "1.11.0"
 
 [[deps.UnPack]]
 git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+registries = "General"
 uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 version = "1.0.2"
 
@@ -3380,7 +3412,12 @@ version = "1.11.0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.3.1+2"
+version = "1.3.2+0"
+
+[[deps.Zstd_jll]]
+deps = ["CompilerSupportLibraries_jll", "Libdl"]
+uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
+version = "1.5.7+1"
 
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -3388,14 +3425,18 @@ uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
 version = "5.15.0+0"
 
 [[deps.nghttp2_jll]]
-deps = ["Artifacts", "Libdl"]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.64.0+1"
+version = "1.70.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.7.0+0"
+version = "17.8.3+0"
+
+[registries.General]
+url = "https://github.com/JuliaRegistries/General.git"
+uuid = "23338594-aafe-5451-b93e-139f81909106"
 """
 
 # ╔═╡ Cell order:
@@ -3519,7 +3560,7 @@ version = "17.7.0+0"
 # ╠═a36695bb-599d-4f83-a747-9e3d0668e7d8
 # ╠═d45813bd-8aa2-4454-bc12-ae8dce0a4590
 # ╠═5047d396-af48-49fa-bf68-702fbe42c18e
-# ╠═9bc2895e-ab70-49f2-be7c-61f19054cf50
+# ╟─9bc2895e-ab70-49f2-be7c-61f19054cf50
 # ╠═a780e90c-c6d1-44c8-9b55-d52cf4c20db4
 # ╠═aeca907a-ee07-4045-b98f-0c67b1734008
 # ╟─666a27b0-6fa3-4f5c-b85e-c3f66f0b5790

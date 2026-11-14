@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v1.0.3
+# v1.1.0
 
 using Markdown
 using InteractiveUtils
@@ -244,33 +244,6 @@ end;
 #this represents anything that could be used with linear function approximation which is either a vector, a binary feature vector, or a state aggregation feature vector which just stores the group_index
 const LinearFeatureVector{I} = Union{C1, C2, C3} where {I <: Integer, T<:Real, C1 <: Vector{T}, N, C2 <: BinaryFeatureVector{I, N}, C3 <: StateAggregationFeatureVector{I, N}}
 
-# ╔═╡ bff9d10e-f702-459e-8e86-c4a8ec0c9b59
-begin
-function Base.copy(v::StateAggregationFeatureVector{I, N}) where {I<:Integer, N}
-    new_v = StateAggregationFeatureVector(N)
-    new_v.group_index = v.group_index
-    return new_v
-end
-
-function Base.copy!(dst::StateAggregationFeatureVector{I, N}, src::StateAggregationFeatureVector{I, N}) where {I<:Integer, N}
-    dst.group_index = src.group_index
-    return dst
-end
-
-function Base.copy(v::BinaryFeatureVector{I, N}) where {I<:Integer, N}
-    new_v = BinaryFeatureVector(N)
-    new_v.active_features = v.active_features 
-    new_v.num_features = v.num_features
-    return new_v
-end
-
-function Base.copy!(dst::BinaryFeatureVector{I, N}, src::BinaryFeatureVector{I, N}) where {I<:Integer, N}
-    dst.active_features = src.active_features
-    dst.num_features = src.num_features
-    return dst
-end
-end
-
 # ╔═╡ f8bc8f92-a9c6-4b7b-9a8e-48fbb1f85e6c
 begin
 	function update_state_aggregation_feature_vector!(x::StateAggregationFeatureVector{I}, group_index::I) where {I<:Integer}
@@ -279,6 +252,13 @@ begin
 	end
 
 	update_state_aggregation_feature_vector!(x::StateAggregationFeatureVector{I, N}, y::StateAggregationFeatureVector{I, N}) where {N, I<:Integer} = update_state_aggregation_feature_vector!(x, y.group_index)
+end
+
+# ╔═╡ a4ba716f-1656-4db5-a70d-145e21c6adc0
+#representation of linear parameters that could accomodate single value or multi value output functions
+struct LinearParams{T, N}
+	weights::Array{T, N}
+	biases::Vector{T}
 end
 
 # ╔═╡ a2ffaa35-ee82-47fd-878e-dd535caab109
@@ -463,6 +443,12 @@ begin
 		return θ
 	end
 
+	function update_params_with_gradient!(params::LinearParams{T, N}, α::T, ∇::LinearParams{T, N}) where {T<:Real, N}
+		update_params_with_gradient!(params.weights, α, ∇.weights)
+		update_params_with_gradient!(params.biases, α, ∇.biases)
+		return params
+	end
+
 	function update_params_with_gradient!(params::FCANNParams{T}, α::T, ∇::FCANNParams{T}) where T<:Float32
 		params_w = params.weights[1]
 		grad_w = ∇.weights[1]
@@ -475,16 +461,7 @@ begin
 		for (p, d) in zip(params_b, grad_b)
 			update_params_with_gradient!(p, α, d)
 		end
-
-		# for (p, d) in zip(params.weights, ∇.weights)
-		# 	for (x, y) in zip(p, d)
-		# 	# for i in eachindex(first(params.weights))
-		# 		# for j in 1:2
-		# 			# update_params_with_gradient!(params.weights[j][i], α, ∇.weights[j][i])
-		# 			update_params_with_gradient!(x, α, y)
-		# 		# end
-		# 	end
-		# end
+		
 		return params
 	end
 
@@ -495,14 +472,129 @@ begin
 		end
 		return w
 	end
-
 	function update_params_with_gradient!(w::Vector{T}, α::T, ∇w::StateAggregationFeatureVector) where {T<:Real}
 		w[∇w.group_index] += α
 		return w
 	end
+	
+	function update_params_with_gradient!(params::LinearParams{T, 1}, α::T, ∇::LinearFeatureVector) where T<:Real
+		update_params_with_gradient!(params.weights, α, ∇)
+		params.biases[1] += α
+		return params
+	end
 
 	update_params_with_gradient!(::Nothing, α::T, ::Nothing) where T<:Real = return nothing
 end
+
+# ╔═╡ 6e9f7157-e912-4c12-a7e5-febf75c997a6
+md"""
+### Parameter Regularization
+
+When using function approximation, it is common to place further constraints on the parameter updates in order to avoid common pitfalls that occur with gradient descent training.  These techniques are called "regularization" and often attempt to smooth out the training process so that parameters do not specialize too much on any particular input.  The most common form of regularization is ``\mathcal{l}2`` in which a penalty is applied based on the total squared sum of the parameters.  Applying such a penalty forces the individual parameter values to be smaller.  Other types of regularization include a hard cap on this norm and dropout in which some of the weights are randomly exluded when calculating the gradient so that the weight update can only apply to certain parameters.
+"""
+
+# ╔═╡ b53d3393-f5b4-4985-9ecf-242d92af98a1
+abstract type Regularizer end
+
+# ╔═╡ 69230cc9-718d-48c2-927c-ac21cbf52323
+struct NoOpReg <: Regularizer end
+
+# ╔═╡ 3159ee37-7adb-4957-a04a-5c9215e0cd0f
+struct RidgeReg{T} <: Regularizer where T<: Real 
+	l2::T
+	function RidgeReg(l2::T) where T<: Real
+		@assert l2 > 0
+		new{T}(l2)
+	end
+end
+
+# ╔═╡ c3b9cc19-c26c-468d-bb45-39221ac51481
+struct MaxNormReg{T} <: Regularizer where T <: Real 
+	c::T
+	function MaxNormReg(c::T) where T <: Real
+		@assert c > 0
+		new{T}(c)
+	end
+end
+
+# ╔═╡ b413ece0-d41d-4ed7-9859-73ca0f149094
+begin
+	#the NoOp regularizer does not modify the parameters
+	regularize_params!(params, ::NoOpReg, args...) = return params
+
+	#l2 regularization moves each individual parameter closer to 0 using the l2 constant and the learning rate
+	function regularize_params!(params::AbstractArray{T}, reg::RidgeReg{T}, α::T) where T <: Real
+		params .= params .- (reg.l2 .* α .* params)
+		return params
+	end
+	function regularize_params!(params::LinearParams{T}, reg::RidgeReg{T}, α::T) where T<:Real
+		regularize_params!(params.weights, reg, α)
+		return params
+	end
+	function regularize_params!(params::FCANNParams{T}, reg::RidgeReg{T}, α::T) where T<:Real
+		weights = params.weights[1]
+		for w in weights
+			regularize_params!(w, reg, α)
+		end
+		return params
+	end
+
+	#maxnorm regularization ensures that the combination of weights that make up a weighted sum for any particular output does not have a rms sum that exceeds a certain value
+	function regularize_params!(params::Vector{T}, reg::MaxNormReg{T}, args...) where T <: Real
+		ss = zero(T)
+		@inbounds @simd for i in eachindex(params)
+			ss += params[i]^2
+		end
+
+		l = sqrt(ss)
+		l ≤ reg.c && return params
+		params .*= (reg.c / l)
+		
+		return params
+	end
+	#apply regularization to the columns of the parameter matrix
+	function regularize_params!(params::Matrix{T}, reg::MaxNormReg{T}, args...) where T <: Real
+		for j in 1:size(params, 2)
+			ss = zero(T)
+			@inbounds @simd for i in 1:size(params, 1)
+				ss += params[i, j]^2
+			end
+
+			l = sqrt(ss)
+			if l > reg.c
+				x = reg.c / l
+				@inbounds @simd for i in 1:size(params, 1)
+					params[i, j] *= x
+				end
+			end
+		end
+		return params
+	end
+	function regularize_params!(params::LinearParams{T}, reg::MaxNormReg{T}, args...) where T<:Real
+		regularize_params!(params.weights, reg, args...)
+		return params
+	end
+	#apply regularization to the rows of the weight matrices
+	function regularize_params!(params::FCANNParams{T}, reg::MaxNormReg{T}, args...) where T <: Real
+		weights = params.weights[1]
+		for w in weights
+			fs = zeros(T, size(w, 1))
+			for j in 1:size(w, 2)
+				@inbounds @simd for i in 1:size(w, 1)
+					fs[i] += w[i, j]^2
+				end
+			end
+
+			@inbounds @simd for i in eachindex(fs)
+				l = sqrt(fs[i])
+				fs[i] = min(one(T), reg.c / l)
+			end
+			
+			w .*= fs
+		end
+		return params
+	end
+end	
 
 # ╔═╡ a77f9819-04b2-4785-8eb0-c7e9dba6cecc
 Base.length(::AbstractBinaryFeatures{I, N}) where {I<:Integer, N} = N
@@ -1333,19 +1425,27 @@ function scale_fcann_params!(params::FCANNParams{T}, scales::Vector{T}; c::T = o
 	for (p, s) in zip(params_b, scales)
 		p .*= s*c
 	end
+	
 	# @inbounds for i in eachindex(scales)
 
 	# 	for j in 1:2
-	# 		params.weights[j][i] .*= scales[i]
+	# 		params.weights[j][i] .*= c .* scales[i]
 	# 	end
 	# end
 end
 
 # ╔═╡ c064a91d-7dd3-403b-8bc0-285014bc873c
+begin
 function check_bad_params(params::Array{<:Real})
 	any(isinf, params) && return true
 	any(isnan, params) && return true
 	return false
+end
+function check_bad_params(params::LinearParams{T}) where T<:Real
+	check_bad_params(params.weights) && return true
+	check_bad_params(params.biases) && return true
+	return false
+end
 end
 
 # ╔═╡ 5513f245-de2e-4cb5-b56a-abbe8261249a
@@ -1354,6 +1454,11 @@ function check_bad_params(params::FCANNParams)
 	any(check_bad_params, params.weights[2]) && return true
 	return false
 end
+
+# ╔═╡ 304058c9-db85-44d7-abb5-4a3d8812a6ba
+md"""
+### FCANN Setup
+"""
 
 # ╔═╡ b70fac93-ba6e-4234-86de-c131011b09a1
 begin
@@ -1367,13 +1472,13 @@ begin
 	end
 end
 
-# ╔═╡ 05d958e4-2f2e-46e0-a030-7ecd137fb4f0
-function Base.copy!(dst::FCANNParams{T}, src::FCANNParams{T}) where T<:Real
-	for i in eachindex(src.weights[1])
-		for j in 1:2
-			dst.weights[j][i] .= src.weights[j][i]
-		end
-	end
+# ╔═╡ b953d817-c753-4b89-bc97-9d433226e365
+Base.copy(params::LinearParams) = LinearParams(copy(params.weights), copy(params.biases))
+
+# ╔═╡ a0c38a52-ac8d-4f78-8bf1-406537c73916
+function Base.copy!(dst::LinearParams{T, N}, src::LinearParams{T, N}) where {T <: Real, N}
+	copy!(dst.weights, src.weights)
+	copy!(dst.biases, src.biases)
 	return dst
 end
 
@@ -1395,6 +1500,11 @@ end
 # ╔═╡ f5661feb-6dcd-4409-b2f1-b756253ef2e0
 md"""
 Comparing these two versions, we see that once the hidden layer size hits 1024 the gpu version becomes faster.  Also at a hidden layer size of 512 and a layer count of 10, the GPU version is faster.  The times are about even with a layer size of 256 and 100 layers.
+"""
+
+# ╔═╡ 1add4bf1-14af-40b5-8632-0e3c4266e744
+md"""
+### Random Walk Test
 """
 
 # ╔═╡ b1c84d59-3598-46a1-bc1a-fd691d14ab09
@@ -1738,6 +1848,35 @@ md"""
 # ╔═╡ 808fcb4f-f113-4623-9131-c709320130df
 @only_in_nb PlutoDevMacros.@frompackage @raw_str(joinpath(@__DIR__, "..", "ApproximationUtils.jl")) import *
 
+# ╔═╡ bff9d10e-f702-459e-8e86-c4a8ec0c9b59
+begin
+function Base.copy(v::StateAggregationFeatureVector{I, N}) where {I<:Integer, N}
+    new_v = StateAggregationFeatureVector(N)
+    new_v.group_index = v.group_index
+    return new_v
+end
+
+function Base.copy!(dst::StateAggregationFeatureVector{I, N}, src::StateAggregationFeatureVector{I, N}) where {I<:Integer, N}
+    dst.group_index = src.group_index
+    return dst
+end
+
+function Base.copy(v::BinaryFeatureVector{I, N}) where {I<:Integer, N}
+    new_v = BinaryFeatureVector(N)
+    new_v.active_features = v.active_features 
+    new_v.num_features = v.num_features
+    return new_v
+end
+
+function Base.copy!(dst::BinaryFeatureVector{I, N}, src::BinaryFeatureVector{I, N}) where {I<:Integer, N}
+    dst.active_features = src.active_features
+    dst.num_features = src.num_features
+    return dst
+end
+
+Base.copy!(dst::FCANN.CUDAArray, src::FCANN.CUDAArray) = FCANN.memcpy!(dst, src)
+end
+
 # ╔═╡ 42a7918f-8e9d-45ae-9e40-1254dde9f06f
 begin
 	#general linear approximation
@@ -1854,7 +1993,7 @@ begin
 	- All methods avoid memory allocation in the hot path
 	"""
 	linear_value_function(x::Vector{T}, w::Vector{T}) where {T<:Real} = dot(x, w)
-	
+
 	#binary features
 	function linear_value_function(binary_features::BinaryFeatureVector, params::Vector{T})::T where T<:Real
 		v = zero(T)
@@ -1867,6 +2006,8 @@ begin
 
 	#state-aggregation index (single feature only)
 	linear_value_function(x::StateAggregationFeatureVector, params::Vector{T}) where T<:Real = params[x.group_index]
+
+	linear_value_function(x, params::LinearParams{T, 1}) where T<:Real = linear_value_function(x, params.weights) + params.biases[1]
 end
 
 # ╔═╡ ba58242a-306a-4631-92b4-34bc9e354fae
@@ -2749,7 +2890,7 @@ begin
 	# Returns
 	- `LinearActionValueGradient`: The updated gradient storage (same as input `∇q̂`)
 	"""
-	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::Vector{T}) where {T<:Real}
+	function update_linear_value_gradient!(∇v̂::Vector{T}, x::Vector{T}, value_params::LinearParams{T, 1}) where {T<:Real}
 		∇v̂ .= x
 		return linear_value_function(x, value_params)
 	end
@@ -2759,7 +2900,7 @@ begin
 	end
 
 	#with binary features we only need to store the active features
-	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params::Vector{T}) where T<:Real
+	function update_linear_value_gradient!(∇v̂::BinaryFeatureVector, binary_features::BinaryFeatureVector, value_params::LinearParams{T, 1}) where T<:Real
 		update_binary_feature_vector!(∇v̂, binary_features)
 		return linear_value_function(binary_features, value_params)
 	end
@@ -2769,7 +2910,7 @@ begin
 		update_binary_feature_vector!(∇v̂, binary_features)
 	end
 
-	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params::Vector{T}) where T<:Real
+	function update_linear_value_gradient!(∇v̂::StateAggregationFeatureVector, feature_vector::StateAggregationFeatureVector, value_params::LinearParams{T, 1}) where T<:Real
 		∇v̂.group_index = feature_vector.group_index
 		return linear_value_function(feature_vector, value_params)
 	end
@@ -2860,9 +3001,10 @@ begin
 	- Vector storage for state-value functions, matrix storage for action-value functions
 	"""
 	function initialize_linear_parameters(l::Integer, init_value::T) where T<:Real
-		params = ones(T, l)
-		params .*= init_value
-		return params
+		weights = ones(T, l)
+		weights .*= init_value
+		biases = [init_value]
+		return LinearParams(weights, biases)
 	end
 	initialize_linear_parameters(x, init_value) = initialize_linear_parameters(length(x), init_value)
 end
@@ -3516,7 +3658,7 @@ Accumulates error statistics for convergence monitoring.
 # See Also
 [`update_params_with_gradient!`](@ref), [`gradient_monte_carlo_estimation!`](@ref)
 """
-function gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T, calculate_error::Function) where {T<:Real, S}
+function gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!::Function, value_function::Function, update_value_gradient!::Function, states::AbstractVector{S}, rewards::AbstractVector{T}, γ::T, α::T, calculate_error::Function, reg::Regularizer) where {T<:Real, S}
 	g = zero(T)
 	l = length(states)
 	episode_error = zero(T)
@@ -3528,6 +3670,7 @@ function gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector
 		δ = g - v̂
 		c = α*δ
 		update_params_with_gradient!(parameters, c, ∇v̂)
+        regularize_params!(parameters, reg, α)
 		new_error::T = calculate_error(g, v̂, s)
 		episode_error += new_error
 	end
@@ -3624,8 +3767,8 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 	
 	#form activations for network
 	activations = FCANN.form_activations(params.weights[1])
-	tanh_grad_z = copy(activations)
-	deltas = copy(activations)
+	tanh_grad_z = FCANN.form_activations(params.weights[1])
+	deltas = FCANN.form_activations(params.weights[1])
 
 	final_activation = last(activations)
 
@@ -3642,13 +3785,18 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 	function value_function(x, params::FCANNParams{T}; activations::FCANNActivations{T} = activations, kwargs...) 			
 		fcann_value_function!(activations, x, params)
 		# return first(last(activations))
-		return activations[end][1]
+        # output = final_activation[1]
+        # @info "Value Function: x = $x, params = $params, activations = $activations, output = $output"
+		return activations[l][1]
 	end
 	
 	function update_value_gradient!(∇v̂::FCANNParams{T}, x, params::FCANNParams{T}) 
-		update_fcann_value_gradient!(∇v̂, x, 1, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list)
+		# @info "Gradient Function Pre: x = $x, params = $params, activations = $activations, gradient = $∇v̂"
+        update_fcann_value_gradient!(∇v̂, x, 1, params, hidden_layers, l2, tanh_grad_z, activations, deltas, dropout, activation_list)
+        output = final_activation[1]
+        # @info "Gradient Function: x = $x, params = $params, activations = $activations, output = $output, gradient = $∇v̂"
 		use_μP && scale_fcann_params!(∇v̂, scales)
-		return final_activation[1]
+		return output
 	end
 
 	# update_value_gradient!(∇v̂::FCANNParams{T}, x, params::FCANNParams{T}) = update_value_gradient!(∇v̂, x, params, Val(l))
@@ -3719,6 +3867,31 @@ function setup_fcann_value_arguments(params::FCANNParams{T}, l2::T, dropout::T, 
 	end
 
 	return (gradient = copy(params), value_function = value_function, update_gradient! = update_value_gradient!, activations = activations, gpu_args = gpu_args)
+end
+
+# ╔═╡ 05d958e4-2f2e-46e0-a030-7ecd137fb4f0
+begin
+function Base.copy!(dst::FCANNParams{T}, src::FCANNParams{T}) where T<:Real
+	for (dst_layer, src_layer) in zip(dst.weights[1], src.weights[1])
+		dst_layer .= src_layer
+	end
+	for (dst_layer, src_layer) in zip(dst.weights[2], src.weights[2])
+		dst_layer .= src_layer
+	end
+	# for i in eachindex(src.weights[1])
+	# 	for j in 1:2
+	# 		dst.weights[j][i] .= src.weights[j][i]
+	# 	end
+	# end
+	return dst
+end
+function Base.copy!(dst::FCANNParamsGPU, src::FCANNParamsGPU)
+	for i in eachindex(src.weights[1])
+		for j in 1:2
+			FCANN.memcpy!(dst.weights[j][i], src.weights[j][i])
+		end
+	end
+end
 end
 
 # ╔═╡ 16eff6bc-ce43-4d97-aa76-73df2ff76b29
@@ -3846,14 +4019,14 @@ Automatically creates episode functions using [`create_episode_functions`](@ref)
 - Error history provides convergence diagnostics
 - Compatible with any differentiable function approximation method
 """
-function gradient_monte_carlo_estimation!(parameters, generate_episode::Function, update_episode!::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, epkwargs...) where {T<:Real}
+function gradient_monte_carlo_estimation!(parameters, generate_episode::Function, update_episode!::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (g, v̂, s) -> (g - v̂) ^2, reg::Regularizer = NoOpReg(), epkwargs...) where {T<:Real}
 	trajectory = generate_episode(; epkwargs...)
-	sqerr = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, trajectory[1], trajectory[2], γ, α, calculate_error)
+	sqerr = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, trajectory[1], trajectory[2], γ, α, calculate_error, reg)
 	error_history = zeros(T, num_episodes)
 	error_history[1] = sqrt(sqerr)
 	for ep in 2:num_episodes
 		(trajectory, n_steps) = update_episode!(trajectory; epkwargs...)
-		error = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, view(trajectory[1], 1:n_steps), view(trajectory[2], 1:n_steps), γ, α, calculate_error)
+		error = gradient_monte_carlo_episode_update!(parameters, ∇v̂, feature_vector, update_feature_vector!, value_function, update_value_gradient!, view(trajectory[1], 1:n_steps), view(trajectory[2], 1:n_steps), γ, α, calculate_error, reg)
 		error_history[ep] = error
 	end
 	v̂, form_kwargs = form_state_value_function(value_function, update_feature_vector!, feature_vector, parameters)
@@ -4003,7 +4176,7 @@ Automatically configures linear function approximation by:
 [`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
 [`initialize_linear_parameters`](@ref), [`StateMDP`](@ref)
 """
-gradient_monte_carlo_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
+gradient_monte_carlo_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ f64b78e1-76ff-4337-a9f0-aa2d3e3f33ac
 """
@@ -4143,7 +4316,7 @@ Automatically configures linear function approximation by:
 [`linear_value_function`](@ref), [`update_linear_value_gradient!`](@ref),
 [`initialize_linear_parameters`](@ref)
 """
-gradient_monte_carlo_estimation_linear(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
+gradient_monte_carlo_estimation_linear(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ c52222b7-64bd-4285-bba3-e22529495af6
 """
@@ -4345,7 +4518,7 @@ begin
 	- Handles both episodic and continuing task termination
 	- Compatible with any differentiable function approximation method
 	"""
-	function semi_gradient_td0_estimation!(parameters, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, save_episode_steps = false) where {T<:Real}
+	function semi_gradient_td0_estimation!(parameters, initialize_state::Function, transition::Function, isterm::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, value_function::Function, ∇v̂, update_value_gradient!::Function; α = one(T)/10, calculate_error::Function = (target, v̂, s) -> (v̂ - target) ^2, reg::Regularizer = NoOpReg(), save_episode_steps = false) where {T<:Real}
 		#initialize records
 		step_rewards = Vector{T}()
 		episode_steps = Vector{Int64}()
@@ -4394,6 +4567,7 @@ begin
 			end
 
 			update_params_with_gradient!(parameters, α*δ, ∇v̂)
+			regularize_params!(parameters, reg, α)
 			s = s′
 			step += 1
 			epstep += 1
@@ -4495,7 +4669,7 @@ Value at state 500: 0.034f0
 - Reuses feature vector and gradient storage to minimize allocations
 - Compatible with any [`LinearFeatureVector`](@ref) implementation
 """
-semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
+semi_gradient_td0_estimation_linear(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 99f34d13-a19a-4a28-8173-2f683527d61a
 #=╠═╡
@@ -4631,7 +4805,7 @@ parameter updates after each environment step to estimate the state value functi
 - Reuses feature vector and gradient storage to minimize allocations
 - Compatible with any [`LinearFeatureVector`](@ref) implementation
 """
-semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::Vector{T} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
+semi_gradient_td0_policy_estimation_linear(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector::LinearFeatureVector, update_feature_vector!::Function; init_value::T = zero(T), params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, init_value), kwargs...) where T<:Real = semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, linear_value_function, copy(feature_vector), update_linear_value_gradient!; kwargs...)
 
 # ╔═╡ 7889fc4a-3a77-41b4-983a-0b04740afeb7
 #=╠═╡
@@ -4703,8 +4877,8 @@ julia> values = [Threads.@spawn result.value_function(s) for s in states]
 julia> fetch.(values)
 4-element Vector{Float32}
 """
-function gradient_monte_carlo_estimation_fcann(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2 = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function gradient_monte_carlo_estimation_fcann(mrp::StateMRP, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return gradient_monte_carlo_estimation!(params, mrp, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -4770,8 +4944,8 @@ julia> # Evaluate policy value function
 julia> v_π = result.value_function((3, 4))  # Grid position (3,4)
 1.23f0
 """
-function gradient_monte_carlo_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function gradient_monte_carlo_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, num_episodes::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return gradient_monte_carlo_policy_estimation!(params, mdp, π, γ, num_episodes, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -4842,8 +5016,8 @@ julia> current_value = result.value_function(0.3f0)
 -1.87f0
 ```
 """
-function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function semi_gradient_td0_estimation_fcann(mrp::StateMRP, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return semi_gradient_td0_estimation!(params, mrp, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -4917,8 +5091,8 @@ julia> v_π_state = result.value_function((2, 3))
 4.27f0
 ```
 """
-function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), l2::T = zero(T), use_gpu::Bool = false, kwargs...) where T<:Real
-	setup = setup_fcann_value_arguments(params, l2, dropout, use_μP, activation_list; use_gpu = use_gpu)
+function semi_gradient_td0_policy_estimation_fcann(mdp::StateMDP, π::Function, γ::T, max_episodes::Integer, max_steps::Integer, feature_vector, update_feature_vector!::Function, hidden_layers::Vector{Int64}; reslayers::Integer = 0, use_μP::Bool = true, params::FCANNParams{T} = initialize_fcann_params(feature_vector, hidden_layers, 1, reslayers, use_μP), dropout::T = zero(T), activation_list = fill(true, length(hidden_layers)), use_gpu::Bool = false, kwargs...) where T<:Real
+	setup = setup_fcann_value_arguments(params, zero(T), dropout, use_μP, activation_list; use_gpu = use_gpu)
 	!use_gpu && return semi_gradient_td0_policy_estimation!(params, mdp, π, γ, max_episodes, max_steps, feature_vector, update_feature_vector!, setup.value_function, setup.gradient, setup.update_gradient!; kwargs...)
 
 	isempty(setup.gpu_args) && error("GPU backend is not available")
@@ -5467,7 +5641,7 @@ ProfileCanvas = "~0.1.7"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.13.0"
+julia_version = "1.13.3"
 manifest_format = "2.1"
 project_hash = "1e36e08117c438d0d564b5465e720a10b0f8d7a8"
 
@@ -5652,7 +5826,7 @@ version = "1.0.0"
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "Zlib_jll", "Zstd_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.18.0+1"
+version = "8.22.0+0"
 
 [[deps.LibGit2]]
 deps = ["LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
@@ -5662,12 +5836,12 @@ version = "1.11.0"
 [[deps.LibGit2_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "LibSSH2_jll", "Libdl", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
 uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.9.1+0"
+version = "1.9.7+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl", "OpenSSL_jll", "Zlib_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.103+0"
+version = "1.11.104+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -5705,7 +5879,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2026.8.13"
+version = "2026.10.20"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -5719,7 +5893,7 @@ version = "0.3.30+0"
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.6+0"
+version = "3.5.8+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "94ba93778373a53bfd5a0caaf7d809c445292ff4"
@@ -5730,7 +5904,7 @@ version = "1.8.2"
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.46.0+0"
+version = "10.47.0+0"
 
 [[deps.Parameters]]
 deps = ["OrderedCollections", "UnPack"]
@@ -5952,7 +6126,7 @@ version = "1.11.0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.3.1+2"
+version = "1.3.2+0"
 
 [[deps.Zstd_jll]]
 deps = ["CompilerSupportLibraries_jll", "Libdl"]
@@ -5967,12 +6141,12 @@ version = "5.15.0+0"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.67.1+0"
+version = "1.70.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.8.2+0"
+version = "17.8.3+0"
 
 [registries.General]
 url = "https://github.com/JuliaRegistries/General.git"
@@ -5998,6 +6172,13 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═42a7918f-8e9d-45ae-9e40-1254dde9f06f
 # ╠═1d107df4-36fa-49bd-bd48-5d5f49910b44
 # ╠═1f0b9d36-3592-47a0-b32a-a7e19b763e1b
+# ╠═a4ba716f-1656-4db5-a70d-145e21c6adc0
+# ╟─6e9f7157-e912-4c12-a7e5-febf75c997a6
+# ╠═b53d3393-f5b4-4985-9ecf-242d92af98a1
+# ╠═69230cc9-718d-48c2-927c-ac21cbf52323
+# ╠═3159ee37-7adb-4957-a04a-5c9215e0cd0f
+# ╠═c3b9cc19-c26c-468d-bb45-39221ac51481
+# ╠═b413ece0-d41d-4ed7-9859-73ca0f149094
 # ╠═be546bdb-77a9-48c4-9a98-1205d73fc8c6
 # ╠═7542ff9c-c6a1-4d41-8863-05388fea8ce2
 # ╠═ba58242a-306a-4631-92b4-34bc9e354fae
@@ -6130,6 +6311,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═6fb5606d-75fe-4108-adff-a6a644f572a2
 # ╠═c064a91d-7dd3-403b-8bc0-285014bc873c
 # ╠═5513f245-de2e-4cb5-b56a-abbe8261249a
+# ╟─304058c9-db85-44d7-abb5-4a3d8812a6ba
 # ╠═67db7264-2a5e-44be-98e7-e5d08d5e7273
 # ╠═322fa46d-125f-418b-90a2-6b8ddfc86b6d
 # ╠═8cc3eb6d-612c-4bb5-af9d-64dc1efc63cf
@@ -6142,6 +6324,8 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═b70fac93-ba6e-4234-86de-c131011b09a1
 # ╠═bd3a43b8-5646-4acf-9e29-f6c0ff89ca73
 # ╠═05d958e4-2f2e-46e0-a030-7ecd137fb4f0
+# ╠═b953d817-c753-4b89-bc97-9d433226e365
+# ╠═a0c38a52-ac8d-4f78-8bf1-406537c73916
 # ╠═16eff6bc-ce43-4d97-aa76-73df2ff76b29
 # ╠═74e42774-68e5-44b5-91c4-da87a20879e1
 # ╠═b58cacd0-ca65-43f5-8678-7265ea2d46c8
@@ -6150,12 +6334,13 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╟─0c7d2eb3-02ce-47b0-955c-fc62d5c86994
 # ╠═15b93928-98fb-47ed-ba46-e6ee785d46e5
 # ╠═cfc5964b-3a23-48d9-b320-861fd4a43364
-# ╠═f5661feb-6dcd-4409-b2f1-b756253ef2e0
+# ╟─f5661feb-6dcd-4409-b2f1-b756253ef2e0
 # ╠═00f30bd5-b904-4c95-89a3-ee39b877beae
 # ╠═28c0d60a-c2ac-4501-8f90-729664831fea
 # ╠═bd41936b-78b8-49d0-88c3-3c56adf86b18
 # ╠═93a1f51f-1d83-408e-a860-26e6280c65ee
 # ╠═fb244ed5-2827-4b39-a5b1-ced0815b000a
+# ╟─1add4bf1-14af-40b5-8632-0e3c4266e744
 # ╟─b1c84d59-3598-46a1-bc1a-fd691d14ab09
 # ╟─420e54ac-1a7c-46e9-a8bd-e2ed5765aa7a
 # ╠═40d07f16-b9ca-4782-bdd2-de15ec6b21e5

@@ -10,7 +10,9 @@ include(joinpath(@__DIR__, "TabularRL.jl", "src", "TabularRL.jl"))
 
 include(joinpath(@__DIR__, "Chapter-09", "Chapter_09_On-policy_Prediction_with_Approximation.jl"))
 
-export FCANNParams, FCANNActivations, LinearFeatures, LinearFeatureVector, AbstractBinaryFeatures, BinaryFeatureVector, StateAggregationFeatureVector, update_binary_feature_vector!, update_state_aggegation_feature_vector!, form_state_value_function, linear_value_function, gradient_monte_carlo_episode_update!, gradient_monte_carlo_policy_estimation!, gradient_monte_carlo_estimation!, gradient_monte_carlo_estimation_linear, gradient_monte_carlo_policy_estimation_linear, semi_gradient_td0_estimation!, semi_gradient_td0_policy_estimation!, semi_gradient_td0_estimation_linear, semi_gradient_td0_policy_estimation_linear 
+export LinearParams, FCANNParams, FCANNActivations, LinearFeatures, LinearFeatureVector, AbstractBinaryFeatures, BinaryFeatureVector, StateAggregationFeatureVector, update_binary_feature_vector!, update_state_aggegation_feature_vector!, form_state_value_function, linear_value_function, gradient_monte_carlo_episode_update!, gradient_monte_carlo_policy_estimation!, gradient_monte_carlo_estimation!, gradient_monte_carlo_estimation_linear, gradient_monte_carlo_policy_estimation_linear, semi_gradient_td0_estimation!, semi_gradient_td0_policy_estimation!, semi_gradient_td0_estimation_linear, semi_gradient_td0_policy_estimation_linear 
+
+export Regularizer, RidgeReg, MaxNormReg, regularize_params!
 
 export state_aggregation_feature_setup, gradient_monte_carlo_estimation_state_aggregation, gradient_monte_carlo_policy_estimation_state_aggregation, semi_gradient_td0_estimation_state_aggregation,semi_gradient_td0_policy_estimation_state_aggregation 
 
@@ -96,7 +98,7 @@ export CartPoleVehicle, CartPoleState, create_cartpole_mdp, setup_cartpole_probl
 
 include(joinpath(@__DIR__,  "Chapter-13", "Chapter_13_Policy_Gradient_Methods.jl"))
 
-export soft_max!
+export soft_max!, entropy_regularize!
 
 export make_corridor_mdp, update_corridor_feature!, corridor_feature_vector, make_corridor_continuing_mdp, create_cartpole_functions, create_mountaincar_continuing_mdp
 
@@ -130,13 +132,9 @@ export setup_episodic_value_parameter_studies, setup_continuing_value_parameter_
 
 export display_study_results
 
-export setup_episodic_value_linear_training, setup_continuing_value_linear_training, setup_episodic_policy_linear_training, setup_continuing_policy_linear_training, setup_episodic_value_nonlinear_training, setup_episodic_policy_nonlinear_training, setup_continuing_value_nonlinear_training, setup_continuing_policy_nonlinear_training
-
-export setup_episodic_training
+export evaluate_policy_performance, evaluate_episodic_policy_performance, setup_training, setup_all_training
 
 export save_linear_value_parameters, load_linear_value_parameters, save_linear_policy_parameters, load_linear_policy_parameters, linear_value_parameters_save_check, linear_policy_parameters_save_check, save_nonlinear_value_parameters, load_nonlinear_value_parameters, save_nonlinear_policy_parameters, load_nonlinear_policy_parameters, nonlinear_value_parameters_save_check, nonlinear_policy_parameters_save_check
-
-export setup_policy_linear_training, setup_value_linear_training, setup_policy_nonlinear_training, setup_value_nonlinear_training
 
 include(joinpath(@__DIR__, "gumbel_mcts.jl"))
 
