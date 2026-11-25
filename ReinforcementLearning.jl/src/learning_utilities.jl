@@ -230,7 +230,7 @@ end
 
 # ╔═╡ 7cb320f2-7ecb-44e7-b82e-8a84fe3723a4
 md"""
-### Problem Specific Training Setup
+### Training with Approximation
 """
 
 # ╔═╡ a09662b9-fa3d-4964-b39a-3acc7a863edf
@@ -1378,6 +1378,101 @@ function initialize_fcann_policy_params(mdp::StateMDP, feature_vector, hidden_la
 	(policy_parameters, value_parameters)
 end
 
+# ╔═╡ 18df3e43-d54b-423f-89e5-d48ed34d39be
+begin
+
+	#all low level training functions begin with a parameter argument followed by the number of training steps
+	#=============Linear Value Training====================#
+	#sarsa episodic
+	train!(parameters::LinearParams{T, 2}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T, max_episodes::Integer; kwargs...) where T<:Real = semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#dqn episodic
+	train!(parameters::LinearParams{T, 2}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T, N::Integer, max_episodes::Integer; kwargs...) where T<:Real = 
+dqn_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; value_params = parameters, N, kwargs...)
+
+	#sarsa continuing
+	train!(parameters::LinearParams{T, 2}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer; kwargs...) where T<:Real = semi_gradient_differential_sarsa_linear(mdp, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#dp episodic
+	train!(parameters::LinearParams{T, 1}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T, max_episodes::Integer; kwargs...) where T<:Real = semi_gradient_dp_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#dp continuing
+	train!(parameters::LinearParams{T, 1}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer; kwargs...) where T<:Real = semi_gradient_differential_dp_linear(mdp, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#sarsa λ episodic
+	train!(parameters::LinearParams{T, 2}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T, λ::T, max_episodes::Integer; kwargs...) where T<:Real = sarsa_λ_linear(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#sarsa λ continuing
+	train!(parameters::LinearParams{T, 2}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, λ::T; kwargs...) where T<:Real = sarsa_λ_linear(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#dp λ episodic
+	train!(parameters::LinearParams{T, 1}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T, λ::T, max_episodes::Integer; kwargs...) where T<:Real = dp_λ_linear(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#dp λ continuing
+	train!(parameters::LinearParams{T, 1}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, λ::T; kwargs...) where T<:Real = dp_λ_linear(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
+
+	#=============Non-Linear Value Training====================#
+	#sarsa episodic
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer, γ::T, max_episodes::Integer; kwargs...) where T<:Real = semi_gradient_sarsa_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+
+	#dqn episodic
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, γ::T, N::Integer, max_episodes::Integer; kwargs...) where T<:Real = 
+dqn_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; value_params = parameters, N, kwargs..., reslayers = parameters.reslayers)
+	
+	#sarsa continuing
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer; kwargs...) where T<:Real = semi_gradient_differential_sarsa_fcann(mdp, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+
+	#dp episodic
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, γ::T, max_episodes::Integer; kwargs...) where T<:Real = semi_gradient_dp_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+
+	#dp continuing
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}; kwargs...) where T<:Real = semi_gradient_differential_dp_fcann(mdp, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+
+	#sarsa λ episodic
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer, γ::T, λ::T, max_episodes::Integer; kwargs...) where T<:Real = sarsa_λ_fcann(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+
+	#sarsa λ continuing
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer, λ::T; kwargs...) where T<:Real = sarsa_λ_fcann(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+
+	#dp λ episodic
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, γ::T, λ::T, max_episodes::Integer; kwargs...) where T<:Real = dp_λ_fcann(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+
+	#dp λ continuing
+	train!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, λ::T; kwargs...) where T<:Real = dp_λ_fcann(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
+	
+	#=============Linear Policy Training======================#
+	#One step Actor Critic Episodic
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T, max_episodes::Integer; kwargs...) where T<:Real = one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
+
+	#One step Actor Critic Continuing
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer; kwargs...) where T<:Real = one_step_actor_critic_linear(mdp, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
+
+	#Actor Critic with Eligibility Traces Episodic
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer; kwargs...) where T<:Real = actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
+
+	#Actor Critic with Eligibility Traces Continuing
+	train!((policy_params, value_params)::Tuple{LinearParams{T, 2}, LinearParams{T, 1}}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function,  max_steps::Integer, λ_θ::T, λ_w::T; kwargs...) where T<:Real = actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
+
+	#Synchronous Actor Critic
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, γ::T; num_env::Integer = min(8, StatsBase.Threads.nthreads()), kwargs...) where T<:Real = synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
+
+	#=============Non-Linear Policy Training======================#
+	#One step Actor Critic Episodic
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, γ::T, max_episodes::Integer; kwargs...) where T<:Real = one_step_actor_critic_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
+
+	#One step Actor Critic Continuing
+	train!((policy_params, value_params)::Tuple{FCANNParams{T}, FCANNParams{T}}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}; kwargs...) where T<:Real = one_step_actor_critic_fcann(mdp, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
+
+	#Actor Critic with Eligibility Traces Episodic
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer; kwargs...) where T<:Real = actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
+
+	#Actor Critic with Eligibility Traces Continuing
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, λ_θ::T, λ_w::T; kwargs...) where T<:Real = actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
+
+	#Synchronous Actor Critic
+	train!((policy_params, value_params), mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, γ::T; num_env::Integer = min(8, StatsBase.Threads.nthreads()), kwargs...) where T<:Real = synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
+end
+
 # ╔═╡ a88dc209-fbad-431c-89f8-e5ff82ddeb3b
 # ╠═╡ skip_as_script = true
 #=╠═╡
@@ -1548,6 +1643,189 @@ function train_exhaustive!(params::P, baseline_reward::T, baseline_output::Named
 	return (;output1..., performance = reward1)
 end
 
+# ╔═╡ e7f8ae45-7816-40a3-b822-c6fa6fba5f28
+begin
+	function policy_train_exhaustive!(parameters, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, args...; use_steps::Bool, min_reward::T, kwargs...) where T<:Real
+		output = train!(parameters, mdp, feature_vector, update_feature_vector!, 0, args...) #dummy training to get current policy function
+		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+		train_exhaustive!(parameters, baseline, output, train!, mdp, feature_vector, update_feature_vector!, max_steps, args...; min_reward, use_steps, kwargs...)
+	end
+
+	function policy_train_rate_decay!(parameters, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, args...; α_θ_init::T = one(T)/10, α_w_init::T = one(T)/10, α_θ_decay_rate::T = one(T)/2, α_w_decay_rate::T = one(T)/2, use_steps::Bool, min_reward::T, kwargs...) where T<:Real
+		output = train!(parameters, mdp, feature_vector, update_feature_vector!, 0, args...) #dummy training to get current policy function
+		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+		f!(params, baseline_reward, baseline_output, (α_θ, α_w), args...; kwargs...) = train_exhaustive!(params, baseline_reward, baseline_output, train!, mdp, feature_vector, update_feature_vector!, args...; min_reward, α_θ, α_w, kwargs...)
+		train_decay!(parameters, baseline, output, f!, (α_θ_init, α_w_init), (α_θ_decay_rate, α_w_decay_rate), max_steps, args...; use_steps, kwargs...)
+	end
+
+	function policy_train_β_decay!(parameters, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, args...; α_θ_init::T = one(T)/10, α_w_init::T = one(T)/10, α_θ_decay_rate::T = one(T)/2, α_w_decay_rate::T = one(T)/2, use_steps::Bool, min_reward::T, new_params::Bool = false, show_inner_messages::Bool = false, show_outer_messages::Bool = true, β_init::T = one(T)/10, β_decay_rate::T = one(T)/10, kwargs...) where T<:Real
+		output = train!(parameters, mdp, feature_vector, update_feature_vector!, 0, args...) #dummy training to get current policy function
+		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+		
+		function f1!(params, baseline_reward, baseline_output, (α_θ, α_w), args...; kwargs...)
+			show_inner_messages && @info "Beginning exhaustive linear training with learning rates: α_θ = $α_θ, α_w = $α_w"
+			output = train_exhaustive!(params, baseline_reward, baseline_output, train!, mdp, feature_vector, update_feature_vector!, args...; min_reward, α_θ, α_w, kwargs...)
+			show_inner_messages && @info "Completed exhaustive linear training with learning rates: α_θ = $α_θ, α_w = $α_w, and a performance of $(output.performance)"
+			return output
+		end
+
+		function f2!(params, baseline_reward, baseline_output, β, args...; kwargs...)
+			show_outer_messages && @info "Beginning learning rate decay training with entropy regularization term β = $β"
+			output = train_decay!(params, baseline_reward, baseline_output, f1!, (α_θ_init, α_w_init), (α_θ_decay_rate, α_w_decay_rate), args...; β, kwargs...)
+			show_outer_messages && @info "Completed learning rate decay training with entropy regularization term β = $β and performance of $(output.performance)"
+			return output
+		end
+
+		train_decay!(parameters, baseline, output, f2!, β_init, β_decay_rate, max_steps, args...; use_steps, kwargs...)
+	end
+end
+
+# ╔═╡ 9681f751-7b0a-4455-aa45-4da9c40febf3
+function extract_value_policy(mdp::StateMDP{T}, output::NamedTuple, ϵ::T) where T <: Real
+	π_kwargs = output.form_kwargs()
+	function π(s)
+		rand(T) ≥ ϵ && return output.value_function(s; π_kwargs...).maximizing_action
+
+		num_valid = 0
+		@simd for i_a in eachindex(mdp.actions)
+			num_valid += mdp.is_valid_action(s, i_a)
+		end
+
+		idx = rand(1:num_valid)
+
+		ind = 0
+		for i_a in eachindex(mdp.actions)
+			ind += mdp.is_valid_action(s, i_a)
+			ind == idx && return i_a
+		end
+
+		return i_a
+	end
+end
+
+# ╔═╡ 5d445e60-1a71-42e1-bd96-d96311b5b61b
+begin
+	function value_train_exhaustive!(parameters::LinearParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, args...; use_steps::Bool, ϵ::T = one(T)/10, min_reward::T, kwargs...) where T<:Real
+		output = train!(parameters, mdp, feature_vector, update_feature_vector!, 0, args...) #dummy training to get current policy function
+		π = extract_value_policy(mdp, output, ϵ)
+		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward) #get_baseline_performance(π, args...)
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+		train_exhaustive!(parameters, baseline, output, train!, mdp, feature_vector, update_feature_vector!, max_steps, args...; min_reward, use_steps, kwargs...)
+	end
+
+	function value_train_exhaustive!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; min_reward::T, use_steps::Bool, use_dp::Bool = false, ϵ::T = one(T)/10, kwargs...) where T<:Real
+		num_actions = length(mdp.actions)
+		output = if use_dp
+			train!(parameters, mdp, feature_vector, update_feature_vector!, 0, hidden_layers, args...) #dummy training to get current policy function
+		else
+			train!(parameters, mdp, feature_vector, update_feature_vector!, 0, hidden_layers, num_actions, args...)
+		end
+		
+		π = extract_value_policy(mdp, output, ϵ)
+		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward) #get_baseline_performance(π, args...)
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+
+		if use_dp
+			train_exhaustive!(parameters, baseline, output, train!, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, args...; min_reward, use_steps, kwargs...)
+		else
+			train_exhaustive!(parameters, baseline, output, train!, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, num_actions, args...; min_reward, use_steps, kwargs...)
+		end
+	end
+
+	function value_train_rate_decay!(parameters::LinearParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, args...; use_steps::Bool, min_reward::T, α_init::T = one(T)/10, α_decay_rate = one(T)/2, ϵ::T = one(T)/10, kwargs...) where T<:Real
+		output = train!(parameters, mdp, feature_vector, update_feature_vector!, 0, args...) #dummy training to get current policy function
+		π = extract_value_policy(mdp, output, ϵ)
+		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+		f!(params, baseline_reward, baseline_output, α, args...; kwargs...) = train_exhaustive!(params, baseline_reward, baseline_output, train!, mdp, feature_vector, update_feature_vector!, args...; min_reward, α, kwargs...)
+		train_decay!(parameters, baseline, output, f!, α_init, α_decay_rate, max_steps, args...; use_steps, kwargs...)
+	end
+
+	function value_train_rate_decay!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps::Bool, min_reward::T, α_init::T = one(T)/10, α_decay_rate = one(T)/2, use_dp::Bool = false, ϵ::T = one(T)/10, kwargs...) where T<:Real
+		num_actions = length(mdp.actions)
+		output = if use_dp 
+			train!(parameters, mdp, feature_vector, update_feature_vector!, 0, hidden_layers, args...) #dummy training to get current policy function
+		else
+			train!(parameters, mdp, feature_vector, update_feature_vector!, 0, hidden_layers, num_actions, args...)
+		end
+		
+		π = extract_value_policy(mdp, output, ϵ)
+		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+		f!(params, baseline_reward, baseline_output, α, args...; kwargs...) = train_exhaustive!(params, baseline_reward, baseline_output, train!, mdp, feature_vector, update_feature_vector!, args...; min_reward, α, kwargs...)
+		if use_dp
+			train_decay!(parameters, baseline, output, f!, α_init, decay_rate, max_steps, hidden_layers, args...; use_steps, kwargs...)
+		else
+			train_decay!(parameters, baseline, output, f!, α_init, decay_rate, max_steps, hidden_layers, num_actions, args...; use_steps, kwargs...)
+		end
+	end
+
+	function value_train_ϵ_decay!(parameters::LinearParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, args...; use_steps::Bool, min_reward::T, ϵ_init::T = T(0.5), α_init::T = one(T)/10, α_decay_rate = one(T)/2, ϵ_decay_rate::T = one(T)/2, show_inner_messages::Bool = false, show_outer_messages::Bool = true, kwargs...) where T<:Real
+		output = train!(parameters, mdp, feature_vector, update_feature_vector!, 0, args...) #dummy training to get current policy function
+		π = extract_value_policy(mdp, output, ϵ_init)
+		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+
+		#define exhaustive training with a learning rate
+		function f1!(params, baseline_reward, baseline_output, α, args...; kwargs...) 
+			show_inner_messages && @info "Beginning exhaustive linear training with α = $α"
+			output = train_exhaustive!(params, baseline_reward, baseline_output, train!, mdp, feature_vector, update_feature_vector!, args...; min_reward, α, kwargs...)
+			show_inner_messages && @info "Completed exhaustive linear training with α = $α and performance of $(output.performance)"
+			return output
+		end
+		
+		#perform learning rate decay on exhaustive training
+		function f2!(params, baseline_reward, baseline_output, ϵ, args...; kwargs...) 
+			show_outer_messages && @info "Beginning learning rate decay training with ϵ = $ϵ"
+			output = train_decay!(params, baseline_reward, baseline_output, f1!, α_init, α_decay_rate, args...; ϵ, kwargs...)
+			show_outer_messages && @info "Completed learning rate decay training with ϵ = $ϵ and performance of $(output.performance)"
+			return output
+		end
+			
+		#perform rate decay on exploration rate where training function is previously defined rate decay training
+		train_decay!(parameters, baseline, output, f2!, ϵ_init, ϵ_decay_rate, max_steps, args...; use_steps, kwargs...)
+	end
+
+	function value_train_ϵ_decay!(parameters::FCANNParams{T}, mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function, max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps::Bool, min_reward::T, ϵ_init::T = T(0.5), α_init::T = one(T)/10, α_decay_rate = one(T)/2, ϵ_decay_rate::T = one(T)/2, use_dp::Bool = false, show_inner_messages::Bool = false, show_outer_messages::Bool = true, kwargs...) where T<:Real
+		num_actions = length(mdp.actions)
+		output = if use_dp
+			train!(parameters, mdp, feature_vector, update_feature_vector!, 0, hidden_layers, args...) #dummy training to get current policy function
+		else
+			train!(parameters, mdp, feature_vector, update_feature_vector!, 0, hidden_layers, num_actions, args...)
+		end
+		
+		π = extract_value_policy(mdp, output, ϵ_init)
+		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
+		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
+
+		#define exhaustive training with a learning rate
+		function f1!(params, baseline_reward, baseline_output, α, args...; kwargs...) 
+			show_inner_messages && @info "Beginning exhaustive linear training with α = $α"
+			output = train_exhaustive!(params, baseline_reward, baseline_output, train!, mdp, feature_vector, update_feature_vector!, args...; min_reward, α, kwargs...)
+			show_inner_messages && @info "Completed exhaustive linear training with α = $α and performance of $(output.performance)"
+			return output
+		end
+		
+		#perform learning rate decay on exhaustive training
+		function f2!(params, baseline_reward, baseline_output, ϵ, args...; kwargs...) 
+			show_outer_messages && @info "Beginning learning rate decay training with ϵ = $ϵ"
+			output = train_decay!(params, baseline_reward, baseline_output, f1!, α_init, α_decay_rate, args...; ϵ, kwargs...)
+			show_outer_messages && @info "Completed learning rate decay training with ϵ = $ϵ and performance of $(output.performance)"
+			return output
+		end
+			
+		#perform rate decay on exploration rate where training function is previously defined rate decay training
+		if use_dp
+			train_decay!(parameters, baseline, output, f2!, ϵ_init, ϵ_decay_rate, max_steps, hidden_layers, args...; use_steps, kwargs...)
+		else
+			train_decay!(parameters, baseline, output, f2!, ϵ_init, ϵ_decay_rate, max_steps, hidden_layers, num_actions, args...; use_steps, kwargs...)
+		end
+	end
+end
+
 # ╔═╡ 3976cc72-0fb2-4c4d-852f-f45e7665c2a3
 function setup_all_training(mdp::StateMDP{T}, feature_vector, update_feature_vector!::Function; linear_sarsa_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_dp_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, zero(T)), linear_policy_params::LinearParams{T, 2} = initialize_linear_parameters(feature_vector, mdp, zero(T)), linear_critic_params::LinearParams{T, 1} = initialize_linear_parameters(feature_vector, zero(T)), min_reward::T = typemin(T), fcann_value_params::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_policy_params::Dict = Dict{NamedTuple, FCANNParams{T}}(), fcann_critic_params::Dict = Dict{NamedTuple, FCANNParams{T}}()) where {T<:Real}
 
@@ -1581,11 +1859,6 @@ function setup_all_training(mdp::StateMDP{T}, feature_vector, update_feature_vec
 		end
 		(fcann_policy_params[key], fcann_critic_params[key])
 	end
-
-	#overload to allow actor critic methods to just have one definition for linear and non linear training
-	# get_params(hidden_layers::Vector{Int}, reslayers::Int, args...; kwargs...) = get_params(hidden_layers, reslayers; kwargs...)
-	# get_train_type(hidden_layers::Vector{Int}, reslayers::Int, args...) = "non-linear $hidden_layers"
-	# get_train_type(args...) = "linear"
 
 	make_new_params(::Val{false}) = initialize_linear_parameters(feature_vector, mdp, zero(T))
 	make_new_params(::Val{true}) = initialize_linear_parameters(feature_vector, zero(T))
@@ -1625,119 +1898,30 @@ function setup_all_training(mdp::StateMDP{T}, feature_vector, update_feature_vec
 	NUM_ACTIONS = Val(num_actions)
 	NT = typeof(NUM_ACTIONS)
 
-	#all low level training functions begin with a parameter argument followed by the number of training steps
-	#=============Linear Value Training====================#
-	#sarsa episodic
-	train!(parameters::LinearParams{T, 2}, max_steps::Integer, γ::T, max_episodes::Integer; kwargs...) = semi_gradient_sarsa_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
 	# use the training arguments after parameters to get the appropriate baseline performance using max_steps
 	get_baseline_performance(π::Function, max_steps::Integer, args...) = evaluate_policy_performance(mdp, π, max_steps; min_reward)
 
-	#dqn episodic
-	train!(parameters::LinearParams{T, 2}, max_steps::Integer, γ::T, N::Integer, max_episodes::Integer; kwargs...)	= 
-dqn_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; value_params = parameters, N, kwargs...)
-
-	#sarsa continuing
-	train!(parameters::LinearParams{T, 2}, max_steps::Integer; kwargs...) = semi_gradient_differential_sarsa_linear(mdp, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
-	#dp episodic
-	train!(parameters::LinearParams{T, 1}, max_steps::Integer, γ::T, max_episodes::Integer; kwargs...) = semi_gradient_dp_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
-	#dp continuing
-	train!(parameters::LinearParams{T, 1}, max_steps::Integer; kwargs...) = semi_gradient_differential_dp_linear(mdp, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
-	#sarsa λ episodic
-	train!(parameters::LinearParams{T, 2}, max_steps::Integer, γ::T, λ::T, max_episodes::Integer; kwargs...) = sarsa_λ_linear(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
-	#sarsa λ continuing
-	train!(parameters::LinearParams{T, 2}, max_steps::Integer, λ::T; kwargs...) = sarsa_λ_linear(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
-	#dp λ episodic
-	train!(parameters::LinearParams{T, 1}, max_steps::Integer, γ::T, λ::T, max_episodes::Integer; kwargs...) = dp_λ_linear(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
-	#dp λ continuing
-	train!(parameters::LinearParams{T, 1}, max_steps::Integer, λ::T; kwargs...) = dp_λ_linear(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!; parameters, kwargs...)
-
-	#=============Non-Linear Value Training====================#
-	#sarsa episodic
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer, γ::T, max_episodes::Integer; kwargs...) = semi_gradient_sarsa_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-
-	#dqn episodic
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, γ::T, N::Integer, max_episodes::Integer; kwargs...) = 
-dqn_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; value_params = parameters, N, kwargs..., reslayers = parameters.reslayers)
-	
-	#sarsa continuing
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer; kwargs...) = semi_gradient_differential_sarsa_fcann(mdp, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-
-	#dp episodic
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, γ::T, max_episodes::Integer; kwargs...) = semi_gradient_dp_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-
-	#dp continuing
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}; kwargs...) = semi_gradient_differential_dp_fcann(mdp, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-
-	#sarsa λ episodic
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer, γ::T, λ::T, max_episodes::Integer; kwargs...) = sarsa_λ_fcann(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-
-	#sarsa λ continuing
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, ::Integer, λ::T; kwargs...) = sarsa_λ_fcann(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-
-	#dp λ episodic
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, γ::T, λ::T, max_episodes::Integer; kwargs...) = dp_λ_fcann(mdp, γ, λ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-
-	#dp λ continuing
-	train!(parameters::FCANNParams{T}, max_steps::Integer, hidden_layers::Vector{Int}, λ::T; kwargs...) = dp_λ_fcann(mdp, λ, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; parameters, kwargs...)
-	
-	#=============Linear Policy Training======================#
-	#One step Actor Critic Episodic
-	train!((policy_params, value_params), max_steps::Integer, γ::T, max_episodes::Integer; kwargs...) = one_step_actor_critic_linear(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
-
-	#One step Actor Critic Continuing
-	train!((policy_params, value_params), max_steps::Integer; kwargs...) = one_step_actor_critic_linear(mdp, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
-
-	#Actor Critic with Eligibility Traces Episodic
-	train!((policy_params, value_params), max_steps::Integer, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer; kwargs...) = actor_critic_with_eligibility_traces_linear(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
-
-	#Actor Critic with Eligibility Traces Continuing
-	train!((policy_params, value_params)::Tuple{LinearParams{T, 2}, LinearParams{T, 1}}, max_steps::Integer, λ_θ::T, λ_w::T; kwargs...) = actor_critic_with_eligibility_traces_linear(mdp, λ_θ, λ_w, max_steps, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
-
-	#Synchronous Actor Critic
-	train!((policy_params, value_params), max_steps::Integer, γ::T; num_env::Integer = min(8, StatsBase.Threads.nthreads()), kwargs...) = synchronous_nstep_actor_critic_linear(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!; policy_params, value_params, kwargs...)
-
-	#=============Non-Linear Policy Training======================#
-	#One step Actor Critic Episodic
-	train!((policy_params, value_params), max_steps::Integer, hidden_layers::Vector{Int}, γ::T, max_episodes::Integer; kwargs...) = one_step_actor_critic_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
-
-	#One step Actor Critic Continuing
-	train!((policy_params, value_params)::Tuple{FCANNParams{T}, FCANNParams{T}}, max_steps::Integer, hidden_layers::Vector{Int}; kwargs...) = one_step_actor_critic_fcann(mdp, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
-
-	#Actor Critic with Eligibility Traces Episodic
-	train!((policy_params, value_params), max_steps::Integer, hidden_layers::Vector{Int}, γ::T, λ_θ::T, λ_w::T, max_episodes::Integer; kwargs...) = actor_critic_with_eligibility_traces_fcann(mdp, γ, λ_θ, λ_w, max_episodes, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
-
-	#Actor Critic with Eligibility Traces Continuing
-	train!((policy_params, value_params), max_steps::Integer, hidden_layers::Vector{Int}, λ_θ::T, λ_w::T; kwargs...) = actor_critic_with_eligibility_traces_fcann(mdp, λ_θ, λ_w, max_steps, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
-
-	#Synchronous Actor Critic
-	train!((policy_params, value_params), max_steps::Integer, hidden_layers::Vector{Int}, γ::T; num_env::Integer = min(8, StatsBase.Threads.nthreads()), kwargs...) = synchronous_nstep_actor_critic_fcann(mdp, γ, max_steps, num_env, copy(feature_vector), update_feature_vector!, hidden_layers; policy_params, value_params, kwargs...)
+	spec_train!(params, args...; kwargs...) = train!(params, mdp, feature_vector, update_feature_vector!, args...; kwargs...)
 
 	function value_train(args...; new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(use_dp; new_params)
-		train!(parameters, args...)
+		spec_train!(parameters, args...)
 	end
 
 	function value_train(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(hidden_layers, reslayers, use_dp; new_params)
-		use_dp && return train!(parameters, max_steps, hidden_layers, args...; kwargs...)
-		train!(parameters, max_steps, hidden_layers, num_actions, args...; kwargs...)
+		use_dp && return spec_train!(parameters, max_steps, hidden_layers, args...; kwargs...)
+		spec_train!(parameters, max_steps, hidden_layers, num_actions, args...; kwargs...)
 	end
 
 	function policy_train(args...; new_params::Bool = false, kwargs...)
 		parameters = get_params(;new_params)
-		train!(parameters, args...)
+		spec_train!(parameters, args...)
 	end
 
 	function policy_train(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; new_params::Bool = false, kwargs...)
 		parameters = get_params(hidden_layers, reslayers; new_params)
-		train!(parameters, max_steps, hidden_layers, args...; kwargs...)
+		spec_train!(parameters, max_steps, hidden_layers, args...; kwargs...)
 	end
 		
 	function extract_value_policy(output::NamedTuple, ϵ::T)
@@ -1757,204 +1941,64 @@ dqn_fcann(mdp, γ, max_episodes, max_steps, copy(feature_vector), update_feature
 		end
 	end
 
-	function value_train_exhaustive(max_steps::Integer, args...; use_steps::Bool, new_params::Bool = false, use_dp::Bool = false, ϵ::T = one(T)/10, kwargs...)
+	function value_train_exhaustive(max_steps::Integer, args...; use_steps::Bool, new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(use_dp; new_params)
-		output = train!(parameters, 0, args...) #dummy training to get current policy function
-		π = extract_value_policy(output, ϵ)
-		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward) #get_baseline_performance(π, args...)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		train_exhaustive!(parameters, baseline, output, train!, max_steps, args...; min_reward, use_steps, kwargs...)
+		value_train_exhaustive!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, args...; use_steps, min_reward, kwargs...)
 	end
 
-	function value_train_exhaustive(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps::Bool, new_params::Bool = false, use_dp::Bool = false, ϵ::T = one(T)/10, kwargs...)
+	function value_train_exhaustive(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(hidden_layers, reslayers, use_dp; new_params)
-		output = if use_dp
-			train!(parameters, 0, hidden_layers, args...) #dummy training to get current policy function
-		else
-			train!(parameters, 0, hidden_layers, num_actions, args...)
-		end
-		
-		π = extract_value_policy(output, ϵ)
-		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward) #get_baseline_performance(π, args...)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-
-		if use_dp
-			train_exhaustive!(parameters, baseline, output, train!, max_steps, hidden_layers, args...; min_reward, use_steps, kwargs...)
-		else
-			train_exhaustive!(parameters, baseline, output, train!, max_steps, hidden_layers, num_actions, args...; min_reward, use_steps, kwargs...)
-		end
+		value_train_exhaustive!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, reslayers, args...; min_reward, use_dp, kwargs...)
 	end
 
-	function value_train_rate_decay(max_steps::Integer, args...; use_steps, α_init::T = one(T)/10, α_decay_rate = one(T)/2, new_params::Bool = false, use_dp::Bool = false, ϵ::T = one(T)/10, kwargs...)
+	function value_train_rate_decay(max_steps::Integer, args...; new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(use_dp; new_params)
-		output = train!(parameters, 0, args...) #dummy training to get current policy function
-		π = extract_value_policy(output, ϵ)
-		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		f!(params, baseline_reward, baseline_output, α, args...; kwargs...) = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α, kwargs...)
-		train_decay!(parameters, baseline, output, f!, α_init, α_decay_rate, max_steps, args...; use_steps, kwargs...)
+		value_train_rate_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, args...; min_reward, kwargs...)
 	end
 
-	function value_train_rate_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps, α_init::T = one(T)/10, α_decay_rate = one(T)/2, new_params::Bool = false, use_dp::Bool = false, ϵ::T = one(T)/10, kwargs...)
+	function value_train_rate_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(hidden_layers, reslayers, use_dp; new_params)
-		output = if use_dp 
-			train!(parameters, 0, hidden_layers, args...) #dummy training to get current policy function
-		else
-			train!(parameters, 0, hidden_layers, num_actions, args...)
-		end
-		
-		π = extract_value_policy(output, ϵ)
-		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		f!(params, baseline_reward, baseline_output, α, args...; kwargs...) = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α, kwargs...)
-		if use_dp
-			train_decay!(parameters, baseline, output, f!, α_init, decay_rate, max_steps, hidden_layers, args...; use_steps, kwargs...)
-		else
-			train_decay!(parameters, baseline, output, f!, α_init, decay_rate, max_steps, hidden_layers, num_actions, args...; use_steps, kwargs...)
-		end
+		value_train_rate_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, args...; use_dp, kwargs...)
 	end
 
-	function value_train_ϵ_decay(max_steps::Integer, args...; use_steps, ϵ_init::T = T(0.5), α_init::T = one(T)/10, α_decay_rate = one(T)/2, ϵ_decay_rate::T = one(T)/2, new_params::Bool = false, use_dp::Bool = false, show_inner_messages::Bool = false, show_outer_messages::Bool = true, kwargs...)
+	function value_train_ϵ_decay(max_steps::Integer, args...; new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(use_dp; new_params)
-		output = train!(parameters, 0, args...) #dummy training to get current policy function
-		π = extract_value_policy(output, ϵ_init)
-		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-
-		#define exhaustive training with a learning rate
-		function f1!(params, baseline_reward, baseline_output, α, args...; kwargs...) 
-			show_inner_messages && @info "Beginning exhaustive linear training with α = $α"
-			output = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α, kwargs...)
-			show_inner_messages && @info "Completed exhaustive linear training with α = $α and performance of $(output.performance)"
-			return output
-		end
-		
-		#perform learning rate decay on exhaustive training
-		function f2!(params, baseline_reward, baseline_output, ϵ, args...; kwargs...) 
-			show_outer_messages && @info "Beginning learning rate decay training with ϵ = $ϵ"
-			output = train_decay!(params, baseline_reward, baseline_output, f1!, α_init, α_decay_rate, args...; ϵ, kwargs...)
-			show_outer_messages && @info "Completed learning rate decay training with ϵ = $ϵ and performance of $(output.performance)"
-			return output
-		end
-			
-		#perform rate decay on exploration rate where training function is previously defined rate decay training
-		train_decay!(parameters, baseline, output, f2!, ϵ_init, ϵ_decay_rate, max_steps, args...; use_steps, kwargs...)
+		value_train_ϵ_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, args...; min_reward, kwargs...)
 	end
 
-	function value_train_ϵ_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps, ϵ_init::T = T(0.5), α_init::T = one(T)/10, α_decay_rate = one(T)/2, ϵ_decay_rate::T = one(T)/2, new_params::Bool = false, use_dp::Bool = false, show_inner_messages::Bool = false, show_outer_messages::Bool = true, kwargs...)
+	function value_train_ϵ_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; new_params::Bool = false, use_dp::Bool = false, kwargs...)
 		parameters = get_params(hidden_layers, reslayers, use_dp; new_params)
-		output = if use_dp
-			train!(parameters, 0, hidden_layers, args...) #dummy training to get current policy function
-		else
-			train!(parameters, 0, hidden_layers, num_actions, args...)
-		end
-		
-		π = extract_value_policy(output, ϵ_init)
-		baseline_rewards = evaluate_policy_performance(mdp, π, max_steps; min_reward)  #would like to use args... here to dispatch on the proper thing
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-
-		#define exhaustive training with a learning rate
-		function f1!(params, baseline_reward, baseline_output, α, args...; kwargs...) 
-			show_inner_messages && @info "Beginning exhaustive linear training with α = $α"
-			output = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α, kwargs...)
-			show_inner_messages && @info "Completed exhaustive linear training with α = $α and performance of $(output.performance)"
-			return output
-		end
-		
-		#perform learning rate decay on exhaustive training
-		function f2!(params, baseline_reward, baseline_output, ϵ, args...; kwargs...) 
-			show_outer_messages && @info "Beginning learning rate decay training with ϵ = $ϵ"
-			output = train_decay!(params, baseline_reward, baseline_output, f1!, α_init, α_decay_rate, args...; ϵ, kwargs...)
-			show_outer_messages && @info "Completed learning rate decay training with ϵ = $ϵ and performance of $(output.performance)"
-			return output
-		end
-			
-		#perform rate decay on exploration rate where training function is previously defined rate decay training
-		if use_dp
-			train_decay!(parameters, baseline, output, f2!, ϵ_init, ϵ_decay_rate, max_steps, hidden_layers, args...; use_steps, kwargs...)
-		else
-			train_decay!(parameters, baseline, output, f2!, ϵ_init, ϵ_decay_rate, max_steps, hidden_layers, num_actions, args...; use_steps, kwargs...)
-		end
+		value_train_ϵ_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, reslayers, args...; min_reward, use_dp, kwargs...)
 	end
 	
 	function policy_train_exhaustive(max_steps::Integer, args...; use_steps::Bool, new_params::Bool = false, kwargs...)
 		parameters = get_params(;new_params)
-		output = train!(parameters, 0, args...) #dummy training to get current policy function
-		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		train_exhaustive!(parameters, baseline, output, train!, max_steps, args...; min_reward, use_steps, kwargs...)
+		policy_train_exhaustive!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, args...; use_steps, min_reward, kwargs...)
 	end
 
-	function policy_train_rate_decay(max_steps::Integer, args...; α_θ_init::T = one(T)/10, α_w_init::T = one(T)/10, α_θ_decay_rate::T = one(T)/2, α_w_decay_rate::T = one(T)/2, use_steps::Bool, new_params::Bool = false, kwargs...)
+	function policy_train_rate_decay(max_steps::Integer, args...; use_steps::Bool, new_params::Bool = false, kwargs...)
 		parameters = get_params(;new_params)
-		output = train!(parameters, 0, args...) #dummy training to get current policy function
-		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		f!(params, baseline_reward, baseline_output, (α_θ, α_w), args...; kwargs...) = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α_θ, α_w, kwargs...)
-		train_decay!(parameters, baseline, output, f!, (α_θ_init, α_w_init), (α_θ_decay_rate, α_w_decay_rate), max_steps, args...; use_steps, kwargs...)
+		policy_train_rate_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, args...; use_steps, min_reward, kwargs...)
 	end
 
-	function policy_train_β_decay(max_steps::Integer, args...; α_θ_init::T = one(T)/10, α_w_init::T = one(T)/10, α_θ_decay_rate::T = one(T)/2, α_w_decay_rate::T = one(T)/2, use_steps::Bool, new_params::Bool = false, show_inner_messages::Bool = false, show_outer_messages::Bool = true, β_init::T = one(T)/10, β_decay_rate::T = one(T)/10, kwargs...)
+	function policy_train_β_decay(max_steps::Integer, args...; use_steps::Bool, new_params::Bool = false, kwargs...)
 		parameters = get_params(;new_params)
-		output = train!(parameters, 0, args...) #dummy training to get current policy function
-		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		
-		function f1!(params, baseline_reward, baseline_output, (α_θ, α_w), args...; kwargs...)
-			show_inner_messages && @info "Beginning exhaustive linear training with learning rates: α_θ = $α_θ, α_w = $α_w"
-			output = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α_θ, α_w, kwargs...)
-			show_inner_messages && @info "Completed exhaustive linear training with learning rates: α_θ = $α_θ, α_w = $α_w, and a performance of $(output.performance)"
-			return output
-		end
-
-		function f2!(params, baseline_reward, baseline_output, β, args...; kwargs...)
-			show_outer_messages && @info "Beginning learning rate decay training with entropy regularization term β = $β"
-			output = train_decay!(params, baseline_reward, baseline_output, f1!, (α_θ_init, α_w_init), (α_θ_decay_rate, α_w_decay_rate), args...; β, kwargs...)
-			show_outer_messages && @info "Completed learning rate decay training with entropy regularization term β = $β and performance of $(output.performance)"
-			return output
-		end
-
-		train_decay!(parameters, baseline, output, f2!, β_init, β_decay_rate, max_steps, args...; use_steps, kwargs...)
+		policy_train_β_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, args...; use_steps, min_reward, kwargs...)
 	end
 
 	function policy_train_exhaustive(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps::Bool, new_params::Bool = false, kwargs...)
 		parameters = get_params(hidden_layers, reslayers; new_params)
-		output = train!(parameters, 0, hidden_layers, args...) #dummy training to get current policy function
-		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		train_exhaustive!(parameters, baseline, output, train!, max_steps, hidden_layers, args...; min_reward, use_steps, kwargs...)
+		policy_train_exhaustive!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, args...; min_reward, use_steps, kwargs...)
 	end
 
-	function policy_train_rate_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; α_θ_init::T = one(T)/10, α_w_init::T = one(T)/10, α_θ_decay_rate::T = one(T)/2, α_w_decay_rate::T = one(T)/2, use_steps::Bool, new_params::Bool = false, kwargs...)
-		parameters = get_params(hidden_layers, reslayers;new_params)
-		output = train!(parameters, 0, hidden_layers, args...) #dummy training to get current policy function
-		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		f!(params, baseline_reward, baseline_output, (α_θ, α_w), args...; kwargs...) = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α_θ, α_w, kwargs...)
-		train_decay!(parameters, baseline, output, f!, (α_θ_init, α_w_init), (α_θ_decay_rate, α_w_decay_rate), max_steps, hidden_layers, args...; use_steps, kwargs...)
+	function policy_train_rate_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps::Bool, new_params::Bool = false, kwargs...)
+		parameters = get_params(hidden_layers, reslayers; new_params)
+		policy_train_rate_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, args...; min_reward, use_steps, kwargs...)
 	end
 
-	function policy_train_β_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; α_θ_init::T = one(T)/10, α_w_init::T = one(T)/10, α_θ_decay_rate::T = one(T)/2, α_w_decay_rate::T = one(T)/2, use_steps::Bool, new_params::Bool = false, show_inner_messages::Bool = false, show_outer_messages::Bool = true, β_init::T = one(T)/100, β_decay_rate::T = one(T)/10, kwargs...)
+	function policy_train_β_decay(max_steps::Integer, hidden_layers::Vector{Int}, reslayers::Integer, args...; use_steps::Bool, new_params::Bool = false, kwargs...)
 		parameters = get_params(hidden_layers, reslayers;new_params)
-		output = train!(parameters, 0, hidden_layers, args...) #dummy training to get current policy function
-		baseline_rewards = evaluate_policy_performance(mdp, output.policy_sample_action, max_steps; min_reward)
-		baseline = baseline_rewards[2 - use_steps] #if use_steps is false then use episode rewards which is the second value
-		
-		function f1!(params, baseline_reward, baseline_output, (α_θ, α_w), args...; kwargs...)
-			show_inner_messages && @info "Beginning exhaustive nonlinear training with hidden layers $hidden_layers and learning rates: α_θ = $α_θ, α_w = $α_w"
-			output = train_exhaustive!(params, baseline_reward, baseline_output, train!, args...; min_reward, α_θ, α_w, kwargs...)
-			show_inner_messages && @info "Completed exhaustive nonlinear training with hidden layers $hidden_layers and learning rates: α_θ = $α_θ, α_w = $α_w, and a performance of $(output.performance)"
-			return output
-		end
-
-		function f2!(params, baseline_reward, baseline_output, β, args...; kwargs...)
-			show_outer_messages && @info "Beginning learning rate decay training with entropy regularization term β = $β"
-			output = train_decay!(params, baseline_reward, baseline_output, f1!, (α_θ_init, α_w_init), (α_θ_decay_rate, α_w_decay_rate), args...; β, kwargs...)
-			show_outer_messages && @info "Completed learning rate decay training with entropy regularization term β = $β and performance of $(output.performance)"
-			return output
-		end
-
-		train_decay!(parameters, baseline, output, f2!, β_init, β_decay_rate, max_steps, hidden_layers, args...; use_steps, kwargs...)
+		policy_train_β_decay!(parameters, mdp, feature_vector, update_feature_vector!, max_steps, hidden_layers, args...; min_reward, use_steps, kwargs...)
 	end
 
 	(;value_train, policy_train, value_train_exhaustive, value_train_rate_decay, value_train_ϵ_decay, policy_train_exhaustive, policy_train_rate_decay, policy_train_β_decay, linear_sarsa_params, linear_dp_params, linear_policy_params, linear_critic_params, fcann_value_params, fcann_policy_params, fcann_critic_params)	
@@ -2787,7 +2831,7 @@ ProgressLogging = "~0.1.6"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.13.3"
+julia_version = "1.13.4"
 manifest_format = "2.1"
 project_hash = "a5a715b2da0e6bb5655aad0d239d15fc7bc20c0c"
 
@@ -3095,7 +3139,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2026.10.20"
+version = "2026.11.5"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -3104,7 +3148,7 @@ version = "1.3.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.30+0"
+version = "0.3.30+1"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -3426,7 +3470,7 @@ version = "1.70.0+0"
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.8.3+0"
+version = "17.8.5+0"
 
 [registries.General]
 url = "https://github.com/JuliaRegistries/General.git"
@@ -3537,6 +3581,10 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═c8e0bfcf-6aae-461d-8f3f-b2709cb6fca2
 # ╠═d247586c-ce79-487f-a5fa-8358331a4e7d
 # ╟─7cb320f2-7ecb-44e7-b82e-8a84fe3723a4
+# ╠═18df3e43-d54b-423f-89e5-d48ed34d39be
+# ╠═9681f751-7b0a-4455-aa45-4da9c40febf3
+# ╠═5d445e60-1a71-42e1-bd96-d96311b5b61b
+# ╠═e7f8ae45-7816-40a3-b822-c6fa6fba5f28
 # ╠═3976cc72-0fb2-4c4d-852f-f45e7665c2a3
 # ╟─a09662b9-fa3d-4964-b39a-3acc7a863edf
 # ╠═73218651-fcda-4dc9-86f3-8d75e1e5319d
@@ -3557,7 +3605,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═b3e06a11-50bc-49d7-99a4-25ce04d65ae2
 # ╠═4ab684d1-536b-485b-9dad-2e8ddeff683c
 # ╠═bbb66c0c-fc60-4d76-8730-88907fcb8cbd
-# ╠═6ecc68e9-8130-4960-b5ad-5c20f49e0983
+# ╟─6ecc68e9-8130-4960-b5ad-5c20f49e0983
 # ╠═8bc7150a-0c2d-4d60-ae8c-18c85ecd4578
 # ╠═2af7c71c-4546-469b-8b8e-9b12df5a337d
 # ╠═b2f3dfd4-34fe-4936-9370-7a0aae6e6ab1
@@ -3569,7 +3617,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╟─11925f7e-abb8-4aaa-a333-8c65045571d0
 # ╠═a88dc209-fbad-431c-89f8-e5ff82ddeb3b
 # ╠═054ad467-33a4-4673-a7ee-06daac4e0978
-# ╠═529a6f5c-c475-4224-848c-151fa1ad297b
+# ╟─529a6f5c-c475-4224-848c-151fa1ad297b
 # ╠═27dff76b-57a3-4b44-b1a0-c024d514d481
 # ╠═fcea42fa-1cf8-448f-9486-05c95d6eb66c
 # ╠═2c98de18-e7a2-4c09-9f33-71da22b31a9b
@@ -3577,7 +3625,7 @@ uuid = "23338594-aafe-5451-b93e-139f81909106"
 # ╠═9035b651-9eb8-4710-acd8-406f503a29a6
 # ╠═f8498925-ca1e-41b3-b44c-56d22b32a8cf
 # ╠═8dbe45e3-6d9b-448d-878a-b845cb7a04a6
-# ╠═17674efc-e88c-4cc2-ae77-b06452342a08
+# ╟─17674efc-e88c-4cc2-ae77-b06452342a08
 # ╠═deb7f049-20d8-4927-a8ab-5106a72ecf8b
 # ╠═468b6ecb-790f-4361-8457-99fc4ff32f5b
 # ╠═86c7e154-483f-4b65-8e3c-7f2822a04787

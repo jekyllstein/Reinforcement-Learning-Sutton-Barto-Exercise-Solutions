@@ -281,12 +281,13 @@ end
 begin
 	function mask_invalid_actions!(action_values::Vector{T}, s, is_valid_action::F) where {T<:AbstractFloat, F} #adding type annotation to is valid action to see if it improves type inference inside the simd loop
 		# valid_fast(f::F, i::Integer) where F<:Function = return f(i)
-		v_min = nextfloat(typemin(T))
+		v_min = nextfloat(typemin(T)) #used for invalid actions
+		v_min_plus = nextfloat(v_min) #used to ensure that valid actions are always greater than invalid actions, even if they are negative
 		@inbounds @simd for i_a in eachindex(action_values)
 		# for i_a in eachindex(action_values)
 			valid = is_valid_action(s, i_a)
 			# valid = valid_fast(is_valid_action, i_a)
-			x = ifelse(valid, action_values[i_a], v_min)
+			x = ifelse(valid, max(action_values[i_a], v_min_plus), v_min)
 			action_values[i_a] = x
 			# action_values[i_a] = valid * action_values[i_a] + !valid * typemin(T)
 			# action_values[i_a] = valid * action_values[i_a] + !valid * typemin(T)
@@ -296,12 +297,13 @@ begin
 
 	#action values are stored in a matrix where each row corresponds to a state and each column corresponds to an action.  This function will be used to mask out invalid actions for a given state by setting their values to typemin(T) so that they won't be selected by argmax, ϵ-greedy, or softmax operations.
 	function mask_invalid_actions_batch!(action_values::Matrix{T}, states::Vector{S}, is_valid_action::F) where {T<:AbstractFloat, F, S}
-		v_min = nextfloat(typemin(T))
+		v_min = nextfloat(typemin(T)) #used for invalid actions
+		v_min_plus = nextfloat(v_min) #used to ensure that valid actions are always greater than invalid actions, even if they are negative
 		for i_a in 1:size(action_values, 2)
 			@inbounds @simd for i in eachindex(states)
 			# for i in eachindex(states)
 				valid = is_valid_action(states[i], i_a)
-				x = ifelse(valid, action_values[i, i_a], v_min)
+				x = ifelse(valid, max(action_values[i, i_a], v_min_plus), v_min)
 				action_values[i, i_a] = x
 				# action_values[i, i_a] = valid * action_values[i, i_a] + !valid * typemin(T)
 			end

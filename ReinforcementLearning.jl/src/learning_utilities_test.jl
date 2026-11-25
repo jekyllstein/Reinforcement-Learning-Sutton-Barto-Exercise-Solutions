@@ -370,7 +370,7 @@ const sparse_setup = setup_all_training(state_mdp_stochastic, sparse_feature_set
 
 # ╔═╡ 8c5477f4-39ec-4caa-ad1a-a9fd3192a664
 #=╠═╡
-@profview sparse_setup.policy_train_β_decay(10_000, [4, 4], 1, gridworld_γ; use_steps = true, show_messages = false, new_params = true, N = 100, α_θ_init = 0.001f0, α_w_init = 0.001f0, β_init = 1f0)
+@profview sparse_setup.policy_train_β_decay(10_000, [4, 4], 1, gridworld_γ; use_steps = true, show_messages = false, new_params = true, N = 100, α_θ_init = 0.001f0, α_w_init = 0.0001f0)
   ╠═╡ =#
 
 # ╔═╡ 11629c59-6e63-481f-80e1-d1553f495f4f
@@ -540,7 +540,7 @@ ProfileCanvas = "~0.1.7"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.13.3"
+julia_version = "1.13.4"
 manifest_format = "2.1"
 project_hash = "0541ab5aafb5779fe45de2a6c88a720c1b5da587"
 
@@ -788,7 +788,7 @@ version = "1.11.0"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2026.10.20"
+version = "2026.11.5"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -797,7 +797,7 @@ version = "1.3.0"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.30+0"
+version = "0.3.30+1"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1072,7 +1072,7 @@ version = "1.70.0+0"
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.8.3+0"
+version = "17.8.5+0"
 
 [registries.General]
 url = "https://github.com/JuliaRegistries/General.git"
