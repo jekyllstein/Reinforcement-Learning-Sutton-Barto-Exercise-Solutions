@@ -199,14 +199,14 @@ begin
 end
 
 # ╔═╡ d247586c-ce79-487f-a5fa-8358331a4e7d
-function train_decay!(params::P, baseline_reward::T, baseline_output::NamedTuple, train!::F, init_values, decay_ratios, args...; show_messages = true, kwargs...) where {P, T<:Real, F<:Function}
+function train_decay!(params::P, baseline_reward::T, baseline_output::NamedTuple, train!::F, init_values, decay_ratios, args...; show_messages = true, combine_outputs::Bool = true, kwargs...) where {P, T<:Real, F<:Function}
 	check_ratios(decay_ratios)
 	show_messages && @info "Beginning decay trials with initial values of: $init_values"
-	output1 = train!(params, baseline_reward, baseline_output, init_values, args...; show_messages, kwargs...)
+	output1 = train!(params, baseline_reward, baseline_output, init_values, args...; show_messages, combine_outputs, kwargs...)
 
 	current_values = apply_decay(init_values, decay_ratios)
 	show_messages && @info "Reducing values to $current_values for next set of trials"
-	output2 = train!(params, output1.performance, output1, current_values, args...; show_messages, kwargs...)
+	output2 = train!(params, output1.performance, output1, current_values, args...; show_messages, combine_outputs, kwargs...)
 
 	if output2.performance ≤ output1.performance
 		show_messages && @info "Second round performance of $(output2.performance) failed to improve reward"
@@ -218,7 +218,7 @@ function train_decay!(params::P, baseline_reward::T, baseline_output::NamedTuple
 	while output2.performance > output1.performance
 		round += 1
 		current_values = apply_decay(current_values, decay_ratios)
-		update_output!(output2, output1)
+		combine_outputs && update_output!(output2, output1)
 		output1 = output2
 		show_messages && @info "On round $round reducing values to $current_values"
 		output2 = train!(params, output1.performance, output1, current_values, args...; show_messages, kwargs...)
@@ -1599,7 +1599,7 @@ function check_sync_reward_progress(output::NamedTuple; use_steps::Bool = false,
 end
 
 # ╔═╡ 210bb38a-d53a-4a78-a7c7-999a06fc801a
-function train_exhaustive!(params::P, baseline_reward::T, baseline_output::NamedTuple, train!::F, args...; min_reward, use_steps::Bool = false, show_messages::Bool = true, kwargs...) where {P, F<:Function, T<:Real}	
+function train_exhaustive!(params::P, baseline_reward::T, baseline_output::NamedTuple, train!::F, args...; min_reward, use_steps::Bool = false, show_messages::Bool = true, combine_outputs::Bool = true, kwargs...) where {P, F<:Function, T<:Real}	
 	reward1 = baseline_reward
 	trial = 0
 	
@@ -1622,7 +1622,7 @@ function train_exhaustive!(params::P, baseline_reward::T, baseline_output::Named
 	while (reward2 > reward1) && !check_bad_params(params)
 		trial += 1
 		show_messages && @info "On trial $trial, reward improved from $reward1 to $reward2"
-		update_output!(output2, output1)
+		combine_outputs && update_output!(output2, output1)
 		output1 = output2
 		reward1 = reward2
 		copy!(backup_params, params)
