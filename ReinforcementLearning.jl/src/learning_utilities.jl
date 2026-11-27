@@ -221,7 +221,7 @@ function train_decay!(params::P, baseline_reward::T, baseline_output::NamedTuple
 		combine_outputs && update_output!(output2, output1)
 		output1 = output2
 		show_messages && @info "On round $round reducing values to $current_values"
-		output2 = train!(params, output1.performance, output1, current_values, args...; show_messages, kwargs...)
+		output2 = train!(params, output1.performance, output1, current_values, args...; show_messages, combine_outputs, kwargs...)
 	end
 	
 	show_messages && @info "Completed value decay training after $round rounds with performance $(output1.performance)"
